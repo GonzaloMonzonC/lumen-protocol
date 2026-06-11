@@ -93,7 +93,7 @@ pub static STATIC_DICT: [Option<&str>; STATIC_MAX as usize] = {
     arr[0x2F] = Some("progress");
 
     // Errors & status (0x30..0x3F)
-    arr[0x30] = Some("code"); // re-used: error code vs content code
+    arr[0x30] = Some("severity");
     arr[0x31] = Some("details");
     arr[0x32] = Some("cause");
     arr[0x33] = Some("stack");

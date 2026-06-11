@@ -44,7 +44,7 @@ const MODE_U32: u8 = 0xC0; // 11______
 ///
 /// Returns the number of bytes written (1, 2-10, 3, or 5).
 /// Panics if the buffer is too small.
-pub fn encode(mut value: u64, buf: &mut [u8]) -> usize {
+pub fn encode(value: u64, buf: &mut [u8]) -> usize {
     if value <= MAX_SHORT {
         buf[0] = MODE_SHORT | (value as u8 & SHORT_MASK);
         return 1;

@@ -72,7 +72,7 @@ Ocupan los IDs `0x00–0x7F`.
 
 | ID | Clave | Uso principal |
 |----|-------|---------------|
-| `0x30` | `code` | Código (error/estado) |
+| `0x30` | `severity` | Severidad de error/log |
 | `0x31` | `details` | Detalles |
 | `0x32` | `cause` | Causa raíz |
 | `0x33` | `stack` | Stack trace |
