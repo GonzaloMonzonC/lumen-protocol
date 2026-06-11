@@ -134,7 +134,21 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │           ├── heap-shootout.rs      ← benchmark allocaciones de heap
     │           ├── concurrent-shootout.rs← benchmark de estrés concurrente
     │           └── ipc-shootout.rs       ← benchmark latencia IPC real (TCP)
-    └── /typescript/         ← binding para Node/VS Code (próximamente)
+    │           ├── workspace-shootout.rs ← benchmark indexación de proyecto
+    │           └── cadencia-bridge.rs    ← sidecar Rust para Cadencia (VS Code)
+    └── /typescript/         ← @lumen/mcp-transport (Node.js)
+        ├── README.md         ← API docs + negociación LUMEN
+        ├── package.json
+        ├── tsconfig.json
+        └── src/
+            ├── index.ts      ← exports públicos
+            ├── transport.ts  ← LumenStdioTransport, LumenWebSocketTransport
+            ├── negotiation.ts← handshake LUMEN probe/ack + fallback JSON-RPC
+            ├── hyb128.ts     ← Hyb128 encode/decode
+            ├── frame.ts      ← Frame builder/parser
+            ├── dict.ts       ← Diccionario 128 IDs estáticos
+            ├── compress.ts   ← Compact binary payload
+            └── cadencia.ts   ← Cliente del sidecar Rust
 ```
 
 ---
@@ -148,6 +162,8 @@ cargo run --bin shootout             # benchmark CPU + wire size
 cargo run --bin heap-shootout        # benchmark allocaciones de heap
 cargo run --bin concurrent-shootout  # benchmark de estrés concurrente
 cargo run --bin ipc-shootout         # benchmark latencia IPC real (TCP)
+cargo run --bin workspace-shootout   # benchmark indexación de proyecto
+echo '{"cmd":"index","files":["src/main.rs"]}' | cargo run --bin cadencia-bridge  # sidecar
 ```
 
 ### hyb128
@@ -345,6 +361,70 @@ Mide el *Round Trip Time* real sobre TCP loopback (`127.0.0.1`, `nodelay`) — e
 
 ---
 
-## 📝 Licencia
+## �️ Workspace Indexing Shootout (Cadencia)
+
+Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archivos fuente del directorio y los serializa como frames MCP. Medido con `cargo run --bin workspace-shootout`:
+
+```
+╔══════════════════════╤══════════════╤══════════════╤═══════════════╗
+║ Metric               │ JSON-RPC     │ LUMEN        │ Advantage      ║
+╠══════════════════════╪══════════════╪══════════════╪═══════════════╣
+║ Encode time          │    0.023 s   │    0.009 s   │    2.73× FASTER ║
+║ Throughput           │     6.2 MB/s │    15.8 MB/s │    2.54× MORE   ║
+║ Time per file        │    1.558 ms  │    0.571 ms  │    2.73× FASTER ║
+║ Wire bytes (total)   │     0.15 MB  │     0.14 MB  │    6.7% LESS   ║
+╚══════════════════════╧══════════════╧══════════════╧═══════════════╝
+
+  Proyección 5,000 archivos → JSON-RPC: 7.8s  |  LUMEN: 2.9s  |  2.7× faster
+  Con archivos >100KB (source code real) → hasta 9× faster (ver S2)
+```
+
+> **Para Cadencia:** El 80% del tiempo de indexación de un workspace se va en serializar strings largos con escapes JSON (`\"`, `\n`, `\t`). LUMEN copia los bytes crudos sin tocarlos.
+
+---
+
+## 🔌 Cadencia Bridge (Sidecar Rust)
+
+Un binario mínimo que la extensión de VS Code ejecuta como proceso hijo. Recibe comandos JSON por stdin, lee archivos del disco, los comprime con LUMEN, y devuelve frames binarios. **Cero dependencias de runtime** — solo necesita el binario compilado.
+
+```bash
+# Test manual del sidecar
+echo '{"cmd":"index","files":["Cargo.toml","src/lib.rs","src/frame.rs"]}' \
+  | cargo run --bin cadencia-bridge
+
+# Salida:
+# {"status":"ok","version":"0.1.0","protocol":"lumen/1"}
+# {"status":"ok","files":3,"total_bytes":21530,"wire_bytes":21572,...}
+```
+
+### Protocolo (línea-delimitado JSON sobre stdin/stdout)
+
+| Comando | Descripción |
+|---------|-------------|
+| `{"cmd":"ping"}` | Handshake inicial → `{"status":"ok","version":"0.1.0","protocol":"lumen/1"}` |
+| `{"cmd":"index","files":[...]}` | Lee y comprime los archivos → stats de wire/tiempo |
+| `{"cmd":"stop"}` | Apagado graceful |
+
+### TypeScript client
+
+```typescript
+import { CadenciaBridge } from "@lumen/mcp-transport";
+
+const bridge = new CadenciaBridge({
+  binaryPath: "./cadencia-bridge", // compiled from implementations/rust
+  cwd: workspaceRoot,
+});
+
+await bridge.start();                    // handshake
+const result = await bridge.index([     // index 5000 files
+  "src/main.ts", "src/utils.ts", /* ... */
+]);
+console.log(result);                     // { files: 5000, total_bytes: ..., wire_bytes: ..., encode_us: ... }
+await bridge.stop();
+```
+
+---
+
+## �📝 Licencia
 
 MIT

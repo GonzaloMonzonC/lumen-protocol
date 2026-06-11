@@ -24,3 +24,11 @@ path = "src/bin/concurrent-shootout.rs"
 [[bin]]
 name = "ipc-shootout"
 path = "src/bin/ipc-shootout.rs"
+
+[[bin]]
+name = "cadencia-bridge"
+path = "src/bin/cadencia-bridge.rs"
+
+[[bin]]
+name = "workspace-shootout"
+path = "src/bin/workspace-shootout.rs"
