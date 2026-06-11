@@ -12,3 +12,11 @@ serde_json = "1"
 [[bin]]
 name = "shootout"
 path = "src/bin/shootout.rs"
+
+[[bin]]
+name = "heap-shootout"
+path = "src/bin/heap-shootout.rs"
+
+[[bin]]
+name = "concurrent-shootout"
+path = "src/bin/concurrent-shootout.rs"

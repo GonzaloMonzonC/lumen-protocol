@@ -130,7 +130,9 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── fixtures.rs  ← generadores de datos realistas
     │       ├── transport.rs ← abstracción de transporte
     │       └── bin/
-    │           └── shootout.rs ← benchmark LUMEN vs JSON-RPC
+    │           ├── shootout.rs           ← benchmark CPU + wire size
+    │           ├── heap-shootout.rs      ← benchmark allocaciones de heap
+    │           └── concurrent-shootout.rs← benchmark de estrés concurrente
     └── /typescript/         ← binding para Node/VS Code (próximamente)
 ```
 
@@ -140,8 +142,10 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
 
 ```bash
 cd implementations/rust
-cargo test    # 38 tests, 0 warnings
-cargo run --bin shootout   # benchmark LUMEN vs JSON-RPC
+cargo test                      # 38 tests, 0 warnings
+cargo run --bin shootout            # benchmark CPU + wire size
+cargo run --bin heap-shootout       # benchmark allocaciones de heap
+cargo run --bin concurrent-shootout # benchmark de estrés concurrente
 ```
 
 ### hyb128
@@ -241,6 +245,70 @@ Keys inside objects:  0x00..0x7E = dict ID  0xFF = raw UTF-8
 - **S2 (9.09× más rápido):** Archivos de 100KB source code — LUMEN escribe los bytes crudos sin escapar `"`, `\n`, `\t`. `serde_json` sufre horrores con esto.
 - **S1/S4 (30-36% ahorro):** Keys como `"name"`, `"description"`, `"inputSchema"`, `"method"`, `"params"` colapsan de 10-15 bytes a **1 byte** cada una.
 - **S5 (46.1% ahorro):** Un heartbeat LUMEN pesa 48 bytes vs 89 de JSON-RPC. ×1M heartbeats: 45 MB vs 85 MB.
+
+---
+
+## 🧠 Heap Allocation Profiling
+
+Medido con `cargo run --bin heap-shootout` usando un `#[global_allocator]` personalizado con contadores atómicos. Promedio por iteración (×100 runs):
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                 LUMEN vs JSON-RPC — HEAP ALLOCATIONS (×100 iter avg)                 ║
+╠══════════════════════════════════════╤═══════════╤═══════════╤══════════════╤══════════════╣
+║ Scenario (per iteration)             │ JSON alloc│ LUMEN allo│ Alloc Ratio  │ Bytes Ratio  ║
+╠══════════════════════════════════════╪═══════════╪═══════════╪══════════════╪══════════════╣
+║ S1: tools/list (1000 tools)          │    31.4K  │    31.4K  │    1.0×      │    1.0×      ║
+║ S2: file_context (5 MB)              │      392  │      370  │    1.1×      │    1.0×      ║
+║ S3: token_stream (1K tokens)         │     1.0K  │     1.0K  │    1.0×      │    1.4× ⭐    ║
+║ S4: multi_agent (1K reqs)            │    11.0K  │    11.0K  │    1.0×      │    1.0×      ║
+║ S5: heartbeat (1 frame)              │        9  │       13  │    0.7×      │    1.0×      ║
+╚══════════════════════════════════════╧═══════════╧═══════════╧══════════════╧══════════════╝
+```
+
+### Interpretación
+
+Los conteos de allocaciones son **comparables** entre ambos protocolos porque el buffer de salida (`Vec<u8>` con el wire format) domina el perfil de memoria en ambos casos. Pero hay dos diferencias clave:
+
+| Métrica | Hallazgo |
+|---------|----------|
+| **Bytes allocated (S3)** | LUMEN asigna **30% menos bytes** en streaming de tokens (59.5 KB vs 85.3 KB) — cada token binario pesa ~18 B vs ~75 B JSON |
+| **Wire size** | LUMEN es 30-75% más pequeño → menos presión sobre buffers de I/O y page cache del kernel |
+| **Double-buffer** | LUMEN actualmente usa dos buffers en encode (compress → frame). La fusión en un solo buffer está planeada para LTA Nivel 2 (Zero-Copy con mmap), lo que eliminará la allocación del wire por completo |
+
+> **Conclusión:** LUMEN no hace *menos* allocaciones que JSON-RPC en el path serie/deserie — ambos necesitan construir el wire format. Pero el wire de LUMEN es **más pequeño**, lo que reduce presión de memoria downstream (kernel buffers, page cache, NIC buffers). El verdadero salto a "Zero Allocations" llegará con **LTA Nivel 2 (mmap)** donde el wire se escribe/lee directamente sobre memoria compartida sin atravesar el heap.
+
+---
+
+## ⚡ Concurrent Stress Test
+
+Simula **64 hilos** compitiendo por un transporte compartido con carga mixta realista (10% heartbeats, 30% tokens, 40% tool calls, 20% file chunks de 5 KB). Medido con `cargo run --bin concurrent-shootout`:
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║            LUMEN vs JSON-RPC — CONCURRENT STRESS TEST (64 threads)              ║
+╠══════════════════════════╤═══════════╤═══════════╤══════════════╤════════════════╣
+║ Metric                   │ JSON-RPC   │ LUMEN      │ Ratio        │ Winner         ║
+╠══════════════════════════╪═══════════╪═══════════╪══════════════╪════════════════╣
+║ Total wire bytes         │   38.7 MB │   35.9 MB │  92.7% LUM   │ LUMEN (7.3%)   ║
+║ Throughput (MB/s)        │     32.9  │     90.0  │   2.7× LUM   │ LUMEN          ║
+║ Messages/sec             │   27,211  │   80,201  │   2.9× LUM   │ LUMEN          ║
+║ Wall time (ms)           │    1,176  │      399  │   2.9× LUM   │ LUMEN          ║
+║ Avg latency (µs/msg)     │    981.2  │     42.9  │  22.9× lower │ LUMEN          ║
+╚══════════════════════════╧═══════════╧═══════════╧══════════════╧════════════════╝
+```
+
+### Por qué LUMEN no sufre Head-of-Line Blocking
+
+| Factor | JSON-RPC bajo contención | LUMEN bajo contención |
+|--------|--------------------------|------------------------|
+| Serialización por msg | ~981 µs (parser JSON bloquea) | **~43 µs** (binary O(1) framing) |
+| Archivos grandes (5 KB) | Escapa `\"`, `\n`, `\t` → satura CPU | **Raw binary copy** → la CPU respira |
+| Framing | `Content-Length: ...\r\n\r\n` → parseo línea a línea | **Hyb128**: 1-5 bytes, el parser sabe en 1 ciclo cuánto saltar |
+| Contención de CPU | Serializar 5 KB de source code acapara el core | Compress dict O(1) + raw copy libera el core rápido |
+| Efecto cascada | Un hilo lento → los demás esperan | Todos los hilos terminan rápido → menos contención |
+
+> **Conclusión:** Bajo carga concurrente real (64 hilos mezclando heartbeats, tokens, tool calls y archivos), LUMEN triplica el throughput y reduce la latencia **22.9×**. Esto es crítico para orquestadores como Synapse donde múltiples agentes comparten un mismo socket.
 
 ---
 
