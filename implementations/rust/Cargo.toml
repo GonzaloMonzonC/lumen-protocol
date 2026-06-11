@@ -20,3 +20,7 @@ path = "src/bin/heap-shootout.rs"
 [[bin]]
 name = "concurrent-shootout"
 path = "src/bin/concurrent-shootout.rs"
+
+[[bin]]
+name = "ipc-shootout"
+path = "src/bin/ipc-shootout.rs"

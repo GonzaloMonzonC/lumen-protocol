@@ -132,7 +132,8 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       └── bin/
     │           ├── shootout.rs           ← benchmark CPU + wire size
     │           ├── heap-shootout.rs      ← benchmark allocaciones de heap
-    │           └── concurrent-shootout.rs← benchmark de estrés concurrente
+    │           ├── concurrent-shootout.rs← benchmark de estrés concurrente
+    │           └── ipc-shootout.rs       ← benchmark latencia IPC real (TCP)
     └── /typescript/         ← binding para Node/VS Code (próximamente)
 ```
 
@@ -142,10 +143,11 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
 
 ```bash
 cd implementations/rust
-cargo test                      # 38 tests, 0 warnings
-cargo run --bin shootout            # benchmark CPU + wire size
-cargo run --bin heap-shootout       # benchmark allocaciones de heap
-cargo run --bin concurrent-shootout # benchmark de estrés concurrente
+cargo test                       # 38 tests, 0 warnings
+cargo run --bin shootout             # benchmark CPU + wire size
+cargo run --bin heap-shootout        # benchmark allocaciones de heap
+cargo run --bin concurrent-shootout  # benchmark de estrés concurrente
+cargo run --bin ipc-shootout         # benchmark latencia IPC real (TCP)
 ```
 
 ### hyb128
@@ -309,6 +311,38 @@ Simula **64 hilos** compitiendo por un transporte compartido con carga mixta rea
 | Efecto cascada | Un hilo lento → los demás esperan | Todos los hilos terminan rápido → menos contención |
 
 > **Conclusión:** Bajo carga concurrente real (64 hilos mezclando heartbeats, tokens, tool calls y archivos), LUMEN triplica el throughput y reduce la latencia **22.9×**. Esto es crítico para orquestadores como Synapse donde múltiples agentes comparten un mismo socket.
+
+---
+
+## 🌐 IPC End-to-End Latency (TCP Loopback)
+
+Mide el *Round Trip Time* real sobre TCP loopback (`127.0.0.1`, `nodelay`) — el stack TCP completo del kernel. Servidor eco en un hilo, cliente en otro. 2000 iteraciones por workload, 500 warmup. Medido con `cargo run --bin ipc-shootout`:
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                  LUMEN vs JSON-RPC — IPC END-TO-END LATENCY (TCP loopback, nodelay)             ║
+╠══════════════════════════════╤══════════╤══════════╤══════════╤══════════╤══════════╤════════════╣
+║ Workload                     │ JSON p50 │ LUMEN p50│ JSON p99 │ LUMEN p99│ JSON avg │ LUMEN avg  ║
+╠══════════════════════════════╪══════════╪══════════╪══════════╪══════════╪══════════╪════════════╣
+║ W1: heartbeat (tiny, ~90B)   │    115µs │    114µs │    349µs │    378µs │    125µs │     136µs  ║
+║ W2: tool_call (~400B)        │    133µs │    131µs │    476µs │    482µs │    161µs │     157µs  ║
+║ W3: llm_token (~32B)         │     74µs │    132µs │    294µs │    373µs │     88µs │     150µs  ║
+║ W4: file_chunk (5 KB)        │    604µs │    183µs │   1588µs │    550µs │    726µs │     204µs  ║
+║ W5: tokens_x10 (batch)       │    104µs │    148µs │    332µs │    414µs │    118µs │     161µs  ║
+╚══════════════════════════════╧══════════╧══════════╧══════════╧══════════╧══════════╧════════════╝
+```
+
+### Análisis
+
+| Workload | Speedup | Wire saving | Interpretación |
+|----------|---------|-------------|----------------|
+| **W4: file_chunk** | **3.6×** | 3% | Raw binary copy del source code sin escapar `\"`, `\n`, `\t`. `serde_json` se ahoga |
+| W2: tool_call | 1.0× | 31% | Empate técnico bajo TCP (~130 µs). Dict compresión gana en wire (31%), pero kernel TCP nivela el RTT |
+| W5: tokens_x10 | 0.7× | 6% | Batch de 10 tokens — el overhead binario (tags + Hyb128 por token) es similar al JSON array |
+| W1: heartbeat | 0.9× | 47% | TCP stack (~115 µs base) domina ambos. LUMEN wire más pequeño (48B vs 90B) |
+| W3: llm_token | 0.6× | -9% | Token individual — JSON es sólo `"texto"`, LUMEN añade tag + dict ID + zigzag logprob |
+
+> **Conclusión:** Para payloads >1 KB, LUMEN gana **3.6× en RTT real sobre TCP**. Para payloads pequeños (<500 B), el kernel TCP domina (~70-130 µs base) y ambos protocolos son equivalentes. **La ventaja real de LUMEN en IPC aparece con archivos grandes** (source code, recursos, blobs) donde la copia binaria cruda humilla al escaping JSON. Para streaming de tokens, la ventaja está en el **CPU benchmark** (S3: 4.18×) y en la **concurrencia** (22.9×), no en RTT unitario por token.
 
 ---
 
