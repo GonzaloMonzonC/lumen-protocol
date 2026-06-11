@@ -5,6 +5,7 @@
 //!
 //! Run: `cargo run --bin shootout`
 
+use lumen::compress;
 use lumen::fixtures;
 use lumen::frame;
 use serde_json;
@@ -20,23 +21,30 @@ fn json_parse(data: &[u8]) -> serde_json::Value {
     serde_json::from_slice(data).expect("JSON parse failed")
 }
 
-fn lumen_serialize(frame_type: u8, flags: u8, json_payload: &serde_json::Value) -> Vec<u8> {
-    let payload_bytes = serde_json::to_vec(json_payload).expect("JSON payload serialization");
-    let mut buf = vec![0u8; frame::build_size(payload_bytes.len())];
-    let n = frame::build(frame_type, flags, &payload_bytes, &mut buf);
+/// LUMEN serialize: compress JSON → frame.
+fn lumen_serialize(frame_type: u8, flags: u8, payload_value: &serde_json::Value) -> Vec<u8> {
+    let compressed = compress::compress(payload_value);
+    let mut buf = vec![0u8; frame::build_size(compressed.len())];
+    let n = frame::build(frame_type, flags, &compressed, &mut buf);
     buf.truncate(n);
     buf
 }
 
-fn lumen_parse(data: &[u8]) -> (u8, u8, Vec<u8>) {
+/// LUMEN parse: parse frame → decompress → JSON.
+fn lumen_parse(data: &[u8]) -> (u8, u8, serde_json::Value) {
     match frame::parse(data) {
-        frame::ParseResult::Complete { frame, .. } => (frame.frame_type, frame.flags, frame.payload.to_vec()),
+        frame::ParseResult::Complete { frame, .. } => {
+            let value = compress::decompress(frame.payload)
+                .expect("LUMEN decompress failed");
+            (frame.frame_type, frame.flags, value)
+        }
         _ => panic!("LUMEN parse failed"),
     }
 }
 
 // ── Timing helper ───────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct ResultRow {
     scenario: &'static str,
     json_wire: usize,

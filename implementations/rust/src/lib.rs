@@ -1,3 +1,4 @@
+pub mod compress;
 pub mod dict;
 pub mod fixtures;
 pub mod frame;
