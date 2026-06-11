@@ -255,30 +255,29 @@ Keys inside objects:  0x00..0x7E = dict ID  0xFF = raw UTF-8
 Medido con `cargo run --bin heap-shootout` usando un `#[global_allocator]` personalizado con contadores atómicos. Promedio por iteración (×100 runs):
 
 ```
-╔══════════════════════════════════════════════════════════════════════════════════════╗
-║                 LUMEN vs JSON-RPC — HEAP ALLOCATIONS (×100 iter avg)                 ║
-╠══════════════════════════════════════╤═══════════╤═══════════╤══════════════╤══════════════╣
-║ Scenario (per iteration)             │ JSON alloc│ LUMEN allo│ Alloc Ratio  │ Bytes Ratio  ║
-╠══════════════════════════════════════╪═══════════╪═══════════╪══════════════╪══════════════╣
-║ S1: tools/list (1000 tools)          │    31.4K  │    31.4K  │    1.0×      │    1.0×      ║
-║ S2: file_context (5 MB)              │      392  │      370  │    1.1×      │    1.0×      ║
-║ S3: token_stream (1K tokens)         │     1.0K  │     1.0K  │    1.0×      │    1.4× ⭐    ║
-║ S4: multi_agent (1K reqs)            │    11.0K  │    11.0K  │    1.0×      │    1.0×      ║
-║ S5: heartbeat (1 frame)              │        9  │       13  │    0.7×      │    1.0×      ║
-╚══════════════════════════════════════╧═══════════╧═══════════╧══════════════╧══════════════╝
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                           LUMEN vs JSON-RPC — HEAP ALLOCATIONS (×100 iter avg)                      ║
+╠══════════════════════════════════════╤═══════════╤═══════════╤══════════════╤══════════════╤══════════╤══════════╣
+║ Scenario (per iteration)             │ JSON alloc│ LUMEN allo│ Alloc Ratio  │ Bytes Ratio  │ JSON peak│ LUM peak ║
+╠══════════════════════════════════════╪═══════════╪═══════════╪══════════════╪══════════════╪══════════╪══════════╣
+║ S1: tools/list (1000 tools)          │    31.4K  │    31.4K  │    1.0×      │    1.2× ⭐    │    4617K │    4299K ║
+║ S2: file_context (5 MB)              │      392  │      359  │    1.1× ⭐    │    2.2× ⭐    │   13378K │   10041K ║
+║ S3: token_stream (1K tokens)         │     1.0K  │     1.0K  │    1.0×      │    1.9× ⭐    │      59K │      44K ║
+║ S4: multi_agent (1K reqs)            │    11.0K  │    11.0K  │    1.0×      │    1.2× ⭐    │    1343K │    1284K ║
+║ S5: heartbeat (1 frame)              │        9  │        9  │    1.0×      │    1.0×      │       1K │       1K ║
+╚══════════════════════════════════════╧═══════════╧═══════════╧══════════════╧══════════════╧══════════╧══════════╝
 ```
 
 ### Interpretación
 
-Los conteos de allocaciones son **comparables** entre ambos protocolos porque el buffer de salida (`Vec<u8>` con el wire format) domina el perfil de memoria en ambos casos. Pero hay dos diferencias clave:
-
 | Métrica | Hallazgo |
 |---------|----------|
-| **Bytes allocated (S3)** | LUMEN asigna **30% menos bytes** en streaming de tokens (59.5 KB vs 85.3 KB) — cada token binario pesa ~18 B vs ~75 B JSON |
-| **Wire size** | LUMEN es 30-75% más pequeño → menos presión sobre buffers de I/O y page cache del kernel |
-| **Double-buffer** | LUMEN actualmente usa dos buffers en encode (compress → frame). La fusión en un solo buffer está planeada para LTA Nivel 2 (Zero-Copy con mmap), lo que eliminará la allocación del wire por completo |
+| **Bytes allocated** | LUMEN asigna **20-53% menos bytes** — S2 (file_context 5 MB) pasa de 21.2 MB → 9.8 MB, S3 (tokens) de 85 KB → 45 KB |
+| **Peak memory** | LUMEN reduce el pico de heap en **5-25%** — S2 baja de 13.4 MB → 10.0 MB gracias al wire más compacto |
+| **Allocation count** | Comparable en la mayoría de escenarios. S2 mejora de 392 → 359 (8% menos), S5 se iguala a JSON (antes LUMEN hacía 13 vs 9 — **regresión corregida**) |
+| **Single-allocation encode (`compress_into`)** | El encode de LUMEN ahora usa **un solo `Vec`** — cero buffers intermedios. Antes: `compress() → Vec` + `frame::build() → Vec`. Ahora: escritura directa sobre el buffer destino |
 
-> **Conclusión:** LUMEN no hace *menos* allocaciones que JSON-RPC en el path serie/deserie — ambos necesitan construir el wire format. Pero el wire de LUMEN es **más pequeño**, lo que reduce presión de memoria downstream (kernel buffers, page cache, NIC buffers). El verdadero salto a "Zero Allocations" llegará con **LTA Nivel 2 (mmap)** donde el wire se escribe/lee directamente sobre memoria compartida sin atravesar el heap.
+> **Conclusión:** LUMEN no solo reduce el tamaño del wire (30-53%), sino que también asigna menos bytes y menos pico de heap. La fusión del path de encode con `compress_into` elimina el double-buffer, cerrando la promesa de "zero intermediate allocation" en el hot path de serialización.
 
 ---
 

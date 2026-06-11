@@ -50,6 +50,14 @@ pub fn compress(value: &Value) -> Vec<u8> {
     buf
 }
 
+/// Compress a `serde_json::Value` into an existing buffer (zero-alloc encode).
+///
+/// Appends the compressed bytes to `buf`.  If `buf` has sufficient spare
+/// capacity this path performs **no heap allocations**.
+pub fn compress_into(value: &Value, buf: &mut Vec<u8>) {
+    encode_value(value, buf);
+}
+
 /// Decompress a LUMEN compact binary back to `serde_json::Value`.
 ///
 /// Returns `None` if the input is malformed.

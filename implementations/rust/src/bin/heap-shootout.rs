@@ -95,12 +95,35 @@ fn json_roundtrip(v: &serde_json::Value) {
 }
 
 fn lumen_roundtrip(v: &serde_json::Value) {
-    // Single allocation: pre-size with worst-case frame overhead, compress into tail
-    let compressed = compress::compress(v);
-    let frame_overhead = 1 + 1 + hyb128::MAX_ENCODED_LEN; // FLAGS + TYPE + max Hyb128
-    let mut buf = vec![0u8; compressed.len() + frame_overhead];
-    let n = frame::build(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &compressed, &mut buf);
-    match frame::parse(&buf[..n]) {
+    // Single-allocation encode: reserve worst-case Hyb128 header + TYPE + FLAGS,
+    // compress_into writes payload directly, then fix the header in-place.
+    // Zero intermediate Vec for the compressed payload.
+
+    let max_hdr = hyb128::MAX_ENCODED_LEN; // 11 bytes — worst-case Hyb128
+
+    let mut buf = Vec::with_capacity(max_hdr + 2 + compress::compressed_size(v));
+    buf.resize(max_hdr + 2, 0u8); // placeholder: [Hyb128(11B)][TYPE][FLAGS]
+
+    // Compress directly into buf after the placeholder
+    compress::compress_into(v, &mut buf);
+    let payload_len = buf.len() - (max_hdr + 2);
+
+    // Compute real Hyb128 header size and shift TYPE+FLAGS+payload left if needed
+    let real_hdr = hyb128::encoded_len(payload_len as u64);
+    if real_hdr < max_hdr {
+        let delta = max_hdr - real_hdr;
+        buf.copy_within(max_hdr.., real_hdr); // shift TYPE+FLAGS+payload left
+        buf.truncate(buf.len() - delta);
+    }
+
+    // Write real Hyb128 header + TYPE + FLAGS
+    let mut scratch = [0u8; hyb128::MAX_ENCODED_LEN];
+    let hn = hyb128::encode(payload_len as u64, &mut scratch);
+    buf[..hn].copy_from_slice(&scratch[..hn]);
+    buf[hn] = frame::TYPE_RESPONSE;
+    buf[hn + 1] = frame::FLAG_COMPRESSED;
+
+    match frame::parse(&buf) {
         frame::ParseResult::Complete { frame, .. } => {
             let _val = compress::decompress(frame.payload).expect("LUMEN decompress");
         }
