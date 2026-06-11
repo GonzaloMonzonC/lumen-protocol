@@ -75,7 +75,7 @@ pub fn compressed_size(value: &Value) -> usize {
             9 // TAG_FLOAT + f64
         }
         Value::String(s) => {
-            if dict::lookup(s).is_some() { 2 } else { 1 + 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
+            if dict::lookup_fast(s).is_some() { 2 } else { 1 + 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
         }
         Value::Array(arr) => {
             let mut sz = 1 + hyb128::encoded_len(arr.len() as u64); // TAG + count
@@ -96,7 +96,7 @@ pub fn compressed_size(value: &Value) -> usize {
 }
 
 fn key_size(key: &str) -> usize {
-    if dict::lookup(key).is_some() { 1 } else { 1 + 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
+    if dict::lookup_fast(key).is_some() { 1 } else { 1 + 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
 }
 
 /// Estimate LEB128 byte count for an i64 (zigzag-encoded).
@@ -139,7 +139,7 @@ fn encode_value(value: &Value, buf: &mut Vec<u8>) {
         }
 
         Value::String(s) => {
-            if let Some(id) = dict::lookup(s) {
+            if let Some(id) = dict::lookup_fast(s) {
                 buf.push(TAG_STR_DICT);
                 buf.push(id);
             } else {
@@ -168,7 +168,7 @@ fn encode_value(value: &Value, buf: &mut Vec<u8>) {
 }
 
 fn encode_key(key: &str, buf: &mut Vec<u8>) {
-    if let Some(id) = dict::lookup(key) {
+    if let Some(id) = dict::lookup_fast(key) {
         buf.push(id);
     } else {
         buf.push(dict::ID_RAW);

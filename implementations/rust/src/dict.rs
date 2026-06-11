@@ -15,6 +15,9 @@
 //!
 //! Negotiated during handshake and updated via SCHEMA_PATCH frames.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 // ── Reserved IDs ────────────────────────────────────────────────────────────
 
 /// Maximum static dictionary ID (exclusive).
@@ -147,14 +150,41 @@ pub fn resolve(id: u8) -> Option<&'static str> {
     }
 }
 
-/// Reverse lookup: finds the static dictionary ID for a key string.
+/// O(n) reverse lookup: finds the static dictionary ID for a key string.
 ///
-/// Returns `None` if the key is not in the static dictionary.
+/// Prefer [`lookup_fast`] for hot paths — it uses a lazily-built
+/// `HashMap` for O(1) lookup.
 pub fn lookup(key: &str) -> Option<u8> {
     STATIC_DICT
         .iter()
         .enumerate()
         .find_map(|(id, entry)| entry.filter(|e| *e == key).map(|_| id as u8))
+}
+
+// ── Fast O(1) lookup ────────────────────────────────────────────────────────
+
+/// Lazily-initialized reverse map: `key → id`, built once at first use.
+static REVERSE_MAP: OnceLock<HashMap<&'static str, u8>> = OnceLock::new();
+
+fn get_reverse_map() -> &'static HashMap<&'static str, u8> {
+    REVERSE_MAP.get_or_init(|| {
+        let mut map = HashMap::with_capacity(STATIC_MAX as usize);
+        for (id, entry) in STATIC_DICT.iter().enumerate() {
+            if let Some(key) = entry {
+                map.insert(*key, id as u8);
+            }
+        }
+        map
+    })
+}
+
+/// O(1) reverse lookup via lazily-built `HashMap`.
+///
+/// Always prefer this over [`lookup`] in hot paths (serialization,
+/// compression).  The map is built once on first call and reused forever.
+#[inline]
+pub fn lookup_fast(key: &str) -> Option<u8> {
+    get_reverse_map().get(key).copied()
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -207,5 +237,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn fast_lookup_matches_linear() {
+        for id in 0..STATIC_MAX {
+            if let Some(key) = resolve(id) {
+                assert_eq!(lookup_fast(key), Some(id), "mismatch for key '{key}' id {id}");
+            }
+        }
+    }
+
+    #[test]
+    fn fast_lookup_unknown() {
+        assert_eq!(lookup_fast("nonexistent_key_xyz"), None);
+    }
+
+    #[test]
+    fn fast_lookup_idempotent() {
+        // Calling twice hits the same cached map
+        assert_eq!(lookup_fast("tool"), Some(0x00));
+        assert_eq!(lookup_fast("tool"), Some(0x00));
+        assert_eq!(lookup_fast("usage"), Some(0x4F));
     }
 }
