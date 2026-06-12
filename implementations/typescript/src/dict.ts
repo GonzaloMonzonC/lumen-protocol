@@ -123,11 +123,11 @@ STATIC_DICT[0x4f] = "usage";
 
 // HTTP / Web (0x50..0x5F)
 STATIC_DICT[0x50] = "url";
-STATIC_DICT[0x51] = "method";
+STATIC_DICT[0x51] = "http_method";
 STATIC_DICT[0x52] = "headers";
 STATIC_DICT[0x53] = "body";
 STATIC_DICT[0x54] = "query";
-STATIC_DICT[0x55] = "status";
+STATIC_DICT[0x55] = "http_status";
 STATIC_DICT[0x56] = "cookie";
 STATIC_DICT[0x57] = "session";
 STATIC_DICT[0x58] = "token";

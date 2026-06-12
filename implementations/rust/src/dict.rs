@@ -133,11 +133,11 @@ pub static STATIC_DICT: [Option<&str>; STATIC_MAX as usize] = {
 
     // HTTP / Web (0x50..0x5F)
     arr[0x50] = Some("url");
-    arr[0x51] = Some("method");
+    arr[0x51] = Some("http_method");
     arr[0x52] = Some("headers");
     arr[0x53] = Some("body");
     arr[0x54] = Some("query");
-    arr[0x55] = Some("status");
+    arr[0x55] = Some("http_status");
     arr[0x56] = Some("cookie");
     arr[0x57] = Some("session");
     arr[0x58] = Some("token");
@@ -257,9 +257,8 @@ mod tests {
 
     #[test]
     fn unknown_ids_return_none() {
-        // Unassigned static slot
-        assert_eq!(resolve(0x50), None);
-        // Session range (not yet populated)
+        // Unassigned static slot (we have 128 entries, 0x00-0x7F are all assigned)
+        // But session range is not yet populated
         assert_eq!(resolve(0x80), None);
         // Raw sentinel
         assert_eq!(resolve(ID_RAW), None);

@@ -425,6 +425,108 @@ await bridge.stop();
 
 ---
 
+## 📊 TypeScript Benchmark Suite
+
+63 benchmarks en 5 categorías, ejecutados con `node --import tsx src/bench.ts`. Resultados en `implementations/typescript/bench_results.json`.
+
+### 🧪 Test Suite — 58/58 pasando (100%)
+
+| Suite | Tests | Lenguaje | Runner |
+|---|---|---|---|
+| LUMEN Rust core | **38/38** | Rust | `cargo test` |
+| FrameAssembler stress | **17/17** | TypeScript | `node --test` |
+| CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
+
+### 📦 Compresión — JSON vs LUMEN (wire bytes)
+
+Mismos payloads MCP reales, medidos con el codec `compress.ts`:
+
+| Escenario MCP | JSON | LUMEN | Ratio | Ahorro |
+|---|---|---|---|---|
+| `initialize` | 157 B | 92 B | **58.6%** | 65 B (41.4%) |
+| `tools/list` | 835 B | 386 B | **46.2%** | 449 B (53.8%) |
+| `llm_request` | 323 B | 166 B | **51.4%** | 157 B (48.6%) |
+| `error_response` | 175 B | 95 B | **54.3%** | 80 B (45.7%) |
+| `big_result` (5 KB) | 5,193 B | 5,104 B | **98.3%** | 89 B (1.7%) |
+
+> **Media en payloads MCP típicos: 47–55% de compresión.** Sólo en payloads masivos sin claves repetidas (>5 KB) el overhead de tags binarios se diluye.
+
+### ⚡ FrameAssembler — Zero-Allocation Streaming Parser
+
+Parser binario con buffers pre-asignados. Mide frames/segundo y throughput en MB/s para 5 tamaños de payload × 7 tamaños de chunk:
+
+| Payload | fps (chunk=full) | MB/s |
+|---|---|---|
+| 16 B (tiny) | 161,587 | 2.93 |
+| 256 B (small) | 181,798 | 45.25 |
+| 4 KB (medium) | 307,654 | **1,203** |
+| 64 KB (large) | 19,801 | 1,237 |
+| 256 KB (xlarge) | 4,751 | 1,187 |
+
+> **Satúrase a ~1.2 GB/s** a partir de 4 KB. El parser no hace allocaciones — reusa buffers `Uint8Array` pre-asignados.
+
+#### Chunk-size stress (payload=4KB)
+
+| Chunk | fps | Interpretación |
+|---|---|---|
+| 1 byte (torture) | 114,599 | Peor caso: 4096 llamadas a `push()` |
+| 16 bytes | 259,510 | Fragmentación típica de red |
+| 64 bytes | 282,321 | Paquete UDP típico |
+| 256 bytes | 280,788 | Buffer de lectura estándar |
+| 1 KB | 282,767 | ~ |
+| 2 KB | 283,029 | ~ |
+| 4 KB (full) | 307,654 | Mejor caso: 1 frame = 1 chunk |
+
+> Incluso en **torture test (1 byte/chunk)**, el parser mantiene 114K fps — solo 2.7× más lento que el caso ideal.
+
+### 🔢 Hyb128 Codec — Encode/Decode
+
+Microbenchmarks del codec de longitud híbrida. 11 valores representativos cubriendo todos los modos (00, 10, 11):
+
+| Operación | Mejor caso | Peor caso | Promedio |
+|---|---|---|---|
+| **Decode** | 48.9M/s (`65535`, mode 10) | 12.8M/s (`1`, mode 00) | ~35M/s |
+| **Encode** | 21.1M/s (`64`, mode 10 boundary) | 9.4M/s (`63`, mode 00 boundary) | ~15M/s |
+
+> Decode es **2–3× más rápido** que encode: el path de decode es branchless (2 máscaras de bits), mientras encode requiere branching por modo.
+
+### 📖 Dict O(1) Lookup
+
+| Métrica | Valor |
+|---|---|
+| `Map.get()` O(1) | **21.8M/s** |
+| Operaciones | 1,000,000 |
+| Duración | 45.87 ms |
+
+### 🔗 TypeScript ↔ Rust Integration (CadenciaBridge)
+
+El sidecar Rust se ejecuta como child process. TypeScript envía comandos JSON por stdin, Rust devuelve frames LUMEN:
+
+| Prueba | Resultado |
+|---|---|
+| Ping handshake | ✅ 21.8 ms |
+| Index 30K archivos | ✅ 17.6 ms (encode: 163 µs) |
+| Graceful shutdown | ✅ 4.4 ms |
+
+---
+
+### 🆚 ¿Qué benchmarks comparar con JSON-RPC?
+
+De las 5 categorías actuales:
+
+| # | Benchmark | ¿Comparable con JSON-RPC? | Valor |
+|---|---|---|---|
+| 1 | **Wire size (compresión)** | ✅ Sí — mismo payload, `JSON.stringify` vs `compress()` | ⭐⭐⭐ Máximo |
+| 2 | **Encode speed** | ✅ Sí — `JSON.stringify()` vs `compress()` (CPU) | ⭐⭐⭐ Pendiente |
+| 3 | **Decode speed** | ✅ Sí — `JSON.parse()` vs `decompress()` (CPU) | ⭐⭐⭐ Pendiente |
+| 4 | **Frame parse speed** | ⚠️ Parcial — Content-Length `\r\n` parse vs Hyb128 | ⭐⭐ Medio |
+| 5 | **Hyb128 encode/decode** | ❌ No — JSON-RPC usa headers `Content-Length: N`, no codec binario | — |
+| 6 | **Dict O(1) lookup** | ❌ No — JSON-RPC no tiene diccionario; el beneficio ya se mide en compresión | — |
+
+> **Los 3 benchmarks estrella para una comparativa JSON-RPC ↔ LUMEN completa son: wire size, encode speed, y decode speed.** Wire size ya está cubierto (Rust shootout + TS bench). Encode/decode speed están pendientes de añadir al harness.
+
+---
+
 ## �📝 Licencia
 
 MIT

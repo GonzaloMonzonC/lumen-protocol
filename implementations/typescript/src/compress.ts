@@ -125,7 +125,7 @@ function encodeValue(value: unknown, out: Uint8Array[]): void {
     }
     const buf = new Uint8Array(9);
     buf[0] = TAG_FLOAT;
-    const dv = new DataView(buf.buffer, buf.byteOffset, 8);
+    const dv = new DataView(buf.buffer, buf.byteOffset, 9);
     dv.setFloat64(1, value, true); // little-endian
     out.push(buf);
     return;

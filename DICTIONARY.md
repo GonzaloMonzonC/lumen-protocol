@@ -115,11 +115,11 @@ Ocupan los IDs `0x00–0x7F`.
 | ID | Clave | Uso principal |
 |----|-------|---------------|
 | `0x50` | `url` | URL |
-| `0x51` | `method` | Método HTTP |
+| `0x51` | `http_method` | Método HTTP |
 | `0x52` | `headers` | Cabeceras HTTP |
 | `0x53` | `body` | Cuerpo de petición |
 | `0x54` | `query` | Parámetros de consulta |
-| `0x55` | `status` | Código de estado HTTP |
+| `0x55` | `http_status` | Código de estado HTTP |
 | `0x56` | `cookie` | Cookie |
 | `0x57` | `session` | Sesión |
 | `0x58` | `token` | Token de autenticación |
