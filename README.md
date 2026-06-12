@@ -429,13 +429,14 @@ await bridge.stop();
 
 **122 benchmarks en 18 categorías**, ejecutados con `node --expose-gc --import tsx src/bench.ts`. Resultados en `implementations/typescript/bench_results_full.json`.
 
-### 🧪 Test Suite — 58/58 pasando (100%)
+### 🧪 Test Suite — 134/134 pasando (100% sin sidecar Rust)
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
 | LUMEN Rust core | **38/38** | Rust | `cargo test` |
 | FrameAssembler stress | **17/17** | TypeScript | `node --test` |
-| CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
+| ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
+| CadenciaBridge integración | **3/3** (requiere binario Rust) | TS ↔ Rust | `node --test` |
 
 ### 🥊 Los 3 Asaltos: JSON-RPC vs LUMEN
 
