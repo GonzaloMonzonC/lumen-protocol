@@ -1,0 +1,1665 @@
+﻿{
+  "timestamp": "2026-06-12T03:43:39.861Z",
+  "platform": "win32 x64",
+  "nodeVersion": "v22.21.0",
+  "results": [
+    {
+      "name": "FrameAssembler tiny(16B) chunk=1",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 14.98,
+      "opsPerSec": 33367,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 633980,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 1,
+        "numChunks": 19
+      }
+    },
+    {
+      "name": "FrameAssembler tiny(16B) chunk=16",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.34,
+      "opsPerSec": 373832,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 7102804,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 16,
+        "numChunks": 2
+      }
+    },
+    {
+      "name": "FrameAssembler tiny(16B) chunk=64",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 2.34,
+      "opsPerSec": 213311,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 4052901,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 64,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler tiny(16B) chunk=256",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 2.9,
+      "opsPerSec": 172247,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 3272702,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 256,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler tiny(16B) chunk=1024",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.93,
+      "opsPerSec": 259255,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 4925853,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 1024,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler tiny(16B) chunk=4096",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.75,
+      "opsPerSec": 285894,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 5431986,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 4096,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler tiny(16B) chunk=full",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.71,
+      "opsPerSec": 292432,
+      "bytesProcessed": 9500,
+      "bytesPerSec": 5556205,
+      "extra": {
+        "payloadSize": 16,
+        "chunkSize": 19,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=1",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 49.71,
+      "opsPerSec": 10058,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 2625263,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 1,
+        "numChunks": 261
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=16",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 3.54,
+      "opsPerSec": 141095,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 36825916,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 16,
+        "numChunks": 17
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=64",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 2.67,
+      "opsPerSec": 187119,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 48837993,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 64,
+        "numChunks": 5
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=256",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 2.43,
+      "opsPerSec": 205795,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 53712545,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 256,
+        "numChunks": 2
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=1024",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.92,
+      "opsPerSec": 260119,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 67890958,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 1024,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=4096",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 2.2,
+      "opsPerSec": 226984,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 59242782,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 4096,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler small(256B) chunk=full",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 2.78,
+      "opsPerSec": 179540,
+      "bytesProcessed": 130500,
+      "bytesPerSec": 46859851,
+      "extra": {
+        "payloadSize": 256,
+        "chunkSize": 261,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=1",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 386.93,
+      "opsPerSec": 1292,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 5299386,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 1,
+        "numChunks": 4101
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=16",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 22.82,
+      "opsPerSec": 21915,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 89871537,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 16,
+        "numChunks": 257
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=64",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 8.46,
+      "opsPerSec": 59124,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 242467600,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 64,
+        "numChunks": 65
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=256",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 3.01,
+      "opsPerSec": 165843,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 680122060,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 256,
+        "numChunks": 17
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=1024",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.76,
+      "opsPerSec": 284301,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 1165918008,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 1024,
+        "numChunks": 5
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=4096",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.63,
+      "opsPerSec": 306861,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 1258438689,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 4096,
+        "numChunks": 2
+      }
+    },
+    {
+      "name": "FrameAssembler medium(4096B) chunk=full",
+      "category": "assembler",
+      "ops": 500,
+      "durationMs": 1.6,
+      "opsPerSec": 312598,
+      "bytesProcessed": 2050500,
+      "bytesPerSec": 1281963113,
+      "extra": {
+        "payloadSize": 4096,
+        "chunkSize": 4101,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=1",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 1117.14,
+      "opsPerSec": 90,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 5867012,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 1,
+        "numChunks": 65543
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=16",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 65.98,
+      "opsPerSec": 1516,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 99342044,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 16,
+        "numChunks": 4097
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=64",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 23.51,
+      "opsPerSec": 4254,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 278800795,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 64,
+        "numChunks": 1025
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=256",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 7.45,
+      "opsPerSec": 13416,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 879299705,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 256,
+        "numChunks": 257
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=1024",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 8.59,
+      "opsPerSec": 11639,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 762881918,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 1024,
+        "numChunks": 65
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=4096",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 5.54,
+      "opsPerSec": 18040,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 1182403666,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 4096,
+        "numChunks": 17
+      }
+    },
+    {
+      "name": "FrameAssembler large(65536B) chunk=full",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 5.26,
+      "opsPerSec": 19007,
+      "bytesProcessed": 6554300,
+      "bytesPerSec": 1245804109,
+      "extra": {
+        "payloadSize": 65536,
+        "chunkSize": 65543,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=1",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 4532.57,
+      "opsPerSec": 22,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 5783719,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 1,
+        "numChunks": 262151
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=16",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 368.82,
+      "opsPerSec": 271,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 71077552,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 16,
+        "numChunks": 16385
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=64",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 151.71,
+      "opsPerSec": 659,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 172798354,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 64,
+        "numChunks": 4097
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=256",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 39.94,
+      "opsPerSec": 2504,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 656380121,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 256,
+        "numChunks": 1025
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=1024",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 19.12,
+      "opsPerSec": 5230,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 1371132834,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 1024,
+        "numChunks": 257
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=4096",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 26.88,
+      "opsPerSec": 3720,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 975155303,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 4096,
+        "numChunks": 65
+      }
+    },
+    {
+      "name": "FrameAssembler xlarge(262144B) chunk=full",
+      "category": "assembler",
+      "ops": 100,
+      "durationMs": 22.57,
+      "opsPerSec": 4432,
+      "bytesProcessed": 26215100,
+      "bytesPerSec": 1161754213,
+      "extra": {
+        "payloadSize": 262144,
+        "chunkSize": 262151,
+        "numChunks": 1
+      }
+    },
+    {
+      "name": "Compress initialize",
+      "category": "compression",
+      "ops": 1000,
+      "durationMs": 57.28,
+      "opsPerSec": 17459,
+      "bytesProcessed": 157000,
+      "bytesPerSec": 2741099,
+      "extra": {
+        "objectName": "initialize",
+        "jsonBytes": 157,
+        "compressedBytes": 92,
+        "ratioPercent": 58.6,
+        "savedBytes": 65
+      }
+    },
+    {
+      "name": "Compress tools_list",
+      "category": "compression",
+      "ops": 1000,
+      "durationMs": 156.51,
+      "opsPerSec": 6390,
+      "bytesProcessed": 835000,
+      "bytesPerSec": 5335286,
+      "extra": {
+        "objectName": "tools_list",
+        "jsonBytes": 835,
+        "compressedBytes": 386,
+        "ratioPercent": 46.2,
+        "savedBytes": 449
+      }
+    },
+    {
+      "name": "Compress llm_request",
+      "category": "compression",
+      "ops": 1000,
+      "durationMs": 65.46,
+      "opsPerSec": 15277,
+      "bytesProcessed": 323000,
+      "bytesPerSec": 4934552,
+      "extra": {
+        "objectName": "llm_request",
+        "jsonBytes": 323,
+        "compressedBytes": 166,
+        "ratioPercent": 51.4,
+        "savedBytes": 157
+      }
+    },
+    {
+      "name": "Compress error_response",
+      "category": "compression",
+      "ops": 1000,
+      "durationMs": 22.72,
+      "opsPerSec": 44022,
+      "bytesProcessed": 175000,
+      "bytesPerSec": 7703923,
+      "extra": {
+        "objectName": "error_response",
+        "jsonBytes": 175,
+        "compressedBytes": 95,
+        "ratioPercent": 54.3,
+        "savedBytes": 80
+      }
+    },
+    {
+      "name": "Compress big_result",
+      "category": "compression",
+      "ops": 1000,
+      "durationMs": 58.49,
+      "opsPerSec": 17097,
+      "bytesProcessed": 5193000,
+      "bytesPerSec": 88786381,
+      "extra": {
+        "objectName": "big_result",
+        "jsonBytes": 5193,
+        "compressedBytes": 5104,
+        "ratioPercent": 98.3,
+        "savedBytes": 89
+      }
+    },
+    {
+      "name": "encodeHyb128(0)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 8.8,
+      "opsPerSec": 11362474,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 0,
+        "mode": "00"
+      }
+    },
+    {
+      "name": "encodeHyb128(1)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 5.13,
+      "opsPerSec": 19504203,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 1,
+        "mode": "00"
+      }
+    },
+    {
+      "name": "encodeHyb128(31)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 6.55,
+      "opsPerSec": 15268807,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 31,
+        "mode": "00"
+      }
+    },
+    {
+      "name": "encodeHyb128(63)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 12.01,
+      "opsPerSec": 8323692,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 63,
+        "mode": "00"
+      }
+    },
+    {
+      "name": "encodeHyb128(64)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 4.85,
+      "opsPerSec": 20598595,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 64,
+        "mode": "10"
+      }
+    },
+    {
+      "name": "encodeHyb128(255)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 7.01,
+      "opsPerSec": 14273072,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 255,
+        "mode": "10"
+      }
+    },
+    {
+      "name": "encodeHyb128(1000)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 8.29,
+      "opsPerSec": 12056473,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 1000,
+        "mode": "10"
+      }
+    },
+    {
+      "name": "encodeHyb128(65535)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 4.65,
+      "opsPerSec": 21484585,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 65535,
+        "mode": "10"
+      }
+    },
+    {
+      "name": "encodeHyb128(65536)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 11.08,
+      "opsPerSec": 9027145,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 65536,
+        "mode": "11"
+      }
+    },
+    {
+      "name": "encodeHyb128(100000)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 12.29,
+      "opsPerSec": 8138749,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 100000,
+        "mode": "11"
+      }
+    },
+    {
+      "name": "encodeHyb128(1000000)",
+      "category": "hyb128_encode",
+      "ops": 100000,
+      "durationMs": 6.44,
+      "opsPerSec": 15532050,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 1000000,
+        "mode": "11"
+      }
+    },
+    {
+      "name": "decodeHyb128(0)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 8.24,
+      "opsPerSec": 12139163,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 0,
+        "headerBytes": 1
+      }
+    },
+    {
+      "name": "decodeHyb128(1)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 9.03,
+      "opsPerSec": 11078246,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 1,
+        "headerBytes": 1
+      }
+    },
+    {
+      "name": "decodeHyb128(31)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 10.7,
+      "opsPerSec": 9347367,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 31,
+        "headerBytes": 1
+      }
+    },
+    {
+      "name": "decodeHyb128(63)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 6.17,
+      "opsPerSec": 16211397,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 63,
+        "headerBytes": 1
+      }
+    },
+    {
+      "name": "decodeHyb128(64)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 2.56,
+      "opsPerSec": 39067078,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 64,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "decodeHyb128(255)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 3.04,
+      "opsPerSec": 32929399,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 255,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "decodeHyb128(1000)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 3.93,
+      "opsPerSec": 25418128,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 1000,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "decodeHyb128(65535)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 3.03,
+      "opsPerSec": 33039284,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 65535,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "decodeHyb128(65536)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 2.64,
+      "opsPerSec": 37929073,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 65536,
+        "headerBytes": 5
+      }
+    },
+    {
+      "name": "decodeHyb128(100000)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 2.64,
+      "opsPerSec": 37937706,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 100000,
+        "headerBytes": 5
+      }
+    },
+    {
+      "name": "decodeHyb128(1000000)",
+      "category": "hyb128_decode",
+      "ops": 100000,
+      "durationMs": 2.41,
+      "opsPerSec": 41562760,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "value": 1000000,
+        "headerBytes": 5
+      }
+    },
+    {
+      "name": "dict_lookup O(1)",
+      "category": "dict",
+      "ops": 1000000,
+      "durationMs": 44.8,
+      "opsPerSec": 22322076,
+      "bytesProcessed": 0,
+      "bytesPerSec": 0,
+      "extra": {
+        "totalKeys": 16
+      }
+    },
+    {
+      "name": "Encode JSON.stringify initialize",
+      "category": "json_encode",
+      "ops": 5000,
+      "durationMs": 6.19,
+      "opsPerSec": 807220,
+      "bytesProcessed": 785000,
+      "bytesPerSec": 126733504,
+      "extra": {
+        "objectName": "initialize",
+        "jsonBytes": 157
+      }
+    },
+    {
+      "name": "Encode compressValue initialize",
+      "category": "lumen_encode",
+      "ops": 5000,
+      "durationMs": 120.08,
+      "opsPerSec": 41639,
+      "bytesProcessed": 460000,
+      "bytesPerSec": 3830744,
+      "extra": {
+        "objectName": "initialize",
+        "compressedBytes": 92,
+        "speedupVsJson": 0.05
+      }
+    },
+    {
+      "name": "Encode JSON.stringify tools_list",
+      "category": "json_encode",
+      "ops": 5000,
+      "durationMs": 32.05,
+      "opsPerSec": 155990,
+      "bytesProcessed": 4175000,
+      "bytesPerSec": 130251393,
+      "extra": {
+        "objectName": "tools_list",
+        "jsonBytes": 835
+      }
+    },
+    {
+      "name": "Encode compressValue tools_list",
+      "category": "lumen_encode",
+      "ops": 5000,
+      "durationMs": 584.43,
+      "opsPerSec": 8555,
+      "bytesProcessed": 1930000,
+      "bytesPerSec": 3302347,
+      "extra": {
+        "objectName": "tools_list",
+        "compressedBytes": 386,
+        "speedupVsJson": 0.05
+      }
+    },
+    {
+      "name": "Encode JSON.stringify llm_request",
+      "category": "json_encode",
+      "ops": 5000,
+      "durationMs": 13.16,
+      "opsPerSec": 379997,
+      "bytesProcessed": 1615000,
+      "bytesPerSec": 122739018,
+      "extra": {
+        "objectName": "llm_request",
+        "jsonBytes": 323
+      }
+    },
+    {
+      "name": "Encode compressValue llm_request",
+      "category": "lumen_encode",
+      "ops": 5000,
+      "durationMs": 188.95,
+      "opsPerSec": 26462,
+      "bytesProcessed": 830000,
+      "bytesPerSec": 4392690,
+      "extra": {
+        "objectName": "llm_request",
+        "compressedBytes": 166,
+        "speedupVsJson": 0.07
+      }
+    },
+    {
+      "name": "Encode JSON.stringify error_response",
+      "category": "json_encode",
+      "ops": 5000,
+      "durationMs": 7.24,
+      "opsPerSec": 690503,
+      "bytesProcessed": 875000,
+      "bytesPerSec": 120837994,
+      "extra": {
+        "objectName": "error_response",
+        "jsonBytes": 175
+      }
+    },
+    {
+      "name": "Encode compressValue error_response",
+      "category": "lumen_encode",
+      "ops": 5000,
+      "durationMs": 117.18,
+      "opsPerSec": 42669,
+      "bytesProcessed": 475000,
+      "bytesPerSec": 4053575,
+      "extra": {
+        "objectName": "error_response",
+        "compressedBytes": 95,
+        "speedupVsJson": 0.06
+      }
+    },
+    {
+      "name": "Encode JSON.stringify big_result",
+      "category": "json_encode",
+      "ops": 5000,
+      "durationMs": 142.31,
+      "opsPerSec": 35135,
+      "bytesProcessed": 25965000,
+      "bytesPerSec": 182458157,
+      "extra": {
+        "objectName": "big_result",
+        "jsonBytes": 5193
+      }
+    },
+    {
+      "name": "Encode compressValue big_result",
+      "category": "lumen_encode",
+      "ops": 5000,
+      "durationMs": 192.74,
+      "opsPerSec": 25942,
+      "bytesProcessed": 25520000,
+      "bytesPerSec": 132408618,
+      "extra": {
+        "objectName": "big_result",
+        "compressedBytes": 5104,
+        "speedupVsJson": 0.74
+      }
+    },
+    {
+      "name": "Decode JSON.parse initialize",
+      "category": "json_decode",
+      "ops": 5000,
+      "durationMs": 11.75,
+      "opsPerSec": 425691,
+      "bytesProcessed": 785000,
+      "bytesPerSec": 66833538,
+      "extra": {
+        "objectName": "initialize",
+        "jsonBytes": 157
+      }
+    },
+    {
+      "name": "Decode decompressValue initialize",
+      "category": "lumen_decode",
+      "ops": 5000,
+      "durationMs": 44.66,
+      "opsPerSec": 111945,
+      "bytesProcessed": 460000,
+      "bytesPerSec": 10298961,
+      "extra": {
+        "objectName": "initialize",
+        "compressedBytes": 92,
+        "speedupVsJson": 0.26
+      }
+    },
+    {
+      "name": "Decode JSON.parse tools_list",
+      "category": "json_decode",
+      "ops": 5000,
+      "durationMs": 59.13,
+      "opsPerSec": 84565,
+      "bytesProcessed": 4175000,
+      "bytesPerSec": 70611914,
+      "extra": {
+        "objectName": "tools_list",
+        "jsonBytes": 835
+      }
+    },
+    {
+      "name": "Decode decompressValue tools_list",
+      "category": "lumen_decode",
+      "ops": 5000,
+      "durationMs": 110.49,
+      "opsPerSec": 45252,
+      "bytesProcessed": 1930000,
+      "bytesPerSec": 17467407,
+      "extra": {
+        "objectName": "tools_list",
+        "compressedBytes": 386,
+        "speedupVsJson": 0.54
+      }
+    },
+    {
+      "name": "Decode JSON.parse llm_request",
+      "category": "json_decode",
+      "ops": 5000,
+      "durationMs": 23.99,
+      "opsPerSec": 208445,
+      "bytesProcessed": 1615000,
+      "bytesPerSec": 67327855,
+      "extra": {
+        "objectName": "llm_request",
+        "jsonBytes": 323
+      }
+    },
+    {
+      "name": "Decode decompressValue llm_request",
+      "category": "lumen_decode",
+      "ops": 5000,
+      "durationMs": 53.58,
+      "opsPerSec": 93315,
+      "bytesProcessed": 830000,
+      "bytesPerSec": 15490305,
+      "extra": {
+        "objectName": "llm_request",
+        "compressedBytes": 166,
+        "speedupVsJson": 0.45
+      }
+    },
+    {
+      "name": "Decode JSON.parse error_response",
+      "category": "json_decode",
+      "ops": 5000,
+      "durationMs": 10.7,
+      "opsPerSec": 467430,
+      "bytesProcessed": 875000,
+      "bytesPerSec": 81800165,
+      "extra": {
+        "objectName": "error_response",
+        "jsonBytes": 175
+      }
+    },
+    {
+      "name": "Decode decompressValue error_response",
+      "category": "lumen_decode",
+      "ops": 5000,
+      "durationMs": 16.63,
+      "opsPerSec": 300578,
+      "bytesProcessed": 475000,
+      "bytesPerSec": 28554940,
+      "extra": {
+        "objectName": "error_response",
+        "compressedBytes": 95,
+        "speedupVsJson": 0.64
+      }
+    },
+    {
+      "name": "Decode JSON.parse big_result",
+      "category": "json_decode",
+      "ops": 5000,
+      "durationMs": 33.19,
+      "opsPerSec": 150664,
+      "bytesProcessed": 25965000,
+      "bytesPerSec": 782398814,
+      "extra": {
+        "objectName": "big_result",
+        "jsonBytes": 5193
+      }
+    },
+    {
+      "name": "Decode decompressValue big_result",
+      "category": "lumen_decode",
+      "ops": 5000,
+      "durationMs": 36.71,
+      "opsPerSec": 136219,
+      "bytesProcessed": 25520000,
+      "bytesPerSec": 695263653,
+      "extra": {
+        "objectName": "big_result",
+        "compressedBytes": 5104,
+        "speedupVsJson": 0.9
+      }
+    },
+    {
+      "name": "Roundtrip JSON initialize",
+      "category": "json_roundtrip",
+      "ops": 5000,
+      "durationMs": 17.2,
+      "opsPerSec": 290713,
+      "bytesProcessed": 1570000,
+      "bytesPerSec": 91283846,
+      "extra": {
+        "objectName": "initialize",
+        "jsonBytes": 157
+      }
+    },
+    {
+      "name": "Roundtrip LUMEN initialize",
+      "category": "lumen_roundtrip",
+      "ops": 5000,
+      "durationMs": 235.49,
+      "opsPerSec": 21233,
+      "bytesProcessed": 920000,
+      "bytesPerSec": 3906801,
+      "extra": {
+        "objectName": "initialize",
+        "compressedBytes": 92,
+        "speedupVsJson": 0.07
+      }
+    },
+    {
+      "name": "Roundtrip JSON tools_list",
+      "category": "json_roundtrip",
+      "ops": 5000,
+      "durationMs": 225.1,
+      "opsPerSec": 22213,
+      "bytesProcessed": 8350000,
+      "bytesPerSec": 37095366,
+      "extra": {
+        "objectName": "tools_list",
+        "jsonBytes": 835
+      }
+    },
+    {
+      "name": "Roundtrip LUMEN tools_list",
+      "category": "lumen_roundtrip",
+      "ops": 5000,
+      "durationMs": 945.97,
+      "opsPerSec": 5286,
+      "bytesProcessed": 3860000,
+      "bytesPerSec": 4080484,
+      "extra": {
+        "objectName": "tools_list",
+        "compressedBytes": 386,
+        "speedupVsJson": 0.24
+      }
+    },
+    {
+      "name": "Roundtrip JSON llm_request",
+      "category": "json_roundtrip",
+      "ops": 5000,
+      "durationMs": 49.25,
+      "opsPerSec": 101533,
+      "bytesProcessed": 3230000,
+      "bytesPerSec": 65590149,
+      "extra": {
+        "objectName": "llm_request",
+        "jsonBytes": 323
+      }
+    },
+    {
+      "name": "Roundtrip LUMEN llm_request",
+      "category": "lumen_roundtrip",
+      "ops": 5000,
+      "durationMs": 305.2,
+      "opsPerSec": 16383,
+      "bytesProcessed": 1660000,
+      "bytesPerSec": 5439101,
+      "extra": {
+        "objectName": "llm_request",
+        "compressedBytes": 166,
+        "speedupVsJson": 0.16
+      }
+    },
+    {
+      "name": "Roundtrip JSON error_response",
+      "category": "json_roundtrip",
+      "ops": 5000,
+      "durationMs": 24.75,
+      "opsPerSec": 202025,
+      "bytesProcessed": 1750000,
+      "bytesPerSec": 70708785,
+      "extra": {
+        "objectName": "error_response",
+        "jsonBytes": 175
+      }
+    },
+    {
+      "name": "Roundtrip LUMEN error_response",
+      "category": "lumen_roundtrip",
+      "ops": 5000,
+      "durationMs": 122.7,
+      "opsPerSec": 40751,
+      "bytesProcessed": 950000,
+      "bytesPerSec": 7742714,
+      "extra": {
+        "objectName": "error_response",
+        "compressedBytes": 95,
+        "speedupVsJson": 0.2
+      }
+    },
+    {
+      "name": "Roundtrip JSON big_result",
+      "category": "json_roundtrip",
+      "ops": 5000,
+      "durationMs": 173.54,
+      "opsPerSec": 28812,
+      "bytesProcessed": 51930000,
+      "bytesPerSec": 299242127,
+      "extra": {
+        "objectName": "big_result",
+        "jsonBytes": 5193
+      }
+    },
+    {
+      "name": "Roundtrip LUMEN big_result",
+      "category": "lumen_roundtrip",
+      "ops": 5000,
+      "durationMs": 264.51,
+      "opsPerSec": 18903,
+      "bytesProcessed": 51040000,
+      "bytesPerSec": 192961955,
+      "extra": {
+        "objectName": "big_result",
+        "compressedBytes": 5104,
+        "speedupVsJson": 0.66
+      }
+    },
+    {
+      "name": "Framing Content-Length(0)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 79.75,
+      "opsPerSec": 6269475,
+      "bytesProcessed": 10500000,
+      "bytesPerSec": 131658966,
+      "extra": {
+        "headerValue": 0,
+        "headerBytes": 21
+      }
+    },
+    {
+      "name": "Framing Content-Length(42)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 111.33,
+      "opsPerSec": 4491007,
+      "bytesProcessed": 11000000,
+      "bytesPerSec": 98802159,
+      "extra": {
+        "headerValue": 42,
+        "headerBytes": 22
+      }
+    },
+    {
+      "name": "Framing Content-Length(255)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 103.67,
+      "opsPerSec": 4822847,
+      "bytesProcessed": 11500000,
+      "bytesPerSec": 110925485,
+      "extra": {
+        "headerValue": 255,
+        "headerBytes": 23
+      }
+    },
+    {
+      "name": "Framing Content-Length(1024)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 87.22,
+      "opsPerSec": 5732834,
+      "bytesProcessed": 12000000,
+      "bytesPerSec": 137588013,
+      "extra": {
+        "headerValue": 1024,
+        "headerBytes": 24
+      }
+    },
+    {
+      "name": "Framing Content-Length(65535)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 94.85,
+      "opsPerSec": 5271237,
+      "bytesProcessed": 12500000,
+      "bytesPerSec": 131780919,
+      "extra": {
+        "headerValue": 65535,
+        "headerBytes": 25
+      }
+    },
+    {
+      "name": "Framing Content-Length(65536)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 73.74,
+      "opsPerSec": 6780902,
+      "bytesProcessed": 12500000,
+      "bytesPerSec": 169522557,
+      "extra": {
+        "headerValue": 65536,
+        "headerBytes": 25
+      }
+    },
+    {
+      "name": "Framing Content-Length(100000)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 84.66,
+      "opsPerSec": 5906312,
+      "bytesProcessed": 13000000,
+      "bytesPerSec": 153564105,
+      "extra": {
+        "headerValue": 100000,
+        "headerBytes": 26
+      }
+    },
+    {
+      "name": "Framing Content-Length(1000000)",
+      "category": "framing_cl",
+      "ops": 500000,
+      "durationMs": 100.49,
+      "opsPerSec": 4975535,
+      "bytesProcessed": 13500000,
+      "bytesPerSec": 134339453,
+      "extra": {
+        "headerValue": 1000000,
+        "headerBytes": 27
+      }
+    },
+    {
+      "name": "Framing Hyb128(0)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 15.87,
+      "opsPerSec": 31506383,
+      "bytesProcessed": 500000,
+      "bytesPerSec": 31506383,
+      "extra": {
+        "headerValue": 0,
+        "headerBytes": 1
+      }
+    },
+    {
+      "name": "Framing Hyb128(42)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 23.68,
+      "opsPerSec": 21114776,
+      "bytesProcessed": 500000,
+      "bytesPerSec": 21114776,
+      "extra": {
+        "headerValue": 42,
+        "headerBytes": 1
+      }
+    },
+    {
+      "name": "Framing Hyb128(255)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 13.3,
+      "opsPerSec": 37598791,
+      "bytesProcessed": 1500000,
+      "bytesPerSec": 112796372,
+      "extra": {
+        "headerValue": 255,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "Framing Hyb128(1024)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 11.77,
+      "opsPerSec": 42476192,
+      "bytesProcessed": 1500000,
+      "bytesPerSec": 127428576,
+      "extra": {
+        "headerValue": 1024,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "Framing Hyb128(65535)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 11.4,
+      "opsPerSec": 43841959,
+      "bytesProcessed": 1500000,
+      "bytesPerSec": 131525876,
+      "extra": {
+        "headerValue": 65535,
+        "headerBytes": 3
+      }
+    },
+    {
+      "name": "Framing Hyb128(65536)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 12.19,
+      "opsPerSec": 41026314,
+      "bytesProcessed": 2500000,
+      "bytesPerSec": 205131571,
+      "extra": {
+        "headerValue": 65536,
+        "headerBytes": 5
+      }
+    },
+    {
+      "name": "Framing Hyb128(100000)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 19.1,
+      "opsPerSec": 26176777,
+      "bytesProcessed": 2500000,
+      "bytesPerSec": 130883885,
+      "extra": {
+        "headerValue": 100000,
+        "headerBytes": 5
+      }
+    },
+    {
+      "name": "Framing Hyb128(1000000)",
+      "category": "framing_hyb128",
+      "ops": 500000,
+      "durationMs": 25.93,
+      "opsPerSec": 19279859,
+      "bytesProcessed": 2500000,
+      "bytesPerSec": 96399294,
+      "extra": {
+        "headerValue": 1000000,
+        "headerBytes": 5
+      }
+    },
+    {
+      "name": "Escape JSON.stringify code_json_1KB",
+      "category": "escape_json",
+      "ops": 2000,
+      "durationMs": 15.89,
+      "opsPerSec": 125893,
+      "bytesProcessed": 3178000,
+      "bytesPerSec": 200044063,
+      "extra": {
+        "scenario": "code_json_1KB",
+        "jsonBytes": 1589,
+        "stringLen": 1391
+      }
+    },
+    {
+      "name": "Escape compressValue code_json_1KB",
+      "category": "escape_lumen",
+      "ops": 2000,
+      "durationMs": 17.07,
+      "opsPerSec": 117189,
+      "bytesProcessed": 2796000,
+      "bytesPerSec": 163830685,
+      "extra": {
+        "scenario": "code_json_1KB",
+        "compressedBytes": 1398,
+        "speedupVsJson": 0.93,
+        "stringLen": 1391
+      }
+    },
+    {
+      "name": "Escape JSON.stringify quotes_heavy",
+      "category": "escape_json",
+      "ops": 2000,
+      "durationMs": 54.66,
+      "opsPerSec": 36589,
+      "bytesProcessed": 16050000,
+      "bytesPerSec": 293630147,
+      "extra": {
+        "scenario": "quotes_heavy",
+        "jsonBytes": 8025,
+        "stringLen": 4011
+      }
+    },
+    {
+      "name": "Escape compressValue quotes_heavy",
+      "category": "escape_lumen",
+      "ops": 2000,
+      "durationMs": 25.01,
+      "opsPerSec": 79982,
+      "bytesProcessed": 8036000,
+      "bytesPerSec": 321368014,
+      "extra": {
+        "scenario": "quotes_heavy",
+        "compressedBytes": 4018,
+        "speedupVsJson": 2.19,
+        "stringLen": 4011
+      }
+    },
+    {
+      "name": "Escape JSON.stringify newlines_tabs",
+      "category": "escape_json",
+      "ops": 2000,
+      "durationMs": 111.53,
+      "opsPerSec": 17933,
+      "bytesProcessed": 30028000,
+      "bytesPerSec": 269243253,
+      "extra": {
+        "scenario": "newlines_tabs",
+        "jsonBytes": 15014,
+        "stringLen": 13000
+      }
+    },
+    {
+      "name": "Escape compressValue newlines_tabs",
+      "category": "escape_lumen",
+      "ops": 2000,
+      "durationMs": 98.98,
+      "opsPerSec": 20206,
+      "bytesProcessed": 26014000,
+      "bytesPerSec": 262815727,
+      "extra": {
+        "scenario": "newlines_tabs",
+        "compressedBytes": 13007,
+        "speedupVsJson": 1.13,
+        "stringLen": 13000
+      }
+    },
+    {
+      "name": "Escape JSON.stringify backslash_hell",
+      "category": "escape_json",
+      "ops": 2000,
+      "durationMs": 41.99,
+      "opsPerSec": 47635,
+      "bytesProcessed": 12040000,
+      "bytesPerSec": 286764986,
+      "extra": {
+        "scenario": "backslash_hell",
+        "jsonBytes": 6020,
+        "stringLen": 3006
+      }
+    },
+    {
+      "name": "Escape compressValue backslash_hell",
+      "category": "escape_lumen",
+      "ops": 2000,
+      "durationMs": 27.87,
+      "opsPerSec": 71755,
+      "bytesProcessed": 6026000,
+      "bytesPerSec": 216196435,
+      "extra": {
+        "scenario": "backslash_hell",
+        "compressedBytes": 3013,
+        "speedupVsJson": 1.51,
+        "stringLen": 3006
+      }
+    },
+    {
+      "name": "Escape JSON.stringify mixed_escape_4KB",
+      "category": "escape_json",
+      "ops": 2000,
+      "durationMs": 47.17,
+      "opsPerSec": 42401,
+      "bytesProcessed": 11188000,
+      "bytesPerSec": 237188674,
+      "extra": {
+        "scenario": "mixed_escape_4KB",
+        "jsonBytes": 5594,
+        "stringLen": 4440
+      }
+    },
+    {
+      "name": "Escape compressValue mixed_escape_4KB",
+      "category": "escape_lumen",
+      "ops": 2000,
+      "durationMs": 37.18,
+      "opsPerSec": 53798,
+      "bytesProcessed": 8894000,
+      "bytesPerSec": 239239727,
+      "extra": {
+        "scenario": "mixed_escape_4KB",
+        "compressedBytes": 4447,
+        "speedupVsJson": 1.27,
+        "stringLen": 4440
+      }
+    },
+    {
+      "name": "GC Pressure JSON.parse 500tools",
+      "category": "gc_json",
+      "ops": 1,
+      "durationMs": 5.17,
+      "opsPerSec": 194,
+      "bytesProcessed": 239825,
+      "bytesPerSec": 46427327,
+      "extra": {
+        "tools": 500,
+        "jsonBytes": 239825,
+        "heapDeltaBytes": 379512,
+        "heapDeltaKB": 371
+      }
+    },
+    {
+      "name": "GC Pressure decompressValue 500tools",
+      "category": "gc_lumen",
+      "ops": 1,
+      "durationMs": 8.53,
+      "opsPerSec": 117,
+      "bytesProcessed": 146799,
+      "bytesPerSec": 17218208,
+      "extra": {
+        "tools": 500,
+        "compressedBytes": 146799,
+        "heapDeltaBytes": 3105344,
+        "heapDeltaKB": 3033,
+        "heapRatioVsJson": 8.18,
+        "timeRatioVsJson": 1.65
+      }
+    }
+  ]
+}
