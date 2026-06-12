@@ -91,6 +91,11 @@ export {
 } from "./compress.js";
 
 export {
+  ZeroAllocDecompressor,
+  decompressValueZeroAlloc,
+} from "./zeroalloc.js";
+
+export {
   resolveDictId,
   lookupDictId,
   ID_RAW,

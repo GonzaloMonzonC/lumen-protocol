@@ -5,6 +5,7 @@ import { FrameAssembler } from "./frame-assembler.js";
 import { buildFrame, buildSize, TYPE_REQUEST } from "./frame.js";
 import { encodeHyb128, decodeHyb128 } from "./hyb128.js";
 import { compressValue, decompressValue } from "./compress.js";
+import { ZeroAllocDecompressor } from "./zeroalloc.js";
 import { lookupDictId } from "./dict.js";
 
 interface BenchResult {
@@ -299,7 +300,7 @@ function benchGcPressure(): BenchResult[] {
   const heapAfterJson = process.memoryUsage().heapUsed;
   const jsonHeapDelta = heapAfterJson - heapBeforeJson;
 
-  // Measure heap before/after decompressValue
+  // Measure heap before/after decompressValue (naive recursive decoder)
   if (global.gc) global.gc();
   const heapBeforeLumen = process.memoryUsage().heapUsed;
   const t1 = performance.now();
@@ -308,12 +309,29 @@ function benchGcPressure(): BenchResult[] {
   const heapAfterLumen = process.memoryUsage().heapUsed;
   const lumenHeapDelta = heapAfterLumen - heapBeforeLumen;
 
+  // Measure heap before/after ZeroAllocDecompressor (Vía 1).
+  // Warm up first so the frame pool + shared decoder are already allocated
+  // and don't count against this measurement.
+  const zeroDec = new ZeroAllocDecompressor();
+  void zeroDec.decompress(compressed);
+  if (global.gc) global.gc();
+  const heapBeforeZero = process.memoryUsage().heapUsed;
+  const t2 = performance.now();
+  const decompressedZero = zeroDec.decompress(compressed);
+  const zeroMs = performance.now() - t2;
+  const heapAfterZero = process.memoryUsage().heapUsed;
+  const zeroHeapDelta = heapAfterZero - heapBeforeZero;
+
   // Prevent GC from collecting our results during measurement
   void parsed;
   void decompressed;
+  void decompressedZero;
 
   const heapRatio = Math.round((lumenHeapDelta / jsonHeapDelta) * 100) / 100;
   const timeRatio = Math.round((lumenMs / jsonMs) * 100) / 100;
+  const zeroHeapRatio = Math.round((zeroHeapDelta / jsonHeapDelta) * 100) / 100;
+  const zeroVsNaive = Math.round((zeroHeapDelta / lumenHeapDelta) * 100) / 100;
+  const zeroTimeRatio = Math.round((zeroMs / jsonMs) * 100) / 100;
 
   r.push({
     name: "GC Pressure JSON.parse 500tools", category: "gc_json",
@@ -330,6 +348,14 @@ function benchGcPressure(): BenchResult[] {
     bytesProcessed: compressed.length,
     bytesPerSec: Math.round(compressed.length / (lumenMs / 1000)),
     extra: { tools: 500, compressedBytes: compressed.length, heapDeltaBytes: lumenHeapDelta, heapDeltaKB: Math.round(lumenHeapDelta / 1024), heapRatioVsJson: heapRatio, timeRatioVsJson: timeRatio },
+  });
+  r.push({
+    name: "GC Pressure ZeroAllocDecompressor 500tools", category: "gc_lumen_zeroalloc",
+    ops: 1, durationMs: Math.round(zeroMs * 100) / 100,
+    opsPerSec: Math.round(1000 / zeroMs),
+    bytesProcessed: compressed.length,
+    bytesPerSec: Math.round(compressed.length / (zeroMs / 1000)),
+    extra: { tools: 500, compressedBytes: compressed.length, heapDeltaBytes: zeroHeapDelta, heapDeltaKB: Math.round(zeroHeapDelta / 1024), heapRatioVsJson: zeroHeapRatio, heapRatioVsNaive: zeroVsNaive, timeRatioVsJson: zeroTimeRatio },
   });
 
   return r;
