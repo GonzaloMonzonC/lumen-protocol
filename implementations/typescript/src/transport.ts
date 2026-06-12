@@ -21,6 +21,9 @@ import {
   TYPE_NOTIFY,
   FLAG_COMPRESSED,
 } from "./frame.js";
+import {
+  FrameAssembler,
+} from "./frame-assembler.js";
 import { compressValue, decompressValue } from "./compress.js";
 
 // ═══ Transport Interface (compatible with @modelcontextprotocol/sdk) ══════
@@ -89,7 +92,7 @@ export class LumenStdioTransport implements Transport {
   private proc: ChildProcess | null = null;
   private rl: Interface | null = null;
   private useLumen = false;
-  private buffer = Buffer.alloc(0);
+  private assembler = new FrameAssembler();
 
   onmessage: ((message: JsonRpcMessage) => void) | null = null;
   onerror: ((error: Error) => void) | null = null;
@@ -165,23 +168,18 @@ export class LumenStdioTransport implements Transport {
       const timer = setTimeout(() => resolve(false), timeoutMs);
 
       const onData = (chunk: Buffer) => {
-        this.buffer = Buffer.concat([this.buffer, chunk]);
-        const result = parseFrame(new Uint8Array(this.buffer), 0);
+        const frames = this.assembler.push(
+          new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength),
+        );
 
-        if (result.kind === "complete") {
-          this.buffer = this.buffer.subarray(result.consumed);
-
-          if (result.frame.frameType === 0x10 /* TYPE_PROBE_ACK */) {
+        for (const frame of frames) {
+          if (frame.frameType === 0x10 /* TYPE_PROBE_ACK */) {
             this.proc!.stdout!.removeListener("data", onData);
             clearTimeout(timer);
-            const ack = parseAck(result.frame.payload);
+            const ack = parseAck(frame.payload);
             resolve(ack !== null);
             return;
           }
-        }
-
-        if (result.kind === "error") {
-          this.buffer = Buffer.alloc(0);
         }
       };
 
@@ -192,44 +190,31 @@ export class LumenStdioTransport implements Transport {
   /** After LUMEN negotiation, read binary frames from stdout. */
   private startLumenReader(): void {
     this.proc!.stdout!.on("data", (chunk: Buffer) => {
-      this.buffer = Buffer.concat([this.buffer, chunk]);
+      const frames = this.assembler.push(
+        new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength),
+      );
 
-      while (this.buffer.length > 0) {
-        const result = parseFrame(new Uint8Array(this.buffer), 0);
-
-        if (result.kind === "complete") {
-          const frame = result.frame;
-          this.buffer = this.buffer.subarray(result.consumed);
-
-          let payload: Record<string, unknown>;
-          if (isCompressed(frame)) {
-            const val = decompressValue(frame.payload);
-            payload = (val as Record<string, unknown>) ?? {};
-          } else {
-            try {
-              payload = JSON.parse(
-                new TextDecoder().decode(frame.payload),
-              ) as Record<string, unknown>;
-            } catch {
-              continue;
-            }
-          }
-
-          const msg: JsonRpcMessage = {
-            jsonrpc: "2.0",
-            ...payload,
-          } as JsonRpcMessage;
-
-          this.onmessage?.(msg);
-        } else if (
-          result.kind === "incomplete" ||
-          result.kind === "incompletePayload"
-        ) {
-          break;
+      for (const frame of frames) {
+        let payload: Record<string, unknown>;
+        if (isCompressed(frame)) {
+          const val = decompressValue(frame.payload);
+          payload = (val as Record<string, unknown>) ?? {};
         } else {
-          this.buffer = Buffer.alloc(0);
-          break;
+          try {
+            payload = JSON.parse(
+              new TextDecoder().decode(frame.payload),
+            ) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
         }
+
+        const msg: JsonRpcMessage = {
+          jsonrpc: "2.0",
+          ...payload,
+        } as JsonRpcMessage;
+
+        this.onmessage?.(msg);
       }
     });
   }
@@ -297,7 +282,7 @@ export interface LumenWebSocketOptions extends LumenTransportOptions {
 export class LumenWebSocketTransport implements Transport {
   private useLumen = false;
   private wsReady = false;
-  private buffer = Buffer.alloc(0);
+  private assembler = new FrameAssembler();
 
   onmessage: ((message: JsonRpcMessage) => void) | null = null;
   onerror: ((error: Error) => void) | null = null;
@@ -381,49 +366,38 @@ export class LumenWebSocketTransport implements Transport {
     this.ws.onmessage = (event: MessageEventLike) => {
       const raw =
         event.data instanceof Uint8Array
-          ? event.data
+          ? new Uint8Array(
+              event.data.buffer,
+              event.data.byteOffset,
+              event.data.byteLength,
+            )
           : typeof event.data === "string"
             ? new TextEncoder().encode(event.data)
             : new Uint8Array(event.data as ArrayBuffer);
 
-      this.buffer = Buffer.concat([this.buffer, Buffer.from(raw)]);
+      const frames = this.assembler.push(raw);
 
-      while (this.buffer.length > 0) {
-        const result = parseFrame(new Uint8Array(this.buffer), 0);
-
-        if (result.kind === "complete") {
-          const frame = result.frame;
-          this.buffer = this.buffer.subarray(result.consumed);
-
-          let payload: Record<string, unknown>;
-          if (isCompressed(frame)) {
-            const val = decompressValue(frame.payload);
-            payload = (val as Record<string, unknown>) ?? {};
-          } else {
-            try {
-              payload = JSON.parse(
-                new TextDecoder().decode(frame.payload),
-              ) as Record<string, unknown>;
-            } catch {
-              continue;
-            }
-          }
-
-          const msg: JsonRpcMessage = {
-            jsonrpc: "2.0",
-            ...payload,
-          } as JsonRpcMessage;
-
-          this.onmessage?.(msg);
-        } else if (
-          result.kind === "incomplete" ||
-          result.kind === "incompletePayload"
-        ) {
-          break;
+      for (const frame of frames) {
+        let payload: Record<string, unknown>;
+        if (isCompressed(frame)) {
+          const val = decompressValue(frame.payload);
+          payload = (val as Record<string, unknown>) ?? {};
         } else {
-          this.buffer = Buffer.alloc(0);
-          break;
+          try {
+            payload = JSON.parse(
+              new TextDecoder().decode(frame.payload),
+            ) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
         }
+
+        const msg: JsonRpcMessage = {
+          jsonrpc: "2.0",
+          ...payload,
+        } as JsonRpcMessage;
+
+        this.onmessage?.(msg);
       }
     };
   }

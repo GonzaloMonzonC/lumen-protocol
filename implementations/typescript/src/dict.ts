@@ -103,7 +103,7 @@ STATIC_DICT[0x3d] = "page";
 STATIC_DICT[0x3e] = "cursor";
 STATIC_DICT[0x3f] = "next";
 
-// LLM-specific (0x40..0x4F)
+// LLM / AI (0x40..0x4F)
 STATIC_DICT[0x40] = "model";
 STATIC_DICT[0x41] = "provider";
 STATIC_DICT[0x42] = "temperature";
@@ -120,6 +120,60 @@ STATIC_DICT[0x4c] = "function";
 STATIC_DICT[0x4d] = "tool_calls";
 STATIC_DICT[0x4e] = "finish_reason";
 STATIC_DICT[0x4f] = "usage";
+
+// HTTP / Web (0x50..0x5F)
+STATIC_DICT[0x50] = "url";
+STATIC_DICT[0x51] = "method";
+STATIC_DICT[0x52] = "headers";
+STATIC_DICT[0x53] = "body";
+STATIC_DICT[0x54] = "query";
+STATIC_DICT[0x55] = "status";
+STATIC_DICT[0x56] = "cookie";
+STATIC_DICT[0x57] = "session";
+STATIC_DICT[0x58] = "token";
+STATIC_DICT[0x59] = "auth";
+STATIC_DICT[0x5a] = "redirect";
+STATIC_DICT[0x5b] = "host";
+STATIC_DICT[0x5c] = "port";
+STATIC_DICT[0x5d] = "origin";
+STATIC_DICT[0x5e] = "referrer";
+STATIC_DICT[0x5f] = "agent";
+
+// File System (0x60..0x6F)
+STATIC_DICT[0x60] = "filename";
+STATIC_DICT[0x61] = "directory";
+STATIC_DICT[0x62] = "extension";
+STATIC_DICT[0x63] = "size";
+STATIC_DICT[0x64] = "modified";
+STATIC_DICT[0x65] = "created";
+STATIC_DICT[0x66] = "accessed";
+STATIC_DICT[0x67] = "mode";
+STATIC_DICT[0x68] = "owner";
+STATIC_DICT[0x69] = "group";
+STATIC_DICT[0x6a] = "symlink";
+STATIC_DICT[0x6b] = "binary";
+STATIC_DICT[0x6c] = "base64";
+STATIC_DICT[0x6d] = "hash";
+STATIC_DICT[0x6e] = "algorithm";
+STATIC_DICT[0x6f] = "chunk";
+
+// Operations (0x70..0x7F)
+STATIC_DICT[0x70] = "execute";
+STATIC_DICT[0x71] = "read";
+STATIC_DICT[0x72] = "write";
+STATIC_DICT[0x73] = "delete";
+STATIC_DICT[0x74] = "update";
+STATIC_DICT[0x75] = "create";
+STATIC_DICT[0x76] = "search";
+STATIC_DICT[0x77] = "list";
+STATIC_DICT[0x78] = "get";
+STATIC_DICT[0x79] = "set";
+STATIC_DICT[0x7a] = "watch";
+STATIC_DICT[0x7b] = "subscribe";
+STATIC_DICT[0x7c] = "notify";
+STATIC_DICT[0x7d] = "cancel";
+STATIC_DICT[0x7e] = "pause";
+STATIC_DICT[0x7f] = "resume";
 
 // ═══ Reverse lookup (lazily-built O(1) HashMap) ═══════════════════════════
 

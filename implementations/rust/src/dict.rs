@@ -113,8 +113,7 @@ pub static STATIC_DICT: [Option<&str>; STATIC_MAX as usize] = {
     arr[0x3E] = Some("cursor");
     arr[0x3F] = Some("next");
 
-    // Remaining 64 entries (0x40..0x7F) reserved for future spec additions
-    // Examples:
+    // LLM / AI (0x40..0x4F)
     arr[0x40] = Some("model");
     arr[0x41] = Some("provider");
     arr[0x42] = Some("temperature");
@@ -131,6 +130,60 @@ pub static STATIC_DICT: [Option<&str>; STATIC_MAX as usize] = {
     arr[0x4D] = Some("tool_calls");
     arr[0x4E] = Some("finish_reason");
     arr[0x4F] = Some("usage");
+
+    // HTTP / Web (0x50..0x5F)
+    arr[0x50] = Some("url");
+    arr[0x51] = Some("method");
+    arr[0x52] = Some("headers");
+    arr[0x53] = Some("body");
+    arr[0x54] = Some("query");
+    arr[0x55] = Some("status");
+    arr[0x56] = Some("cookie");
+    arr[0x57] = Some("session");
+    arr[0x58] = Some("token");
+    arr[0x59] = Some("auth");
+    arr[0x5A] = Some("redirect");
+    arr[0x5B] = Some("host");
+    arr[0x5C] = Some("port");
+    arr[0x5D] = Some("origin");
+    arr[0x5E] = Some("referrer");
+    arr[0x5F] = Some("agent");
+
+    // File System (0x60..0x6F)
+    arr[0x60] = Some("filename");
+    arr[0x61] = Some("directory");
+    arr[0x62] = Some("extension");
+    arr[0x63] = Some("size");
+    arr[0x64] = Some("modified");
+    arr[0x65] = Some("created");
+    arr[0x66] = Some("accessed");
+    arr[0x67] = Some("mode");
+    arr[0x68] = Some("owner");
+    arr[0x69] = Some("group");
+    arr[0x6A] = Some("symlink");
+    arr[0x6B] = Some("binary");
+    arr[0x6C] = Some("base64");
+    arr[0x6D] = Some("hash");
+    arr[0x6E] = Some("algorithm");
+    arr[0x6F] = Some("chunk");
+
+    // Operations (0x70..0x7F)
+    arr[0x70] = Some("execute");
+    arr[0x71] = Some("read");
+    arr[0x72] = Some("write");
+    arr[0x73] = Some("delete");
+    arr[0x74] = Some("update");
+    arr[0x75] = Some("create");
+    arr[0x76] = Some("search");
+    arr[0x77] = Some("list");
+    arr[0x78] = Some("get");
+    arr[0x79] = Some("set");
+    arr[0x7A] = Some("watch");
+    arr[0x7B] = Some("subscribe");
+    arr[0x7C] = Some("notify");
+    arr[0x7D] = Some("cancel");
+    arr[0x7E] = Some("pause");
+    arr[0x7F] = Some("resume");
 
     arr
 };

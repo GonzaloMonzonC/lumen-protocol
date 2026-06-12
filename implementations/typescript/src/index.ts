@@ -81,6 +81,8 @@ export {
 } from "./frame.js";
 export type { Frame, ParseResult } from "./frame.js";
 
+export { FrameAssembler } from "./frame-assembler.js";
+
 export {
   compressValue,
   compressInto,
