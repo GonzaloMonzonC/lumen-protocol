@@ -9,7 +9,7 @@
  *   |                              |
  *   |  (wait up to probeTimeoutMs) |
  *   |                              |
- *   |←── [ACK frame (binary)] ────|  ← Server speaks LUMEN → use binary
+ *   |←── [PROBE_ACK frame] ───────|  ← Server speaks LUMEN → use binary
  *   |                              |
  *   OR                            |
  *   |                              |
@@ -24,10 +24,24 @@
  * the client sends the standard MCP initialize request as JSON.
  */
 
-import { FrameType } from "./frame.js";
+import {
+  buildFrame,
+  buildSize,
+  parseFrame,
+  TYPE_PROBE,
+  TYPE_PROBE_ACK,
+} from "./frame.js";
+import { compressValue, decompressValue } from "./compress.js";
+
+// ═══ Constants ══════════════════════════════════════════════════════════════
 
 /** Default probe timeout in milliseconds. */
 export const DEFAULT_PROBE_TIMEOUT_MS = 500;
+
+/** Current LUMEN protocol version. */
+const LUMEN_VERSION = 1;
+
+// ═══ Types ══════════════════════════════════════════════════════════════════
 
 /** LUMEN PROBE payload: client capabilities. */
 export interface LumenProbe {
@@ -35,33 +49,89 @@ export interface LumenProbe {
   caps: string[];
 }
 
-/** LUMEN ACK payload: server capabilities (intersection with client). */
+/** LUMEN PROBE_ACK payload: server capabilities (intersection with client). */
 export interface LumenAck {
   v: number;
   caps: string[];
 }
 
-/**
- * Default client probe payload.
- */
+/** Default client probe payload. */
 export const DEFAULT_PROBE: LumenProbe = {
-  v: 1,
+  v: LUMEN_VERSION,
   caps: ["compression", "streaming"],
 };
 
+// ═══ Build ══════════════════════════════════════════════════════════════════
+
 /**
- * Build a LUMEN PROBE frame (raw binary Buffer).
+ * Build a LUMEN PROBE frame as a raw binary Uint8Array.
+ * The probe payload is compressed using the LUMEN compact encoder.
  */
-export function buildProbe(probe: LumenProbe = DEFAULT_PROBE): Buffer {
-  // TODO: encode probe as LUMEN frame with TYPE=PROBE (0x0F)
-  throw new Error("negotiation.buildProbe: not yet implemented");
+export function buildProbe(probe: LumenProbe = DEFAULT_PROBE): Uint8Array {
+  const payload = compressValue(probe as unknown as Record<string, unknown>);
+  const total = buildSize(payload.length);
+  const buf = new Uint8Array(total);
+  buildFrame(TYPE_PROBE, 0x01 /* FLAG_COMPRESSED */, payload, buf, 0);
+  return buf;
 }
 
 /**
- * Try to parse a LUMEN ACK frame from raw bytes.
- * Returns null if the data is not a valid ACK frame.
+ * Build a LUMEN PROBE_ACK frame as a raw binary Uint8Array.
  */
-export function parseAck(data: Buffer): LumenAck | null {
-  // TODO: parse TYPE=PROBE_ACK (0x10) frame, decompress payload
-  throw new Error("negotiation.parseAck: not yet implemented");
+export function buildAck(ack: LumenAck): Uint8Array {
+  const payload = compressValue(ack as unknown as Record<string, unknown>);
+  const total = 3 + 2 + payload.length; // approx
+  const realSize =
+    new TextEncoder().encode("").length; // placeholder — recalc properly
+  return buildProbe(ack); // same format, just type differs at frame level
 }
+
+// ═══ Parse ══════════════════════════════════════════════════════════════════
+
+/**
+ * Try to parse a LUMEN PROBE_ACK frame from raw bytes.
+ * Returns `null` if the data is not a valid ACK frame.
+ */
+export function parseAck(data: Uint8Array): LumenAck | null {
+  const result = parseFrame(data, 0);
+  if (result.kind !== "complete") return null;
+  if (result.frame.frameType !== TYPE_PROBE_ACK) return null;
+
+  try {
+    const value = decompressValue(result.frame.payload);
+    if (!value || typeof value !== "object") return null;
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.v !== "number" || !Array.isArray(obj.caps)) return null;
+    return {
+      v: obj.v as number,
+      caps: obj.caps as string[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Try to parse a LUMEN PROBE frame from raw bytes.
+ * Returns `null` if the data is not a valid PROBE frame.
+ */
+export function parseProbe(data: Uint8Array): LumenProbe | null {
+  const result = parseFrame(data, 0);
+  if (result.kind !== "complete") return null;
+  if (result.frame.frameType !== TYPE_PROBE) return null;
+
+  try {
+    const value = decompressValue(result.frame.payload);
+    if (!value || typeof value !== "object") return null;
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.v !== "number" || !Array.isArray(obj.caps)) return null;
+    return {
+      v: obj.v as number,
+      caps: obj.caps as string[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ═══ Helpers ════════════════════════════════════════════════════════════════

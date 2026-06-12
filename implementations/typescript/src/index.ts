@@ -7,20 +7,97 @@
  * @packageDocumentation
  */
 
-// ── Public API ───────────────────────────────────────────────────────────────
+// ═══ Transports ═════════════════════════════════════════════════════════════
 
-export { LumenStdioTransport } from "./transport.js";
-export { LumenWebSocketTransport } from "./transport.js";
-export type { LumenTransportOptions, LumenStdioOptions } from "./transport.js";
+export {
+  LumenStdioTransport,
+  LumenWebSocketTransport,
+} from "./transport.js";
+export type {
+  Transport,
+  JsonRpcMessage,
+  LumenTransportOptions,
+  LumenStdioOptions,
+  LumenWebSocketOptions,
+  WebSocketLike,
+  MessageEventLike,
+} from "./transport.js";
+export { WebSocketReadyState } from "./transport.js";
 
-// ── Low-level encoders (for advanced use) ────────────────────────────────────
+// ═══ Negotiation ════════════════════════════════════════════════════════════
 
-export { encodeHyb128, decodeHyb128, hyb128EncodedLen } from "./hyb128.js";
-export { buildFrame, parseFrame, FrameType, FrameFlag } from "./frame.js";
-export { compressValue, decompressValue } from "./compress.js";
-export { resolveDictId, lookupDictId } from "./dict.js";
+export {
+  buildProbe,
+  buildAck,
+  parseProbe,
+  parseAck,
+  DEFAULT_PROBE_TIMEOUT_MS,
+} from "./negotiation.js";
+export type { LumenProbe, LumenAck } from "./negotiation.js";
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ═══ Cadencia Bridge ════════════════════════════════════════════════════════
+
+export { CadenciaBridge } from "./cadencia.js";
+export type {
+  BridgeCommand,
+  BridgeResponse,
+  BridgeOptions,
+} from "./cadencia.js";
+
+// ═══ Low-level encoders (for advanced use) ══════════════════════════════════
+
+export {
+  encodeHyb128,
+  decodeHyb128,
+  encodedLen as hyb128EncodedLen,
+} from "./hyb128.js";
+export type { Hyb128Decoded } from "./hyb128.js";
+
+export {
+  buildFrame,
+  buildSize,
+  parseFrame,
+  typeName,
+  isCompressed,
+  isEncrypted,
+  isPriority,
+  isFragmented,
+  TYPE_REQUEST,
+  TYPE_RESPONSE,
+  TYPE_NOTIFY,
+  TYPE_STREAM_DATA,
+  TYPE_SCHEMA_PATCH,
+  TYPE_STREAM_INIT,
+  TYPE_DICT_SYNC,
+  TYPE_DISCOVER,
+  TYPE_MUX,
+  TYPE_HEARTBEAT,
+  TYPE_PROBE,
+  TYPE_PROBE_ACK,
+  FLAG_COMPRESSED,
+  FLAG_ENCRYPTED,
+  FLAG_PRIORITY,
+  FLAG_FRAGMENTED,
+} from "./frame.js";
+export type { Frame, ParseResult } from "./frame.js";
+
+export {
+  compressValue,
+  compressInto,
+  decompressValue,
+  compressedSize,
+} from "./compress.js";
+
+export {
+  resolveDictId,
+  lookupDictId,
+  ID_RAW,
+  STATIC_MAX,
+  SESSION_MAX,
+  TOTAL_ENTRIES,
+} from "./dict.js";
+
+// ═══ Constants ═══════════════════════════════════════════════════════════════
 
 /** LUMEN protocol version implemented by this package. */
 export const LUMEN_VERSION = 1;

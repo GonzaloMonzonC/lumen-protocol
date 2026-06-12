@@ -9,113 +9,156 @@
  *
  * Keys that appear in the static dictionary are encoded as 1 byte
  * instead of their full UTF-8 representation.
+ *
+ * Ported from Rust `src/dict.rs`.
  */
 
-/** Static dictionary: ID → key. Indexed by ID. */
-const STATIC_DICT: (string | null)[] = new Array(128).fill(null);
+// ═══ Reserved IDs ══════════════════════════════════════════════════════════
 
-/** Reverse lookup: key → ID. Built lazily. */
+/** Maximum static dictionary ID (exclusive). */
+export const STATIC_MAX = 0x80;
+
+/** Maximum session dictionary ID (exclusive). */
+export const SESSION_MAX = 0xff;
+
+/** Sentinel: key is not in the dictionary, sent as raw text. */
+export const ID_RAW = 0xff;
+
+/** Total number of usable dictionary entries (static + session). */
+export const TOTAL_ENTRIES = 255;
+
+// ═══ Static dictionary (128 entries, IDs 0x00..0x7F) ══════════════════════
+
+const STATIC_DICT: (string | null)[] = new Array(STATIC_MAX).fill(null);
+
+// Core MCP/RPC keys (0x00..0x0F)
+STATIC_DICT[0x00] = "tool";
+STATIC_DICT[0x01] = "arguments";
+STATIC_DICT[0x02] = "result";
+STATIC_DICT[0x03] = "error";
+STATIC_DICT[0x04] = "id";
+STATIC_DICT[0x05] = "name";
+STATIC_DICT[0x06] = "description";
+STATIC_DICT[0x07] = "content";
+STATIC_DICT[0x08] = "text";
+STATIC_DICT[0x09] = "type";
+STATIC_DICT[0x0a] = "method";
+STATIC_DICT[0x0b] = "params";
+STATIC_DICT[0x0c] = "jsonrpc";
+STATIC_DICT[0x0d] = "data";
+STATIC_DICT[0x0e] = "code";
+STATIC_DICT[0x0f] = "message";
+
+// Input/output (0x10..0x1F)
+STATIC_DICT[0x10] = "input";
+STATIC_DICT[0x11] = "output";
+STATIC_DICT[0x12] = "stream";
+STATIC_DICT[0x13] = "uri";
+STATIC_DICT[0x14] = "mimeType";
+STATIC_DICT[0x15] = "encoding";
+STATIC_DICT[0x16] = "language";
+STATIC_DICT[0x17] = "title";
+STATIC_DICT[0x18] = "value";
+STATIC_DICT[0x19] = "key";
+STATIC_DICT[0x1a] = "path";
+STATIC_DICT[0x1b] = "version";
+STATIC_DICT[0x1c] = "schema";
+STATIC_DICT[0x1d] = "default";
+STATIC_DICT[0x1e] = "required";
+STATIC_DICT[0x1f] = "properties";
+
+// Resources & tools (0x20..0x2F)
+STATIC_DICT[0x20] = "resources";
+STATIC_DICT[0x21] = "tools";
+STATIC_DICT[0x22] = "prompts";
+STATIC_DICT[0x23] = "resource";
+STATIC_DICT[0x24] = "prompt";
+STATIC_DICT[0x25] = "handler";
+STATIC_DICT[0x26] = "capabilities";
+STATIC_DICT[0x27] = "permissions";
+STATIC_DICT[0x28] = "scope";
+STATIC_DICT[0x29] = "tags";
+STATIC_DICT[0x2a] = "category";
+STATIC_DICT[0x2b] = "icon";
+STATIC_DICT[0x2c] = "metadata";
+STATIC_DICT[0x2d] = "timestamp";
+STATIC_DICT[0x2e] = "status";
+STATIC_DICT[0x2f] = "progress";
+
+// Errors & status (0x30..0x3F)
+STATIC_DICT[0x30] = "severity";
+STATIC_DICT[0x31] = "details";
+STATIC_DICT[0x32] = "cause";
+STATIC_DICT[0x33] = "stack";
+STATIC_DICT[0x34] = "line";
+STATIC_DICT[0x35] = "column";
+STATIC_DICT[0x36] = "source";
+STATIC_DICT[0x37] = "retry";
+STATIC_DICT[0x38] = "timeout";
+STATIC_DICT[0x39] = "limit";
+STATIC_DICT[0x3a] = "offset";
+STATIC_DICT[0x3b] = "count";
+STATIC_DICT[0x3c] = "total";
+STATIC_DICT[0x3d] = "page";
+STATIC_DICT[0x3e] = "cursor";
+STATIC_DICT[0x3f] = "next";
+
+// LLM-specific (0x40..0x4F)
+STATIC_DICT[0x40] = "model";
+STATIC_DICT[0x41] = "provider";
+STATIC_DICT[0x42] = "temperature";
+STATIC_DICT[0x43] = "max_tokens";
+STATIC_DICT[0x44] = "stop";
+STATIC_DICT[0x45] = "frequency_penalty";
+STATIC_DICT[0x46] = "presence_penalty";
+STATIC_DICT[0x47] = "top_p";
+STATIC_DICT[0x48] = "logprobs";
+STATIC_DICT[0x49] = "user";
+STATIC_DICT[0x4a] = "system";
+STATIC_DICT[0x4b] = "assistant";
+STATIC_DICT[0x4c] = "function";
+STATIC_DICT[0x4d] = "tool_calls";
+STATIC_DICT[0x4e] = "finish_reason";
+STATIC_DICT[0x4f] = "usage";
+
+// ═══ Reverse lookup (lazily-built O(1) HashMap) ═══════════════════════════
+
 let reverseMap: Map<string, number> | null = null;
 
-// ── Static entries (aligned with Rust dict.rs) ───────────────────────────────
-
-const STATIC_ENTRIES: [number, string][] = [
-  [0x00, "tool"],
-  [0x01, "arguments"],
-  [0x02, "result"],
-  [0x03, "error"],
-  [0x04, "method"],
-  [0x05, "params"],
-  [0x06, "id"],
-  [0x07, "jsonrpc"],
-  [0x08, "text"],
-  [0x09, "data"],
-  [0x0A, "code"],
-  [0x0B, "message"],
-  [0x0C, "name"],
-  [0x0D, "description"],
-  [0x0E, "type"],
-  [0x0F, "content"],
-  [0x10, "uri"],
-  [0x11, "path"],
-  [0x12, "query"],
-  [0x13, "value"],
-  [0x14, "key"],
-  [0x15, "url"],
-  [0x16, "title"],
-  [0x17, "status"],
-  [0x18, "version"],
-  [0x19, "language"],
-  [0x1A, "inputSchema"],
-  [0x1B, "properties"],
-  [0x1C, "required"],
-  [0x1D, "stream"],
-  [0x1E, "token"],
-  [0x20, "resources"],
-  [0x21, "tools"],
-  [0x22, "prompts"],
-  [0x30, "model"],
-  [0x31, "provider"],
-  [0x32, "temperature"],
-  [0x33, "max_tokens"],
-  [0x34, "stop"],
-  [0x40, "command"],
-  [0x41, "args"],
-  [0x42, "env"],
-  [0x43, "cwd"],
-  [0x4F, "usage"],
-  [0x50, "total"],
-  [0x51, "prompt"],
-  [0x52, "completion"],
-  [0x60, "file"],
-  [0x61, "start_line"],
-  [0x62, "end_line"],
-  [0x63, "max_results"],
-  [0x64, "recursive"],
-  [0x65, "overwrite"],
-  [0x66, "timeout_ms"],
-  [0x67, "working_dir"],
-  [0x68, "severity"],
-  [0x69, "operation"],
-];
-
-// Initialize static dictionary
-for (const [id, key] of STATIC_ENTRIES) {
-  STATIC_DICT[id] = key;
+function getReverseMap(): Map<string, number> {
+  if (!reverseMap) {
+    reverseMap = new Map();
+    for (let i = 0; i < STATIC_MAX; i++) {
+      const key = STATIC_DICT[i];
+      if (key !== null) {
+        reverseMap.set(key, i);
+      }
+    }
+  }
+  return reverseMap;
 }
 
-/** Sentinel: raw UTF-8 key follows. */
-export const ID_RAW = 0xFF;
-
-/** Maximum static dictionary ID. */
-export const STATIC_MAX = 0x7F;
-
-// ── Public API ───────────────────────────────────────────────────────────────
+// ═══ Public API ════════════════════════════════════════════════════════════
 
 /**
  * Resolve a dictionary ID to its key string.
  * Returns `null` if the ID is not in the static dictionary.
+ * ID 0xFF (`ID_RAW`) always returns `null` (meaning "inline text").
  */
 export function resolveDictId(id: number): string | null {
-  if (id < STATIC_DICT.length) {
+  if (id < STATIC_MAX) {
     return STATIC_DICT[id];
   }
+  // Session dictionary not yet implemented
   return null;
 }
 
 /**
- * Look up a key in the dictionary, returning its ID.
- * Returns `null` if the key is not in the static dictionary.
+ * O(1) reverse lookup: find the static dictionary ID for a key string.
+ * Uses a lazily-built `Map` for constant-time lookup.
+ *
+ * Always prefer this over linear scan in hot paths (serialization, compression).
  */
 export function lookupDictId(key: string): number | null {
-  if (!reverseMap) {
-    reverseMap = new Map();
-    for (let i = 0; i < STATIC_DICT.length; i++) {
-      const k = STATIC_DICT[i];
-      if (k !== null) {
-        reverseMap.set(k, i);
-      }
-    }
-  }
-  return reverseMap.get(key) ?? null;
+  return getReverseMap().get(key) ?? null;
 }
