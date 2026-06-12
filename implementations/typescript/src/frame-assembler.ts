@@ -58,9 +58,20 @@ export class FrameAssembler {
     const frames: Frame[] = [];
 
     // Ensure we're working with Uint8Array (not Buffer subclass)
-    const data = chunk instanceof Uint8Array
+    let data = chunk instanceof Uint8Array
       ? new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)
       : new Uint8Array(chunk);
+
+    // If we have buffered partial header bytes (target === 0 sentinel),
+    // prepend them to the new chunk so we can retry Hyb128 decode from scratch.
+    if (this.buf !== null && this.target === 0) {
+      const merged = new Uint8Array(this.filled + data.length);
+      merged.set(this.buf.subarray(0, this.filled), 0);
+      merged.set(data, this.filled);
+      this.buf = null;
+      this.filled = 0;
+      data = merged;
+    }
 
     let offset = 0;
 
@@ -116,11 +127,13 @@ export class FrameAssembler {
     // Attempt Hyb128 decode on available data
     const decoded = decodeHyb128(data, offset);
     if (!decoded) {
-      // Incomplete Hyb128 header — buffer everything we have
+      // Incomplete Hyb128 header — buffer and wait.
+      // target = 0 is the sentinel: "header not yet determined".
       this.allocateBuffer(remaining);
       this.buf!.set(data.subarray(offset), 0);
       this.filled = remaining;
-      return data.length; // consumed everything
+      this.target = 0;
+      return data.length; // consumed everything, waiting for more
     }
 
     const headerLen = decoded.headerLen;
