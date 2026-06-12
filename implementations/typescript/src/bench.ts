@@ -202,6 +202,139 @@ function benchFraming(): BenchResult[] {
   return r;
 }
 
+// I. Asalto 2: String escape stress — JSON.stringify sufre, LUMEN raw copy gana
+function benchStringEscape(): BenchResult[] {
+  const r: BenchResult[] = [];
+
+  // Build payloads with strings that need heavy JSON escaping
+  const escapePayloads: Array<{ name: string; str: string }> = [
+    { name: "code_json_1KB", str: '{"data":"' + 'console.log("hello world");\\nlet x = "test";\\n'.repeat(30) + '"}' },
+    { name: "quotes_heavy", str: '"'.repeat(2000) + 'normal text' + '"'.repeat(2000) },
+    { name: "newlines_tabs", str: 'line1\\nline2\\tindented\\r\\n'.repeat(500) },
+    { name: "backslash_hell", str: '\\\\'.repeat(1500) + 'normal' },
+    { name: "mixed_escape_4KB", str: '{"path":"C:\\\\Users\\\\test","code":"function foo() {\\n\\treturn \\"bar\\";\\n}"}'.repeat(60) },
+  ];
+
+  for (const { name, str } of escapePayloads) {
+    const obj = { content: str };
+    const runs = 2000;
+
+    // JSON.stringify
+    for (let w = 0; w < 30; w++) JSON.stringify(obj);
+    const t0 = performance.now();
+    for (let i = 0; i < runs; i++) JSON.stringify(obj);
+    const jMs = performance.now() - t0;
+    const jOps = Math.round((runs / jMs) * 1000);
+
+    // compressValue
+    for (let w = 0; w < 30; w++) compressValue(obj);
+    const t1 = performance.now();
+    for (let i = 0; i < runs; i++) compressValue(obj);
+    const lMs = performance.now() - t1;
+    const lOps = Math.round((runs / lMs) * 1000);
+
+    const speedup = Math.round((lOps / jOps) * 100) / 100;
+    const jsonStr = JSON.stringify(obj);
+    const jsonBytes = new TextEncoder().encode(jsonStr).length;
+    const compBytes = compressValue(obj).length;
+
+    r.push({
+      name: `Escape JSON.stringify ${name}`, category: "escape_json",
+      ops: runs, durationMs: Math.round(jMs * 100) / 100, opsPerSec: jOps,
+      bytesProcessed: jsonBytes * runs,
+      bytesPerSec: Math.round((jsonBytes * runs) / (jMs / 1000)),
+      extra: { scenario: name, jsonBytes, stringLen: str.length },
+    });
+    r.push({
+      name: `Escape compressValue ${name}`, category: "escape_lumen",
+      ops: runs, durationMs: Math.round(lMs * 100) / 100, opsPerSec: lOps,
+      bytesProcessed: compBytes * runs,
+      bytesPerSec: Math.round((compBytes * runs) / (lMs / 1000)),
+      extra: { scenario: name, compressedBytes: compBytes, speedupVsJson: speedup, stringLen: str.length },
+    });
+  }
+  return r;
+}
+
+// J. Asalto 3: GC pressure — dict dedup vs JSON string explosion
+function benchGcPressure(): BenchResult[] {
+  const r: BenchResult[] = [];
+
+  // Build a tools/list with 500 tools — massive key repetition
+  const tool = (i: number) => ({
+    name: `tool_${i}`,
+    description: `Tool number ${i} for automated testing of the MCP protocol with LUMEN binary encoding`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path to operate on" },
+        content: { type: "string", description: "Content to write" },
+        options: {
+          type: "object",
+          properties: {
+            overwrite: { type: "boolean" },
+            encoding: { type: "string", enum: ["utf8", "base64", "hex"] },
+            permissions: { type: "number" },
+          },
+        },
+      },
+      required: ["path"],
+    },
+  });
+
+  const toolsArray = Array.from({ length: 500 }, (_, i) => tool(i));
+  const toolsPayload = { jsonrpc: "2.0", id: 1, result: { tools: toolsArray } };
+
+  // JSON round
+  const jsonStr = JSON.stringify(toolsPayload);
+  const jsonBytes = new TextEncoder().encode(jsonStr).length;
+  const compressed = compressValue(toolsPayload);
+
+  // Measure heap before/after JSON.parse
+  if (global.gc) global.gc();
+  const heapBeforeJson = process.memoryUsage().heapUsed;
+  const t0 = performance.now();
+  const parsed = JSON.parse(jsonStr);
+  const jsonMs = performance.now() - t0;
+  const heapAfterJson = process.memoryUsage().heapUsed;
+  const jsonHeapDelta = heapAfterJson - heapBeforeJson;
+
+  // Measure heap before/after decompressValue
+  if (global.gc) global.gc();
+  const heapBeforeLumen = process.memoryUsage().heapUsed;
+  const t1 = performance.now();
+  const decompressed = decompressValue(compressed);
+  const lumenMs = performance.now() - t1;
+  const heapAfterLumen = process.memoryUsage().heapUsed;
+  const lumenHeapDelta = heapAfterLumen - heapBeforeLumen;
+
+  // Prevent GC from collecting our results during measurement
+  void parsed;
+  void decompressed;
+
+  const heapRatio = Math.round((lumenHeapDelta / jsonHeapDelta) * 100) / 100;
+  const timeRatio = Math.round((lumenMs / jsonMs) * 100) / 100;
+
+  r.push({
+    name: "GC Pressure JSON.parse 500tools", category: "gc_json",
+    ops: 1, durationMs: Math.round(jsonMs * 100) / 100,
+    opsPerSec: Math.round(1000 / jsonMs),
+    bytesProcessed: jsonBytes,
+    bytesPerSec: Math.round(jsonBytes / (jsonMs / 1000)),
+    extra: { tools: 500, jsonBytes, heapDeltaBytes: jsonHeapDelta, heapDeltaKB: Math.round(jsonHeapDelta / 1024) },
+  });
+  r.push({
+    name: "GC Pressure decompressValue 500tools", category: "gc_lumen",
+    ops: 1, durationMs: Math.round(lumenMs * 100) / 100,
+    opsPerSec: Math.round(1000 / lumenMs),
+    bytesProcessed: compressed.length,
+    bytesPerSec: Math.round(compressed.length / (lumenMs / 1000)),
+    extra: { tools: 500, compressedBytes: compressed.length, heapDeltaBytes: lumenHeapDelta, heapDeltaKB: Math.round(lumenHeapDelta / 1024), heapRatioVsJson: heapRatio, timeRatioVsJson: timeRatio },
+  });
+
+  return r;
+}
+
 // Main
 const report: BenchReport = {
   timestamp: new Date().toISOString(),
@@ -222,6 +355,8 @@ console.error("E. Encode...");         report.results.push(...benchEncode());
 console.error("F. Decode...");         report.results.push(...benchDecode());
 console.error("G. Roundtrip...");      report.results.push(...benchRoundtrip());
 console.error("H. Framing...");        report.results.push(...benchFraming());
+console.error("I. String Escape...");   report.results.push(...benchStringEscape());
+console.error("J. GC Pressure...");     report.results.push(...benchGcPressure());
 
 console.log(JSON.stringify(report, null, 2));
 console.error(`\nDone. ${report.results.length} benchmarks.`);
