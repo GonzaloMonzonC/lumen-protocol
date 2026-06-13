@@ -37,7 +37,6 @@ from .frame import (
 # ═══ Constants ════════════════════════════════════════════════════════════════
 
 DEFAULT_PROBE_TIMEOUT_MS: float = 500.0
-_LUMEN_VERSION: int = 1
 
 
 # ═══ Types ════════════════════════════════════════════════════════════════════
@@ -47,45 +46,77 @@ _LUMEN_VERSION: int = 1
 class LumenProbe:
     """LUMEN PROBE payload: client capabilities."""
 
-    v: int = _LUMEN_VERSION
-    caps: list[str] = field(default_factory=lambda: ["compression", "streaming"])
+    protocol: str = "LUMEN"
+    version: str = "1.0"
+    client_name: str = ""
+    supported_versions: list[str] = field(default_factory=lambda: ["1.0"])
+
+    def to_bytes(self) -> bytes:
+        """Serialize this probe to wire format (PROBE frame)."""
+        return _build_probe_frame(self)
 
 
 @dataclass
 class LumenAck:
     """LUMEN PROBE_ACK payload: server capabilities (intersection with client)."""
 
-    v: int
-    caps: list[str]
+    protocol: str = "LUMEN"
+    server_name: str = ""
+    accepted_version: str = ""
 
-
-DEFAULT_PROBE: LumenProbe = LumenProbe()
+    def to_bytes(self) -> bytes:
+        """Serialize this ack to wire format (PROBE_ACK frame)."""
+        return _build_ack_frame(self)
 
 
 # ═══ Build ════════════════════════════════════════════════════════════════════
 
 
-def build_probe(probe: LumenProbe | None = None) -> bytes:
-    """Build a LUMEN PROBE frame as raw bytes.
+def _build_probe_frame(probe: LumenProbe) -> bytes:
+    """Internal: build PROBE frame bytes from a LumenProbe."""
+    payload = compress_value({
+        "protocol": probe.protocol,
+        "version": probe.version,
+        "client_name": probe.client_name,
+        "supported_versions": probe.supported_versions,
+    })
+    frame = build_frame(TYPE_PROBE, FLAG_COMPRESSED, payload)
+    return frame.to_bytes()
 
-    The probe payload is compressed using the LUMEN compact encoder.
+
+def build_probe(
+    client_name: str = "",
+    supported_versions: list[str] | None = None,
+    version: str = "1.0",
+) -> LumenProbe:
+    """Build a LUMEN PROBE object.
+
+    Returns a :class:`LumenProbe`. Call ``.to_bytes()`` for wire format.
     """
-    if probe is None:
-        probe = DEFAULT_PROBE
-    payload = compress_value({"v": probe.v, "caps": probe.caps})
-    total = build_size(len(payload))
-    buf = bytearray(total)
-    build_frame(TYPE_PROBE, FLAG_COMPRESSED, payload, buf, 0)
-    return bytes(buf)
+    return LumenProbe(
+        client_name=client_name,
+        supported_versions=supported_versions or ["1.0"],
+        version=version,
+    )
 
 
-def build_ack(ack: LumenAck) -> bytes:
-    """Build a LUMEN PROBE_ACK frame as raw bytes."""
-    payload = compress_value({"v": ack.v, "caps": ack.caps})
-    total = build_size(len(payload))
-    buf = bytearray(total)
-    build_frame(TYPE_PROBE_ACK, FLAG_COMPRESSED, payload, buf, 0)
-    return bytes(buf)
+def _build_ack_frame(ack: LumenAck) -> bytes:
+    """Internal: build PROBE_ACK frame bytes from a LumenAck."""
+    payload = compress_value({
+        "protocol": ack.protocol,
+        "server_name": ack.server_name,
+        "accepted_version": ack.accepted_version,
+    })
+    frame = build_frame(TYPE_PROBE_ACK, FLAG_COMPRESSED, payload)
+    return frame.to_bytes()
+
+
+def build_ack(server_name: str = "", accepted_version: str = "") -> LumenAck:
+    """Build a LUMEN PROBE_ACK object.
+
+    Returns a :class:`LumenAck`. Call ``.to_bytes()`` for wire format.
+    """
+    return LumenAck(server_name=server_name, accepted_version=accepted_version)
 
 
 # ═══ Parse ════════════════════════════════════════════════════════════════════
@@ -106,11 +137,11 @@ def parse_ack(data: bytes | bytearray | memoryview) -> LumenAck | None:
         value = decompress_value(result.frame.payload)
         if not isinstance(value, dict):
             return None
-        v = value.get("v")
-        caps = value.get("caps")
-        if not isinstance(v, int) or not isinstance(caps, list):
-            return None
-        return LumenAck(v=v, caps=list(caps))
+        return LumenAck(
+            protocol=str(value.get("protocol", "LUMEN")),
+            server_name=str(value.get("server_name", "")),
+            accepted_version=str(value.get("accepted_version", "")),
+        )
     except Exception:
         return None
 
@@ -130,10 +161,14 @@ def parse_probe(data: bytes | bytearray | memoryview) -> LumenProbe | None:
         value = decompress_value(result.frame.payload)
         if not isinstance(value, dict):
             return None
-        v = value.get("v")
-        caps = value.get("caps")
-        if not isinstance(v, int) or not isinstance(caps, list):
-            return None
-        return LumenProbe(v=v, caps=list(caps))
+        sv = value.get("supported_versions", [])
+        if not isinstance(sv, list):
+            sv = [str(sv)]
+        return LumenProbe(
+            protocol=str(value.get("protocol", "LUMEN")),
+            version=str(value.get("version", "1.0")),
+            client_name=str(value.get("client_name", "")),
+            supported_versions=[str(v) for v in sv],
+        )
     except Exception:
         return None

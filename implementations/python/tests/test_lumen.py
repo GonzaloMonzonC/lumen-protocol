@@ -411,9 +411,12 @@ class TestCompressDictKeys:
         assert len(compressed) < len(json.dumps(value)) * 2
 
     def test_raw_key_uses_string_tag(self):
-        value = {"customKeyNotInDict": "value"}
+        """Unknown keys use ID_RAW (0xFF) escape in object key position."""
+        value = {"customKeyNotInDict": "test_value"}
         compressed = compress_value(value)
-        assert TAG_STR_RAW in compressed
+        # ID_RAW (0xFF) signals a raw key follows; TAG_STR_RAW (0xE5) is for
+        # standalone string values, not object keys.
+        assert ID_RAW in compressed
 
 
 # ═══ Frame tests ══════════════════════════════════════════════════════════════
@@ -422,14 +425,14 @@ class TestCompressDictKeys:
 class TestFrameBuildBasic:
     def test_build_no_payload(self):
         f = build_frame(TYPE_HEARTBEAT)
-        assert f.type == TYPE_HEARTBEAT
+        assert f.frame_type == TYPE_HEARTBEAT
         assert f.flags == 0
         assert f.payload == b""
         assert not is_compressed(f)
 
     def test_build_with_payload(self):
         f = build_frame(TYPE_RESPONSE, payload=b"test")
-        assert f.type == TYPE_RESPONSE
+        assert f.frame_type == TYPE_RESPONSE
         assert f.payload == b"test"
 
     def test_build_with_flags(self):
@@ -437,10 +440,11 @@ class TestFrameBuildBasic:
         assert is_compressed(f)
 
     def test_build_size_no_payload(self):
-        assert build_size(TYPE_HEARTBEAT) == 4  # 1B Hyb128 len + 1B type + 1B flags + 1B len field (mode 00)
+        # Zero-payload frame: 1B Hyb128(len=0) + 1B type + 1B flags = 3 bytes
+        assert build_size(0) == 3
 
     def test_build_size_with_payload(self):
-        size = build_size(TYPE_RESPONSE, payload_len=100)
+        size = build_size(payload_len=100)
         assert size > 100  # header + payload
 
 
@@ -450,7 +454,7 @@ class TestFrameParse:
         wire = f.to_bytes()
         result = parse_frame(wire)
         assert isinstance(result, ParseComplete)
-        assert result.frame.type == TYPE_NOTIFY
+        assert result.frame.frame_type == TYPE_NOTIFY
         assert result.frame.payload == b""
 
     def test_roundtrip_with_payload(self):
@@ -468,7 +472,8 @@ class TestFrameParse:
         assert is_compressed(result.frame)
 
     def test_incomplete_header(self):
-        result = parse_frame(b"\x00")
+        # Mode 10 needs 3 bytes for Hyb128 header; 1 byte is incomplete
+        result = parse_frame(b"\x80")
         assert isinstance(result, ParseIncomplete)
 
     def test_empty_buffer(self):
@@ -481,7 +486,7 @@ class TestFrameParse:
         # truncate last 3 bytes
         result = parse_frame(wire[:-3])
         assert isinstance(result, ParseIncompletePayload)
-        assert result.expected_len > len(wire[:-3])
+        assert result.expected > len(wire[:-3])
 
 
 # ═══ Frame Assembler tests ════════════════════════════════════════════════════
@@ -522,7 +527,8 @@ class TestFrameAssembler:
         wire = f.to_bytes()
         assembler.push(wire[:3])
         flushed = assembler.flush()
-        assert len(flushed) == 0  # partial frame discarded or buffered
+        # flush() returns the buffered partial bytes (not parsed into frames)
+        assert len(flushed) == 3  # 3 partial bytes returned
 
     def test_reset(self):
         assembler = FrameAssembler()
