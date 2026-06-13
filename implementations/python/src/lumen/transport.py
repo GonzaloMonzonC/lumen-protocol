@@ -22,6 +22,7 @@ from .compress import compress_value, decompress_value
 from .frame import (
     FLAG_COMPRESSED,
     TYPE_NOTIFY,
+    TYPE_PROBE_ACK,
     TYPE_REQUEST,
     TYPE_RESPONSE,
     build_frame,
@@ -31,10 +32,7 @@ from .frame import (
 from .frame_assembler import FrameAssembler
 from .negotiation import (
     DEFAULT_PROBE_TIMEOUT_MS,
-    LumenAck,
-    build_ack,
     build_probe,
-    parse_probe,
 )
 
 logger = logging.getLogger(__name__)
@@ -144,7 +142,7 @@ class LumenStdioTransport(Transport):
         if not self._force_json_rpc:
             probe = build_probe()
             assert self._process.stdin
-            self._process.stdin.write(probe)
+            self._process.stdin.write(probe.to_bytes())
             self._process.stdin.flush()
 
             if await self._wait_for_ack():
@@ -211,7 +209,7 @@ class LumenStdioTransport(Transport):
 
         payload = compress_value(message)
         frame = build_frame(frame_type, FLAG_COMPRESSED, payload)
-        self._process.stdin.write(frame)
+        self._process.stdin.write(frame.to_bytes())
         self._process.stdin.flush()
 
     # ── Receive helpers ────────────────────────────────────────────────────
@@ -329,9 +327,12 @@ class LumenStdioTransport(Transport):
 
             frames = self._assembler.push(chunk)
             for frame in frames:
-                if frame.frame_type == 0x10:  # TYPE_PROBE_ACK
-                    ack = parse_probe(frame.payload)
-                    return ack is not None
+                if frame.frame_type == TYPE_PROBE_ACK:
+                    try:
+                        value = decompress_value(frame.payload)
+                        return isinstance(value, dict) and "server_name" in value
+                    except Exception:
+                        return False
 
         return False
 
@@ -387,7 +388,7 @@ class LumenWebSocketTransport(Transport):
         # ── LUMEN negotiation ──────────────────────────────────────────
         if not self._force_json_rpc:
             probe = build_probe()
-            await self._ws.send(probe)
+            await self._ws.send(probe.to_bytes())
             try:
                 ack_data = await asyncio.wait_for(
                     self._ws.recv(), timeout=self._probe_timeout_ms
@@ -396,7 +397,7 @@ class LumenWebSocketTransport(Transport):
                 pass  # fallback to JSON-RPC
             else:
                 if isinstance(ack_data, bytes):
-                    ack = parse_probe(ack_data)
+                    ack = parse_ack(ack_data)
                     if ack:
                         self._use_lumen = True
 
@@ -409,7 +410,7 @@ class LumenWebSocketTransport(Transport):
         if self._use_lumen:
             payload = compress_value(message)
             frame = build_frame(TYPE_REQUEST, FLAG_COMPRESSED, payload)
-            await self._ws.send(bytes(frame))
+            await self._ws.send(frame.to_bytes())
         else:
             await self._ws.send(json.dumps(message, ensure_ascii=False))
 

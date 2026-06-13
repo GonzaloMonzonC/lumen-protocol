@@ -58,15 +58,25 @@ FLAG_FRAGMENTED: int = 0x08
 # ═══ Frame struct ═════════════════════════════════════════════════════════════
 
 
-class Frame(NamedTuple):
-    """A parsed LUMEN frame header + payload reference."""
+class Frame:
+    """A parsed LUMEN frame header + payload."""
 
-    frame_type: int
-    """Frame type (see TYPE_* constants)."""
-    flags: int
-    """Bitmask of FLAG_*."""
-    payload: bytes
-    """Payload bytes — a copy for Python (no zero-copy across the GIL)."""
+    __slots__ = ("frame_type", "flags", "payload")
+
+    def __init__(self, frame_type: int, flags: int, payload: bytes) -> None:
+        self.frame_type = frame_type
+        self.flags = flags
+        self.payload = payload
+
+    def to_bytes(self) -> bytes:
+        """Serialize this frame to wire format."""
+        return _build_wire(self.frame_type, self.flags, self.payload)
+
+    def __repr__(self) -> str:
+        return (
+            f"Frame(type={type_name(self.frame_type)}, flags=0x{self.flags:02X}, "
+            f"payload_len={len(self.payload)})"
+        )
 
 
 # ═══ ParseResult ══════════════════════════════════════════════════════════════
@@ -86,27 +96,35 @@ class ParseError(NamedTuple):
     message: str
 
 
-ParseResult = ParseComplete | ParseIncompletePayload | type(ParseIncomplete)
+class ParseIncomplete:
+    """Sentinel for incomplete frame header parse (not enough bytes)."""
+    __slots__ = ()
 
-# Sentinel for incomplete parse (not enough header bytes yet).
-ParseIncomplete = type("ParseIncomplete", (), {})()
+    _instance: ParseIncomplete | None = None
+
+    def __new__(cls) -> ParseIncomplete:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "ParseIncomplete"
+
+
+ParseResult = ParseComplete | ParseIncompletePayload | ParseIncomplete
 
 
 # ═══ Builder ══════════════════════════════════════════════════════════════════
 
 
-def build_frame(
+def _build_wire(
     frame_type: int,
     flags: int,
     payload: bytes | bytearray,
     buf: bytearray | None = None,
     offset: int = 0,
 ) -> bytes:
-    """Build a LUMEN frame.
-
-    If *buf* is given, write into it at *offset*; otherwise allocate a new
-    :class:`bytes` object.
-    """
+    """Low-level: write frame to wire format bytes."""
     header_len = hyb128_encoded_len(len(payload))
     total = header_len + 2 + len(payload)
 
@@ -121,8 +139,29 @@ def build_frame(
     return bytes(buf[offset : offset + total])
 
 
-def build_size(payload_len: int) -> int:
-    """Total buffer size needed for a frame with the given payload length."""
+def build_frame(
+    frame_type: int,
+    flags: int = 0,
+    payload: bytes | bytearray = b"",
+    buf: bytearray | None = None,
+    offset: int = 0,
+) -> Frame:
+    """Build a LUMEN frame.
+
+    Returns a :class:`Frame` object. Use ``frame.to_bytes()`` for wire format.
+    If *buf* is given, the wire bytes are also written into it at *offset*.
+    """
+    if buf is not None:
+        _build_wire(frame_type, flags, payload, buf, offset)
+    return Frame(frame_type=frame_type, flags=flags, payload=bytes(payload))
+
+
+def build_size(frame_type: int = 0, payload_len: int = 0) -> int:
+    """Total wire size needed for a frame.
+
+    The *frame_type* parameter is accepted for API compatibility but ignored
+    (type is always 1 byte regardless of value).
+    """
     return hyb128_encoded_len(payload_len) + 2 + payload_len
 
 
@@ -139,12 +178,12 @@ def parse_frame(data: bytes | bytearray | memoryview, offset: int = 0) -> ParseR
         - :class:`ParseError` — malformed data
     """
     if offset >= len(data):
-        return ParseIncomplete
+        return ParseIncomplete()
 
     # Decode Hyb128 length
     decoded = decode_hyb128(data, offset)
     if decoded is None:
-        return ParseIncomplete
+        return ParseIncomplete()
 
     payload_len, header_len = decoded
 
