@@ -173,20 +173,13 @@ _STATIC_DICT[0x7E] = "pause"
 _STATIC_DICT[0x7F] = "resume"
 
 
-# ═══ Reverse lookup (lazily-built O(1) dict) ═════════════════════════════════
+# ═══ Reverse lookup — eagerly built O(1) dict ════════════════════════════════
 
-_reverse_map: dict[str, int] | None = None
-
-
-def _get_reverse_map() -> dict[str, int]:
-    global _reverse_map
-    if _reverse_map is None:
-        _reverse_map = {}
-        for i in range(STATIC_MAX):
-            key = _STATIC_DICT[i]
-            if key is not None:
-                _reverse_map[key] = i
-    return _reverse_map
+_reverse_map: dict[str, int] = {}
+for i in range(STATIC_MAX):
+    key = _STATIC_DICT[i]
+    if key is not None:
+        _reverse_map[key] = i
 
 
 # ═══ Public API ═══════════════════════════════════════════════════════════════
@@ -214,4 +207,4 @@ def lookup_dict_id(key: str) -> int | None:
     0
     >>> lookup_dict_id("nonexistent")
     """
-    return _get_reverse_map().get(key)
+    return _reverse_map.get(key)
