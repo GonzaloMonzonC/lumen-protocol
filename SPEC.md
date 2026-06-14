@@ -221,10 +221,10 @@ Inmediatamente después del Hyb128:
 | `0x0A` | `HEARTBEAT` | ↔ | Keep-alive |
 | `0x0B` | `TRANSPORT_INIT` | C→S | Transport capability negotiation init (§2.2) |
 | `0x0C` | `TRANSPORT_ACK` | S→C | Transport capability negotiation ack (§2.2) |
-| `0x0D–0x0F` | *Reservados* | — | Para futura expansión |
-| `0x0F` | `PROBE` | C→S | Protocol-level negotiation probe (TS-only) |
-| `0x10` | `PROBE_ACK` | S→C | Protocol-level negotiation ack (TS-only) |
-| `0x10+` | *Reservados* | — | Para futura expansión |
+| `0x0D–0x0E` | *Reservados* | — | Para futura expansión |
+| `0x0F` | `PROBE` | C→S | Protocol negotiation probe (may carry X25519 public key) |
+| `0x10` | `PROBE_ACK` | S→C | Protocol negotiation ack (may carry X25519 public key) |
+| `0x11+` | *Reservados* | — | Para futura expansión |
 
 **FLAGS** — bitmask de 8 bits:
 
@@ -399,6 +399,121 @@ Delega a sub-agente:   op: filesystem.read:/home/user/project/src  ← atenuado
 Sub-agente NO puede:   ❌ Leer /etc/passwd
 ```
 
+### 7.4 Wire Encryption (ChaCha20-Poly1305 + X25519)
+
+LUMEN soporta **cifrado autenticado a nivel de frame** mediante ChaCha20-Poly1305 AEAD
+con intercambio de claves X25519. El cifrado es opcional y se negocia durante el
+handshake PROBE/PROBE_ACK.
+
+#### 7.4.1 Formato del payload cifrado
+
+Cuando `FLAG_ENCRYPTED` (0x02) está activo, el payload del frame contiene:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [NONCE:12B] [CIPHERTEXT:N bytes] [TAG:16B]                   │
+└──────────────────────────────────────────────────────────────┘
+
+Overhead total: 28 bytes (12B nonce + 16B Poly1305 tag)
+```
+
+El frame completo en el wire:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [Hyb128:LEN] [TYPE:1B] [FLAGS:1B | 0x02] [encrypted_payload] │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### 7.4.2 Nonce
+
+Nonce ChaCha20-Poly1305 de 96 bits (12 bytes):
+
+```
+[NONCE:12B] = [COUNTER:u64 LE][ZEROS:4B]
+```
+
+- **Counter**: Monótonamente creciente, independiente por dirección
+  (client→server y server→client empiezan en 0).
+- **Zeros**: 4 bytes a cero para prevenir colisiones.
+
+El receptor **DEBE** rechazar frames con nonce menor o igual al último recibido
+(protección anti-replay).
+
+#### 7.4.3 Key Exchange (X25519)
+
+```
+Cliente                               Servidor
+  │                                      │
+  │ 1. Genera keypair X25519             │
+  │ 2. PROBE { pk: <pubkey_b64> }  ────→│
+  │                                      │ 3. Genera keypair X25519
+  │                                      │ 4. Deriva shared secret
+  │ 5. Deriva shared secret              │
+  │ 6. PROBE_ACK { pk: <pubkey_b64> } ←─│
+  │                                      │
+  │  ◄════ frames cifrados ════════════►│
+```
+
+- Cada lado genera un keypair X25519 **efímero** (no reutilizado entre sesiones).
+- El shared secret de 32 bytes se usa directamente como clave ChaCha20-Poly1305.
+- Las claves públicas (32 bytes) se codifican en **base64** dentro del JSON de PROBE/PROBE_ACK.
+- Si el servidor no incluye `pk` en su ACK, el cifrado **no se negocia** y la comunicación
+  continúa en texto plano.
+
+#### 7.4.4 API
+
+```rust
+// Rust
+use lumen::crypto::{Keypair, Cipher};
+
+let kp = Keypair::generate();
+let shared = kp.derive_shared_secret(&peer_public);
+let mut cipher = Cipher::new(&shared);
+
+let frame = cipher.build_encrypted_frame(TYPE_REQUEST, 0, b"payload");
+// ... enviar frame ...
+// ... recibir encrypted_payload ...
+let plaintext = cipher.decrypt(encrypted_payload).unwrap();
+```
+
+```typescript
+// TypeScript (Web Crypto API)
+import { generateKeypair, deriveSharedSecret, Cipher } from "@lumen/mcp-transport";
+
+const kp = await generateKeypair();
+const shared = await deriveSharedSecret(kp.secretKey, peerPublicKey);
+const cipher = new Cipher();
+await cipher.init(shared);
+
+const frame = await cipher.buildEncryptedFrame(TYPE_REQUEST, 0, payload);
+const plaintext = await cipher.decrypt(encryptedPayload);
+```
+
+#### 7.4.5 Garantías
+
+| Propiedad | Mecanismo |
+|---|---|
+| **Confidencialidad** | ChaCha20 (cifrado de flujo, 256-bit key) |
+| **Integridad** | Poly1305 MAC (autentica nonce + ciphertext) |
+| **Anti-replay** | Nonce counter monótono (receptor rechaza duplicados) |
+| **Forward secrecy** | Keypairs X25519 efímeros (no PFS perfecto, pero efímero por sesión) |
+| **Sin certificados** | Trust-on-first-use (TOFU) via PROBE/PROBE_ACK |
+
+> ⚠️ **Limitación actual:** No hay PKI ni verificación de identidad. El cifrado protege
+> contra eavesdropping pasivo y MITM activo (gracias al AEAD), pero no autentica
+> la identidad del peer. Para autenticación mutua, combinar con Macaroons (§7.2).
+
+### 7.5 Implementaciones
+
+| Lenguaje | Módulo | Cifrado | Key Exchange |
+|---|---:|---:|---:|
+| **Rust** | `crypto.rs` | ✅ ChaCha20-Poly1305 | ✅ X25519 |
+| **TypeScript** | `crypto.ts` | ✅ ChaCha20-Poly1305 (WebCrypto) | ✅ X25519 (WebCrypto) |
+| **Python** | *(pendiente)* | — | — |
+| **C#** | *(pendiente)* | — | — |
+| **PHP** | *(pendiente)* | — | — |
+
 ---
 
 ## 8. Tablas de Referencia
@@ -427,6 +542,9 @@ Sub-agente NO puede:   ❌ Leer /etc/passwd
 | 2 | `0x04` | PRIORITY |
 | 3 | `0x08` | FRAGMENTED |
 
+> `ENCRYPTED` (bit 1, 0x02): El payload contiene un blob cifrado con ChaCha20-Poly1305.
+> Ver §7.4 para el formato completo de cifrado y el handshake X25519.
+
 ---
 
 ## 9. Referencias
@@ -439,4 +557,4 @@ Sub-agente NO puede:   ❌ Leer /etc/passwd
 
 ---
 
-*LUMEN v1.0-draft — Última actualización: 2026-06-14*
+*LUMEN v0.1.0 — Última actualización: 2026-06-14*

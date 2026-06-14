@@ -1,4 +1,5 @@
 pub mod compress;
+pub mod crypto;
 pub mod datagram;
 pub mod dict;
 #[cfg(not(feature = "wasm"))]
