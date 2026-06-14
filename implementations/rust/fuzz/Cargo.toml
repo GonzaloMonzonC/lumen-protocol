@@ -1,0 +1,32 @@
+[package]
+name = "lumen-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+lumen = { path = ".." }
+
+# Prevent this from being compiled by accident — only via `cargo fuzz`
+[[bin]]
+name = "hyb128_roundtrip"
+path = "fuzz_targets/hyb128_roundtrip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "frame_parse"
+path = "fuzz_targets/frame_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "compress_roundtrip"
+path = "fuzz_targets/compress_roundtrip.rs"
+test = false
+doc = false
