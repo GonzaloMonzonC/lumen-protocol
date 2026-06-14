@@ -192,27 +192,102 @@ function getReverseMap(): Map<string, number> {
   return reverseMap;
 }
 
+// ═══ Session dictionary (0x80..0xFE, 127 dynamic slots) ══════════════════
+
+const SESSION_FORWARD: (string | null)[] = new Array(127).fill(null);
+const SESSION_REVERSE = new Map<string, number>();
+
+/**
+ * Register a key in the session dictionary at a specific ID.
+ *
+ * - `key`: the string key to register.
+ * - `id`: session slot ID, must be in `0x80..=0xFE`.
+ *
+ * Returns `true` if registered, `false` if the ID is out of range.
+ */
+export function registerSessionKey(key: string, id: number): boolean {
+  if (id < STATIC_MAX || id >= SESSION_MAX) return false;
+  const idx = id - STATIC_MAX;
+
+  // Remove old reverse entry if overwriting
+  const oldKey = SESSION_FORWARD[idx];
+  if (oldKey !== null) {
+    SESSION_REVERSE.delete(oldKey);
+  }
+
+  SESSION_FORWARD[idx] = key;
+  SESSION_REVERSE.set(key, id);
+  return true;
+}
+
+/**
+ * Remove a key from the session dictionary.
+ */
+export function unregisterSessionKey(id: number): void {
+  if (id < STATIC_MAX || id >= SESSION_MAX) return;
+  const idx = id - STATIC_MAX;
+  const key = SESSION_FORWARD[idx];
+  if (key !== null) {
+    SESSION_REVERSE.delete(key);
+    SESSION_FORWARD[idx] = null;
+  }
+}
+
+/**
+ * Initialize the session dictionary from an array of `[id, key]` pairs.
+ * Clears any existing entries first.
+ */
+export function initSessionDict(entries: Array<[number, string]>): void {
+  clearSessionDict();
+  for (const [id, key] of entries) {
+    registerSessionKey(key, id);
+  }
+}
+
+/**
+ * Clear all session dictionary entries.
+ */
+export function clearSessionDict(): void {
+  SESSION_FORWARD.fill(null);
+  SESSION_REVERSE.clear();
+}
+
+/**
+ * Number of registered session entries.
+ */
+export function sessionDictSize(): number {
+  return SESSION_REVERSE.size;
+}
+
 // ═══ Public API ════════════════════════════════════════════════════════════
 
 /**
  * Resolve a dictionary ID to its key string.
- * Returns `null` if the ID is not in the static dictionary.
+ * Checks both static and session dictionaries.
+ * Returns `null` if the ID is not assigned.
  * ID 0xFF (`ID_RAW`) always returns `null` (meaning "inline text").
  */
 export function resolveDictId(id: number): string | null {
   if (id < STATIC_MAX) {
     return STATIC_DICT[id];
   }
-  // Session dictionary not yet implemented
+  if (id < SESSION_MAX) {
+    const idx = id - STATIC_MAX;
+    return SESSION_FORWARD[idx];
+  }
   return null;
 }
 
 /**
- * O(1) reverse lookup: find the static dictionary ID for a key string.
- * Uses a lazily-built `Map` for constant-time lookup.
+ * O(1) reverse lookup: find the dictionary ID for a key string.
+ * Checks both static (lazily-built `Map`) and session dictionaries.
  *
  * Always prefer this over linear scan in hot paths (serialization, compression).
  */
 export function lookupDictId(key: string): number | null {
-  return getReverseMap().get(key) ?? null;
+  // Try static dict first (hot path)
+  const staticId = getReverseMap().get(key);
+  if (staticId !== undefined) return staticId;
+  // Then try session dict
+  return SESSION_REVERSE.get(key) ?? null;
 }

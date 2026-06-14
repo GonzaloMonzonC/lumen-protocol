@@ -291,8 +291,10 @@ function decodeKey(
     return new TextDecoder("utf-8", { fatal: true }).decode(utf8);
   } else if (first < STATIC_MAX) {
     return resolveDictId(first);
+  } else if (first < 0xFF) {
+    // Session dictionary (0x80..0xFE)
+    return resolveDictId(first);
   } else {
-    // Session-range IDs not yet supported
     return null;
   }
 }

@@ -280,7 +280,10 @@ def _decode_key(
     if first < STATIC_MAX:
         return resolve_dict_id(first), pos
 
-    # Session-range IDs not yet supported
+    # Session dictionary (0x80..0xFE)
+    if first < 0xFF:
+        return resolve_dict_id(first), pos
+
     return None, pos
 
 

@@ -273,7 +273,7 @@ fn decode_value(data: &[u8], pos: &mut usize) -> Option<Value> {
             if *pos >= data.len() { return None; }
             let id = data[*pos];
             *pos += 1;
-            dict::resolve(id).map(|s| Value::String(s.to_owned()))
+            dict::resolve_any(id).map(Value::String)
         }
 
         TAG_STR_RAW => {
@@ -333,9 +333,10 @@ fn decode_key(data: &[u8], pos: &mut usize) -> Option<String> {
         String::from_utf8(bytes.to_vec()).ok()
     } else if first < dict::STATIC_MAX {
         dict::resolve(first).map(|s| s.to_owned())
+    } else if first < dict::SESSION_MAX {
+        // Session dictionary lookup (0x80..0xFE)
+        dict::resolve_any(first)
     } else {
-        // Session-range IDs not yet supported; treat as malformed for now.
-        // In the future, look up in the session dictionary.
         None
     }
 }
