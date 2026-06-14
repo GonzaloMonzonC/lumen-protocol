@@ -564,6 +564,98 @@ await tx.send(frame, 9999, "239.1.1.1");
 
 ---
 
+## ⚖️ Niveles 1, 2 y 3 — Guía de elección
+
+Cada nivel de transporte resuelve un problema distinto. No hay un «mejor» nivel — hay un nivel **correcto para cada carga de trabajo**.
+
+### Jerarquía de latencia
+
+Latencia *round-trip* estimada para un heartbeat (~90 bytes) en loopback local:
+
+```
+  Nivel 2 (SHM)        ▏ ~200–500 ns   (ring buffer lock-free, sin kernel)
+  Nivel 3 (UDP)        ▎ ~20–50 µs     (syscall sendto/recvfrom, sin handshake)
+  Nivel 1 (TCP)        ▍ ~90–170 µs    (3-way handshake ya pagado en la conexión)
+```
+
+Y para payloads grandes (5–64 KB):
+
+```
+  Nivel 2 (SHM)        ▏ ~2–10 µs      (memcpy directo, ~10–20 GB/s)
+  Nivel 3 (UDP)        ▎ ~80–120 µs    (datagrama único, sin fragmentación IP)
+  Nivel 1 (TCP)        ▍ ~160–180 µs   (segmentación TCP + ACKs)
+```
+
+> ⚠️ Las cifras de Nivel 2 y 3 son **esperadas** basadas en el diseño (ring buffer lock-free, syscall única por datagrama). Ejecuta `cargo run --bin shm-shootout` y `cargo run --bin dgram-shootout` para los números reales en tu máquina.
+
+### Matriz de decisión
+
+| Criterio | Nivel 1 — Stream | Nivel 2 — SHM | Nivel 3 — Datagram |
+|---|---|---|---|
+| **Conexión** | Sí (TCP handshake, ~0.5–3 ms) | Sí (mmap + setup ring, ~1–5 ms) | **No** (stateless) |
+| **Orden** | ✅ Garantizado | ✅ Garantizado (SPSC ring) | ❌ No garantizado |
+| **Entrega** | ✅ Garantizada | ✅ Garantizada (buffer en RAM) | ❌ Best-effort |
+| **Latencia típica** | ~100–700 µs (kernel TCP) | **~0.2–10 µs** (user-space puro) | ~20–120 µs (syscall única) |
+| **Throughput** | ~50–500 MB/s (TCP stack) | **~10–20 GB/s** (ancho de banda RAM) | ~100–500 MB/s (NIC/kernel) |
+| **Topología** | 1:1 (point-to-point) | 1:1 (procesos en misma máquina) | **1:N, N:M** (multicast nativo) |
+| **Multi-máquina** | ✅ Sí | ❌ Solo misma máquina | ✅ Sí |
+| **Fire-and-forget** | ❌ TCP fuerza ACKs | ❌ Ring buffer es síncrono | ✅ Natural |
+| **Descubrimiento** | ❌ Necesitas conocer IP:puerto | ❌ Necesitas path conocido | ✅ **Multicast DISCOVER** |
+| **CPU overhead** | Medio (copia kernel↔user) | **Mínimo** (zero-copy, memcpy) | Bajo (syscall por datagrama) |
+| **Caso ideal** | RPC + streaming de tokens | **Archivos grandes entre procesos** | Telemetría + heartbeats + discovery |
+
+### Elección por carga de trabajo
+
+```
+                    ┌─────────────────────────────────────────────┐
+                    │ ¿Los procesos están en la misma máquina?     │
+                    └─────────────────────────────────────────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    ▼              ▼              ▼
+                   Sí            No importa       No
+                    │              │              │
+            ┌───────┴───────┐      │      ┌───────┴───────┐
+            │ ¿Payload >1KB?│      │      │ ¿Necesitas     │
+            └───────────────┘      │      │  descubrimiento│
+            │         │           │      │  automático?   │
+            ▼         ▼           │      └───────────────┘
+           Sí        No           │          │         │
+            │         │           │         Sí        No
+            ▼         ▼           │          │         │
+        ┌────────┐ ┌────────┐    │     ┌────────┐ ┌────────┐
+        │Nivel 2 │ │Nivel 1 │    │     │Nivel 3 │ │Nivel 1 │
+        │  SHM   │ │ (TCP)  │    │     │  UDP   │ │ (TCP)  │
+        └────────┘ └────────┘    │     └────────┘ └────────┘
+                                 │
+                    ┌────────────┼────────────┐
+                    ▼            ▼            ▼
+               ¿Garantía     ¿Fire-and-   ¿Ambos
+                de entrega?   forget?     procesos
+                    │            │         locales?
+                    ▼            ▼            ▼
+                Nivel 1      Nivel 3      Nivel 2
+                 (TCP)        (UDP)        (SHM)
+```
+
+### Combinar niveles en la práctica
+
+Un agente LUMEN típico usa **los tres niveles simultáneamente**:
+
+| Tarea | Nivel | Por qué |
+|---|---|---|
+| `tools/call` request/response | **Nivel 1** (TCP) | Garantía de entrega, orden, streaming de resultados |
+| `llm/stream` tokens | **Nivel 1** (TCP) | Orden estricto de tokens, backpressure del kernel |
+| Indexación de workspace (archivos >1 KB) | **Nivel 2** (SHM) | Zero-copy: 10–20 GB/s sin tocar el stack TCP |
+| Heartbeats (keep-alive) | **Nivel 3** (UDP) | Stateless, sin conexión, fire-and-forget |
+| Service discovery (¿qué agentes hay?) | **Nivel 3** (multicast) | Una trama DISCOVER → N respuestas, sin registry |
+| Telemetría / métricas | **Nivel 3** (UDP) | Alto throughput, pérdida tolerada |
+| Log shipping | **Nivel 3** (UDP) | Sin backpressure, el receptor filtra lo que puede |
+
+> **Regla de oro:** Si necesitas que el mensaje llegue sí o sí → Nivel 1. Si necesitas que llegue a máxima velocidad → Nivel 2. Si necesitas que llegue a muchos destinos sin configurar cada uno → Nivel 3.
+
+---
+
 ## 🛠️ Workspace Indexing Shootout (Cadencia)
 
 Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archivos fuente del directorio y los serializa como frames MCP. Medido con `cargo run --bin workspace-shootout`:
