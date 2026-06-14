@@ -167,7 +167,16 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │   ├── LumenFFI.cs      ← P/Invoke FFI (Rust → .NET)
     │   └── Program.cs       ← Test harness + benchmarks
     └── /php/                ← lumen-php (composer)
+        ├── composer.json
+        ├── bench.php        ← benchmark suite (8 categorías, 74 resultados)
+        ├── tests/
+        │   └── e2e_test.php ← cross-implementation e2e (217 tests)
         └── src/
+            ├── Compress.php       ← compact binary payload
+            ├── Dict.php           ← diccionario 128 IDs estáticos
+            ├── Hyb128.php         ← Hyb128 encode/decode
+            ├── Frame.php          ← frame parser
+            └── FrameAssembler.php ← streaming frame assembler
 ```
 
 ---
@@ -517,6 +526,66 @@ Comparativa de rendimiento de la FFI Rust vs implementación nativa en cada leng
 
 ---
 
+## 🐘 PHP Implementation (lumen-php)
+
+```bash
+cd implementations/php
+php tests/e2e_test.php          # cross-implementation e2e: 217/217
+php bench.php > bench_out.json  # benchmark suite (74 resultados)
+```
+
+### Resultados — 217/217 e2e tests pasando (PHP 8.5.7)
+
+| Suite | Tests |
+|-------|-------|
+| Compress roundtrip + golden binary | 27+28 ✅ |
+| Hyb128 encode/decode | 22 ✅ |
+| Frame parse | 22 ✅ |
+| Compressed frame integration | 118 ✅ |
+| **Total** | **217/217 ✅** |
+
+### Benchmark — PHP 8.5.7: json_encode/decode vs compress/decompress
+
+| Payload | json encode | LUMEN encode | Ratio | json decode | LUMEN decode | Ratio |
+|---------|------------|--------------|-------|------------|--------------|-------|
+| initialize (157B→91B) | 1.4µs | 33.4µs | 0.04× | 6.5µs | 29.0µs | 0.22× |
+| tools_list (835B→386B) | 9.4µs | 170.6µs | 0.06× | 39.1µs | 215.7µs | 0.18× |
+| llm_request (323B→166B) | 5.3µs | 62.2µs | 0.08× | 15.8µs | 93.3µs | 0.17× |
+| error_response (175B→95B) | 2.1µs | 26.3µs | 0.08× | 6.2µs | 32.0µs | 0.19× |
+| **big_result (5193B→5104B)** | 14.2µs | 41.6µs | **0.34×** | 30.3µs | 43.7µs | **0.69×** |
+
+> **PHP json_encode/decode gana en velocidad** — mismo patrón que Python: `json_encode` y
+> `json_decode` son extensiones C del motor Zend (12–24× más rápidas para payloads pequeños),
+> mientras que `compress`/`decompress` son bytecode PHP interpretado. El gap se cierra
+> con payloads grandes: en `big_result` (5 KB), LUMEN decode es solo **1.44× más lento**
+> porque evita el escaping de strings.
+>
+> **La ventaja de LUMEN en PHP está en el wire size** (46–54% de ahorro en payloads MCP
+> típicos) y en la **compatibilidad binaria cruzada** con Python, TypeScript, Rust y C#.
+
+### Wire size PHP (mismo protocolo, mismos bytes)
+
+| Payload | JSON | LUMEN | Ahorro |
+|---------|------|-------|--------|
+| initialize | 157 B | 91 B | **42%** |
+| tools_list | 835 B | 386 B | **54%** |
+| llm_request | 323 B | 166 B | **49%** |
+| error_response | 175 B | 95 B | **46%** |
+| big_result | 5,193 B | 5,104 B | 2% |
+
+### Hyb128 — PHP 8.5.7
+
+| Operación | Mejor caso | Peor caso (mode >1B) |
+|-----------|-----------|---------------------|
+| **Encode** | 4.3M/s (modo 1B) | 1.5M/s (modo 3/5B) |
+| **Decode** | 2.8M/s (modo 1B) | 0.5M/s (modo 5B) |
+
+> PHP Hyb128 es 10–20× más lento que TypeScript por ser bytecode puro (vs JIT V8).
+> El framing con Content-Length es más rápido en PHP que Hyb128 (al contrario que en TS),
+> porque `preg_match`/`substr` son funciones C mientras que Hyb128 es PHP puro.
+
+---
+
 ## 🔌 Cadencia Bridge (Sidecar Rust)
 
 Un binario mínimo que la extensión de VS Code ejecuta como proceso hijo. Recibe comandos JSON por stdin, lee archivos del disco, los comprime con LUMEN, y devuelve frames binarios. **Cero dependencias de runtime** — solo necesita el binario compilado.
@@ -563,7 +632,7 @@ await bridge.stop();
 
 **122 benchmarks en 18 categorías**, ejecutados con `node --expose-gc --import tsx src/bench.ts`. Resultados en `implementations/typescript/bench_results_full.json`.
 
-### 🧪 Test Suite — 315+ tests pasando
+### 🧪 Test Suite — 538+ tests pasando
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
@@ -574,10 +643,11 @@ await bridge.stop();
 | Python unit tests | **94/94** | Python | `pytest` |
 | C# roundtrip + golden | **17/17 + 28/28** | C# (.NET 9) | `dotnet run` |
 | C# FFI (P/Invoke) | **17/17 + 28/28** | C# ↔ Rust | `dotnet run` |
+| PHP e2e (roundtrip + golden + frames) | **217/217** | PHP 8.5 | `php tests/e2e_test.php` |
 
-### 🔗 Cross-Implementation E2E — 315 tests
+### 🔗 Cross-Implementation E2E — 588 tests
 
-Golden file testing entre las 3 implementaciones (Python genera, TS + Rust validan):
+Golden file testing entre las 5 implementaciones (Python genera, resto validan):
 
 | Implementación | E2E Tests | Estado |
 |---|---|---|
@@ -586,6 +656,7 @@ Golden file testing entre las 3 implementaciones (Python genera, TS + Rust valid
 | **Rust** | 9/9 | ✅ Match semántico + Hyb128 + frames |
 | **C# (.NET 9)** | 28/28 | ✅ Match binario byte-por-byte |
 | **C# FFI (P/Invoke)** | 28/28 | ✅ Match binario byte-por-byte |
+| **PHP 8.5** | 217/217 | ✅ Match binario + frame integration |
 
 Los 28 vectores compartidos en `tests/e2e/shared_vectors.json` cubren todos los
 value types LUMEN (null, bool, int, float, string, array, object) y payloads MCP
