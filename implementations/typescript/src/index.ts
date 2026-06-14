@@ -91,6 +91,13 @@ export {
 } from "./compress.js";
 
 export {
+  compressValue as compressValueFFI,
+  compressInto as compressIntoFFI,
+  decompressValue as decompressValueFFI,
+  compressedSize as compressedSizeFFI,
+} from "./compress_ffi.js";
+
+export {
   ZeroAllocDecompressor,
   decompressValueZeroAlloc,
 } from "./zeroalloc.js";
