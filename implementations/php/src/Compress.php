@@ -77,7 +77,7 @@ final class Compress
 
         if (is_float($value)) {
             $buf = chr(self::TAG_FLOAT);
-            $buf .= pack('<d', $value); // f64 little-endian
+            $buf .= pack('e', $value); // f64 little-endian
             $out[] = $buf;
             return;
         }
@@ -111,6 +111,11 @@ final class Compress
                 self::encodeKey((string) $k, $out);
                 self::encodeValue($v, $out);
             }
+            return;
+        }
+
+        if ($value instanceof EmptyObject) {
+            $out[] = chr(self::TAG_OBJECT) . chr(0); // count=0
             return;
         }
 
@@ -150,7 +155,7 @@ final class Compress
 
             case self::TAG_FLOAT:
                 if ($pos + 8 > $end) return [null, $pos];
-                $value = unpack('<d', substr($data, $pos, 8))[1];
+                $value = unpack('e', substr($data, $pos, 8))[1];
                 return [$value, $pos + 8];
 
             case self::TAG_INT:
@@ -222,8 +227,9 @@ final class Compress
     /** Encode signed int as zigzag LEB128 bytes. */
     private static function encodeZigzag(int $v): string
     {
-        // Zigzag: (n << 1) ^ (n >> 63), masked to u64
-        $u = (($v << 1) ^ ($v >> 63)) & 0xFFFFFFFFFFFFFFFF;
+        // Zigzag: (n << 1) ^ (n >> 63). PHP 64-bit bitwise ops are naturally
+        // clamped to 64 bits, no mask needed.
+        $u = ($v << 1) ^ ($v >> 63);
         $buf = '';
         do {
             $byte = $u & 0x7F;

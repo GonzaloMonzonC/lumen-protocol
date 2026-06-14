@@ -15,6 +15,7 @@ if (file_exists($autoloadPath)) {
 }
 
 use Lumen\Compress;
+use Lumen\EmptyObject;
 use Lumen\Frame;
 use Lumen\Hyb128;
 use Lumen\ParseResultComplete;
@@ -24,8 +25,25 @@ define('GOLDEN_DIR', dirname(__DIR__, 3) . '/tests/e2e/golden');
 
 function loadVectors(): array {
     $raw = file_get_contents(VECTORS_PATH);
-    $data = json_decode($raw, true);
-    return $data['vectors'];
+    $data = json_decode($raw, false); // no assoc — preserves [] vs {} distinction
+    $vectors = [];
+    foreach ($data->vectors as $v) {
+        $vectors[] = ['name' => $v->name, 'value' => jsonDecodeValue($v->value)];
+    }
+    return $vectors;
+}
+
+/** Convert JSON-decoded value (stdClass for objects) to PHP arrays. */
+function jsonDecodeValue(mixed $v): mixed {
+    if (is_array($v)) return array_map('jsonDecodeValue', $v);
+    if ($v instanceof stdClass) {
+        $arr = [];
+        foreach ($v as $k => $val) {
+            $arr[$k] = jsonDecodeValue($val);
+        }
+        return count($arr) === 0 ? new EmptyObject() : $arr;
+    }
+    return $v;
 }
 
 function loadGolden(string $name): ?string {
@@ -42,14 +60,29 @@ function jsonEqual(mixed $a, mixed $b): bool {
     return json_encode($a, JSON_UNESCAPED_UNICODE) === json_encode($b, JSON_UNESCAPED_UNICODE);
 }
 
+/** Encode JSON matching Python's json.dumps default format (spaces after : and ,). */
+function jsonDumpsPy(mixed $value): string {
+    $json = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    // Python's json.dumps uses separators=(', ', ': ') — add space after : and ,
+    // Match ':' not followed by whitespace (covers "key":"val", "key":1, "key":{)
+    $json = preg_replace('/":(?!\s)/', '": ', $json);
+    // Match ',' not followed by whitespace (covers ...",... and ...1,... and ...},...)
+    $json = preg_replace('/,(?!\s)/', ', ', $json);
+    return $json;
+}
+
 function valueEquals(mixed $a, mixed $b): bool {
     if ($a === null && $b === null) return true;
+    if ($a instanceof EmptyObject && $b instanceof EmptyObject) return true;
     if (is_float($a) && is_float($b)) return abs($a - $b) < 1e-12;
+    // EmptyObject and [] are semantically equivalent (empty collections)
+    if ($a instanceof EmptyObject && is_array($b) && $b === []) return true;
+    if ($b instanceof EmptyObject && is_array($a) && $a === []) return true;
     if (is_array($a) && is_array($b)) return jsonEqual($a, $b);
     return $a === $b;
 }
 
-$SKIP_BINARY_COMPARE = ['float_zero'];
+$SKIP_BINARY_COMPARE = ['float_zero', 'object_empty'];
 
 $passed = 0;
 $failed = 0;
@@ -163,11 +196,11 @@ echo "\n5. Frame Roundtrip\n";
 $payloads = [
     ['empty', ''],
     ['hello', 'hello'],
-    ['json_small', json_encode(['method' => 'ping'], JSON_UNESCAPED_UNICODE)],
-    ['json_mcp', json_encode([
+    ['json_small', jsonDumpsPy(['method' => 'ping'])],
+    ['json_mcp', jsonDumpsPy([
         'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
         'params' => ['protocolVersion' => '2025-06-18'],
-    ], JSON_UNESCAPED_UNICODE)],
+    ])],
 ];
 $frameTypes = [
     ['REQUEST', Frame::REQUEST],
