@@ -14,8 +14,18 @@
 //! ## Session dictionary (IDs 0x80..0xFE, 127 entries)
 //!
 //! Negotiated during handshake and updated via SCHEMA_PATCH frames.
+//!
+//! ## LRU adaptive eviction
+//!
+//! Each session slot tracks an access counter + generation timestamp
+//! via lock-free `AtomicU64`.  When all 127 slots are full and a new
+//! key needs registration, the slot with the lowest `(access_count,
+//! last_generation)` is evicted automatically.  This keeps hot keys
+//! (like `"temperature"` during an LLM call burst) in the dictionary
+//! while cold keys (used once during setup) age out naturally.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 // ── Reserved IDs ────────────────────────────────────────────────────────────
@@ -267,15 +277,35 @@ pub fn lookup_fast(key: &str) -> Option<u8> {
 
 use std::sync::RwLock;
 
+/// A monotonically-increasing generation counter for LRU ordering.
+///
+/// Incremented via `fetch_add(1, Relaxed)` on every dictionary
+/// touch (lookup or resolve).  Slot `last_gen` values are compared
+/// against this counter to find the least-recently-used entry.
+static LRU_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Bump the global LRU generation and return the new value.
+#[inline]
+fn next_lru_gen() -> u64 {
+    LRU_GENERATION.fetch_add(1, Ordering::Relaxed)
+}
+
 /// A thread-safe session dictionary holding 127 dynamic key→ID mappings.
 ///
 /// Slots are in range `0x80..=0xFE`.  Keys are owned `String`s so the
 /// dictionary can outlive the strings passed to `register()`.
+///
+/// Each slot carries lock-free LRU metadata (`access_count` and
+/// `last_generation`) so the hot read path never needs a write lock.
 pub struct SessionDict {
     /// Forward map: ID → key (index = id - 0x80)
     forward: [Option<String>; 127],
     /// Reverse map: key → ID
     reverse: HashMap<String, u8>,
+    /// Per-slot access counters (lock-free, atomically incremented on touch).
+    lru_count: [AtomicU64; 127],
+    /// Per-slot last-generation stamps (lock-free, set on touch).
+    lru_gen: [AtomicU64; 127],
 }
 
 impl SessionDict {
@@ -284,7 +314,82 @@ impl SessionDict {
         Self {
             forward: std::array::from_fn(|_| None),
             reverse: HashMap::with_capacity(16),
+            lru_count: std::array::from_fn(|_| AtomicU64::new(0)),
+            lru_gen: std::array::from_fn(|_| AtomicU64::new(0)),
         }
+    }
+
+    /// Touch a slot: increment its access counter and update its generation.
+    ///
+    /// Lock-free — safe to call from any thread, including inside a
+    /// read-lock on the outer `RwLock<SessionDict>`.
+    #[inline]
+    pub fn touch(&self, id: u8) {
+        if id < STATIC_MAX || id >= SESSION_MAX {
+            return;
+        }
+        let idx = (id - STATIC_MAX) as usize;
+        self.lru_count[idx].fetch_add(1, Ordering::Relaxed);
+        self.lru_gen[idx].store(next_lru_gen(), Ordering::Relaxed);
+    }
+
+    /// Find the ID of the least-recently-used slot (lowest `last_gen`,
+    /// tie-broken by lowest `access_count`).
+    ///
+    /// Returns `None` if all slots are empty (no eviction needed).
+    /// This is called under write lock — the scan is O(127).
+    pub fn find_lru(&self) -> Option<u8> {
+        let mut best_idx: Option<usize> = None;
+        let mut best_gen = u64::MAX;
+        let mut best_count = u64::MAX;
+
+        for i in 0..127 {
+            if self.forward[i].is_none() {
+                continue;
+            }
+            let gen = self.lru_gen[i].load(Ordering::Relaxed);
+            let cnt = self.lru_count[i].load(Ordering::Relaxed);
+            if gen < best_gen || (gen == best_gen && cnt < best_count) {
+                best_gen = gen;
+                best_count = cnt;
+                best_idx = Some(i);
+            }
+        }
+        best_idx.map(|i| (i as u8) + STATIC_MAX)
+    }
+
+    /// Evict the least-recently-used slot, making room for a new key.
+    ///
+    /// Returns the ID that was freed, or `None` if there was an empty slot
+    /// already (no eviction needed) or if somehow `find_lru` found nothing.
+    pub fn evict_lru(&mut self) -> Option<u8> {
+        // If there's an empty slot, no need to evict
+        if let Some(idx) = self.forward.iter().position(|s| s.is_none()) {
+            return Some((idx as u8) + STATIC_MAX);
+        }
+        let id = self.find_lru()?;
+        self.unregister(id);
+        Some(id)
+    }
+
+    /// Register a key, auto-evicting the LRU slot if all 127 are full.
+    ///
+    /// - `key`: the string key to register (owned).
+    ///
+    /// Returns the ID assigned (always in `0x80..=0xFE`).
+    /// Panics only if the dictionary is in an inconsistent state.
+    pub fn register_lru(&mut self, key: impl Into<String>) -> u8 {
+        let key_str = key.into();
+
+        // Check if already registered — just touch and return
+        if let Some(&id) = self.reverse.get(&key_str) {
+            self.touch(id);
+            return id;
+        }
+
+        let id = self.evict_lru().expect("SessionDict should always have 127 slots");
+        let _ = self.register(key_str, id); // register() returns Result; we know id is valid
+        id
     }
 
     /// Register a key at a session dictionary slot.
@@ -310,6 +415,11 @@ impl SessionDict {
 
         self.reverse.insert(key_str.clone(), id);
         self.forward[idx] = Some(key_str);
+
+        // Reset LRU metadata for the new occupant
+        self.lru_count[idx].store(0, Ordering::Relaxed);
+        self.lru_gen[idx].store(next_lru_gen(), Ordering::Relaxed);
+
         Ok(())
     }
 
@@ -322,6 +432,9 @@ impl SessionDict {
         if let Some(ref key) = self.forward[idx] {
             self.reverse.remove(key);
             self.forward[idx] = None;
+            // Reset LRU metadata
+            self.lru_count[idx].store(0, Ordering::Relaxed);
+            self.lru_gen[idx].store(0, Ordering::Relaxed);
         }
     }
 
@@ -334,14 +447,21 @@ impl SessionDict {
     }
 
     /// Look up a key in the session dictionary, returning its ID.
+    /// Touches the slot if found (updates LRU metadata).
     pub fn lookup(&self, key: &str) -> Option<u8> {
-        self.reverse.get(key).copied()
+        let id = self.reverse.get(key).copied()?;
+        self.touch(id);
+        Some(id)
     }
 
     /// Remove all entries.
     pub fn clear(&mut self) {
         self.forward.fill(None);
         self.reverse.clear();
+        for i in 0..127 {
+            self.lru_count[i].store(0, Ordering::Relaxed);
+            self.lru_gen[i].store(0, Ordering::Relaxed);
+        }
     }
 
     /// Number of registered entries.
@@ -381,18 +501,52 @@ pub fn init_session(entries: impl IntoIterator<Item = (u8, String)>) {
     }
 }
 
-/// Register a single key in the global session dictionary.
+/// Register a single key in the global session dictionary at a specific slot.
 pub fn register_session(key: &str, id: u8) -> Result<(), String> {
     get_session().write().unwrap().register(key.to_owned(), id)
 }
 
+/// Register a key in the global session dictionary, auto-assigning
+/// a slot (evicting the LRU entry if full).
+///
+/// Returns the assigned ID (always in `0x80..=0xFE`).
+pub fn register_lru(key: &str) -> u8 {
+    get_session().write().unwrap().register_lru(key.to_owned())
+}
+
+/// Explicitly touch a dictionary slot, updating its LRU access metadata.
+///
+/// Lock-free — safe to call from hot paths.  No-ops for IDs outside
+/// the session range (0x80..=0xFE) or `ID_RAW` (0xFF).
+pub fn touch(id: u8) {
+    if id >= STATIC_MAX && id < SESSION_MAX {
+        get_session().read().unwrap().touch(id);
+    }
+}
+
+/// Evict the least-recently-used slot, returning its ID.
+///
+/// Returns `None` if an empty slot already exists (no eviction needed).
+pub fn evict_lru() -> Option<u8> {
+    get_session().write().unwrap().evict_lru()
+}
+
 /// Resolve a session dictionary ID (does NOT check static dict).
 /// Returns `None` for IDs outside `0x80..=0xFE` or unregistered slots.
+///
+/// Touches the slot (LRU bookkeeping) on hit.
 pub fn resolve_session(id: u8) -> Option<String> {
-    get_session().read().unwrap().resolve(id).map(|s| s.to_owned())
+    let dict = get_session().read().unwrap();
+    let result = dict.resolve(id).map(|s| s.to_owned());
+    if result.is_some() {
+        dict.touch(id);
+    }
+    result
 }
 
 /// Look up a key in the session dictionary only (does NOT check static dict).
+///
+/// Touches the slot (LRU bookkeeping) on hit.
 pub fn lookup_session(key: &str) -> Option<u8> {
     get_session().read().unwrap().lookup(key)
 }
@@ -424,8 +578,7 @@ mod tests {
 
     #[test]
     fn unknown_ids_return_none() {
-        // Unassigned static slot (we have 128 entries, 0x00-0x7F are all assigned)
-        // But session range is not yet populated
+        // Session range is not yet populated
         assert_eq!(resolve(0x80), None);
         // Raw sentinel
         assert_eq!(resolve(ID_RAW), None);
@@ -446,7 +599,6 @@ mod tests {
 
     #[test]
     fn static_dict_no_overlaps() {
-        // Verify no duplicate keys in static dict
         for i in 0..STATIC_MAX as usize {
             if let Some(key) = STATIC_DICT[i] {
                 for j in (i + 1)..STATIC_MAX as usize {
@@ -474,9 +626,173 @@ mod tests {
 
     #[test]
     fn fast_lookup_idempotent() {
-        // Calling twice hits the same cached map
         assert_eq!(lookup_fast("tool"), Some(0x00));
         assert_eq!(lookup_fast("tool"), Some(0x00));
         assert_eq!(lookup_fast("usage"), Some(0x4F));
+    }
+
+    // ── LRU session dictionary tests ─────────────────────────────────────
+
+    /// Helper: ensure the global session dict is clean after a test,
+    /// even if the test panicked.  Call at the *start* of every LRU test
+    /// (the previous test's cleanup may have been skipped on panic).
+    fn ensure_clean_session() {
+        clear_session();
+    }
+
+    #[test]
+    fn lru_register_and_lookup() {
+        ensure_clean_session();
+        register_session("custom_key_1", 0x80).unwrap();
+        let id = lookup_session("custom_key_1");
+        assert_eq!(id, Some(0x80));
+        clear_session();
+    }
+
+    #[test]
+    fn lru_touch_updates_generation() {
+        ensure_clean_session();
+        register_session("hot_key", 0x80).unwrap();
+
+        // Read the gen after registration
+        let gen_after_reg = get_session().read().unwrap().lru_gen[0].load(Ordering::Relaxed);
+
+        // Touch it
+        lookup_session("hot_key");
+
+        let gen_after_touch = get_session().read().unwrap().lru_gen[0].load(Ordering::Relaxed);
+        assert!(gen_after_touch > gen_after_reg, "touch should bump generation");
+        clear_session();
+    }
+
+    #[test]
+    fn lru_touch_increments_count() {
+        ensure_clean_session();
+        register_session("popular", 0x81).unwrap();
+        let idx = (0x81 - STATIC_MAX) as usize;
+
+        for i in 1..=5 {
+            lookup_session("popular");
+            let cnt = get_session().read().unwrap().lru_count[idx].load(Ordering::Relaxed);
+            assert_eq!(cnt, i, "count should be {i} after {i} lookups");
+        }
+        clear_session();
+    }
+
+    #[test]
+    fn lru_evict_least_recent() {
+        ensure_clean_session();
+
+        // Fill all 127 slots
+        for i in 0..127u8 {
+            let id = 0x80 + i;
+            register_session(&format!("key_{id:02x}"), id).unwrap();
+            // Touch each one so they have different generations
+            lookup_session(&format!("key_{id:02x}"));
+        }
+        assert_eq!(session_len(), 127);
+
+        // key_80 was touched first, so it should be LRU
+        let lru_id = get_session().read().unwrap().find_lru();
+        assert_eq!(lru_id, Some(0x80), "first registered should be LRU");
+
+        // Evict and check
+        let evicted = evict_lru();
+        assert_eq!(evicted, Some(0x80));
+        assert_eq!(session_len(), 126);
+        assert!(resolve_session(0x80).is_none());
+        clear_session();
+    }
+
+    #[test]
+    fn lru_register_lru_auto_evict() {
+        ensure_clean_session();
+
+        // Fill all 127 slots
+        for i in 0..127u8 {
+            let id = 0x80 + i;
+            register_session(&format!("key_{id:02x}"), id).unwrap();
+            lookup_session(&format!("key_{id:02x}"));
+        }
+        assert_eq!(session_len(), 127);
+
+        // Now auto-register a new key — should evict the LRU (0x80)
+        let new_id = register_lru("brand_new_key");
+        assert!(new_id >= 0x80 && new_id < 0xFF);
+        assert_eq!(session_len(), 127); // still full
+
+        // The new key should resolve
+        assert_eq!(resolve_session(new_id), Some("brand_new_key".to_string()));
+        // The old LRU should be gone
+        assert!(lookup_session("key_80").is_none());
+        clear_session();
+    }
+
+    #[test]
+    fn lru_register_lru_duplicate_noop() {
+        ensure_clean_session();
+        register_session("only_key", 0x80).unwrap();
+        assert_eq!(session_len(), 1);
+
+        // Re-registering the same key should return the same ID
+        let id = register_lru("only_key");
+        assert_eq!(id, 0x80);
+        assert_eq!(session_len(), 1);
+        clear_session();
+    }
+
+    #[test]
+    fn lru_touch_out_of_range_noops() {
+        ensure_clean_session();
+        // These should not panic
+        get_session().read().unwrap().touch(0x00); // static range
+        get_session().read().unwrap().touch(0xFF); // ID_RAW
+        get_session().read().unwrap().touch(0x7F); // last static
+    }
+
+    #[test]
+    fn lru_evict_empty_dict() {
+        ensure_clean_session();
+        let evicted = evict_lru();
+        // With an empty dict, there's an empty slot, so evict_lru returns it directly
+        assert!(evicted.is_some());
+        assert_eq!(session_len(), 0);
+    }
+
+    #[test]
+    fn lru_find_lru_empty_dict() {
+        ensure_clean_session();
+        let lru = get_session().read().unwrap().find_lru();
+        assert_eq!(lru, None); // no occupied slots
+    }
+
+    #[test]
+    fn lru_clear_resets_counters() {
+        ensure_clean_session();
+        register_session("temp", 0x85).unwrap();
+        lookup_session("temp");
+        lookup_session("temp");
+
+        let idx = (0x85 - STATIC_MAX) as usize;
+        assert!(get_session().read().unwrap().lru_count[idx].load(Ordering::Relaxed) > 0);
+
+        clear_session();
+        assert_eq!(get_session().read().unwrap().lru_count[idx].load(Ordering::Relaxed), 0);
+        assert_eq!(session_len(), 0);
+    }
+
+    #[test]
+    fn lru_register_overwrite_resets_lru() {
+        ensure_clean_session();
+        register_session("alpha", 0x80).unwrap();
+        lookup_session("alpha");
+        lookup_session("alpha");
+        assert_eq!(get_session().read().unwrap().lru_count[0].load(Ordering::Relaxed), 2);
+
+        // Overwrite with a new key at the same slot
+        register_session("beta", 0x80).unwrap();
+        assert_eq!(get_session().read().unwrap().lru_count[0].load(Ordering::Relaxed), 0);
+        assert_eq!(resolve_session(0x80), Some("beta".to_string()));
+        clear_session();
     }
 }

@@ -84,7 +84,7 @@ pub fn compressed_size(value: &Value) -> usize {
             9 // TAG_FLOAT + f64
         }
         Value::String(s) => {
-            if dict::lookup_fast(s).is_some() { 2 } else { 1 + 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
+            if dict::lookup_fast(s).is_some() { 2 } else { 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
         }
         Value::Array(arr) => {
             let mut sz = 1 + hyb128::encoded_len(arr.len() as u64); // TAG + count
@@ -105,7 +105,7 @@ pub fn compressed_size(value: &Value) -> usize {
 }
 
 fn key_size(key: &str) -> usize {
-    if dict::lookup_fast(key).is_some() { 1 } else { 1 + 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
+    if dict::lookup_fast(key).is_some() { 1 } else { 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
 }
 
 /// Estimate LEB128 byte count for an i64 (zigzag-encoded).

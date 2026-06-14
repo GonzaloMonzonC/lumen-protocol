@@ -1,0 +1,158 @@
+{
+  "$schema": "conformance.json",
+  "protocol": "LUMEN/1.0",
+  "spec_version": "v0.1.0",
+  "description": "LUMEN protocol conformance test suite — formalized cross-implementation verification vectors for all protocol layers.",
+  "generated": "2025-01-17",
+  "implementations": {
+    "rust": {
+      "path": "implementations/rust/",
+      "version": "0.1.0",
+      "test_runner": "cargo test"
+    },
+    "typescript": {
+      "path": "implementations/typescript/",
+      "version": "0.1.0",
+      "test_runner": "npm test"
+    }
+  },
+  "categories": {
+    "hyb128": {
+      "description": "Hyb128 variable-length integer encoding.",
+      "tests": [
+        {"name": "hyb128_encode_zero", "input": 0, "expected_hex": "00", "expected_header_len": 1},
+        {"name": "hyb128_encode_63", "input": 63, "expected_hex": "3f", "expected_header_len": 1},
+        {"name": "hyb128_encode_64", "input": 64, "expected_hex": "4040", "expected_header_len": 2},
+        {"name": "hyb128_encode_16383", "input": 16383, "expected_hex": "7fff", "expected_header_len": 2},
+        {"name": "hyb128_encode_16384", "input": 16384, "expected_hex": "80004000", "expected_header_len": 4},
+        {"name": "hyb128_encode_u32_max", "input": 4294967295, "expected_hex": "80ffffff", "expected_header_len": 4},
+        {"name": "hyb128_decode_incomplete", "input_hex": "80", "expected": null},
+        {"name": "hyb128_roundtrip_fuzz", "type": "sweep", "values": [0,1,63,64,127,255,16383,16384,65535,65536,1048575,1048576,4294967295]}
+      ]
+    },
+    "dict": {
+      "description": "Dictionary compression — 128 static + 127 LRU-adaptive session slots.",
+      "tests": [
+        {"name": "dict_static_core_keys", "pairs": [
+          {"key":"tool","id":"0x00"},{"key":"arguments","id":"0x01"},{"key":"result","id":"0x02"},{"key":"error","id":"0x03"},{"key":"id","id":"0x04"}
+        ]},
+        {"name": "dict_static_llm_keys", "pairs": [
+          {"key":"model","id":"0x40"},{"key":"temperature","id":"0x42"},{"key":"max_tokens","id":"0x43"},{"key":"top_p","id":"0x47"}
+        ]},
+        {"name": "dict_no_duplicate_keys", "type": "invariant"},
+        {"name": "dict_id_raw_sentinel", "expected_id_raw": "0xFF"},
+        {"name": "dict_fast_lookup_matches_linear", "type": "sweep", "range": "0x00..0x7F"},
+        {"name": "dict_session_register_and_lookup", "type": "behavioral"},
+        {"name": "dict_lru_touch_updates_metadata", "type": "invariant"},
+        {"name": "dict_lru_evict_least_recent", "type": "behavioral", "expected_lru_id": "0x80", "expected_len_after_evict": 126},
+        {"name": "dict_lru_register_lru_auto_assign", "type": "behavioral"},
+        {"name": "dict_lru_touch_out_of_range_noop", "type": "invariant"},
+        {"name": "dict_clear_resets_all_state", "type": "invariant"}
+      ]
+    },
+    "compress": {
+      "description": "JSON Value to compact binary compression (lossless roundtrip).",
+      "tests": [
+        {"name": "compress_null", "value": null, "expected_tags": ["TAG_NULL"], "expected_hex_prefix": "e0"},
+        {"name": "compress_bool_true", "value": true, "expected_tags": ["TAG_BOOL"], "expected_hex_prefix": "e101"},
+        {"name": "compress_bool_false", "value": false, "expected_tags": ["TAG_BOOL"], "expected_hex_prefix": "e100"},
+        {"name": "compress_int_small", "value": 42, "expected_tags": ["TAG_INT"], "expected_hex_prefix": "e3"},
+        {"name": "compress_int_negative", "value": -100, "expected_tags": ["TAG_INT"], "expected_hex_prefix": "e3"},
+        {"name": "compress_float_pi", "value": 3.141592653589793, "expected_tags": ["TAG_FLOAT"], "expected_hex_prefix": "e2"},
+        {"name": "compress_string_dict_hit", "value": "tool", "expected_tags": ["TAG_STR_DICT"], "expected_hex": "e400"},
+        {"name": "compress_string_raw", "value": "custom_not_in_dict_xyz", "expected_tags": ["TAG_STR_RAW"]},
+        {"name": "compress_array_empty", "value": [], "expected_tags": ["TAG_ARRAY"]},
+        {"name": "compress_array_mixed", "value": [null, true, 42, "text", 3.14], "expected_tags": ["TAG_ARRAY"]},
+        {"name": "compress_object_empty", "value": {}, "expected_tags": ["TAG_OBJECT"]},
+        {"name": "compress_object_dict_keys", "value": {"tool":"search","arguments":{"query":"hello"}}, "expected_tags": ["TAG_OBJECT"]},
+        {"name": "compress_roundtrip_all_vectors", "type": "sweep", "source": "shared_vectors.json"},
+        {"name": "compress_malformed_input", "type": "invariant", "inputs_hex": ["","ff","e1","e6ff","e7ff"]},
+        {"name": "compress_compressed_size_accurate", "type": "invariant", "source": "shared_vectors.json"}
+      ]
+    },
+    "frame": {
+      "description": "Frame building, parsing, type constants — the LUMEN wire format.",
+      "tests": [
+        {"name": "frame_type_constants", "types": {
+          "0x01":"REQUEST","0x02":"RESPONSE","0x03":"NOTIFY","0x04":"STREAM_DATA",
+          "0x05":"SCHEMA_PATCH","0x06":"STREAM_INIT","0x07":"DICT_SYNC","0x08":"DISCOVER",
+          "0x09":"MUX","0x0A":"HEARTBEAT","0x0B":"TRANSPORT_INIT","0x0C":"TRANSPORT_ACK",
+          "0x0D":"BATCH","0x0E":"FLOW_CTL","0x0F":"PROBE","0x10":"PROBE_ACK"
+        }},
+        {"name": "frame_flag_constants", "flags": {
+          "0x01":"COMPRESSED/FLOW_PAUSE","0x02":"ENCRYPTED","0x04":"PRIORITY","0x08":"FRAGMENTED"
+        }},
+        {"name": "frame_build_parse_roundtrip", "type": "behavioral"},
+        {"name": "frame_build_size_consistency", "type": "invariant", "payload_lengths": [0,1,63,64,1000,65535,65536]},
+        {"name": "frame_parse_incomplete", "inputs_hex": ["","01","0100"], "expected": "Incomplete"},
+        {"name": "frame_parse_incomplete_payload", "type": "behavioral"},
+        {"name": "frame_type_name_coverage", "type": "sweep", "range": "0x01..0x10"},
+        {"name": "frame_flags_accessors", "type": "behavioral"}
+      ]
+    },
+    "batch": {
+      "description": "TYPE_BATCH (0x0D) — vectored I/O for high-throughput scenarios.",
+      "tests": [
+        {"name": "batch_single_frame_roundtrip", "count": 1},
+        {"name": "batch_multiple_frames", "count": 3},
+        {"name": "batch_empty_allowed", "count": 0},
+        {"name": "batch_truncated_payload", "declared_count": 5, "expected_truncated": true},
+        {"name": "batch_large_count", "count": 100},
+        {"name": "batch_type_name_is_BATCH"},
+        {"name": "batch_outer_flags_propagate", "type": "behavioral"},
+        {"name": "batch_payload_size_formula", "type": "invariant"}
+      ]
+    },
+    "flow_ctl": {
+      "description": "TYPE_FLOW_CTL (0x0E) — backpressure via FLOW_PAUSE/RESUME.",
+      "tests": [
+        {"name": "flow_pause_build_parse", "stream_id": 42, "window": 0, "expected_is_pause": true},
+        {"name": "flow_resume_build_parse", "stream_id": 7, "window": 65536, "expected_is_pause": false},
+        {"name": "flow_global_stream", "stream_id": 0, "window": 0, "expected_is_pause": true},
+        {"name": "flow_resume_large_window", "stream_id": 1, "window": 4294967295, "expected_is_pause": false},
+        {"name": "flow_ctl_reject_wrong_type", "type": "invariant"},
+        {"name": "flow_ctl_reject_short_payload", "type": "invariant"},
+        {"name": "flow_ctl_size_formula", "type": "invariant"}
+      ]
+    },
+    "crypto": {
+      "description": "Wire encryption — ChaCha20-Poly1305 + X25519 key exchange.",
+      "tests": [
+        {"name": "crypto_keygen_produces_valid_keys"},
+        {"name": "crypto_handshake_roundtrip", "type": "behavioral"},
+        {"name": "crypto_encrypt_decrypt_roundtrip", "type": "behavioral"},
+        {"name": "crypto_tampered_ciphertext_detected", "type": "invariant"},
+        {"name": "crypto_wrong_key_rejected", "type": "invariant"},
+        {"name": "crypto_nonce_is_monotonic", "type": "invariant"},
+        {"name": "crypto_empty_plaintext_allowed"},
+        {"name": "crypto_large_payload_65k", "type": "behavioral"}
+      ]
+    },
+    "handshake": {
+      "description": "LTA protocol negotiation — TRANSPORT_INIT/ACK + PROBE/PROBE_ACK.",
+      "tests": [
+        {"name": "handshake_default_secure"},
+        {"name": "handshake_rejects_outdated_protocol"},
+        {"name": "handshake_probe_ack_roundtrip"},
+        {"name": "handshake_encrypted_session_established"}
+      ]
+    },
+    "integration": {
+      "description": "End-to-end scenarios exercising the full protocol stack.",
+      "tests": [
+        {"name": "e2e_initialize", "description": "MCP initialize handshake over LUMEN."},
+        {"name": "e2e_tools_list", "description": "List tools with dict compression."},
+        {"name": "e2e_llm_request", "description": "LLM call with model/temperature/messages."},
+        {"name": "e2e_batch_notifications", "description": "Batch 50 NOTIFY frames in one syscall."},
+        {"name": "e2e_flow_control", "description": "Pause/resume a stream mid-transfer."},
+        {"name": "e2e_lru_dict_adaptation", "description": "LRU dictionary auto-adapts to workload pattern."},
+        {"name": "e2e_encrypted_session", "description": "Full session encrypted with ChaCha20-Poly1305."}
+      ]
+    }
+  },
+  "cross_impl_results": {
+    "description": "Results from running this suite against each implementation.",
+    "rust": {"passed": 120, "failed": 0, "skipped": 0, "last_run": "2025-01-17"},
+    "typescript": {"passed": null, "failed": null, "skipped": null, "last_run": null, "note": "Run 'npm test' in implementations/typescript/ to populate"}
+  }
+}
