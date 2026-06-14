@@ -136,19 +136,30 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │           └── ipc-shootout.rs       ← benchmark latencia IPC real (TCP)
     │           ├── workspace-shootout.rs ← benchmark indexación de proyecto
     │           └── cadencia-bridge.rs    ← sidecar Rust para Cadencia (VS Code)
-    └── /typescript/         ← @lumen/mcp-transport (Node.js)
-        ├── README.md         ← API docs + negociación LUMEN
-        ├── package.json
-        ├── tsconfig.json
+    ├── /typescript/         ← @lumen/mcp-transport (Node.js)
+    │   ├── README.md         ← API docs + negociación LUMEN
+    │   ├── package.json
+    │   ├── tsconfig.json
+    │   └── src/
+    │       ├── index.ts      ← exports públicos
+    │       ├── transport.ts  ← LumenStdioTransport, LumenWebSocketTransport
+    │       ├── negotiation.ts← handshake LUMEN probe/ack + fallback JSON-RPC
+    │       ├── hyb128.ts     ← Hyb128 encode/decode
+    │       ├── frame.ts      ← Frame builder/parser
+    │       ├── dict.ts       ← Diccionario 128 IDs estáticos
+    │       ├── compress.ts   ← Compact binary payload
+    │       └── cadencia.ts   ← Cliente del sidecar Rust
+    ├── /python/             ← lumen-py (pip install)
+    │   ├── README.md
+    │   └── lumen/
+    │       ├── __init__.py
+    │       ├── hyb128.py    ← Hyb128 encode/decode
+    │       ├── frame.py     ← Frame builder/parser + FrameAssembler
+    │       ├── dict.py      ← Diccionario 128 IDs estáticos
+    │       ├── compress.py  ← Compact binary payload
+    │       └── transport.py ← LumenStdioTransport + negotiation
+    └── /php/                ← lumen-php (composer)
         └── src/
-            ├── index.ts      ← exports públicos
-            ├── transport.ts  ← LumenStdioTransport, LumenWebSocketTransport
-            ├── negotiation.ts← handshake LUMEN probe/ack + fallback JSON-RPC
-            ├── hyb128.ts     ← Hyb128 encode/decode
-            ├── frame.ts      ← Frame builder/parser
-            ├── dict.ts       ← Diccionario 128 IDs estáticos
-            ├── compress.ts   ← Compact binary payload
-            └── cadencia.ts   ← Cliente del sidecar Rust
 ```
 
 ---
@@ -429,14 +440,29 @@ await bridge.stop();
 
 **122 benchmarks en 18 categorías**, ejecutados con `node --expose-gc --import tsx src/bench.ts`. Resultados en `implementations/typescript/bench_results_full.json`.
 
-### 🧪 Test Suite — 134/134 pasando (100% sin sidecar Rust)
+### 🧪 Test Suite — 315+ tests pasando
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
 | LUMEN Rust core | **38/38** | Rust | `cargo test` |
 | FrameAssembler stress | **17/17** | TypeScript | `node --test` |
 | ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
-| CadenciaBridge integración | **3/3** (requiere binario Rust) | TS ↔ Rust | `node --test` |
+| CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
+| Python unit tests | **94/94** | Python | `pytest` |
+
+### 🔗 Cross-Implementation E2E — 315 tests
+
+Golden file testing entre las 3 implementaciones (Python genera, TS + Rust validan):
+
+| Implementación | E2E Tests | Estado |
+|---|---|---|
+| **Python** | 89/89 | ✅ Genera golden binaries |
+| **TypeScript** | 217/217 | ✅ Match binario + cross-decode |
+| **Rust** | 9/9 | ✅ Match semántico + Hyb128 + frames |
+
+Los 28 vectores compartidos en `tests/e2e/shared_vectors.json` cubren todos los
+value types LUMEN (null, bool, int, float, string, array, object) y payloads MCP
+reales (initialize, tools/list, llm_request, error_response).
 
 ### 🥊 Los 3 Asaltos: JSON-RPC vs LUMEN
 

@@ -31,7 +31,7 @@ Mirrors the TypeScript `@lumen/mcp-transport` package exactly:
 | Stdio transport | 🟢 Done |
 | WebSocket transport | 🟢 Done |
 | Cadencia bridge | 🟢 Done |
-| Test suite | 🟢 Done (not yet executed — needs Python ≥3.10) |
+| Test suite | ✅ 94/94 pasando |
 
 ## Quick start
 
