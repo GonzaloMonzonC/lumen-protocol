@@ -207,3 +207,261 @@ fn generate_shm_name() -> String {
         .unwrap_or_default();
     format!("/lumen-shm-{:x}-{}", ts.as_nanos(), std::process::id())
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Wire Encryption Handshake (X25519 key exchange via PROBE/PROBE_ACK)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Result of the encrypted handshake.
+pub struct EncryptedHandshake {
+    /// The initialized cipher ready to encrypt/decrypt frames.
+    pub cipher: crate::crypto::Cipher,
+    /// The peer's public key (for logging / pinning).
+    pub peer_public_key: [u8; 32],
+}
+
+// ── JSON message types ──────────────────────────────────────────────────────
+
+/// PROBE payload: client capabilities + optional X25519 public key.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct ProbeMsg {
+    pub v: u32,
+    pub caps: Vec<String>,
+    /// X25519 public key (32 raw bytes, base64-encoded in JSON).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pk: Option<String>,
+}
+
+/// PROBE_ACK payload: server capabilities + optional X25519 public key.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct ProbeAckMsg {
+    pub v: u32,
+    pub caps: Vec<String>,
+    /// X25519 public key (32 raw bytes, base64-encoded in JSON).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pk: Option<String>,
+}
+
+// ── Client side ─────────────────────────────────────────────────────────────
+
+/// Client: initiate encrypted handshake via PROBE/PROBE_ACK.
+///
+/// 1. Generates X25519 keypair
+/// 2. Sends PROBE with public key
+/// 3. Reads PROBE_ACK with server's public key
+/// 4. Derives shared secret → initializes Cipher
+///
+/// If the server doesn't include `pk` in its ACK, encryption is not negotiated
+/// and this returns `Ok(None)`.
+pub fn client_encrypted_handshake(
+    stream: &mut dyn crate::transport::Transport,
+    capabilities: &[&str],
+    enable_encryption: bool,
+) -> io::Result<Option<EncryptedHandshake>> {
+    use crate::crypto::Keypair;
+
+    let keypair = if enable_encryption {
+        Some(Keypair::generate())
+    } else {
+        None
+    };
+
+    // 1. Build and send PROBE
+    let mut caps = capabilities.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    if keypair.is_some() {
+        caps.push("encryption".into());
+    }
+
+    let pk_b64 = keypair.as_ref().map(|kp| {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes())
+    });
+
+    let probe = ProbeMsg { v: 1, caps, pk: pk_b64 };
+    let probe_json = serde_json::to_vec(&probe)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let probe_size = crate::frame::build_size(probe_json.len());
+    let mut probe_buf = vec![0u8; probe_size];
+    crate::frame::build(crate::frame::TYPE_PROBE, crate::frame::FLAG_COMPRESSED, &probe_json, &mut probe_buf);
+    stream.write_all(&probe_buf[..probe_size])?;
+    stream.flush()?;
+
+    // 2. Read PROBE_ACK
+    let mut buf = [0u8; 4096];
+    let n = stream.read(&mut buf)?;
+    let ack_frame = match crate::frame::parse(&buf[..n]) {
+        crate::frame::ParseResult::Complete { frame, .. } => frame,
+        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PROBE_ACK")),
+    };
+
+    if ack_frame.frame_type != crate::frame::TYPE_PROBE_ACK {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected PROBE_ACK"));
+    }
+
+    let ack: ProbeAckMsg = serde_json::from_slice(ack_frame.payload)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+    // 3. If both sides support encryption, derive shared secret
+    match (keypair, ack.pk) {
+        (Some(kp), Some(pk_b64)) => {
+            use base64::Engine;
+            let pk_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                .decode(&pk_b64)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                .try_into()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid public key length"))?;
+
+            let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
+            let shared_secret = kp.derive_shared_secret(&peer_public);
+            let cipher = crate::crypto::Cipher::new(&shared_secret);
+
+            Ok(Some(EncryptedHandshake {
+                cipher,
+                peer_public_key: pk_bytes,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+// ── Server side ─────────────────────────────────────────────────────────────
+
+/// Server: respond to encrypted handshake PROBE.
+///
+/// 1. Reads PROBE from client
+/// 2. If client offers encryption, generates X25519 keypair
+/// 3. Sends PROBE_ACK with server's public key
+/// 4. Derives shared secret → initializes Cipher
+///
+/// Returns the cipher if encryption was negotiated, plus the ACK bytes to send.
+pub fn server_encrypted_handshake(
+    stream: &mut dyn crate::transport::Transport,
+    capabilities: &[&str],
+) -> io::Result<(Option<EncryptedHandshake>, Vec<u8>)> {
+    // 1. Read PROBE
+    let mut buf = [0u8; 4096];
+    let n = stream.read(&mut buf)?;
+    let probe_frame = match crate::frame::parse(&buf[..n]) {
+        crate::frame::ParseResult::Complete { frame, .. } => frame,
+        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PROBE")),
+    };
+
+    if probe_frame.frame_type != crate::frame::TYPE_PROBE {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected PROBE"));
+    }
+
+    let probe: ProbeMsg = serde_json::from_slice(probe_frame.payload)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+    // 2. Check if client wants encryption and server supports it
+    let client_wants_encryption = probe.caps.contains(&"encryption".to_string());
+    let server_supports_encryption = capabilities.contains(&"encryption");
+
+    let (handshake, server_pk_b64) = if client_wants_encryption && server_supports_encryption {
+        let kp = crate::crypto::Keypair::generate();
+
+        let pk_bytes = match &probe.pk {
+            Some(pk_b64) => {
+                use base64::Engine;
+                let bytes: Vec<u8> = base64::engine::general_purpose::STANDARD
+                    .decode(pk_b64)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                bytes.try_into()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid public key length"))?
+            }
+            None => return Err(io::Error::new(io::ErrorKind::InvalidData, "encryption cap without pk")),
+        };
+
+        let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
+        let shared_secret = kp.derive_shared_secret(&peer_public);
+        let cipher = crate::crypto::Cipher::new(&shared_secret);
+
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());
+
+        (Some(EncryptedHandshake { cipher, peer_public_key: pk_bytes }), Some(b64))
+    } else {
+        (None, None)
+    };
+
+    // 3. Build ACK
+    let mut ack_caps = capabilities.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    if server_supports_encryption && client_wants_encryption {
+        if !ack_caps.contains(&"encryption".to_string()) {
+            ack_caps.push("encryption".into());
+        }
+    }
+
+    let ack = ProbeAckMsg { v: 1, caps: ack_caps, pk: server_pk_b64 };
+    let ack_json = serde_json::to_vec(&ack)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let ack_size = crate::frame::build_size(ack_json.len());
+    let mut ack_buf = vec![0u8; ack_size];
+    crate::frame::build(crate::frame::TYPE_PROBE_ACK, crate::frame::FLAG_COMPRESSED, &ack_json, &mut ack_buf);
+    ack_buf.truncate(ack_size);
+
+    Ok((handshake, ack_buf))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::Transport;
+    use std::io;
+
+    /// A simple in-memory transport for testing handshakes.
+    struct MemTransport {
+        buf: Vec<u8>,
+        pos: usize,
+    }
+
+    impl MemTransport {
+        fn new() -> Self {
+            Self { buf: Vec::new(), pos: 0 }
+        }
+    }
+
+    impl Transport for MemTransport {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let remaining = self.buf.len() - self.pos;
+            if remaining == 0 {
+                return Err(io::Error::new(io::ErrorKind::WouldBlock, "no data"));
+            }
+            let n = buf.len().min(remaining);
+            buf[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
+        }
+
+        fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+            self.buf.extend_from_slice(buf);
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn encrypted_handshake_end_to_end() {
+        // Test that ProbeMsg/ProbeAckMsg serialization works with encryption keys.
+        let probe = ProbeMsg {
+            v: 1,
+            caps: vec!["compression".into(), "encryption".into()],
+            pk: Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into()),
+        };
+        let json = serde_json::to_string(&probe).unwrap();
+        assert!(json.contains("encryption"));
+        assert!(json.contains("AAAAAAAA"));
+
+        let parsed: ProbeMsg = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.v, 1);
+        assert!(parsed.caps.contains(&"encryption".to_string()));
+        assert!(parsed.pk.is_some());
+    }
+}

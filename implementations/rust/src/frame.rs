@@ -42,6 +42,13 @@ pub const TYPE_TRANSPORT_INIT: u8 = 0x0B;
 /// Transport capability negotiation ack (server → client).
 pub const TYPE_TRANSPORT_ACK: u8 = 0x0C;
 
+// ── Protocol negotiation (handshake with optional key exchange) ─────────────
+
+/// Protocol probe (negotiation handshake, may carry X25519 public key).
+pub const TYPE_PROBE: u8 = 0x0F;
+/// Protocol probe acknowledgement (may carry X25519 public key).
+pub const TYPE_PROBE_ACK: u8 = 0x10;
+
 // ── Flag constants ──────────────────────────────────────────────────────────
 
 pub const FLAG_COMPRESSED: u8 = 0x01;
@@ -184,6 +191,8 @@ impl<'a> Frame<'a> {
             TYPE_HEARTBEAT => "HEARTBEAT",
             TYPE_TRANSPORT_INIT => "TRANSPORT_INIT",
             TYPE_TRANSPORT_ACK => "TRANSPORT_ACK",
+            TYPE_PROBE => "PROBE",
+            TYPE_PROBE_ACK => "PROBE_ACK",
             _ => "UNKNOWN",
         }
     }
