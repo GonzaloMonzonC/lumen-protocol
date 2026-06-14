@@ -124,16 +124,22 @@ implementations/typescript/
     ├── index.ts           ← public exports
     ├── transport.ts       ← LumenStdioTransport, LumenWebSocketTransport
     ├── negotiation.ts     ← LUMEN probe/ack handshake + fallback
-    ├── hyb128.ts          ← Hyb128 encode/decode (TypeScript port)
-    ├── frame.ts           ← Frame builder/parser (TypeScript port)
+    ├── hyb128.ts          ← Hyb128 encode/decode
+    ├── frame.ts           ← Frame builder/parser
     ├── frame-assembler.ts ← Zero-allocation streaming frame reassembler
     ├── dict.ts            ← Dictionary (128 static + 127 session IDs, O(1) lookup)
     ├── compress.ts        ← Compact binary payload codec
-    ├── zeroalloc.ts       ← ZeroAllocDecompressor (Vía 1, 54% less GC)
+    ├── compress_ffi.ts    ← FFI wrapper (Rust → Node via koffi, 4.4× faster)
+    ├── shm_ffi.ts         ← SHM zero-copy transport (Nivel 2, FFI)
+    ├── dgram.ts           ← Datagram UDP/multicast (Nivel 3)
+    ├── zeroalloc.ts       ← ZeroAllocDecompressor (54% less GC)
     ├── cadencia.ts        ← Cadencia sidecar bridge client
     ├── bench.ts           ← Benchmark suite (122 benchmarks, 18 categories)
     ├── frame-assembler.test.ts  ← 17 stress tests
     ├── zeroalloc.test.ts        ← 79 correctness + safety tests
+    ├── dgram.test.ts            ← 13 datagram tests (Nivel 3)
+    ├── shm_ffi.test.ts          ← 10 SHM integration tests (Nivel 2)
+    ├── e2e.test.ts              ← 217 cross-implementation E2E tests
     └── cadencia.integration.test.ts ← 3 integration tests (needs Rust binary)
 ```
 
@@ -146,7 +152,10 @@ implementations/typescript/
 | `frame-assembler.ts` | 🟢 Done — zero-alloc streaming parser, 1.2 GB/s saturation |
 | `dict.ts` | 🟢 Done — 128 static + 127 session IDs, O(1) resolve + lookup |
 | `compress.ts` | 🟢 Done — 8 value tags, dict compression, 47-55% wire savings |
-| `zeroalloc.ts` | 🟢 Done — Vía 1: 54% less heap vs naive decoder (3.7× vs JSON) |
+| `compress_ffi.ts` | 🟢 Done — Rust FFI via koffi, 4.4× faster encode |
+| `shm_ffi.ts` | 🟢 Done — Nivel 2 SHM zero-copy, 10/10 tests |
+| `dgram.ts` | 🟢 Done — Nivel 3 Datagram UDP/multicast, 13/13 tests |
+| `zeroalloc.ts` | 🟢 Done — 54% less GC vs naive decoder (3.7× vs JSON) |
 | `negotiation.ts` | 🟢 Done — probe/ack handshake, 500ms fallback to JSON-RPC |
 | `transport.ts` | 🟢 Done — Stdio + WebSocket, auto LUMEN negotiation |
 | `cadencia.ts` (sidecar) | 🟢 Prototyped — Rust `cadencia-bridge` + TS client |
@@ -161,20 +170,22 @@ node --expose-gc --import tsx src/bench.ts
 
 Key results from the root [README](../../README.md#-typescript-benchmark-suite):
 - **Wire size:** 47–55% smaller than JSON for MCP payloads
-- **String escape (Asalto 2):** 1.1–2.2× faster than `JSON.stringify` on hostile strings
-- **GC pressure (Asalto 3):** ZeroAllocDecompressor = 1,401 KB heap Δ vs 3,033 KB naive (54% reduction)
+- **String escape:** 1.1–2.2× faster than `JSON.stringify` on hostile strings
+- **GC pressure:** ZeroAllocDecompressor = 1,401 KB heap Δ vs 3,033 KB naive (54% reduction)
 - **Framing:** Hyb128 parse 3.6–8× faster than Content-Length
 
 ## Test Suite
 
-**96/96 passing** (79 zero-alloc + 17 frame-assembler) without the Rust sidecar:
+Core TS-only tests (96/96):
 
 ```bash
 node --import tsx --test src/zeroalloc.test.ts src/frame-assembler.test.ts
 ```
 
-Full suite (requires compiled `cadencia-bridge` binary):
+Full suite (requires compiled Rust `cadencia-bridge` binary + `lumen.dll`):
 
 ```bash
-node --import tsx --test src/*.test.ts   # +3 CadenciaBridge integration tests
+node --import tsx --test src/*.test.ts   # +3 CadenciaBridge, +10 SHM FFI
+node --test dist/dgram.test.js           # 13 datagram (Nivel 3)
+node --test dist/e2e.test.js             # 217 cross-implementation E2E
 ```
