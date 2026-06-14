@@ -6,20 +6,21 @@
 //! Value:
 //!   Null:    0xE0
 //!   Bool:    0xE1 <0|1:1B>
-//!   Number:  0xE2 <f64 LE:8B>
-//!   String:  [dict] 0xE3 <id:1B>
-//!            [raw]  0xE4 <len:Hyb128> <utf8>
-//!   Array:   0xE5 <count:Hyb128> value*
-//!   Object:  0xE6 <count:Hyb128> (key value)*
+//!   Float:   0xE2 <f64 LE:8B>
+//!   Int:     0xE3 <signed LEB128>
+//!   String:  [dict] 0xE4 <id:1B>
+//!            [raw]  0xE5 <len:Hyb128> <utf8>
+//!   Array:   0xE6 <count:Hyb128> value*
+//!   Object:  0xE7 <count:Hyb128> (key value)*
 //!
 //! Key (inside Object):
 //!   [dict] <id:1B>     where id ∈ 0x00..0xFE
 //!   [raw]  0xFF <len:Hyb128> <utf8>
 //! ```
 //!
-//! Total tags: 7 value types + 1 key sentinel = 8.
+//! Total tags: 8 value types + 1 key sentinel = 9.
 //! Tags chosen so that:
-//! - 0xE0..0xE6 = value types (Nil→Obj)
+//! - 0xE0..0xE7 = value types (Null→Object)
 //! - 0x00..0xFE = dict key IDs
 //! - 0xFF = raw key sentinel
 
