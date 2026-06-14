@@ -16,9 +16,7 @@ base64 = "0.22"
 # Optional: QUIC transport (RFC 9000)
 quinn = { version = "0.11", optional = true }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", "sync", "macros"] }
-rustls = { version = "0.23", optional = true }
-
-[dev-dependencies]
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std"] }
 rcgen = { version = "0.13", optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -27,7 +25,7 @@ libc = "0.2"
 [features]
 default = []
 wasm = ["wasm-bindgen"]
-quic = ["quinn", "tokio", "rustls"]
+quic = ["quinn", "tokio", "rustls", "rcgen"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
