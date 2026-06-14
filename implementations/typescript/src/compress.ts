@@ -311,14 +311,14 @@ function encodeHyb128Buf(n: number): Uint8Array {
   return buf.subarray(0, len);
 }
 
-/** Encode i64 as signed LEB128 (zigzag style). */
+/** Encode i64 as signed LEB128 (zigzag style). Uses BigInt to avoid 32-bit truncation. */
 function encodeI64Leb128(v: number): Uint8Array {
-  // Zigzag encode: map signed to unsigned
-  let u = ((v >> 63) as number) ^ ((v as number) << 1);
+  // Zigzag encode: (n << 1) ^ (n >> 63) — using BigInt to handle full i64 range
+  let u = Number((BigInt(v) << 1n) ^ (BigInt(v) >> 63n));
   const buf: number[] = [];
   do {
     let byte = u & 0x7f;
-    u = Math.floor(u / 128); // unsigned >> 7
+    u >>>= 7; // unsigned right shift (keeps u positive)
     if (u !== 0) byte |= 0x80;
     buf.push(byte);
   } while (u !== 0);
@@ -348,11 +348,11 @@ function decodeI64Leb128(
 }
 
 function i64Leb128Len(v: number): number {
-  let u = ((v >> 63) as number) ^ ((v as number) << 1);
+  let u = Number((BigInt(v) << 1n) ^ (BigInt(v) >> 63n));
   let len = 0;
   do {
     len++;
-    u = Math.floor(u / 128);
+    u >>>= 7;
   } while (u !== 0);
   return len;
 }
