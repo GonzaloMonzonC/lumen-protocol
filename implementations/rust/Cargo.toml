@@ -9,6 +9,9 @@ license = "MIT"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [[bin]]
 name = "shootout"
 path = "src/bin/shootout.rs"
