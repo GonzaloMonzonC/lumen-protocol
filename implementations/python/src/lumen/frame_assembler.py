@@ -35,21 +35,21 @@ class FrameAssembler:
         Returns a list of complete frames parsed from the accumulated buffer.
         Incomplete data is retained for the next call.
         """
-        if isinstance(chunk, memoryview):
-            self._buf.extend(chunk.tobytes())
-        else:
-            self._buf.extend(chunk)
+        self._buf.extend(chunk)
 
         frames: list[Frame] = []
+        # Use memoryview once for lock-free zero-copy parsing
+        mv = memoryview(self._buf)
 
         while True:
-            result = parse_frame(self._buf, 0)
+            result = parse_frame(mv, 0)
             if isinstance(result, ParseComplete):
                 frames.append(result.frame)
-                # Advance past the consumed bytes
-                del self._buf[: result.consumed]
+                consumed = result.consumed
+                del mv  # release buffer lock before modifying
+                del self._buf[:consumed]
+                mv = memoryview(self._buf)
                 continue
-            # ParseIncomplete or ParseIncompletePayload or ParseError → stop
             break
 
         return frames
