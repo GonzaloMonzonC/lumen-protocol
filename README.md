@@ -632,13 +632,14 @@ await bridge.stop();
 
 **122 benchmarks en 18 categorías**, ejecutados con `node --expose-gc --import tsx src/bench.ts`. Resultados en `implementations/typescript/bench_results_full.json`.
 
-### 🧪 Test Suite — 538+ tests pasando
+### 🧪 Test Suite — 755+ tests pasando
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
 | LUMEN Rust core | **38/38** | Rust | `cargo test` |
 | FrameAssembler stress | **17/17** | TypeScript | `node --test` |
 | ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
+| **TS e2e cross-impl** | **217/217** | TypeScript | `npx tsx --test src/e2e.test.ts` |
 | CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
 | Python unit tests | **94/94** | Python | `pytest` |
 | C# roundtrip + golden | **17/17 + 28/28** | C# (.NET 9) | `dotnet run` |
@@ -649,14 +650,21 @@ await bridge.stop();
 
 Golden file testing entre las 5 implementaciones (Python genera, resto validan):
 
-| Implementación | E2E Tests | Estado |
-|---|---|---|
-| **Python** | 89/89 | ✅ Genera golden binaries |
-| **TypeScript** | 217/217 | ✅ Match binario + cross-decode |
-| **Rust** | 9/9 | ✅ Match semántico + Hyb128 + frames |
-| **C# (.NET 9)** | 28/28 | ✅ Match binario byte-por-byte |
-| **C# FFI (P/Invoke)** | 28/28 | ✅ Match binario byte-por-byte |
-| **PHP 8.5** | 217/217 | ✅ Match binario + frame integration |
+| Implementación | E2E Tests | Scope | Estado |
+|---|---|---|---|
+| **Python** | 89/89 | 28 vectores × golden generate/validate | ✅ Genera golden binaries |
+| **TypeScript** | 217/217 | Suite completa (compress + Hyb128 + Frame + integr.) | ✅ Match binario + cross-decode |
+| **Rust** | 9/9 | 9 `#[test]` fn à ~28 iters c/u (~250 assertions) | ✅ Match semántico + Hyb128 + frames |
+| **C# (.NET 9)** | 28/28 | Compress/decompress golden (sin Hyb128/Frame) | ✅ Match binario byte-por-byte |
+| **C# FFI (P/Invoke)** | 28/28 | Compress/decompress via Rust FFI | ✅ Match binario byte-por-byte |
+| **PHP 8.5** | 217/217 | Suite completa (compress + Hyb128 + Frame + integr.) | ✅ Match binario + frame integration |
+
+> **¿Por qué PHP y TS tienen 217 y Rust solo 9?**
+> PHP y TS usan la misma estructura de e2e: 28 vectores × 3 tests + 8 stability + 11 Hyb128
+> + 36 frame roundtrip + 72 frame compat + 6 integration = **217 tests individuales**.
+> Rust usa el convenio `#[test]` con una función por tipo de test que itera internamente
+> sobre todos los vectores — misma cobertura, conteo diferente.
+> C# tiene un harness enfocado en benchmark, solo valida compress/decompress.
 
 Los 28 vectores compartidos en `tests/e2e/shared_vectors.json` cubren todos los
 value types LUMEN (null, bool, int, float, string, array, object) y payloads MCP
