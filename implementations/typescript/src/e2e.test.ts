@@ -64,11 +64,10 @@ function buffersEqual(a: Uint8Array, b: Uint8Array): boolean {
 
 // Vectors with known cross-implementation binary differences:
 // - float_zero: TS encodes 0.0 as TAG_INT (2B), Python as TAG_FLOAT (9B). Both valid.
-// - int_large: TS LEB128 encoder has a bug with values > ~2^28.
-const SKIP_BINARY_COMPARE = new Set(["float_zero", "int_large"]);
+const SKIP_BINARY_COMPARE = new Set(["float_zero"]);
 
-// Vectors skipped entirely in TS (known bugs)
-const SKIP_TS = new Set(["int_large"]);
+// Vectors skipped entirely in TS (known bugs) — none after LEB128 zigzag fix
+const SKIP_TS: Set<string> = new Set();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. Compress roundtrip
