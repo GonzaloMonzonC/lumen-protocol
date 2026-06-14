@@ -14,8 +14,7 @@ LUMEN binary transport for the Model Context Protocol (MCP) SDK.
 │  │  │  ┌───────────────────────────────┐  │  │   │
 │  │  │  │  @lumen/mcp-transport  ← YOU  │  │  │   │
 │  │  │  │  LumenStdioTransport           │  │  │   │
-│  │  │  │  LumenSSETransport             │  │  │   │
-│  │  │  │  LumenWSSTransport             │  │  │   │
+│  │  │  │  LumenWebSocketTransport       │  │  │   │
 │  │  │  └───────────────────────────────┘  │  │   │
 │  │  └─────────────────────────────────────┘  │   │
 │  └───────────────────────────────────────────┘   │
@@ -98,31 +97,16 @@ class LumenStdioTransport implements Transport {
 }
 ```
 
-### `LumenSSETransport`
-
-Drop-in replacement for `SSEClientTransport`.
-
-```typescript
-class LumenSSETransport implements Transport {
-  constructor(url: string, options?: {
-    forceJsonRpc?: boolean;
-    probeTimeoutMs?: number;
-  });
-  // ... same Transport interface
-}
-```
-
 ### `LumenWebSocketTransport`
 
-New transport: WebSocket with LUMEN binary frames.
+WebSocket transport with LUMEN binary frames.
 Ideal for cloud gateways (Cadencia → API Gateway → MCP servers).
 
 ```typescript
 class LumenWebSocketTransport implements Transport {
   constructor(url: string, options?: {
     forceJsonRpc?: boolean;
-    /** Send LUMEN frames as binary WebSocket messages */
-    binaryFrames?: boolean; // default: true
+    probeTimeoutMs?: number;
   });
   // ... same Transport interface
 }
@@ -143,7 +127,7 @@ implementations/typescript/
     ├── hyb128.ts          ← Hyb128 encode/decode (TypeScript port)
     ├── frame.ts           ← Frame builder/parser (TypeScript port)
     ├── frame-assembler.ts ← Zero-allocation streaming frame reassembler
-    ├── dict.ts            ← Dictionary (128 static IDs, O(1) lookup)
+    ├── dict.ts            ← Dictionary (128 static + 127 session IDs, O(1) lookup)
     ├── compress.ts        ← Compact binary payload codec
     ├── zeroalloc.ts       ← ZeroAllocDecompressor (Vía 1, 54% less GC)
     ├── cadencia.ts        ← Cadencia sidecar bridge client
@@ -160,7 +144,7 @@ implementations/typescript/
 | `hyb128.ts` | 🟢 Done — encode/decode, mode 00/10/11, LEB128 fallback |
 | `frame.ts` | 🟢 Done — build/parse, all 12 frame types + flags |
 | `frame-assembler.ts` | 🟢 Done — zero-alloc streaming parser, 1.2 GB/s saturation |
-| `dict.ts` | 🟢 Done — 128 static IDs, O(1) resolve + lookup |
+| `dict.ts` | 🟢 Done — 128 static + 127 session IDs, O(1) resolve + lookup |
 | `compress.ts` | 🟢 Done — 8 value tags, dict compression, 47-55% wire savings |
 | `zeroalloc.ts` | 🟢 Done — Vía 1: 54% less heap vs naive decoder (3.7× vs JSON) |
 | `negotiation.ts` | 🟢 Done — probe/ack handshake, 500ms fallback to JSON-RPC |

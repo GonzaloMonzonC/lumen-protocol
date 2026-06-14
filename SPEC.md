@@ -253,10 +253,10 @@ Comprimido:     {0x00: "search", 0x01: {lookup("query"): "hola"}}
 
 ### 5.3 Diccionario de Sesión (IDs `0x80–0xFE`)
 
-127 entradas negociadas en handshake y actualizables vía `SCHEMA_PATCH` (`0x05`):
+127 entradas negociadas en handshake y actualizables vía `DICT_SYNC` (`0x07`):
 
 ```
-SCHEMA_PATCH payload:
+DICT_SYNC payload:
 [OP:1B] [ENTRY_COUNT:1B] [ENTRIES...]
 
 OP:
@@ -266,6 +266,9 @@ OP:
 
 ENTRY: [ID:1B] [KEY_LEN:1B] [KEY:N]
 ```
+
+API disponible en los 5 lenguajes: `register_session_key`, `unregister_session_key`,
+`init_session_dict`, `clear_session_dict`, `session_dict_size`.
 
 ### 5.4 Sincronización
 
@@ -366,7 +369,8 @@ Sub-agente NO puede:   ❌ Leer /etc/passwd
 - [Macaroons: Cookies with Contextual Caveats](https://research.google/pubs/pub41892/)
 - [LEB128 Encoding](https://en.wikipedia.org/wiki/LEB128)
 - Implementación de referencia: [`implementations/rust/`](implementations/rust/)
+- WASM bindings: `wasm-pack build --target web --features wasm` → `pkg/lumen.js`
 
 ---
 
-*LUMEN v1.0-draft — Última actualización: 2026-06-11*
+*LUMEN v1.0-draft — Última actualización: 2026-06-14*

@@ -125,8 +125,10 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── lib.rs
     │       ├── hyb128.rs    ← encoding híbrido de longitud
     │       ├── frame.rs     ← parser/builder de frames
-    │       ├── dict.rs      ← diccionario O(1) con OnceLock<HashMap>
+    │       ├── dict.rs      ← diccionario O(1): 128 estáticas + 127 sesión (OnceLock<RwLock<>>)
     │       ├── compress.rs  ← compact binary payload (TAG + dict)
+    │       ├── ffi.rs       ← C FFI exports (gated out for WASM builds)
+    │       ├── wasm.rs      ← WASM bindings (wasm-bindgen, builds with wasm-pack)
     │       ├── fixtures.rs  ← generadores de datos realistas
     │       ├── transport.rs ← abstracción de transporte
     │       └── bin/
@@ -146,9 +148,10 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── negotiation.ts← handshake LUMEN probe/ack + fallback JSON-RPC
     │       ├── hyb128.ts     ← Hyb128 encode/decode
     │       ├── frame.ts      ← Frame builder/parser
-    │       ├── dict.ts       ← Diccionario 128 IDs estáticos
+    │       ├── dict.ts       ← Diccionario 128 estáticas + 127 sesión
     │       ├── compress.ts   ← Compact binary payload
     │       ├── compress_ffi.ts← FFI wrapper (Rust → Node via koffi)
+    │       ├── zeroalloc.ts  ← ZeroAllocDecompressor (54% menos GC)
     │       └── cadencia.ts   ← Cliente del sidecar Rust
     ├── /python/             ← lumen-py (pip install)
     │   ├── README.md
@@ -156,12 +159,12 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── __init__.py
     │       ├── hyb128.py    ← Hyb128 encode/decode
     │       ├── frame.py     ← Frame builder/parser + FrameAssembler
-    │       ├── dict.py      ← Diccionario 128 IDs estáticos
+    │       ├── dict.py      ← Diccionario 128 estáticas + 127 sesión
     │       ├── compress.py  ← Compact binary payload
     │       └── transport.py ← LumenStdioTransport + negotiation
     ├── /csharp/              ← lumen-cs (.NET 9)
     │   ├── LumenCSharp.csproj
-    │   ├── Dict.cs          ← Diccionario 128 IDs estáticos
+    │   ├── Dict.cs          ← Diccionario 128 estáticas + 127 sesión
     │   ├── Hyb128.cs        ← Hyb128 encode/decode
     │   ├── LumenCompress.cs ← Compact binary payload (native C#)
     │   ├── LumenFFI.cs      ← P/Invoke FFI (Rust → .NET)
@@ -173,7 +176,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
         │   └── e2e_test.php ← cross-implementation e2e (217 tests)
         └── src/
             ├── Compress.php       ← compact binary payload
-            ├── Dict.php           ← diccionario 128 IDs estáticos
+            ├── Dict.php           ← diccionario 128 estáticas + 127 sesión
             ├── Hyb128.php         ← Hyb128 encode/decode
             ├── Frame.php          ← frame parser
             └── FrameAssembler.php ← streaming frame assembler
@@ -185,7 +188,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
 
 ```bash
 cd implementations/rust
-cargo test                       # 38 tests, 0 warnings
+cargo test                       # 55 tests, 0 warnings
 cargo run --bin shootout             # benchmark CPU + wire size
 cargo run --bin heap-shootout        # benchmark allocaciones de heap
 cargo run --bin concurrent-shootout  # benchmark de estrés concurrente
@@ -231,12 +234,18 @@ match frame::parse(&buf[..n]) {
 ```rust
 use lumen::dict;
 
-// Resolve: ID → key (O(1) array lookup)
+// Resolve: ID → key (static 0x00–0x7F, session 0x80–0xFE)
 assert_eq!(dict::resolve(0x00), Some("tool"));
+assert_eq!(dict::resolve_any(0x80), None); // session slot still empty
 
-// Lookup: key → ID (O(1) HashMap via OnceLock)
+// Lookup: key → ID (static dict first, then session dict)
 assert_eq!(dict::lookup_fast("tool"), Some(0x00));
 assert_eq!(dict::lookup_fast("nonexistent"), None);
+
+// Session dictionary (127 dynamic slots)
+dict::register_session("my_custom_key", 0x80).unwrap();
+assert_eq!(dict::resolve_any(0x80), Some("my_custom_key".to_string()));
+assert_eq!(dict::lookup_fast("my_custom_key"), Some(0x80));
 ```
 
 ### Compact binary format
@@ -247,6 +256,30 @@ Value tags:  0xE0=NULL  0xE1=BOOL  0xE2=FLOAT(f64 LE)  0xE3=INT(LEB128 zigzag)
 
 Keys inside objects:  0x00..0x7E = dict ID  0xFF = raw UTF-8
 ```
+
+### WASM (WebAssembly)
+
+Compila el crate Rust a WASM para uso directo desde JavaScript/TypeScript en navegador o edge:
+
+```bash
+rustup target add wasm32-unknown-unknown
+npm install -g wasm-pack        # o: cargo install wasm-pack
+wasm-pack build --target web --features wasm
+```
+
+```javascript
+import init, { lumen_compress, lumen_decompress, lumen_version } from "./pkg/lumen.js";
+
+await init();
+
+const json = JSON.stringify({ tool: "search", arguments: { query: "hello" } });
+const compressed = lumen_compress(json);   // Uint8Array
+const restored = lumen_decompress(compressed); // string (JSON)
+console.log(lumen_version());              // "0.1.0"
+```
+
+El módulo `ffi.rs` (C FFI) se excluye automáticamente del build WASM para evitar
+colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 
 ---
 
