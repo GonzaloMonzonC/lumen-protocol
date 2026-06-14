@@ -124,6 +124,7 @@ const plaintext = await cipher.decrypt(encryptedPayload);
 | Lenguaje | Estado |
 |---|---|
 | **Rust** | ✅ `crypto.rs` — 8 tests |
+| **Rust QUIC** | ✅ `quic.rs` — 8 tests (`--features quic`) |
 | **TypeScript** | ✅ `crypto.ts` — WebCrypto |
 | Python, C#, PHP | *(pendiente)* |
 
@@ -154,8 +155,39 @@ LUMEN es agnóstico al transporte, con 3 niveles:
 | 1 | Stream | stdio, TCP, UDS, WebSocket |
 | 2 | Zero-Copy | UDS + mmap (Unix), Named SHM (Windows) ✅ |
 | 3 | Datagram | UDP, multicast ✅ |
+| 4 | QUIC | UDP+TLS 1.3, multi-stream, 0-RTT ✅ |
 
 Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream confiable sin capas extra.
+
+### Nivel 4 — QUIC (RFC 9000)
+
+Transporte seguro sobre UDP con TLS 1.3 integrado, multi-streaming nativo y 0-RTT handshake. Ideal para comunicación remota entre agentes que requieren cifrado y multiplexación sin el head-of-line blocking de TCP.
+
+```rust
+use lumen::quic::{QuicEndpoint, generate_self_signed_cert};
+
+// Servidor
+let (cert, key) = generate_self_signed_cert(&["lumen.local".to_string()])?;
+let endpoint = QuicEndpoint::server("0.0.0.0:4433".parse()?, cert, key)?;
+let transport = endpoint.accept().await?;  // acepta conexión entrante
+
+// Cliente
+let endpoint = QuicEndpoint::client()?;
+let transport = endpoint.connect("lumen.local:4433".parse()?).await?;
+transport.send(b"LUMEN frame").await?;
+let response = transport.recv().await?;
+```
+
+| Propiedad | QUIC (Nivel 4) | TCP (Nivel 1) |
+|---|---|---|
+| Cifrado | TLS 1.3 obligatorio | Opcional (handshake LTA) |
+| Handshake | 1-RTT (0-RTT en reconexión) | 3-way TCP + LTA negotiation |
+| Streams | Múltiples streams independientes | Un solo stream ordenado |
+| Head-of-line blocking | ❌ No (por stream) | ✅ Sí (global) |
+| Migración de conexión | ✅ Nativa (connection ID) | ❌ Se rompe al cambiar IP |
+| Feature flag | `--features quic` | Siempre disponible |
+
+> **Tests:** 8/8 ✅ — `cargo test --features quic`
 
 ---
 
@@ -181,6 +213,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── transport.rs ← abstracción de transporte
     │       ├── crypto.rs    ← ChaCha20-Poly1305 + X25519 wire encryption
     │       ├── handshake.rs ← Transport + encryption negotiation
+    │       ├── quic.rs      ← QUIC transport (RFC 9000, Nivel 4)
     │       └── bin/
     │           ├── shootout.rs           ← benchmark CPU + wire size
     │           ├── heap-shootout.rs      ← benchmark allocaciones de heap
@@ -250,7 +283,8 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
 
 ```bash
 cd implementations/rust
-cargo test                       # 62 tests, 0 warnings
+cargo test                       # 86 tests (sin feature quic)
+cargo test --features quic       # 94 tests (con QUIC, --test-threads=1)
 cargo run --bin shootout             # benchmark CPU + wire size
 cargo run --bin heap-shootout        # benchmark allocaciones de heap
 cargo run --bin concurrent-shootout  # benchmark de estrés concurrente
@@ -705,12 +739,13 @@ Un agente LUMEN típico usa **los tres niveles simultáneamente**:
 | `tools/call` request/response | **Nivel 1** (TCP) | Garantía de entrega, orden, streaming de resultados |
 | `llm/stream` tokens | **Nivel 1** (TCP) | Orden estricto de tokens, backpressure del kernel |
 | Indexación de workspace (archivos >1 KB) | **Nivel 2** (SHM) | Zero-copy: 10–20 GB/s sin tocar el stack TCP |
+| Comunicación remota entre agentes | **Nivel 4** (QUIC) | TLS 1.3 nativo, multi-stream, sin head-of-line blocking |
 | Heartbeats (keep-alive) | **Nivel 3** (UDP) | Stateless, sin conexión, fire-and-forget |
 | Service discovery (¿qué agentes hay?) | **Nivel 3** (multicast) | Una trama DISCOVER → N respuestas, sin registry |
 | Telemetría / métricas | **Nivel 3** (UDP) | Alto throughput, pérdida tolerada |
 | Log shipping | **Nivel 3** (UDP) | Sin backpressure, el receptor filtra lo que puede |
 
-> **Regla de oro:** Si necesitas que el mensaje llegue sí o sí → Nivel 1. Si necesitas que llegue a máxima velocidad → Nivel 2. Si necesitas que llegue a muchos destinos sin configurar cada uno → Nivel 3.
+> **Regla de oro:** Si necesitas que el mensaje llegue sí o sí → Nivel 1. Si necesitas que llegue a máxima velocidad → Nivel 2. Si necesitas que llegue a muchos destinos sin configurar cada uno → Nivel 3. Si necesitas comunicación remota segura con multi-streaming → Nivel 4 (QUIC).
 
 ---
 
@@ -994,7 +1029,7 @@ await bridge.stop();
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
-| LUMEN Rust core | **68/68** | Rust | `cargo test` |
+| LUMEN Rust core | **94/94** | Rust | `cargo test --features quic -- --test-threads=1` |
 | FrameAssembler stress | **17/17** | TypeScript | `node --test` |
 | ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
 | SHM FFI (Level 2) | **10/10** | TS ↔ Rust | `node --test dist/shm_ffi.test.js` |
