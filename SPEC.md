@@ -52,27 +52,42 @@ Transportes que lo cumplen:
 
 Este es el nivel base. Cualquier implementación de LUMEN **debe** soportar Nivel 1.
 
-### 2.2 Nivel 2 — Zero-Copy (opcional)
+### 2.2 Nivel 2 — Zero-Copy (implementado en Rust)
 
 ```
 Requisitos adicionales:
   ✅ Todo lo del Nivel 1
-  ✅ Memoria compartida entre extremos (mmap / shm)
-  ✅ Frames sin serializar (cast directo de memoria)
+  ✅ Memoria compartida entre extremos (mmap / shm en Unix, CreateFileMapping en Windows)
+  ✅ Frames sin serializar (cast directo de memoria via ring buffers)
+  ✅ Negociación in-band con TYPE_TRANSPORT_INIT (0x0B) / TYPE_TRANSPORT_ACK (0x0C)
 
 Transportes que lo cumplen:
-  • Unix Domain Sockets con SCM_RIGHTS (paso de fd)
-  • Memoria compartida anónima (mmap MAP_ANONYMOUS)
+  • Unix: shm_open + mmap (MAP_SHARED) con path tipo /lumen-shm-<ts>-<pid>
+  • Windows: CreateFileMappingW + MapViewOfFile con nombre único
+  • WASM: no soportado (stub que devuelve Unsupported)
+
+Arquitectura de ring buffer:
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Header (128 bytes): magic="LUME", version=1, layout info    │
+  │   Ring A: write_a cursor (cliente), read_a cursor (servidor)│
+  │   Ring B: write_b cursor (servidor), read_b cursor (cliente)│
+  ├─────────────────────────────────────────────────────────────┤
+  │ Ring A data: Client → Server  (~256 KiB)                    │
+  │ Ring B data: Server → Client  (~256 KiB)                    │
+  └─────────────────────────────────────────────────────────────┘
+  Región por defecto: 512 KiB total. SPSC lock-free con AtomicU64.
+  Cada frame se prefija con 4 bytes LE de longitud.
 ```
 
 Negociación:
 ```
-Cliente → Servidor:  LUMEN_INIT { capabilities: ["stream", "mmap"] }
-Servidor → Cliente:  LUMEN_ACK  { capabilities: ["stream", "mmap"],
-                                   shm_path: "/tmp/lumen.XXXXXX" }
+Cliente → Servidor:  TYPE_TRANSPORT_INIT (0x0B) → { "caps": ["mmap","stdio"] }
+Servidor → Cliente:  TYPE_TRANSPORT_ACK  (0x0C) → { "cap":"mmap",
+                                                     "shm_path":"/lumen-shm-<ts>-<pid>",
+                                                     "shm_size":524288 }
 ```
 
-Si el handshake falla, se degrada a Nivel 1.
+Si el handshake falla o mmap no está disponible, se degrada automáticamente a Nivel 1.
 
 ### 2.3 Nivel 3 — Datagram (experimental)
 

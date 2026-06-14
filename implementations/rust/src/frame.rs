@@ -35,6 +35,13 @@ pub const TYPE_MUX: u8 = 0x09;
 /// Heartbeat / keep-alive.
 pub const TYPE_HEARTBEAT: u8 = 0x0A;
 
+// ── Transport negotiation (LTA Level 2) ─────────────────────────────────────
+
+/// Transport capability negotiation init (client → server).
+pub const TYPE_TRANSPORT_INIT: u8 = 0x0B;
+/// Transport capability negotiation ack (server → client).
+pub const TYPE_TRANSPORT_ACK: u8 = 0x0C;
+
 // ── Flag constants ──────────────────────────────────────────────────────────
 
 pub const FLAG_COMPRESSED: u8 = 0x01;
