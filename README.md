@@ -135,7 +135,8 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │           ├── shootout.rs           ← benchmark CPU + wire size
     │           ├── heap-shootout.rs      ← benchmark allocaciones de heap
     │           ├── concurrent-shootout.rs← benchmark de estrés concurrente
-    │           └── ipc-shootout.rs       ← benchmark latencia IPC real (TCP)
+    │           ├── ipc-shootout.rs       ← benchmark latencia IPC real (TCP)
+    │           ├── shm-shootout.rs       ← benchmark zero-copy shared memory
     │           ├── workspace-shootout.rs ← benchmark indexación de proyecto
     │           └── cadencia-bridge.rs    ← sidecar Rust para Cadencia (VS Code)
     ├── /typescript/         ← @lumen/mcp-transport (Node.js)
@@ -151,6 +152,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── dict.ts       ← Diccionario 128 estáticas + 127 sesión
     │       ├── compress.ts   ← Compact binary payload
     │       ├── compress_ffi.ts← FFI wrapper (Rust → Node via koffi)
+    │       ├── shm_ffi.ts    ← SHM zero-copy transporte (Nivel 2, FFI)
     │       ├── zeroalloc.ts  ← ZeroAllocDecompressor (54% menos GC)
     │       └── cadencia.ts   ← Cliente del sidecar Rust
     ├── /python/             ← lumen-py (pip install)
@@ -188,11 +190,12 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
 
 ```bash
 cd implementations/rust
-cargo test                       # 55 tests, 0 warnings
+cargo test                       # 59 tests, 0 warnings
 cargo run --bin shootout             # benchmark CPU + wire size
 cargo run --bin heap-shootout        # benchmark allocaciones de heap
 cargo run --bin concurrent-shootout  # benchmark de estrés concurrente
 cargo run --bin ipc-shootout         # benchmark latencia IPC real (TCP)
+cargo run --bin shm-shootout         # benchmark zero-copy shared memory
 cargo run --bin workspace-shootout   # benchmark indexación de proyecto
 echo '{"cmd":"index","files":["src/main.rs"]}' | cargo run --bin cadencia-bridge  # sidecar
 ```
@@ -442,7 +445,9 @@ Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archi
 
 ## 🔧 Rust FFI (C ABI) — Native Bindings
 
-El crate Rust exporta una interfaz C estable (`cdylib`) con 5 funciones `extern "C"`:
+El crate Rust exporta una interfaz C estable (`cdylib`) con 10 funciones `extern "C"`:
+
+### Compresión (5 funciones)
 
 | Función | Firma | Descripción |
 |---------|-------|-------------|
@@ -451,6 +456,16 @@ El crate Rust exporta una interfaz C estable (`cdylib`) con 5 funciones `extern 
 | `lumen_free` | `(ptr)` | Libera buffer asignado por Rust |
 | `lumen_version` | `() → *const c_char` | Versión de la librería |
 | `lumen_error_message` | `() → *const c_char` | Último mensaje de error |
+
+### Zero-Copy Shared Memory (5 funciones, Nivel 2)
+
+| Función | Firma | Descripción |
+|---------|-------|-------------|
+| `lumen_shm_create` | `(name, name_len, size) → *ShmOpaque` | Crea región SHM (servidor) |
+| `lumen_shm_open` | `(name, name_len, size) → *ShmOpaque` | Abre región SHM (cliente) |
+| `lumen_shm_write_frame` | `(h, side, data, data_len) → i32` | Escribe frame en ring buffer |
+| `lumen_shm_read_frame` | `(h, side, buf, buf_cap, out_len) → i32` | Lee frame del ring buffer |
+| `lumen_shm_close` | `(h)` | Cierra y libera la región SHM |
 
 ```c
 // Ejemplo desde C
@@ -470,6 +485,27 @@ const original = decompressValueFFI(compressed);
 ```
 
 Usa [koffi](https://koffi.dev/) (pure JS, zero build) para cargar `lumen.dll` / `liblumen.so`.
+
+### Node.js — Zero-Copy SHM (Nivel 2)
+
+```typescript
+import { ShmTransportFFI } from "@lumen/mcp-transport";
+
+// Servidor
+const server = ShmTransportFFI.createServer("/lumen-shm-demo");
+server.writeFrame(Buffer.from("hello from server"));
+const req = server.readFrame();  // null si no hay datos
+
+// Cliente (otro proceso)
+const client = ShmTransportFFI.openClient("/lumen-shm-demo");
+client.writeFrame(Buffer.from("hello from client"));
+const res = client.readFrame();  // "hello from server"
+
+server.close(); client.close();
+```
+
+Comunicación zero-copy entre procesos via ring buffers lock-free SPSC sobre
+memoria compartida nativa (Rust `ShmRegion` → koffi FFI → Node.js `ShmTransportFFI`).
 
 ### C# (.NET 9 P/Invoke)
 
@@ -665,9 +701,10 @@ await bridge.stop();
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
-| LUMEN Rust core | **38/38** | Rust | `cargo test` |
+| LUMEN Rust core | **59/59** | Rust | `cargo test` |
 | FrameAssembler stress | **17/17** | TypeScript | `node --test` |
 | ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
+| SHM FFI (Level 2) | **10/10** | TS ↔ Rust | `node --test dist/shm_ffi.test.js` |
 | **TS e2e cross-impl** | **217/217** | TypeScript | `npx tsx --test src/e2e.test.ts` |
 | CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
 | Python unit tests | **94/94** | Python | `pytest` |
