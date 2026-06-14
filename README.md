@@ -138,6 +138,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │           ├── ipc-shootout.rs       ← benchmark latencia IPC real (TCP)
     │           ├── shm-shootout.rs       ← benchmark zero-copy shared memory
     │           ├── workspace-shootout.rs ← benchmark indexación de proyecto
+    │           ├── dgram-shootout.rs     ← benchmark UDP roundtrip (Nivel 3)
     │           └── cadencia-bridge.rs    ← sidecar Rust para Cadencia (VS Code)
     ├── /typescript/         ← @lumen/mcp-transport (Node.js)
     │   ├── README.md         ← API docs + negociación LUMEN
@@ -153,6 +154,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── compress.ts   ← Compact binary payload
     │       ├── compress_ffi.ts← FFI wrapper (Rust → Node via koffi)
     │       ├── shm_ffi.ts    ← SHM zero-copy transporte (Nivel 2, FFI)
+    │       ├── dgram.ts      ← Datagram UDP/multicast (Nivel 3)
     │       ├── zeroalloc.ts  ← ZeroAllocDecompressor (54% menos GC)
     │       └── cadencia.ts   ← Cliente del sidecar Rust
     ├── /python/             ← lumen-py (pip install)
@@ -507,6 +509,38 @@ server.close(); client.close();
 Comunicación zero-copy entre procesos via ring buffers lock-free SPSC sobre
 memoria compartida nativa (Rust `ShmRegion` → koffi FFI → Node.js `ShmTransportFFI`).
 
+### Node.js — Datagram UDP (Nivel 3)
+
+```typescript
+import {
+  DatagramTransport,
+  buildDgram,
+  parseDgram,
+  TYPE_HEARTBEAT,
+} from "@lumen/mcp-transport";
+
+// Receptor (escucha en puerto 9999)
+const rx = new DatagramTransport({ bindPort: 9999 });
+await rx.bind();
+rx.onMessage = (data, rinfo) => {
+  const result = parseDgram(data);
+  if (result.kind === "complete") {
+    console.log(`Frame 0x${result.frame.frameType.toString(16)} de ${rinfo.address}`);
+  }
+};
+
+// Emisor
+const tx = new DatagramTransport();
+await tx.bind();
+const frame = buildDgram(TYPE_HEARTBEAT, 0, Buffer.from("ping"));
+await tx.send(frame, 9999, "127.0.0.1");
+
+// Multicast: unirse a grupo, enviar broadcast
+rx.addMulticastMembership("239.1.1.1");
+tx.setMulticastTTL(1);
+await tx.send(frame, 9999, "239.1.1.1");
+```
+
 ### C# (.NET 9 P/Invoke)
 
 ```csharp
@@ -701,10 +735,11 @@ await bridge.stop();
 
 | Suite | Tests | Lenguaje | Runner |
 |---|---|---|---|
-| LUMEN Rust core | **59/59** | Rust | `cargo test` |
+| LUMEN Rust core | **68/68** | Rust | `cargo test` |
 | FrameAssembler stress | **17/17** | TypeScript | `node --test` |
 | ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
 | SHM FFI (Level 2) | **10/10** | TS ↔ Rust | `node --test dist/shm_ffi.test.js` |
+| Datagram (Level 3) | **13/13** | TypeScript | `node --test dist/dgram.test.js` |
 | **TS e2e cross-impl** | **217/217** | TypeScript | `npx tsx --test src/e2e.test.ts` |
 | CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
 | Python unit tests | **94/94** | Python | `pytest` |

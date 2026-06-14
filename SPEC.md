@@ -89,17 +89,63 @@ Servidor → Cliente:  TYPE_TRANSPORT_ACK  (0x0C) → { "cap":"mmap",
 
 Si el handshake falla o mmap no está disponible, se degrada automáticamente a Nivel 1.
 
-### 2.3 Nivel 3 — Datagram (experimental)
+### 2.3 Nivel 3 — Datagram (implementado)
 
 ```
-Requisitos:
+Requisitos adicionales:
+  ✅ Todo lo del Nivel 1
+  ✅ UDP unicast (send_to / recv_from)
+  ✅ Modo no bloqueante
+  ✅ Multicast IPv4 (join/leave, TTL configurable, loopback)
+  ✅ Cada datagrama = exactamente 1 frame LUMEN completo
+
+Garantías:
   ❌ Sin garantía de orden
   ❌ Sin garantía de entrega
+  ❌ Sin supresión de duplicados
 
-Transportes: UDP, multicast
+Transportes que lo cumplen:
+  • UDP (std::net::UdpSocket en Rust, node:dgram en TypeScript)
+  • Multicast IPv4 (239.0.0.0/8, TTL por defecto = 1)
+
+Límites:
+  • MAX_DATAGRAM_SIZE = 65507 bytes (65535 − 8 UDP − 20 IP)
+  • MAX_FRAME_PAYLOAD  = 65500 bytes (MAX_DATAGRAM_SIZE − 7 overhead Hyb128+TYPE+FLAGS)
+
+Casos de uso:
+  • Telemetría / métricas (fire-and-forget)
+  • Heartbeats (keep-alive best-effort)
+  • Log shipping (alto throughput, tolerante a pérdida)
+  • Service discovery (multicast DISCOVER frames)
 ```
 
-Cada datagrama contiene exactamente un frame LUMEN. Solo para telemetría, logs o heartbeats.
+Arquitectura:
+
+```
+┌─────────────────────────────────────────────────┐
+│ DatagramTransport                               │
+│   socket: UdpSocket (no bloqueante)             │
+│   recv_buf: [u8; 65507]                         │
+│                                                 │
+│   bind(addr)         → Self                     │
+│   connect(local,remote) → Self (UDP conectado)   │
+│   send_frame_to(fr,addr) → bytes enviados       │
+│   recv_frame()       → Option<(&[u8], SrcAddr)> │
+│   join_multicast(maddr, iface)                  │
+│   set_multicast_ttl(ttl)                        │
+│   set_multicast_loop(on/off)                    │
+└─────────────────────────────────────────────────┘
+
+Benchmarks incluidos (bin/dgram-shootout.rs):
+  S1: Roundtrip latency (ping-pong), payloads 16B → 65KB
+  S2: Unidirectional throughput (fire-and-forget)
+  S3: Heartbeat ping-pong (8B payload)
+  S4: Frame parse overhead (build → send → recv → parse)
+  S5: Max payload stress test (65500B payload, 100 frames)
+
+TypeScript: DatagramTransport en src/dgram.ts (node:dgram).
+  13 tests: bind, send/recv unicast, múltiples frames, parse, close, binary payload.
+```
 
 ---
 

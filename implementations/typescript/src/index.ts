@@ -127,6 +127,18 @@ export {
   DEFAULT_SHM_SIZE,
 } from "./shm_ffi.js";
 
+// ═══ Level 3: Datagram Transport (UDP / multicast) ══════════════════════════
+
+export {
+  DatagramTransport,
+  buildDgram,
+  parseDgram,
+  MAX_DATAGRAM_SIZE,
+  MAX_FRAME_PAYLOAD,
+  DEFAULT_MULTICAST_TTL,
+} from "./dgram.js";
+export type { DatagramTransportOptions } from "./dgram.js";
+
 // ═══ Constants ═══════════════════════════════════════════════════════════════
 
 /** LUMEN protocol version implemented by this package. */
