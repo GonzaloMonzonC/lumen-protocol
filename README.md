@@ -104,7 +104,7 @@ LUMEN es agnóstico al transporte, con 3 niveles:
 | Nivel | Nombre | Transportes |
 |-------|--------|-------------|
 | 1 | Stream | stdio, TCP, UDS, WebSocket |
-| 2 | Zero-Copy | UDS + mmap |
+| 2 | Zero-Copy | UDS + mmap (Unix), Named SHM (Windows) ✅ |
 | 3 | Datagram | UDP, multicast (experimental) |
 
 Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream confiable sin capas extra.
@@ -315,7 +315,7 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 | Framing | Delimitadores `\n` | Hyb128 autodelimitado O(1) |
 | Streaming LLM | JSON por token (~75 B/token) | **Binary (~12 B/token)** |
 | Compresión | No nativa | Diccionario 128+127 IDs |
-| Zero-Copy | No | Sí (mmap, LTA Nivel 2) |
+| Zero-Copy | No | **Sí (mmap/shared memory, Nivel 2 ✅)** |
 | Zero-Trust | No | Macaroons atenuables |
 | Late Binding | No | DISCOVER + SchemaPatch |
 
