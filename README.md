@@ -81,6 +81,54 @@ rate: 100/min
 
 Los nodos intermedios **atenúan** los permisos (añaden restricciones, nunca las quitan) antes de delegar a sub-agentes.
 
+> 💡 Combina Macaroons con **Wire Encryption (§7.4 del SPEC)** para confidencialidad +
+> autenticación mutua completa.
+
+### 🔒 Wire Encryption (ChaCha20-Poly1305 + X25519)
+
+Cifrado autenticado opcional a nivel de frame, negociado durante el handshake:
+
+```
+Frame cifrado:
+┌──────────────────────────────────────────────────────────────┐
+│ [Hyb128] [TYPE:1B] [FLAGS:1B | 0x02] [NONCE:12B] [CIPHER+TAG]│
+└──────────────────────────────────────────────────────────────┘
+                          overhead: 28 bytes
+```
+
+| Mecanismo | Algoritmo |
+|---|---|
+| Cifrado | ChaCha20 (256-bit key) |
+| Integridad | Poly1305 MAC |
+| Key exchange | X25519 (efímero por sesión) |
+| Anti-replay | Nonce counter monótono por dirección |
+| Negociación | PROBE/PROBE_ACK con clave pública base64 |
+
+```rust
+// Rust (lumen crate)
+let kp = Keypair::generate();
+let mut cipher = Cipher::new(&kp.derive_shared_secret(&peer_pk));
+let frame = cipher.build_encrypted_frame(TYPE_REQUEST, 0, b"payload")?;
+let plaintext = cipher.decrypt(encrypted_payload)?;
+```
+
+```typescript
+// TypeScript (Web Crypto API)
+const kp = await generateKeypair();
+const shared = await deriveSharedSecret(kp.secretKey, peerPublicKey);
+const cipher = new Cipher(); await cipher.init(shared);
+const frame = await cipher.buildEncryptedFrame(TYPE_REQUEST, 0, payload);
+const plaintext = await cipher.decrypt(encryptedPayload);
+```
+
+| Lenguaje | Estado |
+|---|---|
+| **Rust** | ✅ `crypto.rs` — 8 tests |
+| **TypeScript** | ✅ `crypto.ts` — WebCrypto |
+| Python, C#, PHP | *(pendiente)* |
+
+> ⚠️ Sin PKI en esta versión. Para autenticación de identidad, usar Macaroons (§7.2 SPEC).
+
 ---
 
 ## 🌊 Streaming nativo
@@ -131,6 +179,8 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── wasm.rs      ← WASM bindings (wasm-bindgen, builds with wasm-pack)
     │       ├── fixtures.rs  ← generadores de datos realistas
     │       ├── transport.rs ← abstracción de transporte
+    │       ├── crypto.rs    ← ChaCha20-Poly1305 + X25519 wire encryption
+    │       ├── handshake.rs ← Transport + encryption negotiation
     │       └── bin/
     │           ├── shootout.rs           ← benchmark CPU + wire size
     │           ├── heap-shootout.rs      ← benchmark allocaciones de heap
@@ -200,7 +250,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
 
 ```bash
 cd implementations/rust
-cargo test                       # 59 tests, 0 warnings
+cargo test                       # 62 tests, 0 warnings
 cargo run --bin shootout             # benchmark CPU + wire size
 cargo run --bin heap-shootout        # benchmark allocaciones de heap
 cargo run --bin concurrent-shootout  # benchmark de estrés concurrente
