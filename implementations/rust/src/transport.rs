@@ -59,3 +59,79 @@ impl Transport for StdioTransport {
         std::io::stdout().flush()
     }
 }
+
+// ── Level 2: Shared Memory Transport ────────────────────────────────────────
+
+/// Zero-copy shared memory transport (LTA Level 2).
+///
+/// Uses two unidirectional ring buffers in a single shared memory region:
+/// - Write ring: this side writes frames (length-prefixed)
+/// - Read ring: this side reads frames (length-prefixed)
+///
+/// Each `write_all` call writes exactly one frame with a 4-byte LE length
+/// prefix. Each `read` call reads bytes from the current buffered frame
+/// (or pulls the next frame from the ring if the buffer is exhausted).
+pub struct ShmTransport {
+    /// Ring we write to
+    write_ring: crate::shm::ShmRingBuffer,
+    /// Ring we read from
+    read_ring: crate::shm::ShmRingBuffer,
+    /// Buffered frame being read (data + current position)
+    read_buf: Vec<u8>,
+    read_pos: usize,
+}
+
+impl ShmTransport {
+    /// Create a new shared memory transport.
+    ///
+    /// `write_ring` is the ring this side writes into (Ring A for client,
+    /// Ring B for server). `read_ring` is the ring this side reads from.
+    pub fn new(write_ring: crate::shm::ShmRingBuffer, read_ring: crate::shm::ShmRingBuffer) -> Self {
+        Self { write_ring, read_ring, read_buf: Vec::new(), read_pos: 0 }
+    }
+
+    /// Check if there's data available without blocking.
+    pub fn has_data(&self) -> bool {
+        self.read_pos < self.read_buf.len() || self.read_ring.available() > 0
+    }
+}
+
+impl Transport for ShmTransport {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        // Serve from buffered frame first
+        if self.read_pos < self.read_buf.len() {
+            let remaining = &self.read_buf[self.read_pos..];
+            let n = remaining.len().min(buf.len());
+            buf[..n].copy_from_slice(&remaining[..n]);
+            self.read_pos += n;
+            return Ok(n);
+        }
+
+        // Pull next frame from the ring
+        let mut frame = Vec::new();
+        match self.read_ring.read_frame(&mut frame) {
+            Some(_len) => {
+                self.read_buf = frame;
+                self.read_pos = 0;
+                let n = self.read_buf.len().min(buf.len());
+                buf[..n].copy_from_slice(&self.read_buf[..n]);
+                self.read_pos = n;
+                Ok(n)
+            }
+            None => {
+                // No complete frame available
+                Ok(0)
+            }
+        }
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.write_ring.write_frame(buf);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // Ring buffer writes are immediate — no userspace buffering
+        Ok(())
+    }
+}
