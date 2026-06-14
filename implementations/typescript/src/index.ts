@@ -105,6 +105,11 @@ export {
 export {
   resolveDictId,
   lookupDictId,
+  registerSessionKey,
+  unregisterSessionKey,
+  initSessionDict,
+  clearSessionDict,
+  sessionDictSize,
   ID_RAW,
   STATIC_MAX,
   SESSION_MAX,
