@@ -4,45 +4,45 @@
 
 ---
 
-## 1. Visión General y Filosofía
+## 1. Overview and Philosophy
 
-### 1.1 El problema de JSON-RPC
+### 1.1 The JSON-RPC problem
 
-MCP (Model Context Protocol) utiliza JSON-RPC 2.0 como capa de mensajería. Aunque funcional, presenta deficiencias:
+MCP (Model Context Protocol) uses JSON-RPC 2.0 as its messaging layer. Although functional, it has shortcomings:
 
-| Problema | Impacto |
+| Problem | Impact |
 |----------|---------|
-| Claves repetidas por mensaje (`jsonrpc`, `id`, `method`) | ~40–60 bytes de overhead fijo |
-| Parseo de texto (UTF-8 → DOM → tipos nativos) | Penalización de CPU en cada extremo |
-| Sin compresión nativa de claves | Mismas cadenas re-serializadas millones de veces |
-| Sin soporte de streaming de tokens | Cada token de LLM requiere un frame JSON completo |
-| Sin zero-copy | Payloads copiados entre buffers al serializar/deserializar |
-| Sin zero-trust | Sin mecanismo de atenuación de permisos entre agentes |
+| Repeated keys per message (`jsonrpc`, `id`, `method`) | ~40–60 bytes of fixed overhead |
+| Text parsing (UTF-8 → DOM → native types) | CPU penalty at each endpoint |
+| No native key compression | The same strings are re-serialized millions of times |
+| No token streaming support | Each LLM token requires a full JSON frame |
+| No zero-copy | Payloads are copied between buffers during serialization/deserialization |
+| No zero-trust | No permission attenuation mechanism between agents |
 
-### 1.2 Principios de diseño de LUMEN
+### 1.2 LUMEN design principles
 
-1. **Local-first**: El perfil primario es IPC local (stdio, UDS). La web es secundaria.
-2. **Zero-copy siempre que sea posible**: Los payloads se referencian, no se copian.
-3. **Zero-trust por diseño**: Cada extremo porta sus propios Capability Tokens atenuables.
-4. **Pagar solo por lo que se usa**: Sin columnas fijas para features opcionales (MUX, cifrado).
-5. **O(1) en el camino caliente**: El parser de cabeceras nunca itera para modos comunes.
-6. **Autodelimitado**: Los frames no dependen de delimitadores externos (`\n`, HTTP framing).
+1. **Local-first**: The primary profile is local IPC (stdio, UDS). The web is secondary.
+2. **Zero-copy whenever possible**: Payloads are referenced, not copied.
+3. **Zero-trust by design**: Each endpoint carries its own attenuable Capability Tokens.
+4. **Pay only for what is used**: No fixed columns for optional features (MUX, encryption).
+5. **O(1) on the hot path**: The header parser never iterates for common modes.
+6. **Self-delimiting**: Frames do not depend on external delimiters (`\n`, HTTP framing).
 
 ---
 
-## 2. Abstracción de Transporte (LTA)
+## 2. Transport Abstraction (LTA)
 
-LUMEN es **agnóstico al transporte**, pero exige un contrato mínimo según el nivel.
+LUMEN is **transport-agnostic**, but it requires a minimum contract by level.
 
-### 2.1 Nivel 1 — Stream (obligatorio)
+### 2.1 Level 1 — Stream (required)
 
 ```
-Requisitos:
-  ✅ Orden garantizado (FIFO)
-  ✅ Sin pérdida de bytes
+Requirements:
+  ✅ Guaranteed ordering (FIFO)
+  ✅ No byte loss
   ✅ Full-duplex
 
-Transportes que lo cumplen:
+Transports that satisfy it:
   • stdio (stdin/stdout pipes)
   • Unix Domain Sockets (SOCK_STREAM)
   • Named Pipes (Windows)
@@ -50,137 +50,137 @@ Transportes que lo cumplen:
   • WebSocket (binary frames)
 ```
 
-Este es el nivel base. Cualquier implementación de LUMEN **debe** soportar Nivel 1.
+This is the base level. Any LUMEN implementation **must** support Level 1.
 
-### 2.2 Nivel 2 — Zero-Copy (implementado en Rust)
+### 2.2 Level 2 — Zero-Copy (implemented in Rust)
 
 ```
-Requisitos adicionales:
-  ✅ Todo lo del Nivel 1
-  ✅ Memoria compartida entre extremos (mmap / shm en Unix, CreateFileMapping en Windows)
-  ✅ Frames sin serializar (cast directo de memoria via ring buffers)
-  ✅ Negociación in-band con TYPE_TRANSPORT_INIT (0x0B) / TYPE_TRANSPORT_ACK (0x0C)
+Additional requirements:
+  ✅ Everything from Level 1
+  ✅ Shared memory between endpoints (mmap / shm on Unix, CreateFileMapping on Windows)
+  ✅ Frames without serialization (direct memory casts via ring buffers)
+  ✅ In-band negotiation with TYPE_TRANSPORT_INIT (0x0B) / TYPE_TRANSPORT_ACK (0x0C)
 
-Transportes que lo cumplen:
-  • Unix: shm_open + mmap (MAP_SHARED) con path tipo /lumen-shm-<ts>-<pid>
-  • Windows: CreateFileMappingW + MapViewOfFile con nombre único
-  • WASM: no soportado (stub que devuelve Unsupported)
+Transports that satisfy it:
+  • Unix: shm_open + mmap (MAP_SHARED) with path like /lumen-shm-<ts>-<pid>
+  • Windows: CreateFileMappingW + MapViewOfFile with unique name
+  • WASM: unsupported (stub returning Unsupported)
 
-Arquitectura de ring buffer:
+Ring buffer architecture:
   ┌─────────────────────────────────────────────────────────────┐
   │ Header (128 bytes): magic="LUME", version=1, layout info    │
-  │   Ring A: write_a cursor (cliente), read_a cursor (servidor)│
-  │   Ring B: write_b cursor (servidor), read_b cursor (cliente)│
+  │   Ring A: write_a cursor (client), read_a cursor (server)   │
+  │   Ring B: write_b cursor (server), read_b cursor (client)   │
   ├─────────────────────────────────────────────────────────────┤
   │ Ring A data: Client → Server  (~256 KiB)                    │
   │ Ring B data: Server → Client  (~256 KiB)                    │
   └─────────────────────────────────────────────────────────────┘
-  Región por defecto: 512 KiB total. SPSC lock-free con AtomicU64.
-  Cada frame se prefija con 4 bytes LE de longitud.
+  Default region: 512 KiB total. SPSC lock-free with AtomicU64.
+  Each frame is prefixed with a 4-byte LE length.
 ```
 
-Negociación:
+Negotiation:
 ```
-Cliente → Servidor:  TYPE_TRANSPORT_INIT (0x0B) → { "caps": ["mmap","stdio"] }
-Servidor → Cliente:  TYPE_TRANSPORT_ACK  (0x0C) → { "cap":"mmap",
+Client → Server:  TYPE_TRANSPORT_INIT (0x0B) → { "caps": ["mmap","stdio"] }
+Server → Client:  TYPE_TRANSPORT_ACK  (0x0C) → { "cap":"mmap",
                                                      "shm_path":"/lumen-shm-<ts>-<pid>",
                                                      "shm_size":524288 }
 ```
 
-Si el handshake falla o mmap no está disponible, se degrada automáticamente a Nivel 1.
+If the handshake fails or mmap is unavailable, it automatically degrades to Level 1.
 
-### 2.3 Nivel 3 — Datagram (implementado)
+### 2.3 Level 3 — Datagram (implemented)
 
 ```
-Requisitos adicionales:
-  ✅ Todo lo del Nivel 1
+Additional requirements:
+  ✅ Everything from Level 1
   ✅ UDP unicast (send_to / recv_from)
-  ✅ Modo no bloqueante
-  ✅ Multicast IPv4 (join/leave, TTL configurable, loopback)
-  ✅ Cada datagrama = exactamente 1 frame LUMEN completo
+  ✅ Non-blocking mode
+  ✅ IPv4 multicast (join/leave, configurable TTL, loopback)
+  ✅ Each datagram = exactly 1 complete LUMEN frame
 
-Garantías:
-  ❌ Sin garantía de orden
-  ❌ Sin garantía de entrega
-  ❌ Sin supresión de duplicados
+Guarantees:
+  ❌ No ordering guarantee
+  ❌ No delivery guarantee
+  ❌ No duplicate suppression
 
-Transportes que lo cumplen:
-  • UDP (std::net::UdpSocket en Rust, node:dgram en TypeScript)
-  • Multicast IPv4 (239.0.0.0/8, TTL por defecto = 1)
+Transports that satisfy it:
+  • UDP (std::net::UdpSocket in Rust, node:dgram in TypeScript)
+  • IPv4 multicast (239.0.0.0/8, default TTL = 1)
 
-Límites:
+Limits:
   • MAX_DATAGRAM_SIZE = 65507 bytes (65535 − 8 UDP − 20 IP)
-  • MAX_FRAME_PAYLOAD  = 65500 bytes (MAX_DATAGRAM_SIZE − 7 overhead Hyb128+TYPE+FLAGS)
+  • MAX_FRAME_PAYLOAD  = 65500 bytes (MAX_DATAGRAM_SIZE − 7 Hyb128+TYPE+FLAGS overhead)
 
-Casos de uso:
-  • Telemetría / métricas (fire-and-forget)
+Use cases:
+  • Telemetry / metrics (fire-and-forget)
   • Heartbeats (keep-alive best-effort)
-  • Log shipping (alto throughput, tolerante a pérdida)
+  • Log shipping (high throughput, loss-tolerant)
   • Service discovery (multicast DISCOVER frames)
 ```
 
-Arquitectura:
+Architecture:
 
 ```
 ┌─────────────────────────────────────────────────┐
 │ DatagramTransport                               │
-│   socket: UdpSocket (no bloqueante)             │
+│   socket: UdpSocket (non-blocking)              │
 │   recv_buf: [u8; 65507]                         │
 │                                                 │
 │   bind(addr)         → Self                     │
-│   connect(local,remote) → Self (UDP conectado)   │
-│   send_frame_to(fr,addr) → bytes enviados       │
+│   connect(local,remote) → Self (connected UDP)   │
+│   send_frame_to(fr,addr) → bytes sent           │
 │   recv_frame()       → Option<(&[u8], SrcAddr)> │
 │   join_multicast(maddr, iface)                  │
 │   set_multicast_ttl(ttl)                        │
 │   set_multicast_loop(on/off)                    │
 └─────────────────────────────────────────────────┘
 
-Benchmarks incluidos (bin/dgram-shootout.rs):
+Included benchmarks (bin/dgram-shootout.rs):
   S1: Roundtrip latency (ping-pong), payloads 16B → 65KB
   S2: Unidirectional throughput (fire-and-forget)
   S3: Heartbeat ping-pong (8B payload)
   S4: Frame parse overhead (build → send → recv → parse)
   S5: Max payload stress test (65500B payload, 100 frames)
 
-TypeScript: DatagramTransport en src/dgram.ts (node:dgram).
-  13 tests: bind, send/recv unicast, múltiples frames, parse, close, binary payload.
+TypeScript: DatagramTransport in src/dgram.ts (node:dgram).
+  13 tests: bind, send/recv unicast, multiple frames, parse, close, binary payload.
 ```
 
 ---
 
-## 3. Anatomía del Frame
+## 3. Frame Anatomy
 
-### 3.1 Estructura general
+### 3.1 General structure
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ [LEN:Hyb128] [TYPE:1B] [FLAGS:1B] [PAYLOAD:LEN bytes]   │
 └──────────────────────────────────────────────────────────┘
 
-Overhead mínimo: 3 bytes (payload 0–63 B)
-Overhead típico:  4 bytes (payload 64 B–64 KB)
-Overhead máximo: 12 bytes (payload > 4 GB, LEB128)
+Minimum overhead: 3 bytes (payload 0–63 B)
+Typical overhead: 4 bytes (payload 64 B–64 KB)
+Maximum overhead: 12 bytes (payload > 4 GB, LEB128)
 ```
 
-### 3.2 Hyb128 — Encoding híbrido de longitud
+### 3.2 Hyb128 — Hybrid length encoding
 
-El primer byte del frame codifica la longitud del payload en sus 2 bits superiores:
+The first byte of the frame encodes the payload length in its top 2 bits:
 
 ```
 Byte 0: [MODE:2bits] [VALUE:6bits]
 ```
 
-| Mode | Bits | Decodificación | Bytes totales | Rango |
-|------|------|----------------|---------------|-------|
-| `00` | `00xxxxxx` | Los 6 bits bajos son la longitud | **1** | 0–63 |
-| `01` | `01xxxxxx` | Siguientes bytes en LEB128 | **2–11** | > 4 GB |
-| `10` | `10xxxxxx` | Siguientes 2 bytes en little-endian u16 | **3** | 64–65535 |
-| `11` | `11xxxxxx` | Siguientes 4 bytes en little-endian u32 | **5** | 65536–4294967295 |
+| Mode | Bits | Decoding | Total bytes | Range |
+|------|------|----------|-------------|-------|
+| `00` | `00xxxxxx` | The low 6 bits are the length | **1** | 0–63 |
+| `01` | `01xxxxxx` | Following bytes in LEB128 | **2–11** | > 4 GB |
+| `10` | `10xxxxxx` | Next 2 bytes as little-endian u16 | **3** | 64–65535 |
+| `11` | `11xxxxxx` | Next 4 bytes as little-endian u32 | **5** | 65536–4294967295 |
 
-#### Propiedad O(1)
+#### O(1) property
 
-Para los modos `00`, `10` y `11`, el parser sabe **en una sola lectura de CPU** cuántos bytes adicionales leer:
+For modes `00`, `10`, and `11`, the parser knows **in a single CPU read** how many additional bytes to read:
 
 ```
 mode = first_byte >> 6;
@@ -193,95 +193,95 @@ switch (mode) {
 }
 ```
 
-No hay bucles en el camino caliente. El ~90% de los mensajes MCP caen en modos `00` o `10`.
+There are no loops on the hot path. About 90% of MCP messages fall into modes `00` or `10`.
 
-> **Implementación de referencia**: [`hyb128.rs`](implementations/rust/src/hyb128.rs)
+> **Reference implementation**: [`hyb128.rs`](implementations/rust/src/hyb128.rs)
 
-### 3.3 Cabecera fija (TYPE + FLAGS)
+### 3.3 Fixed header (TYPE + FLAGS)
 
-Inmediatamente después del Hyb128:
+Immediately after Hyb128:
 
 ```
 [TYPE:1B] [FLAGS:1B]
 ```
 
-**TYPE** — identifica la semántica del frame:
+**TYPE** — identifies frame semantics:
 
-| ID | Constante | Dirección | Descripción |
-|----|-----------|-----------|-------------|
-| `0x01` | `REQUEST` | C→S, S→C | Petición que espera respuesta |
-| `0x02` | `RESPONSE` | S→C, C→S | Respuesta a un REQUEST |
-| `0x03` | `NOTIFY` | ↔ | Fire-and-forget, sin respuesta |
-| `0x04` | `STREAM_DATA` | ↔ | Chunk de datos de un stream activo |
-| `0x05` | `SCHEMA_PATCH` | ↔ | Delta de esquema (add/remove tools, resources) |
-| `0x06` | `STREAM_INIT` | ↔ | Inicializa un stream de tokens |
-| `0x07` | `DICT_SYNC` | ↔ | Sincronización del diccionario de sesión |
-| `0x08` | `DISCOVER` | ↔ | Introspección dinámica (late binding) |
-| `0x09` | `MUX` | ↔ | Envoltorio de multiplexación |
+| ID | Constant | Direction | Description |
+|----|----------|-----------|-------------|
+| `0x01` | `REQUEST` | C→S, S→C | Request expecting a response |
+| `0x02` | `RESPONSE` | S→C, C→S | Response to a REQUEST |
+| `0x03` | `NOTIFY` | ↔ | Fire-and-forget, no response |
+| `0x04` | `STREAM_DATA` | ↔ | Data chunk for an active stream |
+| `0x05` | `SCHEMA_PATCH` | ↔ | Schema delta (add/remove tools, resources) |
+| `0x06` | `STREAM_INIT` | ↔ | Initializes a token stream |
+| `0x07` | `DICT_SYNC` | ↔ | Session dictionary synchronization |
+| `0x08` | `DISCOVER` | ↔ | Dynamic introspection (late binding) |
+| `0x09` | `MUX` | ↔ | Multiplexing wrapper |
 | `0x0A` | `HEARTBEAT` | ↔ | Keep-alive |
 | `0x0B` | `TRANSPORT_INIT` | C→S | Transport capability negotiation init (§2.2) |
 | `0x0C` | `TRANSPORT_ACK` | S→C | Transport capability negotiation ack (§2.2) |
-| `0x0D–0x0E` | *Reservados* | — | Para futura expansión |
+| `0x0D–0x0E` | *Reserved* | — | For future expansion |
 | `0x0F` | `PROBE` | C→S | Protocol negotiation probe (may carry X25519 public key) |
 | `0x10` | `PROBE_ACK` | S→C | Protocol negotiation ack (may carry X25519 public key) |
-| `0x11+` | *Reservados* | — | Para futura expansión |
+| `0x11+` | *Reserved* | — | For future expansion |
 
-**FLAGS** — bitmask de 8 bits:
+**FLAGS** — 8-bit bitmask:
 
-| Bit | Constante | Significado |
-|-----|-----------|-------------|
-| `0x01` | `COMPRESSED` | Payload comprimido con el diccionario LUMEN |
-| `0x02` | `ENCRYPTED` | Payload cifrado |
-| `0x04` | `PRIORITY` | Frame prioritario (saltar colas) |
-| `0x08` | `FRAGMENTED` | Frame fragmentado (continuación en siguiente) |
-| `0x10–0x80` | *Reservados* | Para expansión futura |
+| Bit | Constant | Meaning |
+|-----|----------|---------|
+| `0x01` | `COMPRESSED` | Payload compressed with the LUMEN dictionary |
+| `0x02` | `ENCRYPTED` | Encrypted payload |
+| `0x04` | `PRIORITY` | Priority frame (skip queues) |
+| `0x08` | `FRAGMENTED` | Fragmented frame (continuation in next frame) |
+| `0x10–0x80` | *Reserved* | For future expansion |
 
 ---
 
-## 4. Flujo de Trabajo y Multiplexación
+## 4. Workflow and Multiplexing
 
-### 4.1 Ciclo de vida de una petición
+### 4.1 Request lifecycle
 
 ```
-Cliente                                Servidor
+Client                                Server
   │                                       │
   │──── REQUEST (id=1, method="tool") ───→│
-  │                                       │ procesa...
+  │                                       │ process...
   │←─── RESPONSE (id=1, result=...) ─────│
   │                                       │
 ```
 
-- Cada `REQUEST` lleva un `id` (diccionario ID `0x04`).
-- El `RESPONSE` replica el `id` para correlación.
-- `NOTIFY` no lleva `id` ni espera respuesta.
+- Each `REQUEST` carries an `id` (dictionary ID `0x04`).
+- The `RESPONSE` repeats the `id` for correlation.
+- `NOTIFY` does not carry an `id` and does not expect a response.
 
-### 4.2 Multiplexación (MUX)
+### 4.2 Multiplexing (MUX)
 
-El frame `0x09 MUX` envuelve otro frame LUMEN en un canal lógico:
+Frame `0x09 MUX` wraps another LUMEN frame in a logical channel:
 
 ```
 MUX Frame:
 ┌──────────────────────────────────────────────────────────────┐
 │ [LEN:Hyb128] [0x09] [FLAGS]                                  │
 │ [CHANNEL:1B] [CTRL:4b] [RESERVED:4b]                        │
-│ [INNER: LUMEN frame completo]                                │
+│ [INNER: complete LUMEN frame]                                │
 └──────────────────────────────────────────────────────────────┘
 
 CTRL bits:
-  bit0: OPEN  — Crear canal lógico
-  bit1: CLOSE — Cerrar canal lógico
-  bit2: PAUSE — Backpressure (pausar envío)
-  bit3: RESUME — Reanudar envío
+  bit0: OPEN  — Create logical channel
+  bit1: CLOSE — Close logical channel
+  bit2: PAUSE — Backpressure (pause sending)
+  bit3: RESUME — Resume sending
 ```
 
-- **Sin overhead en frames normales**: Solo se paga MUX cuando se usa.
-- **256 canales lógicos** sobre una única conexión física.
-- **Control de flujo por canal**: Evita head-of-line blocking.
+- **No overhead on normal frames**: MUX is paid for only when used.
+- **256 logical channels** over a single physical connection.
+- **Per-channel flow control**: Avoids head-of-line blocking.
 
-### 4.3 TokenStream — Streaming nativo para LLMs
+### 4.3 TokenStream — Native streaming for LLMs
 
 ```
-Inicialización:
+Initialization:
 ┌────────────────────────────────────────────┐
 │ [0x06] [FLAGS]                             │
 │ [STREAM_ID:2B] [TOKEN_TYPE:1B]             │
@@ -293,33 +293,33 @@ TOKEN_TYPE:
   0x02 = u32 token IDs
   0x03 = f32 embeddings (4 bytes)
 
-Ráfagas de datos:
+Data bursts:
 ┌────────────────────────────────────────────┐
 │ [0x04] [FLAGS]                             │
 │ [STREAM_ID:2B] [BURST_LEN:Hyb128] [TOKENS] │
 └────────────────────────────────────────────┘
 
-Cierre: BURST_LEN = 0 en STREAM_DATA
+Close: BURST_LEN = 0 in STREAM_DATA
 ```
 
 ---
 
-## 5. Compresión Semántica (Diccionarios)
+## 5. Semantic Compression (Dictionaries)
 
-### 5.1 Arquitectura
+### 5.1 Architecture
 
 ```
-Sin comprimir:  {"tool": "search", "arguments": {"query": "hola"}}
-Comprimido:     {0x00: "search", 0x01: {lookup("query"): "hola"}}
+Uncompressed:  {"tool": "search", "arguments": {"query": "hola"}}
+Compressed:    {0x00: "search", 0x01: {lookup("query"): "hola"}}
 ```
 
-### 5.2 Diccionario Estático (IDs `0x00–0x7F`)
+### 5.2 Static Dictionary (IDs `0x00–0x7F`)
 
-128 entradas predefinidas. **Nunca cambian.** → Ver [`DICTIONARY.md`](DICTIONARY.md).
+128 predefined entries. **They never change.** → See [`DICTIONARY.md`](DICTIONARY.md).
 
-### 5.3 Diccionario de Sesión (IDs `0x80–0xFE`)
+### 5.3 Session Dictionary (IDs `0x80–0xFE`)
 
-127 entradas negociadas en handshake y actualizables vía `DICT_SYNC` (`0x07`):
+127 entries negotiated during handshake and updateable via `DICT_SYNC` (`0x07`):
 
 ```
 DICT_SYNC payload:
@@ -333,25 +333,25 @@ OP:
 ENTRY: [ID:1B] [KEY_LEN:1B] [KEY:N]
 ```
 
-API disponible en los 5 lenguajes: `register_session_key`, `unregister_session_key`,
+API available in all 5 languages: `register_session_key`, `unregister_session_key`,
 `init_session_dict`, `clear_session_dict`, `session_dict_size`.
 
-### 5.4 Sincronización
+### 5.4 Synchronization
 
 ```
-Cliente: "Mi dict v3, 142 entradas"
-Servidor: "Tengo v3 con 140. Envío delta."
-          → SCHEMA_PATCH ADD entradas 141, 142
-Cliente: "ACK dict v3 completo (142 entradas)"
+Client: "My dict v3, 142 entries"
+Server: "I have v3 with 140. Sending delta."
+          → SCHEMA_PATCH ADD entries 141, 142
+Client: "ACK complete dict v3 (142 entries)"
 ```
 
-### 5.5 ID 0xFF — Clave sin comprimir
+### 5.5 ID 0xFF — Uncompressed key
 
-Cuando una clave no está en ningún diccionario, se transmite en texto plano.
+When a key is not in any dictionary, it is transmitted as plain text.
 
 ---
 
-## 6. Late Binding — Descubrimiento Dinámico
+## 6. Late Binding — Dynamic Discovery
 
 ### 6.1 DISCOVER (0x08)
 
@@ -366,16 +366,16 @@ SCOPE:
 DISCOVER Response: [0x02] [FLAGS] [SCOPE:1B] [SCHEMA...]
 ```
 
-La respuesta puede ser **incremental** (solo lo nuevo desde la última sincronización).
+The response may be **incremental** (only what is new since the last synchronization).
 
 ---
 
-## 7. Seguridad Integrada (Zero-Trust)
+## 7. Integrated Security (Zero-Trust)
 
 ### 7.1 Handshake
 
 ```
-Cliente → Servidor:
+Client → Server:
   REQUEST { version: 1, capabilities: ["stream"], macaroon: "<token>" }
 ```
 
@@ -389,35 +389,35 @@ caveats:
   - rate: "100/min"
 ```
 
-### 7.3 Atenuación
+### 7.3 Attenuation
 
-Un nodo puede **restringir más** un Macaroon sin invalidar la firma:
+A node can **further restrict** a Macaroon without invalidating the signature:
 
 ```
-Orquestador recibe:    op: filesystem.read:/
-Delega a sub-agente:   op: filesystem.read:/home/user/project/src  ← atenuado
-Sub-agente NO puede:   ❌ Leer /etc/passwd
+Orchestrator receives: op: filesystem.read:/
+Delegates to sub-agent: op: filesystem.read:/home/user/project/src  ← attenuated
+Sub-agent CANNOT:       ❌ Read /etc/passwd
 ```
 
 ### 7.4 Wire Encryption (ChaCha20-Poly1305 + X25519)
 
-LUMEN soporta **cifrado autenticado a nivel de frame** mediante ChaCha20-Poly1305 AEAD
-con intercambio de claves X25519. El cifrado es opcional y se negocia durante el
-handshake PROBE/PROBE_ACK.
+LUMEN supports **authenticated frame-level encryption** using ChaCha20-Poly1305 AEAD
+with X25519 key exchange. Encryption is optional and negotiated during the
+PROBE/PROBE_ACK handshake.
 
-#### 7.4.1 Formato del payload cifrado
+#### 7.4.1 Encrypted payload format
 
-Cuando `FLAG_ENCRYPTED` (0x02) está activo, el payload del frame contiene:
+When `FLAG_ENCRYPTED` (0x02) is active, the frame payload contains:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ [NONCE:12B] [CIPHERTEXT:N bytes] [TAG:16B]                   │
 └──────────────────────────────────────────────────────────────┘
 
-Overhead total: 28 bytes (12B nonce + 16B Poly1305 tag)
+Total overhead: 28 bytes (12B nonce + 16B Poly1305 tag)
 ```
 
-El frame completo en el wire:
+The complete frame on the wire:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -427,39 +427,39 @@ El frame completo en el wire:
 
 #### 7.4.2 Nonce
 
-Nonce ChaCha20-Poly1305 de 96 bits (12 bytes):
+96-bit ChaCha20-Poly1305 nonce (12 bytes):
 
 ```
 [NONCE:12B] = [COUNTER:u64 LE][ZEROS:4B]
 ```
 
-- **Counter**: Monótonamente creciente, independiente por dirección
-  (client→server y server→client empiezan en 0).
-- **Zeros**: 4 bytes a cero para prevenir colisiones.
+- **Counter**: Monotonically increasing, independent per direction
+  (client→server and server→client start at 0).
+- **Zeros**: 4 zero bytes to prevent collisions.
 
-El receptor **DEBE** rechazar frames con nonce menor o igual al último recibido
-(protección anti-replay).
+The receiver **MUST** reject frames with a nonce less than or equal to the last received nonce
+(anti-replay protection).
 
 #### 7.4.3 Key Exchange (X25519)
 
 ```
-Cliente                               Servidor
+Client                               Server
   │                                      │
-  │ 1. Genera keypair X25519             │
+  │ 1. Generates X25519 keypair          │
   │ 2. PROBE { pk: <pubkey_b64> }  ────→│
-  │                                      │ 3. Genera keypair X25519
-  │                                      │ 4. Deriva shared secret
-  │ 5. Deriva shared secret              │
+  │                                      │ 3. Generates X25519 keypair
+  │                                      │ 4. Derives shared secret
+  │ 5. Derives shared secret             │
   │ 6. PROBE_ACK { pk: <pubkey_b64> } ←─│
   │                                      │
-  │  ◄════ frames cifrados ════════════►│
+  │  ◄════ encrypted frames ════════════►│
 ```
 
-- Cada lado genera un keypair X25519 **efímero** (no reutilizado entre sesiones).
-- El shared secret de 32 bytes se usa directamente como clave ChaCha20-Poly1305.
-- Las claves públicas (32 bytes) se codifican en **base64** dentro del JSON de PROBE/PROBE_ACK.
-- Si el servidor no incluye `pk` en su ACK, el cifrado **no se negocia** y la comunicación
-  continúa en texto plano.
+- Each side generates an **ephemeral** X25519 keypair (not reused between sessions).
+- The 32-byte shared secret is used directly as the ChaCha20-Poly1305 key.
+- Public keys (32 bytes) are encoded as **base64** inside the PROBE/PROBE_ACK JSON.
+- If the server does not include `pk` in its ACK, encryption is **not negotiated** and communication
+  continues in plaintext.
 
 #### 7.4.4 API
 
@@ -472,8 +472,8 @@ let shared = kp.derive_shared_secret(&peer_public);
 let mut cipher = Cipher::new(&shared);
 
 let frame = cipher.build_encrypted_frame(TYPE_REQUEST, 0, b"payload");
-// ... enviar frame ...
-// ... recibir encrypted_payload ...
+// ... send frame ...
+// ... receive encrypted_payload ...
 let plaintext = cipher.decrypt(encrypted_payload).unwrap();
 ```
 
@@ -490,38 +490,38 @@ const frame = await cipher.buildEncryptedFrame(TYPE_REQUEST, 0, payload);
 const plaintext = await cipher.decrypt(encryptedPayload);
 ```
 
-#### 7.4.5 Garantías
+#### 7.4.5 Guarantees
 
-| Propiedad | Mecanismo |
+| Property | Mechanism |
 |---|---|
-| **Confidencialidad** | ChaCha20 (cifrado de flujo, 256-bit key) |
-| **Integridad** | Poly1305 MAC (autentica nonce + ciphertext) |
-| **Anti-replay** | Nonce counter monótono (receptor rechaza duplicados) |
-| **Forward secrecy** | Keypairs X25519 efímeros (no PFS perfecto, pero efímero por sesión) |
-| **Sin certificados** | Trust-on-first-use (TOFU) via PROBE/PROBE_ACK |
+| **Confidentiality** | ChaCha20 (stream cipher, 256-bit key) |
+| **Integrity** | Poly1305 MAC (authenticates nonce + ciphertext) |
+| **Anti-replay** | Monotonic nonce counter (receiver rejects duplicates) |
+| **Forward secrecy** | Ephemeral X25519 keypairs (not perfect PFS, but ephemeral per session) |
+| **No certificates** | Trust-on-first-use (TOFU) via PROBE/PROBE_ACK |
 
-> ⚠️ **Limitación actual:** No hay PKI ni verificación de identidad. El cifrado protege
-> contra eavesdropping pasivo y MITM activo (gracias al AEAD), pero no autentica
-> la identidad del peer. Para autenticación mutua, combinar con Macaroons (§7.2).
+> ⚠️ **Current limitation:** There is no PKI or identity verification. Encryption protects
+> against passive eavesdropping and active MITM (thanks to AEAD), but it does not authenticate
+> peer identity. For mutual authentication, combine with Macaroons (§7.2).
 
-### 7.5 Implementaciones
+### 7.5 Implementations
 
-| Lenguaje | Módulo | Cifrado | Key Exchange |
+| Language | Module | Encryption | Key Exchange |
 |---|---:|---:|---:|
 | **Rust** | `crypto.rs` | ✅ ChaCha20-Poly1305 | ✅ X25519 |
 | **TypeScript** | `crypto.ts` | ✅ ChaCha20-Poly1305 (WebCrypto) | ✅ X25519 (WebCrypto) |
-| **Python** | *(pendiente)* | — | — |
-| **C#** | *(pendiente)* | — | — |
-| **PHP** | *(pendiente)* | — | — |
+| **Python** | *(pending)* | — | — |
+| **C#** | *(pending)* | — | — |
+| **PHP** | *(pending)* | — | — |
 
 ---
 
-## 8. Tablas de Referencia
+## 8. Reference Tables
 
-### 8.1 Tipos de Frame
+### 8.1 Frame Types
 
-| ID | Tipo | Overhead adicional |
-|----|------|--------------------|
+| ID | Type | Additional overhead |
+|----|------|---------------------|
 | `0x01` | REQUEST | 0 |
 | `0x02` | RESPONSE | 0 |
 | `0x03` | NOTIFY | 0 |
@@ -535,26 +535,26 @@ const plaintext = await cipher.decrypt(encryptedPayload);
 
 ### 8.2 Flags
 
-| Bit | Máscara | Nombre |
-|-----|---------|--------|
+| Bit | Mask | Name |
+|-----|------|------|
 | 0 | `0x01` | COMPRESSED |
 | 1 | `0x02` | ENCRYPTED |
 | 2 | `0x04` | PRIORITY |
 | 3 | `0x08` | FRAGMENTED |
 
-> `ENCRYPTED` (bit 1, 0x02): El payload contiene un blob cifrado con ChaCha20-Poly1305.
-> Ver §7.4 para el formato completo de cifrado y el handshake X25519.
+> `ENCRYPTED` (bit 1, 0x02): The payload contains a blob encrypted with ChaCha20-Poly1305.
+> See §7.4 for the complete encryption format and X25519 handshake.
 
 ---
 
-## 9. Referencias
+## 9. References
 
 - [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 - [Macaroons: Cookies with Contextual Caveats](https://research.google/pubs/pub41892/)
 - [LEB128 Encoding](https://en.wikipedia.org/wiki/LEB128)
-- Implementación de referencia: [`implementations/rust/`](implementations/rust/)
+- Reference implementation: [`implementations/rust/`](implementations/rust/)
 - WASM bindings: `wasm-pack build --target web --features wasm` → `pkg/lumen.js`
 
 ---
 
-*LUMEN v0.1.0 — Última actualización: 2026-06-14*
+*LUMEN v0.1.0 — Last updated: 2026-06-14*
