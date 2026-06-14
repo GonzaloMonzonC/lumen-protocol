@@ -105,7 +105,7 @@ LUMEN es agnóstico al transporte, con 3 niveles:
 |-------|--------|-------------|
 | 1 | Stream | stdio, TCP, UDS, WebSocket |
 | 2 | Zero-Copy | UDS + mmap (Unix), Named SHM (Windows) ✅ |
-| 3 | Datagram | UDP, multicast (experimental) |
+| 3 | Datagram | UDP, multicast ✅ |
 
 Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream confiable sin capas extra.
 
@@ -423,6 +423,147 @@ Mide el *Round Trip Time* real sobre TCP loopback (`127.0.0.1`, `nodelay`) — e
 
 ---
 
+## 🌊 Nivel 3 — Datagram (UDP / Multicast)
+
+El Nivel 3 de LUMEN es **message-oriented**: cada datagrama UDP transporta exactamente un frame LUMEN completo. Sin capa de framing adicional — la frontera del datagrama **es** la frontera del frame. El socket opera en modo no bloqueante con buffer de 65 KB pre-asignado.
+
+```
+┌──────────────────────────────────────────────────┐
+│  Datagrama UDP                                   │
+│  ┌────────────────────────────────────────────┐  │
+│  │ [Hyb128:LEN] [TYPE:1B] [FLAGS:1B] [DATA]   │  │
+│  └────────────────────────────────────────────┘  │
+│  1 datagrama = 1 frame LUMEN                     │
+└──────────────────────────────────────────────────┘
+```
+
+### ¿Por qué UDP para MCP?
+
+TCP es ideal para streams confiables (Level 1/2), pero hay cargas de trabajo donde **la latencia y el throughput importan más que la entrega garantizada**:
+
+| Carga | TCP (Nivel 1) | UDP (Nivel 3) |
+|---|---|---|
+| **Service Discovery** | Necesitas conocer IP:puerto de antemano | Una trama multicast DISCOVER llega a todos los agentes del subnet |
+| **Telemetría / métricas** | 3-way handshake por conexión → latencia | Fire-and-forget: el emisor no espera ACK |
+| **Heartbeats** | Conexión persistente, stateful | Stateless: cada heartbeat es autónomo, sin conexión |
+| **Log shipping** | Backpressure del kernel TCP frena al emisor | El emisor dispara a máxima velocidad, el receptor procesa lo que puede |
+| **Late binding** | Conexión punto a punto fija | Un agente puede descubrir nuevos peers en runtime sin reconfiguración |
+
+### Multicast — Service Discovery sin orquestador
+
+```
+┌──────────┐                              ┌──────────┐
+│ Agente A │──── DISCOVER (239.1.1.1) ───→│ Agente B │
+│          │                              │          │
+│          │←─── RESPONSE (unicast) ──────│          │
+│          │                              │          │
+│          │←─── RESPONSE (unicast) ──────│ Agente C │
+│          │                              │          │
+│          │←─── RESPONSE (unicast) ──────│ Agente D │
+└──────────┘                              └──────────┘
+
+1 frame DISCOVER  →  N responses unicast
+Sin registry central, sin DNS, sin archivos de configuración.
+```
+
+El TTL multicast define el alcance:
+
+| TTL | Alcance | Uso |
+|-----|---------|-----|
+| 0 | Mismo host | Agent-to-sidecar local |
+| 1 | Mismo subnet | Microservicios en un cluster |
+| 32 | Mismo site | Multi-rack en un datacenter |
+| 64 | Misma región | Multi-AZ |
+| 255 | Global | Teórico (rara vez usado) |
+
+### API — Rust
+
+```rust
+use lumen::datagram::DatagramTransport;
+
+// Receptor (escucha en puerto fijo)
+let mut rx = DatagramTransport::bind("127.0.0.1:9999")?;
+while let Some((data, src)) = rx.recv_frame()? {
+    // data: &[u8] con el frame LUMEN completo
+    println!("Frame de {}: {} bytes", src, data.len());
+}
+
+// Emisor (puerto efímero)
+let tx = DatagramTransport::bind("127.0.0.1:0")?;
+tx.send_frame_to(&frame_bytes, "127.0.0.1:9999".parse()?)?;
+
+// Multicast
+rx.join_multicast("239.1.1.1", None)?;
+tx.set_multicast_ttl(1)?;
+tx.send_frame_to(&discover_frame, "239.1.1.1:9999".parse()?)?;
+```
+
+### API — TypeScript
+
+```typescript
+import {
+  DatagramTransport,
+  buildDgram,
+  parseDgram,
+  TYPE_HEARTBEAT,
+} from "@lumen/mcp-transport";
+
+// Receptor
+const rx = new DatagramTransport({ bindPort: 9999 });
+await rx.bind();
+rx.onMessage = (data, rinfo) => {
+  const result = parseDgram(data);
+  if (result.kind === "complete") {
+    console.log(`Frame 0x${result.frame.frameType.toString(16)} de ${rinfo.address}`);
+  }
+};
+
+// Emisor
+const tx = new DatagramTransport();
+await tx.bind();
+const frame = buildDgram(TYPE_HEARTBEAT, 0, Buffer.from("ping"));
+await tx.send(frame, 9999, "127.0.0.1");
+
+// Multicast
+rx.addMulticastMembership("239.1.1.1");
+tx.setMulticastTTL(1);
+await tx.send(frame, 9999, "239.1.1.1");
+```
+
+### Límites y garantías
+
+| Propiedad | Valor |
+|---|---|
+| **Max datagram payload** | 65,507 bytes (65,535 − 8 UDP − 20 IP) |
+| **Max frame payload** | 65,500 bytes (65,507 − 7 Hyb128+TYPE+FLAGS) |
+| **Orden** | ❌ No garantizado |
+| **Entrega** | ❌ No garantizada (best-effort) |
+| **Duplicados** | ❌ Posibles (la red puede reenviar) |
+| **Modo I/O** | No bloqueante (Rust: `set_nonblocking(true)`) |
+
+### Benchmark — dgram-shootout (Rust)
+
+5 escenarios, `cargo run --bin dgram-shootout`:
+
+| Escenario | Métrica |
+|---|---|
+| **S1: Roundtrip** | Ping-pong UDP para payloads 16B → 65KB. Mide RTT real con eco servidor/cliente en hilos separados |
+| **S2: Unidireccional** | Fire-and-forget a máxima velocidad. Mide throughput sin esperar ACK |
+| **S3: Heartbeat** | Ping-pong con payload mínimo (8B). Mide el caso más pequeño posible |
+| **S4: Parse overhead** | Build → send → recv → parse. Perfilado del ciclo completo del datagrama |
+| **S5: Max payload** | Stress test con frames de 65,500 bytes. Verifica integridad bajo carga |
+
+### Cobertura de tests
+
+| Lenguaje | Tests | Runner |
+|---|---|---|
+| **Rust** | 5 escenarios (S1–S5) | `cargo run --bin dgram-shootout` |
+| **TypeScript** | **13/13** ✅ | `node --test dist/dgram.test.js` |
+
+> **Conclusión:** El Nivel 3 no compite con TCP — lo complementa. Usa Nivel 1 (stdio/TCP) para RPC request/response y streaming de tokens. Usa Nivel 3 (UDP/multicast) para descubrimiento, telemetría, heartbeats y log shipping. La ausencia de handshake TCP y la capacidad multicast hacen de LUMEN Nivel 3 la capa ideal para **comunicación many-to-many sin orquestador central**.
+
+---
+
 ## 🛠️ Workspace Indexing Shootout (Cadencia)
 
 Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archivos fuente del directorio y los serializa como frames MCP. Medido con `cargo run --bin workspace-shootout`:
@@ -508,38 +649,6 @@ server.close(); client.close();
 
 Comunicación zero-copy entre procesos via ring buffers lock-free SPSC sobre
 memoria compartida nativa (Rust `ShmRegion` → koffi FFI → Node.js `ShmTransportFFI`).
-
-### Node.js — Datagram UDP (Nivel 3)
-
-```typescript
-import {
-  DatagramTransport,
-  buildDgram,
-  parseDgram,
-  TYPE_HEARTBEAT,
-} from "@lumen/mcp-transport";
-
-// Receptor (escucha en puerto 9999)
-const rx = new DatagramTransport({ bindPort: 9999 });
-await rx.bind();
-rx.onMessage = (data, rinfo) => {
-  const result = parseDgram(data);
-  if (result.kind === "complete") {
-    console.log(`Frame 0x${result.frame.frameType.toString(16)} de ${rinfo.address}`);
-  }
-};
-
-// Emisor
-const tx = new DatagramTransport();
-await tx.bind();
-const frame = buildDgram(TYPE_HEARTBEAT, 0, Buffer.from("ping"));
-await tx.send(frame, 9999, "127.0.0.1");
-
-// Multicast: unirse a grupo, enviar broadcast
-rx.addMulticastMembership("239.1.1.1");
-tx.setMulticastTTL(1);
-await tx.send(frame, 9999, "239.1.1.1");
-```
 
 ### C# (.NET 9 P/Invoke)
 
