@@ -127,11 +127,11 @@ def test_frame_roundtrip() -> list[dict]:
     payloads = [
         ("empty", b""),
         ("hello", b"hello"),
-        ("json_small", json.dumps({"method": "ping"}, ensure_ascii=False).encode()),
+        ("json_small", json.dumps({"method": "ping"}, ensure_ascii=False, separators=(',', ':')).encode()),
         ("json_mcp", json.dumps({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2025-06-18"}
-        }, ensure_ascii=False).encode()),
+        }, ensure_ascii=False, separators=(',', ':')).encode()),
     ]
     frame_types = [
         ("REQUEST", TYPE_REQUEST),
