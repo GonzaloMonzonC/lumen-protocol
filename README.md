@@ -285,18 +285,18 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 
 ## 📊 Benchmark — LUMEN vs JSON-RPC
 
-5 escenarios realistas de MCP, medidos con `cargo run --bin shootout`:
+6 escenarios realistas de MCP, medidos con `cargo run --bin shootout` (WARMUP=20, MEASURE=200):
 
 ```
 ╔════════════════════════════════════════╤═══════════╤═══════════╤══════════╤═════════╗
 ║ Scenario                               │ JSON wire │ LUMEN wire│ Ahorro   │ Speedup ║
 ╠════════════════════════════════════════╪═══════════╪═══════════╪══════════╪═════════╣
-║ S1: tools/list (1000 tools)            │ 390.86 KB │ 270.14 KB │  30.9%   │  1.82×  ║
-║ S2: file_context (5 MB, 50 archivos)   │  5.01 MB  │  4.89 MB  │   2.5%   │  9.09×  ║
-║ S3: token_stream (10K tokens)          │ 732.90 KB │ 184.17 KB │  74.9%   │  4.18×  ║
-║ S4: multi_agent (1K reqs, 10 agentes)  │ 109.03 KB │  69.72 KB │  36.1%   │  2.00×  ║
-║ S5: heartbeat (100K latidos)           │     89 B  │     48 B  │  46.1%   │  1.68×  ║
-║ S6: session_dict (127 keys)             │  2.50 KB  │    453 B  │  82.3%   │  1.50×  ║
+║ S1: tools/list (1000 tools)            │ 390.86 KB │ 267.41 KB │  31.6%   │  2.06×  ║
+║ S2: file_context (5 MB, 50 archivos)   │  5.01 MB  │  4.89 MB  │   2.5%   │  7.02×  ║
+║ S3: token_stream (10K tokens)          │ 732.90 KB │ 125.57 KB │  82.9%   │  3.00×  ║
+║ S4: multi_agent (1K reqs, 10 agentes)  │ 109.03 KB │  67.38 KB │  38.2%   │  1.23×  ║
+║ S5: heartbeat (100K latidos)           │     89 B  │     48 B  │  46.1%   │  1.61×  ║
+║ S6: session_dict (127 keys)            │  2.50 KB  │    453 B  │  82.3%   │  1.73×  ║
 ╚════════════════════════════════════════╧═══════════╧═══════════╧══════════╧═════════╝
 ```
 
@@ -313,7 +313,7 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 | Strings largos (>1KB) | Escapa `\"`, `\n`, `\\` | **Raw binary, sin escape** |
 | Lookup de diccionario | N/A | **O(1)** `OnceLock<HashMap>` |
 | Framing | Delimitadores `\n` | Hyb128 autodelimitado O(1) |
-| Streaming LLM | JSON por token (~75 B/token) | **Binary (~18 B/token)** |
+| Streaming LLM | JSON por token (~75 B/token) | **Binary (~12 B/token)** |
 | Compresión | No nativa | Diccionario 128+127 IDs |
 | Zero-Copy | No | Sí (mmap, LTA Nivel 2) |
 | Zero-Trust | No | Macaroons atenuables |
@@ -321,11 +321,11 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 
 ### Dónde brilla cada escenario
 
-- **S3 (74.9% ahorro):** Cada token LLM pasa de ~75 bytes JSON a ~18 bytes binarios. Hyb128 framing + sin comillas.
-- **S2 (9.09× más rápido):** Archivos de 100KB source code — LUMEN escribe los bytes crudos sin escapar `"`, `\n`, `\t`. `serde_json` sufre horrores con esto.
-- **S1/S4 (30-36% ahorro):** Keys como `"name"`, `"description"`, `"inputSchema"`, `"method"`, `"params"` colapsan de 10-15 bytes a **1 byte** cada una.
+- **S3 (82.9% ahorro):** Cada token LLM pasa de ~75 bytes JSON a ~12 bytes binarios. Hyb128 framing + sin comillas. El ahorro más extremo del benchmark.
+- **S6 (82.3% ahorro):** 127 claves de sesión registradas dinámicamente (0x80–0xFE). Cada clave colapsa de strings de 14 chars a 1 byte. Ideal para dominios especializados.
+- **S2 (7.02× más rápido):** Archivos de 100KB source code — LUMEN escribe los bytes crudos sin escapar `"`, `\n`, `\t`. `serde_json` sufre horrores con esto.
+- **S1/S4 (31-38% ahorro):** Keys como `"name"`, `"description"`, `"inputSchema"`, `"method"`, `"params"` colapsan de 10-15 bytes a **1 byte** cada una.
 - **S5 (46.1% ahorro):** Un heartbeat LUMEN pesa 48 bytes vs 89 de JSON-RPC. ×1M heartbeats: 45 MB vs 85 MB.
-- **S6 (82.3% ahorro):** 127 claves de sesión registradas dinámicamente (0x80–0xFE). Cada clave colapsa de strings de 14 chars a 1 byte. Ideal para dominios especializados donde las claves no están en el diccionario estático.
 
 ---
 
@@ -334,16 +334,15 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 Medido con `cargo run --bin heap-shootout` usando un `#[global_allocator]` personalizado con contadores atómicos. Promedio por iteración (×100 runs):
 
 ```
-╔══════════════════════════════════════════════════════════════════════════════════════════════════════════╗
-║                           LUMEN vs JSON-RPC — HEAP ALLOCATIONS (×100 iter avg)                      ║
-╠══════════════════════════════════════╤═══════════╤═══════════╤══════════════╤══════════════╤══════════╤══════════╣
+
+╔══════════════════════════════════════╤═══════════╤═══════════╤══════════════╤══════════════╤══════════╤══════════╗
 ║ Scenario (per iteration)             │ JSON alloc│ LUMEN allo│ Alloc Ratio  │ Bytes Ratio  │ JSON peak│ LUM peak ║
 ╠══════════════════════════════════════╪═══════════╪═══════════╪══════════════╪══════════════╪══════════╪══════════╣
-║ S1: tools/list (1000 tools)          │    31.4K  │    31.4K  │    1.0×      │    1.2× ⭐    │    4617K │    4299K ║
-║ S2: file_context (5 MB)              │      392  │      359  │    1.1× ⭐    │    2.2× ⭐    │   13378K │   10041K ║
-║ S3: token_stream (1K tokens)         │     1.0K  │     1.0K  │    1.0×      │    1.9× ⭐    │      59K │      44K ║
-║ S4: multi_agent (1K reqs)            │    11.0K  │    11.0K  │    1.0×      │    1.2× ⭐    │    1343K │    1284K ║
-║ S5: heartbeat (1 frame)              │        9  │        9  │    1.0×      │    1.0×      │       1K │       1K ║
+║ S1: tools/list (1000 tools)          │    37.5K  │    37.3K  │    1.0×      │    1.6× ⭐    │    3313K │    2529K ║
+║ S2: file_context (5 MB)              │      444  │      411  │    1.1× ⭐    │    2.2× ⭐    │   13366K │   10029K ║
+║ S3: token_stream (1K tokens)         │     1.0K  │     1.0K  │    1.0×      │    2.0× ⭐    │     119K │      83K ║
+║ S4: multi_agent (1K reqs)            │    14.8K  │    12.8K  │    1.2× ⭐    │    2.0× ⭐    │    1353K │     945K ║
+║ S5: heartbeat (1 frame)              │       11  │       11  │    1.0×      │    1.4× ⭐    │       1K │       1K ║
 ╚══════════════════════════════════════╧═══════════╧═══════════╧══════════════╧══════════════╧══════════╧══════════╝
 ```
 
@@ -351,12 +350,12 @@ Medido con `cargo run --bin heap-shootout` usando un `#[global_allocator]` perso
 
 | Métrica | Hallazgo |
 |---------|----------|
-| **Bytes allocated** | LUMEN asigna **20-53% menos bytes** — S2 (file_context 5 MB) pasa de 21.2 MB → 9.8 MB, S3 (tokens) de 85 KB → 45 KB |
-| **Peak memory** | LUMEN reduce el pico de heap en **5-25%** — S2 baja de 13.4 MB → 10.0 MB gracias al wire más compacto |
-| **Allocation count** | Comparable en la mayoría de escenarios. S2 mejora de 392 → 359 (8% menos), S5 se iguala a JSON (antes LUMEN hacía 13 vs 9 — **regresión corregida**) |
-| **Single-allocation encode (`compress_into`)** | El encode de LUMEN ahora usa **un solo `Vec`** — cero buffers intermedios. Antes: `compress() → Vec` + `frame::build() → Vec`. Ahora: escritura directa sobre el buffer destino |
+| **Bytes allocated** | LUMEN asigna **40-55% menos bytes** — S2 (file_context 5 MB) pasa de 21.2 MB → 9.8 MB, S3 (tokens) de 165 KB → 83 KB |
+| **Peak memory** | LUMEN reduce el pico de heap en **24-30%** — S2 baja de 13.4 MB → 10.0 MB, S4 de 1.35 MB → 0.94 MB |
+| **Allocation count** | Comparable en la mayoría de escenarios. S4 mejora de 14.8K → 12.8K (14% menos). La fusión `compress_into` elimina el double-buffer |
+| **Single-allocation encode** | El encode de LUMEN usa **un solo `Vec`** — cero buffers intermedios. Escritura directa sobre el buffer destino |
 
-> **Conclusión:** LUMEN no solo reduce el tamaño del wire (30-53%), sino que también asigna menos bytes y menos pico de heap. La fusión del path de encode con `compress_into` elimina el double-buffer, cerrando la promesa de "zero intermediate allocation" en el hot path de serialización.
+> **Conclusión:** LUMEN no solo reduce el tamaño del wire (31-83%), sino que también asigna **40-55% menos bytes** y reduce el pico de heap en **24-30%**. La fusión del path de encode con `compress_into` elimina el double-buffer.
 
 ---
 
@@ -365,16 +364,13 @@ Medido con `cargo run --bin heap-shootout` usando un `#[global_allocator]` perso
 Simula **64 hilos** compitiendo por un transporte compartido con carga mixta realista (10% heartbeats, 30% tokens, 40% tool calls, 20% file chunks de 5 KB). Medido con `cargo run --bin concurrent-shootout`:
 
 ```
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║            LUMEN vs JSON-RPC — CONCURRENT STRESS TEST (64 threads)              ║
-╠══════════════════════════╤═══════════╤═══════════╤══════════════╤════════════════╣
+╔══════════════════════════╤═══════════╤═══════════╤══════════════╤════════════════╗
 ║ Metric                   │ JSON-RPC   │ LUMEN      │ Ratio        │ Winner         ║
 ╠══════════════════════════╪═══════════╪═══════════╪══════════════╪════════════════╣
-║ Total wire bytes         │   38.7 MB │   35.9 MB │  92.7% LUM   │ LUMEN (7.3%)   ║
-║ Throughput (MB/s)        │     32.9  │     90.0  │   2.7× LUM   │ LUMEN          ║
-║ Messages/sec             │   27,211  │   80,201  │   2.9× LUM   │ LUMEN          ║
-║ Wall time (ms)           │    1,176  │      399  │   2.9× LUM   │ LUMEN          ║
-║ Avg latency (µs/msg)     │    981.2  │     42.9  │  22.9× lower │ LUMEN          ║
+║ Total wire bytes         │   38.7 MB  │   35.7 MB  │  92.2% LUM   │ LUMEN (7.8%)   ║
+║ Throughput (MB/s)        │     29.1   │     50.3   │   1.7× LUM   │ LUMEN          ║
+║ Messages/sec             │   24,042   │   45,070   │   1.9× LUM   │ LUMEN          ║
+║ Wall time (ms)           │    1,331   │      710   │   1.9× LUM   │ LUMEN          ║
 ╚══════════════════════════╧═══════════╧═══════════╧══════════════╧════════════════╝
 ```
 
@@ -388,7 +384,7 @@ Simula **64 hilos** compitiendo por un transporte compartido con carga mixta rea
 | Contención de CPU | Serializar 5 KB de source code acapara el core | Compress dict O(1) + raw copy libera el core rápido |
 | Efecto cascada | Un hilo lento → los demás esperan | Todos los hilos terminan rápido → menos contención |
 
-> **Conclusión:** Bajo carga concurrente real (64 hilos mezclando heartbeats, tokens, tool calls y archivos), LUMEN triplica el throughput y reduce la latencia **22.9×**. Esto es crítico para orquestadores como Synapse donde múltiples agentes comparten un mismo socket.
+> **Conclusión:** Bajo carga concurrente real (64 hilos mezclando heartbeats, tokens, tool calls y archivos), LUMEN duplica el throughput y reduce el wall time 1.9×. Esto es crítico para orquestadores como Synapse donde múltiples agentes comparten un mismo socket.
 
 ---
 
@@ -397,30 +393,28 @@ Simula **64 hilos** compitiendo por un transporte compartido con carga mixta rea
 Mide el *Round Trip Time* real sobre TCP loopback (`127.0.0.1`, `nodelay`) — el stack TCP completo del kernel. Servidor eco en un hilo, cliente en otro. 2000 iteraciones por workload, 500 warmup. Medido con `cargo run --bin ipc-shootout`:
 
 ```
-╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
-║                  LUMEN vs JSON-RPC — IPC END-TO-END LATENCY (TCP loopback, nodelay)             ║
-╠══════════════════════════════╤══════════╤══════════╤══════════╤══════════╤══════════╤════════════╣
-║ Workload                     │ JSON p50 │ LUMEN p50│ JSON p99 │ LUMEN p99│ JSON avg │ LUMEN avg  ║
-╠══════════════════════════════╪══════════╪══════════╪══════════╪══════════╪══════════╪════════════╣
-║ W1: heartbeat (tiny, ~90B)   │    115µs │    114µs │    349µs │    378µs │    125µs │     136µs  ║
-║ W2: tool_call (~400B)        │    133µs │    131µs │    476µs │    482µs │    161µs │     157µs  ║
-║ W3: llm_token (~32B)         │     74µs │    132µs │    294µs │    373µs │     88µs │     150µs  ║
-║ W4: file_chunk (5 KB)        │    604µs │    183µs │   1588µs │    550µs │    726µs │     204µs  ║
-║ W5: tokens_x10 (batch)       │    104µs │    148µs │    332µs │    414µs │    118µs │     161µs  ║
-╚══════════════════════════════╧══════════╧══════════╧══════════╧══════════╧══════════╧════════════╝
+╔══════════════════════════════╤══════════╤══════════╤══════════╤══════════╤══════════╤══════════╗
+║ Workload                     │ JSON p50 │ LUMEN p50│ JSON p99 │ LUMEN p99│ JSON avg │ LUMEN avg║
+╠══════════════════════════════╪══════════╪══════════╪══════════╪══════════╪══════════╪══════════╣
+║ W1: heartbeat (tiny, ~90B)   │     91µs │    155µs │    297µs │    656µs │    108µs │    173µs ║
+║ W2: tool_call (~400B)        │    153µs │    140µs │    571µs │    543µs │    181µs │    177µs ║
+║ W3: llm_token (~32B)         │     76µs │    100µs │    222µs │    207µs │     89µs │    111µs ║
+║ W4: file_chunk (5 KB)        │    634µs │    161µs │   1199µs │    367µs │    715µs │    177µs ║
+║ W5: tokens_x10 (batch)       │     92µs │    108µs │    195µs │    247µs │    102µs │    126µs ║
+╚══════════════════════════════╧══════════╧══════════╧══════════╧══════════╧══════════╧══════════╝
 ```
 
 ### Análisis
 
 | Workload | Speedup | Wire saving | Interpretación |
 |----------|---------|-------------|----------------|
-| **W4: file_chunk** | **3.6×** | 3% | Raw binary copy del source code sin escapar `\"`, `\n`, `\t`. `serde_json` se ahoga |
-| W2: tool_call | 1.0× | 31% | Empate técnico bajo TCP (~130 µs). Dict compresión gana en wire (31%), pero kernel TCP nivela el RTT |
-| W5: tokens_x10 | 0.7× | 6% | Batch de 10 tokens — el overhead binario (tags + Hyb128 por token) es similar al JSON array |
-| W1: heartbeat | 0.9× | 47% | TCP stack (~115 µs base) domina ambos. LUMEN wire más pequeño (48B vs 90B) |
-| W3: llm_token | 0.6× | -9% | Token individual — JSON es sólo `"texto"`, LUMEN añade tag + dict ID + zigzag logprob |
+| **W4: file_chunk** | **4.0×** | 3% | Raw binary copy del source code sin escapar `\"`, `\n`, `\t`. `serde_json` se ahoga |
+| W2: tool_call | 1.0× | 33% | Empate técnico bajo TCP (~140-180 µs). Dict compresión gana en wire (33%), pero kernel TCP nivela el RTT |
+| W5: tokens_x10 | 0.8× | 6% | Batch de 10 tokens — el overhead binario (tags + Hyb128 por token) es similar al JSON array |
+| W1: heartbeat | 0.6× | 47% | TCP stack (~90-150 µs base) domina ambos. LUMEN wire más pequeño (48B vs 90B) pero el kernel manda |
+| W3: llm_token | 0.8× | 9% | Token individual — JSON es sólo `"texto"`, LUMEN añade tag + dict ID + zigzag logprob |
 
-> **Conclusión:** Para payloads >1 KB, LUMEN gana **3.6× en RTT real sobre TCP**. Para payloads pequeños (<500 B), el kernel TCP domina (~70-130 µs base) y ambos protocolos son equivalentes. **La ventaja real de LUMEN en IPC aparece con archivos grandes** (source code, recursos, blobs) donde la copia binaria cruda humilla al escaping JSON. Para streaming de tokens, la ventaja está en el **CPU benchmark** (S3: 4.18×) y en la **concurrencia** (22.9×), no en RTT unitario por token.
+> **Conclusión:** Para payloads >1 KB, LUMEN gana **4.0× en RTT real sobre TCP**. Para payloads pequeños (<500 B), el kernel TCP domina (~70-150 µs base) y ambos protocolos son equivalentes. **La ventaja real de LUMEN en IPC aparece con archivos grandes** (source code, recursos, blobs) donde la copia binaria cruda humilla al escaping JSON. Para streaming de tokens, la ventaja está en el **CPU benchmark** (S3: 3.00×) y en la **concurrencia** (1.9×), no en RTT unitario por token.
 
 ---
 
@@ -432,14 +426,14 @@ Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archi
 ╔══════════════════════╤══════════════╤══════════════╤═══════════════╗
 ║ Metric               │ JSON-RPC     │ LUMEN        │ Advantage      ║
 ╠══════════════════════╪══════════════╪══════════════╪═══════════════╣
-║ Encode time          │    0.023 s   │    0.009 s   │    2.73× FASTER ║
-║ Throughput           │     6.2 MB/s │    15.8 MB/s │    2.54× MORE   ║
-║ Time per file        │    1.558 ms  │    0.571 ms  │    2.73× FASTER ║
-║ Wire bytes (total)   │     0.15 MB  │     0.14 MB  │    6.7% LESS   ║
+║ Encode time          │    0.024 s   │    0.004 s   │    5.62× FASTER ║
+║ Throughput           │     8.6 MB/s │    45.3 MB/s │    5.25× MORE   ║
+║ Time per file        │    1.062 ms  │    0.189 ms  │    5.62× FASTER ║
+║ Wire bytes (total)   │     0.21 MB  │     0.20 MB  │    6.6% LESS   ║
 ╚══════════════════════╧══════════════╧══════════════╧═══════════════╝
 
-  Proyección 5,000 archivos → JSON-RPC: 7.8s  |  LUMEN: 2.9s  |  2.7× faster
-  Con archivos >100KB (source code real) → hasta 9× faster (ver S2)
+  Proyección 5,000 archivos → JSON-RPC: 5.3s  |  LUMEN: 0.9s  |  5.6× faster
+  Con archivos >100KB (source code real) → hasta 7× faster (ver S2)
 ```
 
 > **Para Cadencia:** El 80% del tiempo de indexación de un workspace se va en serializar strings largos con escapes JSON (`\"`, `\n`, `\t`). LUMEN copia los bytes crudos sin tocarlos.
