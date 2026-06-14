@@ -380,7 +380,7 @@ Mide el *Round Trip Time* real sobre TCP loopback (`127.0.0.1`, `nodelay`) — e
 
 ---
 
-## �️ Workspace Indexing Shootout (Cadencia)
+## 🛠️ Workspace Indexing Shootout (Cadencia)
 
 Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archivos fuente del directorio y los serializa como frames MCP. Medido con `cargo run --bin workspace-shootout`:
 
@@ -402,7 +402,7 @@ Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archi
 
 ---
 
-## � Rust FFI (C ABI) — Native Bindings
+## 🔧 Rust FFI (C ABI) — Native Bindings
 
 El crate Rust exporta una interfaz C estable (`cdylib`) con 5 funciones `extern "C"`:
 
@@ -517,7 +517,7 @@ Comparativa de rendimiento de la FFI Rust vs implementación nativa en cada leng
 
 ---
 
-## �🔌 Cadencia Bridge (Sidecar Rust)
+## 🔌 Cadencia Bridge (Sidecar Rust)
 
 Un binario mínimo que la extensión de VS Code ejecuta como proceso hijo. Recibe comandos JSON por stdin, lee archivos del disco, los comprime con LUMEN, y devuelve frames binarios. **Cero dependencias de runtime** — solo necesita el binario compilado.
 
@@ -920,6 +920,6 @@ El camino más ambicioso: un addon nativo de Node.js escrito en Rust con `napi-r
 
 ---
 
-## �📝 Licencia
+## 📝 Licencia
 
 MIT
