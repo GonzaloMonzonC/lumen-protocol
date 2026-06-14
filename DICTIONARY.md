@@ -175,6 +175,22 @@ Ocupan los IDs `0x00–0x7F`.
 
 ---
 
+## Diccionario de Sesión (IDs `0x80–0xFE`)
+
+127 slots dinámicos negociados por sesión. Cada extremo puede registrar sus propias
+claves frecuentes vía `DICT_SYNC` (frame `0x07`) o directamente mediante la API:
+
+- `register_session_key(key, id)` — registra una clave en un slot
+- `unregister_session_key(id)` — libera un slot
+- `init_session_dict(entries)` — carga inicial desde pares `(id, key)`
+- `clear_session_dict()` — libera todos los slots
+- `session_dict_size()` — número de entradas registradas
+
+Implementado en los 5 lenguajes: Rust (`OnceLock<RwLock<SessionDict>>`), TypeScript,
+Python, C#, y PHP.
+
+---
+
 ## ID 0xFF — Centinela "RAW"
 
 Cuando una clave **no** está presente en el diccionario estático ni en el de sesión,

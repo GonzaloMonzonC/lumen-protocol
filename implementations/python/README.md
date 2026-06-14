@@ -9,7 +9,7 @@ Mirrors the TypeScript `@lumen/mcp-transport` package exactly:
 | Module | File | Purpose |
 |---|---|---|
 | **Hyb128** | `hyb128.py` | Hybrid length codec (4 modes: 00 / 01 / 10 / 11) |
-| **Dict** | `dict.py` | 128-entry static dictionary, O(1) lookup |
+| **Dict** | `dict.py` | 128-entry static + 127 session dictionary, O(1) lookup |
 | **Compress** | `compress.py` | Compact binary payload codec (8 value tags) |
 | **Frame** | `frame.py` | Frame builder/parser (12 frame types, 4 flags) |
 | **Frame Assembler** | `frame_assembler.py` | Zero-allocation streaming reassembler |
@@ -23,7 +23,7 @@ Mirrors the TypeScript `@lumen/mcp-transport` package exactly:
 | Component | Status |
 |---|---|
 | Hyb128 codec | 🟢 Done |
-| Static dictionary | 🟢 Done |
+| Static dictionary | 🟢 Done — 128 static + 127 session |
 | Binary compressor | 🟢 Done |
 | Frame builder/parser | 🟢 Done |
 | Frame assembler | 🟢 Done |
