@@ -322,6 +322,61 @@ fn run_s5() -> ResultRow {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SCENARIO 6: session_dict — 127 custom keys, fill session dict
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn run_s6() -> ResultRow {
+    println!("\n═══ S6: session_dict — 127 custom keys ═══");
+    use lumen::dict;
+
+    // Register 127 custom keys in session dict (0x80–0xFE)
+    let custom_keys: Vec<String> = (0..127)
+        .map(|i| format!("custom_key_{i:03}"))
+        .collect();
+    for (i, key) in custom_keys.iter().enumerate() {
+        dict::register_session(key, 0x80 + i as u8).unwrap();
+    }
+    assert_eq!(dict::session_len(), 127);
+
+    // Build a JSON object with all 127 session keys + some values
+    let mut map = serde_json::Map::with_capacity(127);
+    for (i, key) in custom_keys.iter().enumerate() {
+        map.insert(key.clone(), serde_json::Value::Number((i as u64).into()));
+    }
+    let payload = serde_json::Value::Object(map);
+
+    // JSON side
+    let json_bytes = json_serialize(&payload);
+    let (json_ser_ns, _) = time("JSON serialize", ITERS, || json_serialize(&payload));
+    let (json_deser_ns, _) = time("JSON deserialize", ITERS, || json_parse(&json_bytes));
+
+    // LUMEN side
+    let (lumen_ser_ns, lumen_bytes) = time("LUMEN serialize", ITERS, || {
+        lumen_serialize(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, &payload)
+    });
+    let lumen_wire = lumen_bytes.len();
+    let (lumen_deser_ns, _) = time("LUMEN deserialize", ITERS, || lumen_parse(&lumen_bytes));
+
+    wire("JSON wire size", json_bytes.len());
+    wire("LUMEN wire size", lumen_wire);
+    let sav = (1.0 - lumen_wire as f64 / json_bytes.len() as f64) * 100.0;
+    println!("  Wire savings: {sav:.1}%");
+
+    // Clean up
+    dict::clear_session();
+
+    ResultRow {
+        scenario: "S6: session_dict (127 keys)",
+        json_wire: json_bytes.len(),
+        lumen_wire,
+        json_ser_ns,
+        lumen_ser_ns,
+        json_deser_ns,
+        lumen_deser_ns,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Summary table
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -369,5 +424,6 @@ fn main() {
     rows.push(run_s3());
     rows.push(run_s4());
     rows.push(run_s5());
+    rows.push(run_s6());
     print_summary(&rows);
 }

@@ -291,6 +291,48 @@ def bench_roundtrip() -> list[dict]:
     return results
 
 
+# ═══ I. Session Dictionary ═══
+
+def bench_session_dict() -> list[dict]:
+    from lumen.dict import init_session_dict, register_session_key, clear_session_dict
+    results = []
+    runs = 500
+
+    # Register 127 custom keys (0x80–0xFE)
+    init_session_dict([])
+    custom_keys = [f"custom_key_{i:03d}" for i in range(127)]
+    for i, key in enumerate(custom_keys):
+        register_session_key(key, 0x80 + i)
+
+    # Build payload with all 127 session keys
+    payload = {key: i for i, key in enumerate(custom_keys)}
+    json_str = json.dumps(payload, ensure_ascii=False)
+    json_bytes = len(json_str.encode("utf-8"))
+
+    # Compress benchmark
+    compress_ms = timeit(runs, lambda: compress_value(payload), warmup=20)
+    comp = compress_value(payload)
+
+    # Decompress benchmark
+    decompress_ms = timeit(runs, lambda: decompress_value(comp), warmup=20)
+
+    ratio = round(len(comp) / json_bytes * 100, 1)
+    wire_sav = round(100 - ratio, 1)
+
+    results.append(make_result(
+        "SessionDict compress (127 keys)", "session_dict", runs, compress_ms, json_bytes * runs,
+        {"jsonBytes": json_bytes, "compressedBytes": len(comp), "ratioPercent": ratio, "wireSavingsPercent": wire_sav}
+    ))
+    results.append(make_result(
+        "SessionDict decompress (127 keys)", "session_dict", runs, decompress_ms, len(comp) * runs,
+        {"jsonBytes": json_bytes, "compressedBytes": len(comp)}
+    ))
+
+    # Clean up
+    clear_session_dict()
+    return results
+
+
 # ═══ H. Framing ═══
 
 def bench_framing() -> list[dict]:
@@ -348,6 +390,7 @@ def main():
         ("decode", bench_decode),
         ("roundtrip", bench_roundtrip),
         ("framing", bench_framing),
+        ("session_dict", bench_session_dict),
     ]
 
     total = len(benchmarks)

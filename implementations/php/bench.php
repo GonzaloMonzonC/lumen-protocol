@@ -171,6 +171,46 @@ function benchFraming(): array {
     }
     return $results;
 }
+function benchSessionDict(): array {
+    $results = [];
+    $runs = 500;
+
+    // Register 127 custom keys (0x80–0xFE)
+    Dict::initSessionDict([]);
+    $customKeys = [];
+    for ($i = 0; $i < 127; $i++) {
+        $key = sprintf('custom_key_%03d', $i);
+        $customKeys[] = $key;
+        Dict::registerSessionKey($key, 0x80 + $i);
+    }
+
+    // Build payload with all 127 session keys
+    $payload = new \stdClass();
+    for ($i = 0; $i < 127; $i++) $payload->{$customKeys[$i]} = $i;
+    $jsonStr = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $jsonBytes = strlen($jsonStr);
+
+    // Compress benchmark
+    $fnC = function() use ($payload) { Compress::compress($payload); };
+    $compressMs = timeit($runs, $fnC, 20);
+    $comp = Compress::compress($payload);
+
+    // Decompress benchmark
+    $fnD = function() use ($comp) { Compress::decompress($comp); };
+    $decompressMs = timeit($runs, $fnD, 20);
+
+    $ratio = round(strlen($comp) / $jsonBytes * 100, 1);
+    $wireSav = 100 - $ratio;
+
+    $results[] = makeResult("SessionDict compress (127 keys)", 'session_dict', $runs, $compressMs, $jsonBytes * $runs,
+        ['jsonBytes' => $jsonBytes, 'compressedBytes' => strlen($comp), 'ratioPercent' => $ratio, 'wireSavingsPercent' => round($wireSav, 1)]);
+    $results[] = makeResult("SessionDict decompress (127 keys)", 'session_dict', $runs, $decompressMs, strlen($comp) * $runs,
+        ['jsonBytes' => $jsonBytes, 'compressedBytes' => strlen($comp)]);
+
+    // Clean up
+    Dict::clearSessionDict();
+    return $results;
+}
 
 $all=[];
 $benchmarks=[
@@ -182,6 +222,7 @@ $benchmarks=[
     ['decode','benchDecode'],
     ['roundtrip','benchRoundtrip'],
     ['framing','benchFraming'],
+    ['session_dict','benchSessionDict'],
 ];
 $total=count($benchmarks);
 foreach ($benchmarks as $i=>[$name,$fn]) {

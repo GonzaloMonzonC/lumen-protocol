@@ -315,6 +315,51 @@ class Program
         Console.WriteLine(new string('-', 67));
         Console.WriteLine($"{"TOTAL",-22} {"compress",12} {totNc,9:F1}us {totFc,9:F1}us {(totNc / totFc),7:F1}x");
         Console.WriteLine($"{"TOTAL",-22} {"decompress",12} {totNd,9:F1}us {totFd,9:F1}us {(totNd / totFd),7:F1}x");
+
+        // Session dictionary benchmark
+        Console.WriteLine();
+        Console.WriteLine("── Session Dictionary (127 keys) ──");
+        RunSessionDictBench();
+    }
+
+    static void RunSessionDictBench()
+    {
+        // Register 127 custom keys (0x80–0xFE)
+        Dict.InitSessionDict(Array.Empty<(byte, string)>());
+        var customKeys = new string[127];
+        for (int i = 0; i < 127; i++)
+        {
+            customKeys[i] = $"custom_key_{i:D3}";
+            Dict.RegisterSessionKey(customKeys[i], (byte)(0x80 + i));
+        }
+
+        // Build payload with all 127 session keys
+        var dict = new Dictionary<string, object>();
+        for (int i = 0; i < 127; i++) dict[customKeys[i]] = i;
+        var payload = JsonSerializer.SerializeToElement(dict);
+        var jsonStr = JsonSerializer.Serialize(payload);
+        var jsonBytes = Encoding.UTF8.GetByteCount(jsonStr);
+
+        var iters = 500;
+
+        // Compress
+        var compBytes = LumenCompress.CompressValue(payload);
+        var compressUs = Bench(_ => LumenCompress.CompressValue(payload), iters);
+
+        // Decompress
+        var decompressUs = Bench(_ => LumenCompress.DecompressValue(compBytes), iters);
+
+        var ratio = (double)compBytes.Length / jsonBytes * 100;
+        var wireSav = 100 - ratio;
+
+        Console.WriteLine($"  JSON wire size:    {jsonBytes} B");
+        Console.WriteLine($"  LUMEN wire size:   {compBytes.Length} B ({ratio:F1}% of JSON)");
+        Console.WriteLine($"  Wire savings:      {wireSav:F1}%");
+        Console.WriteLine($"  Compress:          {compressUs:F1} us/op  (×{iters})");
+        Console.WriteLine($"  Decompress:        {decompressUs:F1} us/op  (×{iters})");
+
+        // Clean up
+        Dict.ClearSessionDict();
     }
 
     static double Bench(Action<object?> fn, int iters)
