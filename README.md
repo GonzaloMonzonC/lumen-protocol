@@ -148,6 +148,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── frame.ts      ← Frame builder/parser
     │       ├── dict.ts       ← Diccionario 128 IDs estáticos
     │       ├── compress.ts   ← Compact binary payload
+    │       ├── compress_ffi.ts← FFI wrapper (Rust → Node via koffi)
     │       └── cadencia.ts   ← Cliente del sidecar Rust
     ├── /python/             ← lumen-py (pip install)
     │   ├── README.md
@@ -158,6 +159,13 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── dict.py      ← Diccionario 128 IDs estáticos
     │       ├── compress.py  ← Compact binary payload
     │       └── transport.py ← LumenStdioTransport + negotiation
+    ├── /csharp/              ← lumen-cs (.NET 9)
+    │   ├── LumenCSharp.csproj
+    │   ├── Dict.cs          ← Diccionario 128 IDs estáticos
+    │   ├── Hyb128.cs        ← Hyb128 encode/decode
+    │   ├── LumenCompress.cs ← Compact binary payload (native C#)
+    │   ├── LumenFFI.cs      ← P/Invoke FFI (Rust → .NET)
+    │   └── Program.cs       ← Test harness + benchmarks
     └── /php/                ← lumen-php (composer)
         └── src/
 ```
@@ -394,7 +402,122 @@ Simula la carga real de **Cadencia** analizando un proyecto: lee todos los archi
 
 ---
 
-## 🔌 Cadencia Bridge (Sidecar Rust)
+## � Rust FFI (C ABI) — Native Bindings
+
+El crate Rust exporta una interfaz C estable (`cdylib`) con 5 funciones `extern "C"`:
+
+| Función | Firma | Descripción |
+|---------|-------|-------------|
+| `lumen_compress` | `(data, len, out, outLen) → i32` | Comprime JSON → LUMEN binario |
+| `lumen_decompress` | `(data, len, out, outLen) → i32` | Descomprime LUMEN binario → JSON |
+| `lumen_free` | `(ptr)` | Libera buffer asignado por Rust |
+| `lumen_version` | `() → *const c_char` | Versión de la librería |
+| `lumen_error_message` | `() → *const c_char` | Último mensaje de error |
+
+```c
+// Ejemplo desde C
+int32_t len = lumen_compress(json_bytes, json_len, &out, &out_len);
+```
+
+La FFI permite que cualquier lenguaje con soporte C FFI (Node, Python, C#, Go, Zig, etc.)
+se beneficie del compresor Rust de alto rendimiento sin reimplementar el protocolo.
+
+### Node.js (koffi)
+
+```typescript
+import { compressValueFFI, decompressValueFFI } from "@lumen/mcp-transport";
+
+const compressed = compressValueFFI({ jsonrpc: "2.0", method: "tools/list" });
+const original = decompressValueFFI(compressed);
+```
+
+Usa [koffi](https://koffi.dev/) (pure JS, zero build) para cargar `lumen.dll` / `liblumen.so`.
+
+### C# (.NET 9 P/Invoke)
+
+```csharp
+using Lumen;
+
+var compressed = LumenFFI.CompressValue(jsonElement);
+var decompressed = LumenFFI.DecompressValue(compressed);
+```
+
+P/Invoke con `[DllImport("lumen")]` y `CallingConvention.Cdecl`. Zero dependencies.
+
+---
+
+## 🎯 C# Implementation (.NET 9)
+
+```bash
+cd implementations/csharp
+dotnet run -c Release
+```
+
+### Resultados — 17/17 roundtrip, 28/28 golden, 0 fallos
+
+| Suite | Resultado |
+|-------|-----------|
+| Roundtrip (17 casos) | 17/17 ✅ |
+| FFI roundtrip + cross-check | 17/17 ✅ |
+| Golden binary (28 archivos) | 28/28 ✅ |
+| Golden FFI | 28/28 ✅ |
+
+### Benchmark — .NET 9, C# native vs P/Invoke FFI
+
+| Payload | Op | Native | FFI | Speedup |
+|---------|-----|--------|-----|---------|
+| MCP tools/list | compress | 2.1µs | 3.6µs | 0.6× |
+| MCP tools/list | decompress | 6.5µs | 5.2µs | 1.2× |
+| MCP initialize | compress | 6.7µs | 7.2µs | 0.9× |
+| MCP initialize | decompress | 18.0µs | 17.8µs | 1.0× |
+| MCP tools ×20 | compress | 234.9µs | 244.5µs | 1.0× |
+| MCP tools ×20 | **decompress** | 463.7µs | 161.8µs | **2.9×** |
+| LLM response | decompress | 14.1µs | 8.9µs | **1.6×** |
+| **TOTAL** | compress | 250.2µs | 263.1µs | 1.0× |
+| **TOTAL** | **decompress** | 502.3µs | 193.6µs | **2.6×** |
+
+> **FFI decompress es 2.6× más rápido.** La FFI devuelve el JSON directamente desde Rust,
+> mientras que el decoder nativo C# construye árboles intermedios (`Dictionary<string, object?>`,
+> `object[]`) y los re-serializa con `JsonSerializer`. La FFI de compresión es equivalente
+> (1.0×) — el encoder C# nativo ya está optimizado con `ArrayPool<byte>` y `stackalloc`.
+
+### Detalles de implementación
+
+| Característica | Detalle |
+|----------------|---------|
+| **Encoder nativo** | `System.Text.Json` + `ArrayPool<byte>` + `stackalloc` — zero alloc en el hot path |
+| **Decoder nativo** | `Dictionary<string, object?>` / `object[]` intermedios → `JsonSerializer.SerializeToElement` |
+| **FFI** | P/Invoke `[DllImport]`, `CallingConvention.Cdecl`, `nint` para punteros |
+| **Diccionario** | `Dict.cs` — 128 entradas estáticas con lookup O(1) y reverse lookup |
+| **Hyb128** | `Hyb128.cs` — encode/decode con los 4 modos (00/10/11/01) |
+
+---
+
+## 📊 FFI Benchmark Multi-Lenguaje
+
+Comparativa de rendimiento de la FFI Rust vs implementación nativa en cada lenguaje:
+
+| Lenguaje | Compress (FFI vs native) | Decompress (FFI vs native) | Librería FFI |
+|----------|--------------------------|----------------------------|--------------|
+| **Node.js** | **4.4× faster** 🔥 | 1.0× | [koffi](https://koffi.dev/) v3.0.2 |
+| **C# (.NET 9)** | 1.0× | **2.6× faster** 🔥 | P/Invoke `[DllImport]` |
+| **Python** | 0.5× (slower) | 0.5× (slower) | `ctypes` (stdlib) |
+
+> **Node.js:** La FFI brilla en compresión porque `compressValue` TS pasa por el JIT de V8
+> mientras que Rust corre nativo. En decompress, `decompressValue` TS ya está muy optimizado
+> y la FFI no añade ventaja.
+>
+> **C#:** La FFI gana en decompress porque Rust devuelve el JSON ya parseado, ahorrando
+> la reconstrucción de árboles intermedios. En compress, el encoder nativo C# con
+> `ArrayPool<byte>` iguala a Rust.
+>
+> **Python:** `ctypes` tiene overhead alto (marshalling de objetos Python ↔ C).
+> Para payloads pequeños, el overhead domina y la FFI es más lenta que el encoder
+> nativo de CPython (que ya está en C).
+
+---
+
+## �🔌 Cadencia Bridge (Sidecar Rust)
 
 Un binario mínimo que la extensión de VS Code ejecuta como proceso hijo. Recibe comandos JSON por stdin, lee archivos del disco, los comprime con LUMEN, y devuelve frames binarios. **Cero dependencias de runtime** — solo necesita el binario compilado.
 
@@ -449,6 +572,8 @@ await bridge.stop();
 | ZeroAllocDecompressor | **79/79** | TypeScript | `node --test` |
 | CadenciaBridge integración | **3/3** | TS ↔ Rust | `node --test` |
 | Python unit tests | **94/94** | Python | `pytest` |
+| C# roundtrip + golden | **17/17 + 28/28** | C# (.NET 9) | `dotnet run` |
+| C# FFI (P/Invoke) | **17/17 + 28/28** | C# ↔ Rust | `dotnet run` |
 
 ### 🔗 Cross-Implementation E2E — 315 tests
 
@@ -459,6 +584,8 @@ Golden file testing entre las 3 implementaciones (Python genera, TS + Rust valid
 | **Python** | 89/89 | ✅ Genera golden binaries |
 | **TypeScript** | 217/217 | ✅ Match binario + cross-decode |
 | **Rust** | 9/9 | ✅ Match semántico + Hyb128 + frames |
+| **C# (.NET 9)** | 28/28 | ✅ Match binario byte-por-byte |
+| **C# FFI (P/Invoke)** | 28/28 | ✅ Match binario byte-por-byte |
 
 Los 28 vectores compartidos en `tests/e2e/shared_vectors.json` cubren todos los
 value types LUMEN (null, bool, int, float, string, array, object) y payloads MCP
@@ -473,6 +600,7 @@ Antes de los microbenchmarks, entendamos la pelea. No es un combate de un solo a
 | **1. Decode puro** | Velocidad bruta de deserialización CPU | 🏆 **V8** | `JSON.parse` baja a C++ nativo dentro de V8. `decompressValue` pasa por el JIT de JS. |
 | **2. Encode con strings hostiles** | Serialización de strings con escapes | 🏆 **LUMEN** | `JSON.stringify` inspecciona cada carácter buscando `\"`, `\\n`, `\\\\`. LUMEN hace `.set()` binario — zero inspección. |
 | **3. GC Pressure** | Basura generada + GC pauses | ⚠️ **JSON** / 🥈 **LUMEN zero-alloc** | El decoder naive crea objetos intermedios (8× heap). La `ZeroAllocDecompressor` (Vía 1) baja a 3.7× — **54% menos basura**. En Rust zero-alloc se iguala a JSON. |
+| **🔥 FFI (bonus)** | Rust nativo → Node via koffi | 🏆 **LUMEN FFI** | `compressValueFFI` es **4.4× más rápido** que `compressValue` TS puro, y empata con `JSON.stringify` nativo de V8. |
 
 ### 📦 B. Compresión — JSON vs LUMEN (wire bytes)
 
