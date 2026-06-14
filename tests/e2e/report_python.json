@@ -1,0 +1,779 @@
+{
+  "implementation": "python",
+  "passed": 89,
+  "failed": 0,
+  "total": 89,
+  "results": [
+    {
+      "vector": "null",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 1,
+      "compressedHash": "7d8c5da7fd418379",
+      "jsonSize": 4,
+      "error": null
+    },
+    {
+      "vector": "bool_true",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "83d9749292117a75",
+      "jsonSize": 4,
+      "error": null
+    },
+    {
+      "vector": "bool_false",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "6d4f30053c8312ed",
+      "jsonSize": 5,
+      "error": null
+    },
+    {
+      "vector": "int_zero",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "336e50127a425f3e",
+      "jsonSize": 1,
+      "error": null
+    },
+    {
+      "vector": "int_small",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "d2b5fde3506515a0",
+      "jsonSize": 2,
+      "error": null
+    },
+    {
+      "vector": "int_negative",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 3,
+      "compressedHash": "e8be324eb7a83ea8",
+      "jsonSize": 4,
+      "error": null
+    },
+    {
+      "vector": "int_large",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 6,
+      "compressedHash": "c66353669ab13143",
+      "jsonSize": 10,
+      "error": null
+    },
+    {
+      "vector": "float_zero",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 9,
+      "compressedHash": "c22a6be504432e03",
+      "jsonSize": 3,
+      "error": null
+    },
+    {
+      "vector": "float_pi",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 9,
+      "compressedHash": "38cc4f2c842d4951",
+      "jsonSize": 17,
+      "error": null
+    },
+    {
+      "vector": "float_negative",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 9,
+      "compressedHash": "859dd8188bc227b9",
+      "jsonSize": 4,
+      "error": null
+    },
+    {
+      "vector": "string_empty",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "4067a17683de9689",
+      "jsonSize": 2,
+      "error": null
+    },
+    {
+      "vector": "string_short",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 7,
+      "compressedHash": "6d994333d576d47a",
+      "jsonSize": 7,
+      "error": null
+    },
+    {
+      "vector": "string_unicode",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 22,
+      "compressedHash": "a9f719a5f4fcc878",
+      "jsonSize": 18,
+      "error": null
+    },
+    {
+      "vector": "string_escapes",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 32,
+      "compressedHash": "13a7e49c95d1de8e",
+      "jsonSize": 37,
+      "error": null
+    },
+    {
+      "vector": "string_long",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 164,
+      "compressedHash": "9c00c3d002a1cc6e",
+      "jsonSize": 162,
+      "error": null
+    },
+    {
+      "vector": "array_empty",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "1b3c183773cca621",
+      "jsonSize": 2,
+      "error": null
+    },
+    {
+      "vector": "array_ints",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 12,
+      "compressedHash": "7412136c99dedc5c",
+      "jsonSize": 15,
+      "error": null
+    },
+    {
+      "vector": "array_mixed",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 18,
+      "compressedHash": "91ce6b8a28c67ea0",
+      "jsonSize": 30,
+      "error": null
+    },
+    {
+      "vector": "array_nested",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 18,
+      "compressedHash": "13209b9144cdae40",
+      "jsonSize": 21,
+      "error": null
+    },
+    {
+      "vector": "object_empty",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 2,
+      "compressedHash": "5e47a90a060a509c",
+      "jsonSize": 2,
+      "error": null
+    },
+    {
+      "vector": "object_simple",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 12,
+      "compressedHash": "29adffd35ae06e34",
+      "jsonSize": 27,
+      "error": null
+    },
+    {
+      "vector": "object_nested",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 44,
+      "compressedHash": "c917afd6b8b7c106",
+      "jsonSize": 68,
+      "error": null
+    },
+    {
+      "vector": "object_dict_keys",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 32,
+      "compressedHash": "8398857eed674c8a",
+      "jsonSize": 108,
+      "error": null
+    },
+    {
+      "vector": "object_custom_keys",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 47,
+      "compressedHash": "ba03dedb51eaa37f",
+      "jsonSize": 58,
+      "error": null
+    },
+    {
+      "vector": "mcp_initialize",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 92,
+      "compressedHash": "f9059746d78f4f57",
+      "jsonSize": 155,
+      "error": null
+    },
+    {
+      "vector": "mcp_tools_list",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 186,
+      "compressedHash": "a14911a6a7e78d3e",
+      "jsonSize": 350,
+      "error": null
+    },
+    {
+      "vector": "mcp_llm_request",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 116,
+      "compressedHash": "5da0d6dca51ef95c",
+      "jsonSize": 215,
+      "error": null
+    },
+    {
+      "vector": "mcp_error_response",
+      "test": "compress_roundtrip",
+      "pass": true,
+      "compressedSize": 114,
+      "compressedHash": "e333c1ac0692c4fb",
+      "jsonSize": 176,
+      "error": null
+    },
+    {
+      "vector": "hyb128_0",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 1,
+      "expectedLen": 1,
+      "decodedValue": 0,
+      "error": null
+    },
+    {
+      "vector": "hyb128_1",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 1,
+      "expectedLen": 1,
+      "decodedValue": 1,
+      "error": null
+    },
+    {
+      "vector": "hyb128_42",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 1,
+      "expectedLen": 1,
+      "decodedValue": 42,
+      "error": null
+    },
+    {
+      "vector": "hyb128_63",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 1,
+      "expectedLen": 1,
+      "decodedValue": 63,
+      "error": null
+    },
+    {
+      "vector": "hyb128_64",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 3,
+      "expectedLen": 3,
+      "decodedValue": 64,
+      "error": null
+    },
+    {
+      "vector": "hyb128_255",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 3,
+      "expectedLen": 3,
+      "decodedValue": 255,
+      "error": null
+    },
+    {
+      "vector": "hyb128_1000",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 3,
+      "expectedLen": 3,
+      "decodedValue": 1000,
+      "error": null
+    },
+    {
+      "vector": "hyb128_65535",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 3,
+      "expectedLen": 3,
+      "decodedValue": 65535,
+      "error": null
+    },
+    {
+      "vector": "hyb128_65536",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 5,
+      "expectedLen": 5,
+      "decodedValue": 65536,
+      "error": null
+    },
+    {
+      "vector": "hyb128_100000",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 5,
+      "expectedLen": 5,
+      "decodedValue": 100000,
+      "error": null
+    },
+    {
+      "vector": "hyb128_1000000",
+      "test": "hyb128_roundtrip",
+      "pass": true,
+      "encodedLen": 5,
+      "expectedLen": 5,
+      "decodedValue": 1000000,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_none_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "faee935763044f12",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_compressed_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "fbb59ed10e9cd4ff",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_priority_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "3f078d3b7e22c894",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_none_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "dbbc7025e89eb9b1",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_compressed_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "8d9fe7317f066dea",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_priority_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "95a52fbc37d8806e",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_none_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "5787fe825530f21f",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_compressed_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "911b9fdacf0e0f40",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_priority_empty",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 3,
+      "wireHash": "ed2139a910c69105",
+      "payloadSize": 0,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_none_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "0ceef18979d30005",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_compressed_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "40d1e057edc9d98d",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_priority_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "297cfc90a52a0eaa",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_none_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "13e17d1eb5f4986e",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_compressed_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "ebd836d803bed6bc",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_priority_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "727c3cc4f038f393",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_none_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "c4427c12ac970cfb",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_compressed_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "1c6b877124639629",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_priority_hello",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 8,
+      "wireHash": "373ab32e52037068",
+      "payloadSize": 5,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_none_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "bda25ce5d84b5ccc",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_compressed_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "1e45c4c4be952985",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_priority_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "622f3ed2954b4f68",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_none_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "8c25da6ace586410",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_compressed_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "daa7025f37045446",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_priority_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "358e9d3077eace0c",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_none_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "075520ee4004c2ec",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_compressed_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "534016150b5cfea2",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_priority_json_small",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 21,
+      "wireHash": "99447776db1cf002",
+      "payloadSize": 18,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_none_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "2e9e05e1abd7237e",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_compressed_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "bef73f4f653a5f9a",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_REQUEST_priority_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "875c4d6450121dbe",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_none_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "587054ceb0e90e8f",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_compressed_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "e3758fbf1115500b",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_RESPONSE_priority_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "1fbf229755e649f7",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_none_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "fe744c9bb4ebcc83",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_compressed_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "7c166e1dc23236ed",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "frame_NOTIFY_priority_json_mcp",
+      "test": "frame_roundtrip",
+      "pass": true,
+      "wireSize": 101,
+      "wireHash": "6019d0671222433d",
+      "payloadSize": 96,
+      "error": null
+    },
+    {
+      "vector": "assembler_single",
+      "test": "frame_assembler",
+      "pass": true,
+      "error": null
+    },
+    {
+      "vector": "assembler_multi",
+      "test": "frame_assembler",
+      "pass": true,
+      "error": null
+    },
+    {
+      "vector": "assembler_chunked",
+      "test": "frame_assembler",
+      "pass": true,
+      "error": null
+    },
+    {
+      "vector": "assembler_reset",
+      "test": "frame_assembler",
+      "pass": true,
+      "error": null
+    },
+    {
+      "vector": "integration_initialize",
+      "test": "compressed_frame_integration",
+      "pass": true,
+      "wireSize": 59,
+      "wireHash": "8dc3cb0f21e55d71",
+      "error": null
+    },
+    {
+      "vector": "integration_tools_list",
+      "test": "compressed_frame_integration",
+      "pass": true,
+      "wireSize": 80,
+      "wireHash": "6f9818aeaec60413",
+      "error": null
+    },
+    {
+      "vector": "stability_null",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "7d8c5da7fd418379",
+      "error": null
+    },
+    {
+      "vector": "stability_bool",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "83d9749292117a75",
+      "error": null
+    },
+    {
+      "vector": "stability_int",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "d2b5fde3506515a0",
+      "error": null
+    },
+    {
+      "vector": "stability_float",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "c17b3aae6c93004f",
+      "error": null
+    },
+    {
+      "vector": "stability_string",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "6d994333d576d47a",
+      "error": null
+    },
+    {
+      "vector": "stability_array",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "13b7fa2361fb4c60",
+      "error": null
+    },
+    {
+      "vector": "stability_object",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "c59702f39316df23",
+      "error": null
+    },
+    {
+      "vector": "stability_mcp_init",
+      "test": "binary_stability",
+      "pass": true,
+      "hash": "ee62ccf127edf1c4",
+      "error": null
+    }
+  ]
+}
