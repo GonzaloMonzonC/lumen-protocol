@@ -1,0 +1,214 @@
+{
+  "protocol": "LUMEN/1.0",
+  "description": "Shared e2e test vectors for cross-implementation interoperability",
+  "vectors": [
+    {
+      "name": "null",
+      "value": null,
+      "expectedTags": ["TAG_NULL"]
+    },
+    {
+      "name": "bool_true",
+      "value": true,
+      "expectedTags": ["TAG_BOOL"]
+    },
+    {
+      "name": "bool_false",
+      "value": false,
+      "expectedTags": ["TAG_BOOL"]
+    },
+    {
+      "name": "int_zero",
+      "value": 0,
+      "expectedTags": ["TAG_INT"]
+    },
+    {
+      "name": "int_small",
+      "value": 42,
+      "expectedTags": ["TAG_INT"]
+    },
+    {
+      "name": "int_negative",
+      "value": -100,
+      "expectedTags": ["TAG_INT"]
+    },
+    {
+      "name": "int_large",
+      "value": 2147483647,
+      "expectedTags": ["TAG_INT"]
+    },
+    {
+      "name": "float_zero",
+      "value": 0.0,
+      "expectedTags": ["TAG_FLOAT"]
+    },
+    {
+      "name": "float_pi",
+      "value": 3.141592653589793,
+      "expectedTags": ["TAG_FLOAT"]
+    },
+    {
+      "name": "float_negative",
+      "value": -2.5,
+      "expectedTags": ["TAG_FLOAT"]
+    },
+    {
+      "name": "string_empty",
+      "value": "",
+      "expectedTags": ["TAG_STR_RAW"]
+    },
+    {
+      "name": "string_short",
+      "value": "hello",
+      "expectedTags": ["TAG_STR_RAW"]
+    },
+    {
+      "name": "string_unicode",
+      "value": "héllo wörld ñoño",
+      "expectedTags": ["TAG_STR_RAW"]
+    },
+    {
+      "name": "string_escapes",
+      "value": "line1\nline2\t\"quoted\"\\backslash",
+      "expectedTags": ["TAG_STR_RAW"]
+    },
+    {
+      "name": "string_long",
+      "value": "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick daft zebras jump! Sphinx of black quartz, judge my vow.",
+      "expectedTags": ["TAG_STR_RAW"]
+    },
+    {
+      "name": "array_empty",
+      "value": [],
+      "expectedTags": ["TAG_ARRAY"]
+    },
+    {
+      "name": "array_ints",
+      "value": [1, 2, 3, 4, 5],
+      "expectedTags": ["TAG_ARRAY"]
+    },
+    {
+      "name": "array_mixed",
+      "value": [null, true, 42, "text", 3.14],
+      "expectedTags": ["TAG_ARRAY"]
+    },
+    {
+      "name": "array_nested",
+      "value": [[1, 2], [3, [4, 5]]],
+      "expectedTags": ["TAG_ARRAY"]
+    },
+    {
+      "name": "object_empty",
+      "value": {},
+      "expectedTags": ["TAG_OBJECT"]
+    },
+    {
+      "name": "object_simple",
+      "value": {"key": "value", "num": 42},
+      "expectedTags": ["TAG_OBJECT"]
+    },
+    {
+      "name": "object_nested",
+      "value": {
+        "level1": {
+          "level2": {
+            "level3": {"value": 42},
+            "list": [1, 2, 3]
+          }
+        }
+      },
+      "expectedTags": ["TAG_OBJECT"]
+    },
+    {
+      "name": "object_dict_keys",
+      "value": {
+        "tool": "search",
+        "arguments": {"query": "hello", "limit": 10},
+        "result": {"text": "found"},
+        "error": null
+      },
+      "expectedTags": ["TAG_OBJECT"],
+      "note": "Keys 'tool','arguments','result','error' should use dict compression (TAG_STR_DICT)"
+    },
+    {
+      "name": "object_custom_keys",
+      "value": {
+        "customUncompressedKey": "value",
+        "anotherCustomKey": 42
+      },
+      "expectedTags": ["TAG_OBJECT"],
+      "note": "Custom keys should use TAG_STR_RAW via 0xFF sentinel"
+    },
+    {
+      "name": "mcp_initialize",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-06-18",
+          "clientInfo": {"name": "test-client", "version": "1.0.0"}
+        }
+      },
+      "expectedTags": ["TAG_OBJECT"]
+    },
+    {
+      "name": "mcp_tools_list",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "tools": [
+            {
+              "name": "search_code",
+              "description": "Search source code with regex",
+              "inputSchema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}}
+              }
+            },
+            {
+              "name": "read_file",
+              "description": "Read file contents at path",
+              "inputSchema": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}}
+              }
+            }
+          ]
+        }
+      },
+      "expectedTags": ["TAG_OBJECT"]
+    },
+    {
+      "name": "mcp_llm_request",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "llm_complete",
+          "arguments": {
+            "model": "deepseek-v4",
+            "messages": [{"role": "user", "content": "Explain LUMEN protocol"}],
+            "temperature": 0.7
+          }
+        }
+      },
+      "expectedTags": ["TAG_OBJECT"]
+    },
+    {
+      "name": "mcp_error_response",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": {
+          "code": -32601,
+          "message": "Method not found: unknown_method",
+          "data": {"available_methods": ["initialize", "tools/list", "tools/call"]}
+        }
+      },
+      "expectedTags": ["TAG_OBJECT"]
+    }
+  ]
+}
