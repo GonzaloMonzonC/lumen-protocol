@@ -150,6 +150,7 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       ├── negotiation.ts← handshake LUMEN probe/ack + fallback JSON-RPC
     │       ├── hyb128.ts     ← Hyb128 encode/decode
     │       ├── frame.ts      ← Frame builder/parser
+    │       ├── frame-assembler.ts ← Zero-allocation streaming reassembler
     │       ├── dict.ts       ← Diccionario 128 estáticas + 127 sesión
     │       ├── compress.ts   ← Compact binary payload
     │       ├── compress_ffi.ts← FFI wrapper (Rust → Node via koffi)
@@ -159,13 +160,20 @@ Los frames son autodelimitados (Hyb128) → funcionan sobre cualquier stream con
     │       └── cadencia.ts   ← Cliente del sidecar Rust
     ├── /python/             ← lumen-py (pip install)
     │   ├── README.md
-    │   └── lumen/
+    │   ├── pyproject.toml
+    │   ├── bench.py         ← benchmark suite
+    │   ├── tests/
+    │   │   └── test_lumen.py ← 94 tests
+    │   └── src/lumen/
     │       ├── __init__.py
     │       ├── hyb128.py    ← Hyb128 encode/decode
-    │       ├── frame.py     ← Frame builder/parser + FrameAssembler
+    │       ├── frame.py     ← Frame builder/parser
+    │       ├── frame_assembler.py ← Streaming frame reassembler
     │       ├── dict.py      ← Diccionario 128 estáticas + 127 sesión
     │       ├── compress.py  ← Compact binary payload
-    │       └── transport.py ← LumenStdioTransport + negotiation
+    │       ├── negotiation.py ← Probe/ack handshake
+    │       ├── transport.py ← LumenStdioTransport + LumenWebSocketTransport
+    │       └── cadencia.py  ← Rust sidecar bridge client
     ├── /csharp/              ← lumen-cs (.NET 9)
     │   ├── LumenCSharp.csproj
     │   ├── Dict.cs          ← Diccionario 128 estáticas + 127 sesión
