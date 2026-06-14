@@ -173,7 +173,12 @@ Inmediatamente después del Hyb128:
 | `0x08` | `DISCOVER` | ↔ | Introspección dinámica (late binding) |
 | `0x09` | `MUX` | ↔ | Envoltorio de multiplexación |
 | `0x0A` | `HEARTBEAT` | ↔ | Keep-alive |
-| `0x0B–0x0F` | *Reservados* | — | Para futura expansión |
+| `0x0B` | `TRANSPORT_INIT` | C→S | Transport capability negotiation init (§2.2) |
+| `0x0C` | `TRANSPORT_ACK` | S→C | Transport capability negotiation ack (§2.2) |
+| `0x0D–0x0F` | *Reservados* | — | Para futura expansión |
+| `0x0F` | `PROBE` | C→S | Protocol-level negotiation probe (TS-only) |
+| `0x10` | `PROBE_ACK` | S→C | Protocol-level negotiation ack (TS-only) |
+| `0x10+` | *Reservados* | — | Para futura expansión |
 
 **FLAGS** — bitmask de 8 bits:
 

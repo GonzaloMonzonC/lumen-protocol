@@ -182,6 +182,8 @@ impl<'a> Frame<'a> {
             TYPE_DISCOVER => "DISCOVER",
             TYPE_MUX => "MUX",
             TYPE_HEARTBEAT => "HEARTBEAT",
+            TYPE_TRANSPORT_INIT => "TRANSPORT_INIT",
+            TYPE_TRANSPORT_ACK => "TRANSPORT_ACK",
             _ => "UNKNOWN",
         }
     }
