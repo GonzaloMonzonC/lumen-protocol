@@ -43,3 +43,7 @@ path = "src/bin/cadencia-bridge.rs"
 [[bin]]
 name = "workspace-shootout"
 path = "src/bin/workspace-shootout.rs"
+
+[[bin]]
+name = "shm-shootout"
+path = "src/bin/shm-shootout.rs"
