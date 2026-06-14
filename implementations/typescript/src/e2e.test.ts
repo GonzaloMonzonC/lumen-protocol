@@ -62,6 +62,11 @@ function buffersEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/** Whether a payload name represents JSON content. */
+function isJsonPayload(name: string): boolean {
+  return name.startsWith("json_");
+}
+
 // Vectors with known cross-implementation binary differences:
 // - float_zero: TS encodes 0.0 as TAG_INT (2B), Python as TAG_FLOAT (9B). Both valid.
 const SKIP_BINARY_COMPARE = new Set(["float_zero"]);
@@ -218,6 +223,8 @@ describe("E2E — Frame Roundtrip", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 6. Frame compatibility with Python golden frames
+//    JSON payloads compared semantically (Python json.dumps adds ": " spacing;
+//    JS JSON.stringify uses ":").  Non-JSON payloads compared byte-for-byte.
 // ═══════════════════════════════════════════════════════════════════════════════
 describe("E2E — Frame Binary Compatibility", () => {
   const payloads: Array<[string, Uint8Array]> = [
@@ -240,6 +247,7 @@ describe("E2E — Frame Binary Compatibility", () => {
     for (const [tname, ftype] of frameTypes) {
       for (const [flname, flags] of flagSets) {
         const name = `frame_${tname}_${flname}_${pname}`;
+
         it(`TS frame == Python golden: ${name}`, () => {
           const buf = new Uint8Array(buildSize(payload.length));
           buildFrame(ftype, flags, payload, buf);
@@ -247,14 +255,40 @@ describe("E2E — Frame Binary Compatibility", () => {
           const golden = loadGoldenFrame(name);
           if (!golden) return;
 
-          if (!buffersEqual(buf, golden)) {
-            const tsHex = Buffer.from(buf).toString("hex");
-            const pyHex = Buffer.from(golden).toString("hex");
-            assert.fail(
-              `Frame mismatch "${name}":\n` +
-              `  TS (${buf.length}B): ${tsHex}\n` +
-              `  PY (${golden.length}B): ${pyHex}`
-            );
+          if (isJsonPayload(pname)) {
+            // Semantic: frame header must match, payload compared as JSON
+            assert.equal(buf.length > 2, true); // has header
+            assert.equal(golden.length > 2, true);
+            const tsResult = parseFrame(buf, 0);
+            const pyResult = parseFrame(golden, 0);
+            if (tsResult.kind === "complete" && pyResult.kind === "complete") {
+              assert.equal(tsResult.frame.frameType, pyResult.frame.frameType);
+              assert.equal(tsResult.frame.flags, pyResult.frame.flags);
+              if (tsResult.frame.flags & FLAG_COMPRESSED) {
+                // Compressed payload: decompress both and compare semantically
+                const tsDec = decompressValue(tsResult.frame.payload);
+                const pyDec = decompressValue(pyResult.frame.payload);
+                assert.deepStrictEqual(tsDec, pyDec);
+              } else {
+                // Raw JSON payload: parse and compare
+                const tsJson = JSON.parse(new TextDecoder().decode(tsResult.frame.payload));
+                const pyJson = JSON.parse(new TextDecoder().decode(pyResult.frame.payload));
+                assert.deepStrictEqual(tsJson, pyJson);
+              }
+            } else {
+              assert.fail(`Failed to parse frames: TS=${tsResult.kind}, PY=${pyResult.kind}`);
+            }
+          } else {
+            // Binary: non-JSON payloads must match byte-for-byte
+            if (!buffersEqual(buf, golden)) {
+              const tsHex = Buffer.from(buf).toString("hex");
+              const pyHex = Buffer.from(golden).toString("hex");
+              assert.fail(
+                `Frame mismatch "${name}":\n` +
+                `  TS (${buf.length}B): ${tsHex}\n` +
+                `  PY (${golden.length}B): ${pyHex}`
+              );
+            }
           }
         });
 
@@ -268,7 +302,18 @@ describe("E2E — Frame Binary Compatibility", () => {
           if (result.kind === "complete") {
             assert.equal(result.frame.frameType, ftype);
             assert.equal(result.frame.flags, flags);
-            assert.ok(buffersEqual(result.frame.payload, payload));
+
+            if (isJsonPayload(pname)) {
+              // Semantic: compare parsed JSON objects
+              const parsed = JSON.parse(new TextDecoder().decode(result.frame.payload));
+              const expected = JSON.parse(new TextDecoder().decode(payload));
+              assert.deepStrictEqual(parsed, expected,
+                `JSON payload semantic mismatch for "${name}"`);
+            } else {
+              // Binary: non-JSON payloads must match
+              assert.ok(buffersEqual(result.frame.payload, payload),
+                `Payload mismatch for "${name}"`);
+            }
           }
         });
       }
