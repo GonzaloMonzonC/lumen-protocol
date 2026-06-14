@@ -43,8 +43,8 @@ fn load_golden_frame(name: &str) -> Option<Vec<u8>> {
     fs::read(golden_dir().join(format!("{}.frame", name))).ok()
 }
 
-fn skip(name: &str) -> bool {
-    matches!(name, "int_large")
+fn skip(_name: &str) -> bool {
+    false
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -67,9 +67,29 @@ fn compress_roundtrip_all() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2. Semantic compatibility with Python golden files
-//    Note: raw binary may differ due to object key ordering (Rust sorts,
-//    Python preserves insertion order). Both are valid LUMEN.
+// 2. Binary golden match — byte-for-byte identical to Python golden files
+//    With preserve_order, Rust and Python produce identical byte streams.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn binary_golden_match() {
+    for (name, value) in load_vectors() {
+        if skip(&name) { continue; }
+        let golden = match load_golden(&name) {
+            Some(g) => g,
+            None => continue,
+        };
+        let compressed = compress(&value);
+        assert_eq!(
+            compressed, golden,
+            "Binary mismatch for \"{}\": Rust output differs from Python golden",
+            name
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. Semantic compatibility with Python golden files (cross-decode verification)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -102,7 +122,7 @@ fn semantic_compat_python_golden() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 3. Rust decodes Python golden binaries
+// 4. Rust decodes Python golden binaries
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -124,7 +144,7 @@ fn decode_python_golden() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 4. Binary stability
+// 5. Binary stability (deterministic output)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -147,7 +167,7 @@ fn binary_stability() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 5. Hyb128 roundtrip
+// 6. Hyb128 roundtrip
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -166,7 +186,7 @@ fn hyb128_roundtrip() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 6. Frame roundtrip
+// 7. Frame roundtrip
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -216,9 +236,7 @@ fn frame_roundtrip() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 7. Frame semantic match with Python golden frames
-//    Raw bytes may differ due to JSON key ordering in payloads.
-//    We parse both and compare frame metadata + payload content.
+// 8. Frame semantic match with Python golden frames
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -316,7 +334,7 @@ fn frame_semantic_match_python() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 8. Compressed frame integration (semantic comparison)
+// 9. Compressed frame integration (semantic comparison)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -377,7 +395,7 @@ fn compressed_frame_integration() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 9. Streaming frame parse (Rust equivalent of FrameAssembler)
+// 10. Streaming frame parse (Rust equivalent of FrameAssembler)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
