@@ -1,0 +1,14 @@
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.AssemblyInfoInputs.cache
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.AssemblyInfo.cs
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.csproj.CoreCompileInputs.cache
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\bin\Debug\net9.0\LumenCSharp.exe
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\bin\Debug\net9.0\LumenCSharp.deps.json
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\bin\Debug\net9.0\LumenCSharp.runtimeconfig.json
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\bin\Debug\net9.0\LumenCSharp.dll
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\bin\Debug\net9.0\LumenCSharp.pdb
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.dll
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\refint\LumenCSharp.dll
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.pdb
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\LumenCSharp.genruntimeconfig.cache
+C:\Users\gonza\Documents\GitHub\pruebaMCP\implementations\csharp\obj\Debug\net9.0\ref\LumenCSharp.dll

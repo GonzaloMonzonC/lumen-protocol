@@ -296,6 +296,7 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 ║ S3: token_stream (10K tokens)          │ 732.90 KB │ 184.17 KB │  74.9%   │  4.18×  ║
 ║ S4: multi_agent (1K reqs, 10 agentes)  │ 109.03 KB │  69.72 KB │  36.1%   │  2.00×  ║
 ║ S5: heartbeat (100K latidos)           │     89 B  │     48 B  │  46.1%   │  1.68×  ║
+║ S6: session_dict (127 keys)             │  2.50 KB  │    453 B  │  82.3%   │  1.50×  ║
 ╚════════════════════════════════════════╧═══════════╧═══════════╧══════════╧═════════╝
 ```
 
@@ -324,6 +325,7 @@ colisión de símbolos (`#[cfg(not(feature = "wasm"))]`).
 - **S2 (9.09× más rápido):** Archivos de 100KB source code — LUMEN escribe los bytes crudos sin escapar `"`, `\n`, `\t`. `serde_json` sufre horrores con esto.
 - **S1/S4 (30-36% ahorro):** Keys como `"name"`, `"description"`, `"inputSchema"`, `"method"`, `"params"` colapsan de 10-15 bytes a **1 byte** cada una.
 - **S5 (46.1% ahorro):** Un heartbeat LUMEN pesa 48 bytes vs 89 de JSON-RPC. ×1M heartbeats: 45 MB vs 85 MB.
+- **S6 (82.3% ahorro):** 127 claves de sesión registradas dinámicamente (0x80–0xFE). Cada clave colapsa de strings de 14 chars a 1 byte. Ideal para dominios especializados donde las claves no están en el diccionario estático.
 
 ---
 

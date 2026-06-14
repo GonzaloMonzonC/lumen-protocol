@@ -6,7 +6,7 @@ import { buildFrame, buildSize, TYPE_REQUEST } from "./frame.js";
 import { encodeHyb128, decodeHyb128 } from "./hyb128.js";
 import { compressValue, decompressValue } from "./compress.js";
 import { ZeroAllocDecompressor } from "./zeroalloc.js";
-import { lookupDictId } from "./dict.js";
+import { lookupDictId, registerSessionKey, clearSessionDict, initSessionDict, sessionDictSize } from "./dict.js";
 
 interface BenchResult {
   name: string; category: string; ops: number; durationMs: number;
@@ -361,6 +361,62 @@ function benchGcPressure(): BenchResult[] {
   return r;
 }
 
+// K. Session Dictionary
+function benchSessionDict(): BenchResult[] {
+  const r: BenchResult[] = [];
+  const runs = 500;
+
+  // Register 127 custom keys (0x80–0xFE)
+  initSessionDict([]);
+  const customKeys: string[] = [];
+  for (let i = 0; i < 127; i++) {
+    const key = `custom_key_${String(i).padStart(3, "0")}`;
+    customKeys.push(key);
+    registerSessionKey(key, 0x80 + i);
+  }
+
+  // Build payload with all 127 session keys
+  const payload: Record<string, number> = {};
+  for (let i = 0; i < 127; i++) payload[customKeys[i]] = i;
+  const jsonStr = JSON.stringify(payload);
+  const jsonBytes = new TextEncoder().encode(jsonStr).length;
+
+  // Compress benchmark
+  const startC = performance.now();
+  for (let i = 0; i < runs; i++) compressValue(payload);
+  const compressMs = performance.now() - startC;
+  const comp = compressValue(payload);
+
+  // Decompress benchmark
+  const startD = performance.now();
+  for (let i = 0; i < runs; i++) decompressValue(comp);
+  const decompressMs = performance.now() - startD;
+
+  const ratio = ((comp.length / jsonBytes) * 100).toFixed(1);
+  const wireSav = 100 - parseFloat(ratio);
+
+  r.push({
+    name: "SessionDict compress (127 keys)", category: "session_dict",
+    ops: runs, durationMs: Math.round(compressMs * 100) / 100,
+    opsPerSec: Math.round((runs / compressMs) * 1000),
+    bytesProcessed: jsonBytes * runs,
+    bytesPerSec: Math.round((jsonBytes * runs) / (compressMs / 1000)),
+    extra: { jsonBytes, compressedBytes: comp.length, ratioPercent: parseFloat(ratio), wireSavingsPercent: Math.round(wireSav * 10) / 10 },
+  });
+  r.push({
+    name: "SessionDict decompress (127 keys)", category: "session_dict",
+    ops: runs, durationMs: Math.round(decompressMs * 100) / 100,
+    opsPerSec: Math.round((runs / decompressMs) * 1000),
+    bytesProcessed: comp.length * runs,
+    bytesPerSec: Math.round((comp.length * runs) / (decompressMs / 1000)),
+    extra: { jsonBytes, compressedBytes: comp.length },
+  });
+
+  // Clean up
+  clearSessionDict();
+  return r;
+}
+
 // Main
 const report: BenchReport = {
   timestamp: new Date().toISOString(),
@@ -383,6 +439,7 @@ console.error("G. Roundtrip...");      report.results.push(...benchRoundtrip());
 console.error("H. Framing...");        report.results.push(...benchFraming());
 console.error("I. String Escape...");   report.results.push(...benchStringEscape());
 console.error("J. GC Pressure...");     report.results.push(...benchGcPressure());
+console.error("K. Session Dict...");    report.results.push(...benchSessionDict());
 
 console.log(JSON.stringify(report, null, 2));
 console.error(`\nDone. ${report.results.length} benchmarks.`);
