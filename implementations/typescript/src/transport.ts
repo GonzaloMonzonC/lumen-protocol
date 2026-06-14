@@ -297,8 +297,46 @@ export class LumenWebSocketTransport implements Transport {
 
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.wsReady = true;
-      this.negotiateAndSetup(resolve, reject);
+      // If the WebSocket is already open, negotiate immediately.
+      if (
+        this.ws.readyState === WebSocketReadyState.OPEN ||
+        this.ws.readyState === 1
+      ) {
+        this.wsReady = true;
+        this.negotiateAndSetup(resolve, reject);
+        return;
+      }
+
+      // Otherwise, wait for the WebSocket to open.
+      const originalOnOpen = this.ws.onopen;
+      this.ws.onopen = (event: unknown) => {
+        if (originalOnOpen) originalOnOpen.call(this.ws, event);
+        this.wsReady = true;
+        this.negotiateAndSetup(resolve, reject);
+      };
+
+      // Bubble errors
+      const originalOnError = this.ws.onerror;
+      this.ws.onerror = (error: Error) => {
+        if (originalOnError) originalOnError.call(this.ws, error);
+        this.onerror?.(error);
+        reject(new Error("WebSocket connection failed"));
+      };
+
+      // Reject if the socket closes before opening
+      const originalOnClose = this.ws.onclose;
+      this.ws.onclose = (event: { code: number; reason: string }) => {
+        if (originalOnClose) originalOnClose.call(this.ws, event);
+        if (!this.wsReady) {
+          reject(
+            new Error(
+              `WebSocket closed before negotiation: ${event.code} ${event.reason}`,
+            ),
+          );
+        } else {
+          this.onclose?.();
+        }
+      };
     });
   }
 
@@ -325,21 +363,38 @@ export class LumenWebSocketTransport implements Transport {
       }
     }, timeout);
 
-    const originalOnMessage = this.ws.onmessage;
+    // Use FrameAssembler for robust ACK detection (handles
+    // fragmented WebSocket messages where a frame spans multiple
+    // onmessage calls).
+    const ackAssembler = new FrameAssembler();
+
     this.ws.onmessage = (event: MessageEventLike) => {
       const data =
         typeof event.data === "string"
           ? new TextEncoder().encode(event.data)
-          : new Uint8Array(event.data as ArrayBuffer);
+          : event.data instanceof Uint8Array
+            ? event.data
+            : new Uint8Array(event.data as ArrayBuffer);
 
-      const result = parseFrame(data, 0);
+      const frames = ackAssembler.push(data);
 
-      if (result.kind === "complete") {
-        if (result.frame.frameType === 0x10 /* TYPE_PROBE_ACK */) {
+      for (const frame of frames) {
+        if (frame.frameType === 0x10 /* TYPE_PROBE_ACK */) {
           clearTimeout(timer);
           negotiated = true;
           this.useLumen = true;
-          this.ws.onmessage = originalOnMessage;
+
+          const ack = parseAck(frame.payload);
+          if (!ack) {
+            // ACK frame but malformed payload — treat as failed negotiation
+            this.setupJsonRpcReader();
+            resolve();
+            return;
+          }
+
+          // Negotiation succeeded — switch to LUMEN reader.
+          // Any leftover bytes in ackAssembler are discarded;
+          // the server shouldn't send anything before the ACK.
           this.setupLumenReader();
           resolve();
         }
@@ -405,6 +460,8 @@ export class LumenWebSocketTransport implements Transport {
   // ── Send ──────────────────────────────────────────────────────────────
 
   async send(message: JsonRpcMessage): Promise<void> {
+    if (!this.wsReady) throw new Error("Transport not started");
+
     if (this.useLumen) {
       const frameType =
         message.id !== undefined && message.method
@@ -428,7 +485,16 @@ export class LumenWebSocketTransport implements Transport {
   // ── Close ─────────────────────────────────────────────────────────────
 
   async close(): Promise<void> {
-    this.ws.close();
+    // Close the WebSocket if it's still open/connecting.
+    if (
+      this.ws.readyState === WebSocketReadyState.OPEN ||
+      this.ws.readyState === WebSocketReadyState.CONNECTING ||
+      this.ws.readyState === 1 ||
+      this.ws.readyState === 0
+    ) {
+      this.ws.close(1000, "Transport closed");
+    }
+    this.wsReady = false;
     this.onclose?.();
   }
 }
@@ -450,6 +516,7 @@ export interface WebSocketLike {
   readyState: WebSocketReadyState | number;
   send(data: string | Uint8Array | ArrayBuffer): void;
   close(code?: number, reason?: string): void;
+  onopen: ((event: unknown) => void) | null;
   onmessage: ((event: MessageEventLike) => void) | null;
   onerror: ((error: Error) => void) | null;
   onclose: ((event: { code: number; reason: string }) => void) | null;

@@ -21,6 +21,10 @@ public static class Dict
     private static readonly string[] _byId = new string[STATIC_MAX];
     private static readonly Dictionary<string, byte> _byKey = new(STATIC_MAX);
 
+    // Session dictionary (0x80..0xFE, 127 dynamic slots)
+    private static readonly string?[] _sessionForward = new string?[SESSION_MAX];
+    private static readonly Dictionary<string, byte> _sessionReverse = new(SESSION_MAX);
+
     static Dict()
     {
         var entries = new (byte id, string key)[]
@@ -66,11 +70,69 @@ public static class Dict
         }
     }
 
-    /// <summary>Look up a key → dictionary ID. Returns null if not in static dict.</summary>
-    public static byte? LookupId(string key) =>
-        _byKey.TryGetValue(key, out var id) ? id : null;
+    /// <summary>Look up a key → dictionary ID. Checks static then session dict. Returns null if not found.</summary>
+    public static byte? LookupId(string key)
+    {
+        if (_byKey.TryGetValue(key, out var id))
+            return id;
+        return _sessionReverse.TryGetValue(key, out var sid) ? sid : null;
+    }
 
-    /// <summary>Resolve a dictionary ID → key string. Returns null if out of range.</summary>
-    public static string? ResolveId(byte id) =>
-        id < STATIC_MAX ? _byId[id] : null;
+    /// <summary>Resolve a dictionary ID → key string. Checks static then session. Returns null if out of range.</summary>
+    public static string? ResolveId(byte id)
+    {
+        if (id < STATIC_MAX)
+            return _byId[id];
+        if (id < 0xFF)
+            return _sessionForward[id - STATIC_MAX];
+        return null;
+    }
+
+    // ═══ Session dictionary (0x80..0xFE, 127 dynamic slots) ═════════════════
+
+    /// <summary>Register a key in the session dictionary at a specific ID. Returns true on success.</summary>
+    public static bool RegisterSessionKey(string key, byte id)
+    {
+        if (id < STATIC_MAX || id >= 0xFF)
+            return false;
+        int idx = id - STATIC_MAX;
+        var old = _sessionForward[idx];
+        if (old is not null)
+            _sessionReverse.Remove(old);
+        _sessionForward[idx] = key;
+        _sessionReverse[key] = id;
+        return true;
+    }
+
+    /// <summary>Remove a key from the session dictionary by ID.</summary>
+    public static void UnregisterSessionKey(byte id)
+    {
+        if (id < STATIC_MAX || id >= 0xFF)
+            return;
+        int idx = id - STATIC_MAX;
+        var key = _sessionForward[idx];
+        if (key is not null)
+        {
+            _sessionReverse.Remove(key);
+            _sessionForward[idx] = null;
+        }
+    }
+
+    /// <summary>Initialize the session dictionary from (id, key) pairs.</summary>
+    public static void InitSessionDict(IEnumerable<(byte id, string key)> entries)
+    {
+        ClearSessionDict();
+        foreach (var (id, key) in entries)
+            RegisterSessionKey(key, id);
+    }
+
+    /// <summary>Remove all session dictionary entries.</summary>
+    public static void ClearSessionDict()
+    {
+        Array.Clear(_sessionForward, 0, _sessionForward.Length);
+        _sessionReverse.Clear();
+    }
+
+    /// <summary>Number of registered session entries.</summary>
+    public static int SessionDictSize => _sessionReverse.Count;
 }

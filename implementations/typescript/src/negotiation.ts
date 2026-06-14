@@ -80,10 +80,10 @@ export function buildProbe(probe: LumenProbe = DEFAULT_PROBE): Uint8Array {
  */
 export function buildAck(ack: LumenAck): Uint8Array {
   const payload = compressValue(ack as unknown as Record<string, unknown>);
-  const total = 3 + 2 + payload.length; // approx
-  const realSize =
-    new TextEncoder().encode("").length; // placeholder — recalc properly
-  return buildProbe(ack); // same format, just type differs at frame level
+  const total = buildSize(payload.length);
+  const buf = new Uint8Array(total);
+  buildFrame(TYPE_PROBE_ACK, 0x01 /* FLAG_COMPRESSED */, payload, buf, 0);
+  return buf;
 }
 
 // ═══ Parse ══════════════════════════════════════════════════════════════════

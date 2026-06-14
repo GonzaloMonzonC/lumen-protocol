@@ -188,7 +188,9 @@ for i in range(STATIC_MAX):
 def resolve_dict_id(dict_id: int) -> str | None:
     """Resolve a dictionary ID to its key string.
 
-    Returns ``None`` if the ID is not in the static dictionary.
+    Checks both static and session dictionaries.
+
+    Returns ``None`` if the ID is not assigned.
     ID 0xFF (``ID_RAW``) always returns ``None``.
 
     >>> resolve_dict_id(0x00)
@@ -197,14 +199,74 @@ def resolve_dict_id(dict_id: int) -> str | None:
     """
     if dict_id < STATIC_MAX:
         return _STATIC_DICT[dict_id]
+    if dict_id < SESSION_MAX:
+        return _session_forward[dict_id - STATIC_MAX]
     return None
 
 
 def lookup_dict_id(key: str) -> int | None:
-    """O(1) reverse lookup: find the static dictionary ID for *key*.
+    """O(1) reverse lookup: find the dictionary ID for *key*.
+
+    Checks both static and session dictionaries.
 
     >>> lookup_dict_id("tool")
     0
     >>> lookup_dict_id("nonexistent")
     """
-    return _reverse_map.get(key)
+    # Try static dict first
+    sid = _reverse_map.get(key)
+    if sid is not None:
+        return sid
+    # Then session dict
+    return _session_reverse.get(key)
+
+
+# ═══ Session dictionary (0x80..0xFE, 127 dynamic slots) ═════════════════════
+
+_session_forward: list[str | None] = [None] * (SESSION_MAX - STATIC_MAX)
+_session_reverse: dict[str, int] = {}
+
+
+def register_session_key(key: str, dict_id: int) -> bool:
+    """Register a key in the session dictionary at a specific ID.
+
+    Returns ``True`` if registered, ``False`` if ID is out of range.
+    """
+    if dict_id < STATIC_MAX or dict_id >= SESSION_MAX:
+        return False
+    idx = dict_id - STATIC_MAX
+    old = _session_forward[idx]
+    if old is not None:
+        del _session_reverse[old]
+    _session_forward[idx] = key
+    _session_reverse[key] = dict_id
+    return True
+
+
+def unregister_session_key(dict_id: int) -> None:
+    """Remove a key from the session dictionary."""
+    if dict_id < STATIC_MAX or dict_id >= SESSION_MAX:
+        return
+    idx = dict_id - STATIC_MAX
+    key = _session_forward[idx]
+    if key is not None:
+        del _session_reverse[key]
+        _session_forward[idx] = None
+
+
+def init_session_dict(entries: list[tuple[int, str]]) -> None:
+    """Initialize the session dictionary from ``(id, key)`` pairs."""
+    clear_session_dict()
+    for dict_id, key in entries:
+        register_session_key(key, dict_id)
+
+
+def clear_session_dict() -> None:
+    """Remove all session dictionary entries."""
+    _session_forward[:] = [None] * len(_session_forward)
+    _session_reverse.clear()
+
+
+def session_dict_size() -> int:
+    """Number of registered session entries."""
+    return len(_session_reverse)

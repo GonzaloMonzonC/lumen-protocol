@@ -194,11 +194,28 @@ pub static STATIC_DICT: [Option<&str>; STATIC_MAX as usize] = {
 ///
 /// Returns `None` for IDs that are not assigned.
 /// ID 0xFF (`ID_RAW`) always returns `None` (meaning "inline text").
+/// For session-range IDs (0x80..0xFE), returns [`None`] because
+/// session keys are owned and not `&'static str`.  Use
+/// [`resolve_session`] to get an owned string.
 pub fn resolve(id: u8) -> Option<&'static str> {
     if id < STATIC_MAX {
         STATIC_DICT[id as usize]
     } else {
-        // Session dictionary not yet implemented
+        // Session dictionary has owned Strings, not &'static str.
+        None
+    }
+}
+
+/// Resolves a dictionary ID to a string, checking both static and session dicts.
+///
+/// Returns owned `String` for session-range IDs.  Prefer this over
+/// [`resolve`] in decode paths where the key may be in the session dict.
+pub fn resolve_any(id: u8) -> Option<String> {
+    if id < STATIC_MAX {
+        STATIC_DICT[id as usize].map(|s| s.to_owned())
+    } else if id < SESSION_MAX {
+        get_session().read().unwrap().resolve(id).map(|s| s.to_owned())
+    } else {
         None
     }
 }
@@ -235,9 +252,159 @@ fn get_reverse_map() -> &'static HashMap<&'static str, u8> {
 ///
 /// Always prefer this over [`lookup`] in hot paths (serialization,
 /// compression).  The map is built once on first call and reused forever.
+/// Also checks the session dictionary if initialized.
 #[inline]
 pub fn lookup_fast(key: &str) -> Option<u8> {
-    get_reverse_map().get(key).copied()
+    // Try static dict first (hot path, always available)
+    if let Some(id) = get_reverse_map().get(key).copied() {
+        return Some(id);
+    }
+    // Then try session dict
+    lookup_session(key)
+}
+
+// ── Session dictionary (0x80..0xFE, 127 dynamic slots) ─────────────────────
+
+use std::sync::RwLock;
+
+/// A thread-safe session dictionary holding 127 dynamic key→ID mappings.
+///
+/// Slots are in range `0x80..=0xFE`.  Keys are owned `String`s so the
+/// dictionary can outlive the strings passed to `register()`.
+pub struct SessionDict {
+    /// Forward map: ID → key (index = id - 0x80)
+    forward: [Option<String>; 127],
+    /// Reverse map: key → ID
+    reverse: HashMap<String, u8>,
+}
+
+impl SessionDict {
+    /// Create an empty session dictionary.
+    pub fn new() -> Self {
+        Self {
+            forward: std::array::from_fn(|_| None),
+            reverse: HashMap::with_capacity(16),
+        }
+    }
+
+    /// Register a key at a session dictionary slot.
+    ///
+    /// - `key`: the string key to register (owned, can be any `impl Into<String>`).
+    /// - `id`: session slot ID, must be in `0x80..=0xFE`.
+    ///
+    /// Returns `Ok(())` on success, or `Err(msg)` if the ID is out of range.
+    pub fn register(&mut self, key: impl Into<String>, id: u8) -> Result<(), String> {
+        if id < STATIC_MAX || id >= SESSION_MAX {
+            return Err(format!(
+                "session ID {id:#04x} out of range ({:#04x}..{:#04x})",
+                STATIC_MAX, SESSION_MAX
+            ));
+        }
+        let idx = (id - STATIC_MAX) as usize;
+        let key_str = key.into();
+
+        // Remove old reverse entry if overwriting
+        if let Some(ref old_key) = self.forward[idx] {
+            self.reverse.remove(old_key);
+        }
+
+        self.reverse.insert(key_str.clone(), id);
+        self.forward[idx] = Some(key_str);
+        Ok(())
+    }
+
+    /// Remove a slot from the session dictionary.
+    pub fn unregister(&mut self, id: u8) {
+        if id < STATIC_MAX || id >= SESSION_MAX {
+            return;
+        }
+        let idx = (id - STATIC_MAX) as usize;
+        if let Some(ref key) = self.forward[idx] {
+            self.reverse.remove(key);
+            self.forward[idx] = None;
+        }
+    }
+
+    /// Resolve a session dictionary ID to its key string.
+    pub fn resolve(&self, id: u8) -> Option<&str> {
+        if id < STATIC_MAX || id >= SESSION_MAX {
+            return None;
+        }
+        self.forward[(id - STATIC_MAX) as usize].as_deref()
+    }
+
+    /// Look up a key in the session dictionary, returning its ID.
+    pub fn lookup(&self, key: &str) -> Option<u8> {
+        self.reverse.get(key).copied()
+    }
+
+    /// Remove all entries.
+    pub fn clear(&mut self) {
+        self.forward.fill(None);
+        self.reverse.clear();
+    }
+
+    /// Number of registered entries.
+    pub fn len(&self) -> usize {
+        self.reverse.len()
+    }
+
+    /// Whether the dictionary is empty.
+    pub fn is_empty(&self) -> bool {
+        self.reverse.is_empty()
+    }
+}
+
+impl Default for SessionDict {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Global session dictionary ───────────────────────────────────────────────
+
+static SESSION: OnceLock<RwLock<SessionDict>> = OnceLock::new();
+
+fn get_session() -> &'static RwLock<SessionDict> {
+    SESSION.get_or_init(|| RwLock::new(SessionDict::new()))
+}
+
+/// Initialize the global session dictionary with pre-registered keys.
+///
+/// Called once during handshake or after receiving a DICT_SYNC frame.
+/// Takes an iterator of `(id, key)` pairs.
+pub fn init_session(entries: impl IntoIterator<Item = (u8, String)>) {
+    let mut dict = get_session().write().unwrap();
+    dict.clear();
+    for (id, key) in entries {
+        let _ = dict.register(key, id);
+    }
+}
+
+/// Register a single key in the global session dictionary.
+pub fn register_session(key: &str, id: u8) -> Result<(), String> {
+    get_session().write().unwrap().register(key.to_owned(), id)
+}
+
+/// Resolve a session dictionary ID (does NOT check static dict).
+/// Returns `None` for IDs outside `0x80..=0xFE` or unregistered slots.
+pub fn resolve_session(id: u8) -> Option<String> {
+    get_session().read().unwrap().resolve(id).map(|s| s.to_owned())
+}
+
+/// Look up a key in the session dictionary only (does NOT check static dict).
+pub fn lookup_session(key: &str) -> Option<u8> {
+    get_session().read().unwrap().lookup(key)
+}
+
+/// Clear the global session dictionary.
+pub fn clear_session() {
+    get_session().write().unwrap().clear();
+}
+
+/// Number of entries in the session dictionary.
+pub fn session_len() -> usize {
+    get_session().read().unwrap().len()
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

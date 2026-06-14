@@ -296,9 +296,14 @@ public static class LumenCompress
         {
             return Dict.ResolveId(first);
         }
+        else if (first < 0xFF)
+        {
+            // Session dictionary (0x80..0xFE)
+            return Dict.ResolveId(first);
+        }
         else
         {
-            return null; // session-range IDs not yet supported
+            return null;
         }
     }
 

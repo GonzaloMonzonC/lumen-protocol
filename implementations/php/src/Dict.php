@@ -22,6 +22,13 @@ final class Dict
     /** @var array<string, int> key → ID */
     private static array $lookupTable = [];
 
+    // Session dictionary (0x80..0xFE, 127 dynamic slots)
+    /** @var array<int, string|null> ID → key */
+    private static array $sessionForward = [];
+
+    /** @var array<string, int> key → ID */
+    private static array $sessionReverse = [];
+
     private static bool $initialized = false;
 
     private static function init(): void
@@ -105,17 +112,85 @@ final class Dict
         }
     }
 
-    /** ID → key (O(1) array lookup). Returns null for unknown IDs. */
+    /** ID → key (O(1) array lookup). Checks static then session. Returns null for unknown IDs. */
     public static function resolve(int $id): ?string
     {
         self::init();
-        return self::$resolveTable[$id] ?? null;
+        if ($id < self::STATIC_MAX) {
+            return self::$resolveTable[$id] ?? null;
+        }
+        if ($id < self::SESSION_MAX) {
+            return self::$sessionForward[$id - self::STATIC_MAX] ?? null;
+        }
+        return null;
     }
 
-    /** key → ID (O(1) hash lookup). Returns null if not in dictionary. */
+    /** key → ID (O(1) hash lookup). Checks static then session. Returns null if not in dictionary. */
     public static function lookup(string $key): ?int
     {
         self::init();
-        return self::$lookupTable[$key] ?? null;
+        $sid = self::$lookupTable[$key] ?? null;
+        if ($sid !== null) {
+            return $sid;
+        }
+        return self::$sessionReverse[$key] ?? null;
+    }
+
+    // ═══ Session dictionary (0x80..0xFE, 127 dynamic slots) ═════════════════
+
+    /** Register a key in the session dictionary at a specific ID. Returns true on success. */
+    public static function registerSessionKey(string $key, int $id): bool
+    {
+        self::init();
+        if ($id < self::STATIC_MAX || $id >= self::SESSION_MAX) {
+            return false;
+        }
+        $idx = $id - self::STATIC_MAX;
+        $old = self::$sessionForward[$idx] ?? null;
+        if ($old !== null) {
+            unset(self::$sessionReverse[$old]);
+        }
+        self::$sessionForward[$idx] = $key;
+        self::$sessionReverse[$key] = $id;
+        return true;
+    }
+
+    /** Remove a key from the session dictionary by ID. */
+    public static function unregisterSessionKey(int $id): void
+    {
+        self::init();
+        if ($id < self::STATIC_MAX || $id >= self::SESSION_MAX) {
+            return;
+        }
+        $idx = $id - self::STATIC_MAX;
+        $key = self::$sessionForward[$idx] ?? null;
+        if ($key !== null) {
+            unset(self::$sessionReverse[$key]);
+            self::$sessionForward[$idx] = null;
+        }
+    }
+
+    /** Initialize the session dictionary from (id, key) pairs. */
+    public static function initSessionDict(array $entries): void
+    {
+        self::clearSessionDict();
+        foreach ($entries as [$id, $key]) {
+            self::registerSessionKey($key, $id);
+        }
+    }
+
+    /** Remove all session dictionary entries. */
+    public static function clearSessionDict(): void
+    {
+        self::init();
+        self::$sessionForward = array_fill(0, self::SESSION_MAX - self::STATIC_MAX, null);
+        self::$sessionReverse = [];
+    }
+
+    /** Number of registered session entries. */
+    public static function sessionDictSize(): int
+    {
+        self::init();
+        return count(self::$sessionReverse);
     }
 }
