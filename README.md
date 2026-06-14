@@ -775,20 +775,6 @@ reales (initialize, tools/list, llm_request, error_response).
 
 La implementación TypeScript de LUMEN prioriza **tamaño de wire** y **framing eficiente**. Para escenarios de alta velocidad de CPU, se usa la FFI Rust nativa (`compressValueFFI`, **4.4× más rápido**) o el `ZeroAllocDecompressor` (**54% menos GC**). Los benchmarks de velocidad pura están en las secciones Rust de arriba (shootout, heap-shootout, concurrent, IPC, workspace).
 
-### 📦 B. Compresión — JSON vs LUMEN (wire bytes)
-
-Mismos payloads MCP reales, medidos con el codec `compress.ts`:
-
-| Escenario MCP | JSON | LUMEN | Ratio | Ahorro |
-|---|---|---|---|---|
-| `initialize` | 157 B | 92 B | **58.6%** | 65 B (41.4%) |
-| `tools/list` | 835 B | 386 B | **46.2%** | 449 B (53.8%) |
-| `llm_request` | 323 B | 166 B | **51.4%** | 157 B (48.6%) |
-| `error_response` | 175 B | 95 B | **54.3%** | 80 B (45.7%) |
-| `big_result` (5 KB) | 5,193 B | 5,104 B | **98.3%** | 89 B (1.7%) |
-
-> **Media en payloads MCP típicos: 47–55% de compresión.** Sólo en payloads masivos sin claves repetidas (>5 KB) el overhead de tags binarios se diluye.
-
 ### ⚡ A. FrameAssembler — Zero-Allocation Streaming Parser
 
 Parser binario con buffers pre-asignados. Mide frames/segundo y throughput en MB/s para 5 tamaños × 7 chunk sizes:
@@ -814,6 +800,20 @@ Parser binario con buffers pre-asignados. Mide frames/segundo y throughput en MB
 | 4 KB (full) | 227,340 | Mejor caso: 1 frame = 1 chunk |
 
 > Incluso en **torture test (1 byte/chunk)**, el parser mantiene 114K fps — solo 2× más lento que el caso ideal.
+
+### 📦 B. Compresión — JSON vs LUMEN (wire bytes)
+
+Mismos payloads MCP reales, medidos con el codec `compress.ts`:
+
+| Escenario MCP | JSON | LUMEN | Ratio | Ahorro |
+|---|---|---|---|---|
+| `initialize` | 157 B | 92 B | **58.6%** | 65 B (41.4%) |
+| `tools/list` | 835 B | 386 B | **46.2%** | 449 B (53.8%) |
+| `llm_request` | 323 B | 166 B | **51.4%** | 157 B (48.6%) |
+| `error_response` | 175 B | 95 B | **54.3%** | 80 B (45.7%) |
+| `big_result` (5 KB) | 5,193 B | 5,104 B | **98.3%** | 89 B (1.7%) |
+
+> **Media en payloads MCP típicos: 47–55% de compresión.** Sólo en payloads masivos sin claves repetidas (>5 KB) el overhead de tags binarios se diluye.
 
 ### 🔢 C. Hyb128 Codec — Encode/Decode
 
@@ -900,7 +900,7 @@ Resultados medidos con `node --expose-gc` sobre payload de 500 tools:
 | # | Métrica | Ganador | Detalle |
 |---|---|---|---|
 | 1 | Wire size | **LUMEN** | 30–83% menor (Rust shootout + sección B) |
-| 2 | Encode speed | **LUMEN** (Rust/FFI) | Rust: 2.7–9×, FFI TS: 4.4× |
+| 2 | Encode speed | **LUMEN** (Rust/FFI) | Rust: 1.6–7×, FFI TS: 4.4× |
 | 3 | Framing parse | **LUMEN** | Hyb128 3.6–8× vs Content-Length |
 | 4 | String escape | **LUMEN** | Raw copy binaria, 1.1–2.2× más rápido |
 | 5 | GC pressure | **LUMEN** (ZeroAlloc) | 54% menos basura vs decoder recursivo |
