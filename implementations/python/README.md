@@ -89,7 +89,7 @@ implementations/python/
 
 ## Protocol
 
-LUMEN v1.0-draft. See `../../SPEC.md` for the full protocol specification.
+LUMEN v0.1.0. See `../../SPEC.md` for the full protocol specification.
 
 ## License
 
