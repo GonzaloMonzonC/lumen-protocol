@@ -35,7 +35,17 @@ export const TYPE_DISCOVER = 0x08;
 export const TYPE_MUX = 0x09;
 /** Heartbeat / keep-alive. */
 export const TYPE_HEARTBEAT = 0x0a;
-/** Protocol probe (negotiation). */
+
+// ── Transport negotiation (LTA Level 2) ─────────────────────────────────
+
+/** Transport capability negotiation init (client → server). */
+export const TYPE_TRANSPORT_INIT = 0x0b;
+/** Transport capability negotiation ack (server → client). */
+export const TYPE_TRANSPORT_ACK = 0x0c;
+
+// ── Protocol-level negotiation ──────────────────────────────────────────
+
+/** Protocol probe (negotiation handshake). */
 export const TYPE_PROBE = 0x0f;
 /** Protocol probe acknowledgement. */
 export const TYPE_PROBE_ACK = 0x10;
@@ -175,6 +185,8 @@ export function typeName(frameType: number): string {
     [TYPE_DISCOVER]: "DISCOVER",
     [TYPE_MUX]: "MUX",
     [TYPE_HEARTBEAT]: "HEARTBEAT",
+    [TYPE_TRANSPORT_INIT]: "TRANSPORT_INIT",
+    [TYPE_TRANSPORT_ACK]: "TRANSPORT_ACK",
     [TYPE_PROBE]: "PROBE",
     [TYPE_PROBE_ACK]: "PROBE_ACK",
   };
