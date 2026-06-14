@@ -181,6 +181,195 @@ pub extern "C" fn lumen_free(ptr: *mut u8, len: usize) {
     }
 }
 
+// ── Level 2: Zero-Copy Shared Memory FFI ────────────────────────────────────
+
+use crate::shm::{RingSide, ShmRegion};
+
+/// Opaque handle to a shared memory region with two ring buffers.
+///
+/// Created by `lumen_shm_create` (server) or `lumen_shm_open` (client).
+/// Freed by `lumen_shm_close`.
+pub struct ShmOpaque {
+    region: ShmRegion,
+}
+
+/// Create a new named shared memory region (server side).
+///
+/// - `name_ptr`, `name_len`: UTF-8 name for the region
+///   (e.g. "/lumen-shm-1234-5678").
+/// - `size`: region size in bytes (use 0 for default 512 KiB).
+///
+/// Returns a heap-allocated opaque handle on success, NULL on error
+/// (call `lumen_error_message()`). The caller MUST free with
+/// `lumen_shm_close`.
+///
+/// The header is initialised with magic, version, and zeroed cursors.
+#[no_mangle]
+pub extern "C" fn lumen_shm_create(
+    name_ptr: *const u8,
+    name_len: u32,
+    size: u32,
+) -> *mut ShmOpaque {
+    if name_ptr.is_null() || name_len == 0 {
+        set_error("lumen_shm_create: null or empty name".into());
+        return std::ptr::null_mut();
+    }
+    let name_bytes = unsafe { std::slice::from_raw_parts(name_ptr, name_len as usize) };
+    let name = match std::str::from_utf8(name_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(format!("lumen_shm_create: invalid UTF-8 name: {e}"));
+            return std::ptr::null_mut();
+        }
+    };
+    let sz = if size == 0 { 524288 } else { size as usize };
+
+    match ShmRegion::create(Some(name), Some(sz)) {
+        Ok(region) => {
+            region.init_header();
+            let handle = Box::new(ShmOpaque { region });
+            Box::into_raw(handle)
+        }
+        Err(e) => {
+            set_error(format!("lumen_shm_create: {e}"));
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Open an existing shared memory region by name (client side).
+///
+/// - `name_ptr`, `name_len`: UTF-8 name (must match `lumen_shm_create`).
+/// - `size`: region size in bytes (use 0 for default 512 KiB).
+///
+/// Returns an opaque handle on success, NULL on error.
+/// Caller MUST free with `lumen_shm_close`.
+///
+/// Validates that the region's magic and version match LUMEN.
+#[no_mangle]
+pub extern "C" fn lumen_shm_open(
+    name_ptr: *const u8,
+    name_len: u32,
+    size: u32,
+) -> *mut ShmOpaque {
+    if name_ptr.is_null() || name_len == 0 {
+        set_error("lumen_shm_open: null or empty name".into());
+        return std::ptr::null_mut();
+    }
+    let name_bytes = unsafe { std::slice::from_raw_parts(name_ptr, name_len as usize) };
+    let name = match std::str::from_utf8(name_bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            set_error(format!("lumen_shm_open: invalid UTF-8 name: {e}"));
+            return std::ptr::null_mut();
+        }
+    };
+    let sz = if size == 0 { 524288 } else { size as usize };
+
+    match ShmRegion::open(name, Some(sz)) {
+        Ok(region) => {
+            if !region.validate() {
+                set_error("lumen_shm_open: invalid magic or version — region not initialised".into());
+                return std::ptr::null_mut();
+            }
+            let handle = Box::new(ShmOpaque { region });
+            Box::into_raw(handle)
+        }
+        Err(e) => {
+            set_error(format!("lumen_shm_open: {e}"));
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Write a length-prefixed frame into the ring buffer.
+///
+/// - `handle`: opaque handle from `lumen_shm_create` or `lumen_shm_open`.
+/// - `side`: 0 = Ring A (Client→Server), 1 = Ring B (Server→Client).
+/// - `data_ptr`, `data_len`: payload to write.
+///
+/// Returns 0 on success, -1 if the ring is full (caller should retry).
+#[no_mangle]
+pub extern "C" fn lumen_shm_write_frame(
+    handle: *mut ShmOpaque,
+    side: u8,
+    data_ptr: *const u8,
+    data_len: u32,
+) -> i32 {
+    if handle.is_null() || (data_ptr.is_null() && data_len > 0) {
+        return -1;
+    }
+    let h = unsafe { &*handle };
+    let rs = if side == 0 { RingSide::A } else { RingSide::B };
+    let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len as usize) };
+
+    let ring = h.region.ring_buffer(rs);
+    ring.write_frame(data);
+    0
+}
+
+/// Read a length-prefixed frame from the ring buffer.
+///
+/// - `handle`: opaque handle.
+/// - `side`: 0 = Ring A (Server reads), 1 = Ring B (Client reads).
+///   (note: read side is opposite from write side — server reads A, client reads B)
+/// - `buf_ptr`: caller-provided buffer to write the frame payload into.
+/// - `buf_cap`: capacity of the caller's buffer in bytes.
+/// - `out_len`: receives the actual payload length written.
+///
+/// Returns 0 on success, -1 if no complete frame is available.
+/// If the frame is larger than `buf_cap`, returns -1 and sets error.
+#[no_mangle]
+pub extern "C" fn lumen_shm_read_frame(
+    handle: *mut ShmOpaque,
+    side: u8,
+    buf_ptr: *mut u8,
+    buf_cap: u32,
+    out_len: *mut u32,
+) -> i32 {
+    if handle.is_null() || buf_ptr.is_null() || out_len.is_null() {
+        return -1;
+    }
+    let h = unsafe { &*handle };
+    let rs = if side == 0 { RingSide::A } else { RingSide::B };
+
+    let ring = h.region.ring_buffer(rs);
+    let mut frame = Vec::new();
+    match ring.read_frame(&mut frame) {
+        Some(flen) => {
+            if flen > buf_cap as usize {
+                set_error(format!(
+                    "lumen_shm_read_frame: frame length {} exceeds buffer capacity {}",
+                    flen, buf_cap
+                ));
+                // Drain the frame so we don't get stuck on it
+                return -1;
+            }
+            unsafe {
+                std::ptr::copy_nonoverlapping(frame.as_ptr(), buf_ptr, flen);
+                *out_len = flen as u32;
+            }
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Close and free a shared memory handle.
+///
+/// Safe to call with NULL (no-op).  After this call the handle must
+/// not be used.
+#[no_mangle]
+pub extern "C" fn lumen_shm_close(handle: *mut ShmOpaque) {
+    if handle.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(handle);
+        // ShmRegion::drop unmaps and cleans up
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

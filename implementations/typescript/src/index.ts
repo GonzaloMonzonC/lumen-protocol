@@ -116,6 +116,15 @@ export {
   TOTAL_ENTRIES,
 } from "./dict.js";
 
+// ═══ Level 2: Zero-Copy Shared Memory (FFI) ═══════════════════════════════
+
+export {
+  ShmTransportFFI,
+  RING_A,
+  RING_B,
+  DEFAULT_SHM_SIZE,
+} from "./shm_ffi.js";
+
 // ═══ Constants ═══════════════════════════════════════════════════════════════
 
 /** LUMEN protocol version implemented by this package. */
