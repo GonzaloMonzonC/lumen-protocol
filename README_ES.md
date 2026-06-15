@@ -126,7 +126,8 @@ Level 4 — QUIC            (WAN, HTTP/3, producción)
 | **[README.md](README.md)** | Landing page (EN) |
 | **[README_EXT.md](README_EXT.md)** | Especificación del protocolo, benchmarks, arquitectura (EN) |
 | **[README_EXT_ES.md](README_EXT_ES.md)** | Lo mismo, en español |
-| **[SPEC.md](SPEC.md)** | Especificación formal del protocolo |
+| **[RFC_LUMEN_ES.md](RFC_LUMEN_ES.md)** | RFC formal del protocolo (español) |
+| **[SPEC_DEV_ES.md](SPEC_DEV_ES.md)** | Especificación de referencia |
 | **[examples/](examples/)** | Demos ejecutables con READMEs bilingües |
 
 ---

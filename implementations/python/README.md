@@ -89,7 +89,7 @@ implementations/python/
 
 ## Protocol
 
-LUMEN v0.1.0. See `../../SPEC.md` for the full protocol specification.
+LUMEN v0.1.0. See `../../RFC_LUMEN.md` for the formal RFC or `../../SPEC_DEV.md` for the developer specification.
 
 ## License
 
