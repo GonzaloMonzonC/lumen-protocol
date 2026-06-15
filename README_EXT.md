@@ -199,7 +199,8 @@ let response = transport.recv().await?;
 ```
 /LUMEN/
 ├── README.md               ← this file
-├── SPEC.md                  ← full protocol specification (9 sections)
+├── RFC_LUMEN.md             ← formal IETF-style RFC (12 sections)
+├── SPEC_DEV.md              ← developer reference specification (9 sections)
 ├── DICTIONARY.md            ← glossary of 128 static IDs
 └── /implementations/
     ├── /rust/               ← reference implementation
