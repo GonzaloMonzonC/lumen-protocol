@@ -33,7 +33,7 @@ Mirrors the TypeScript `@lumen/mcp-transport` package exactly:
 | Module | File | Purpose |
 |---|---|---|
 | **Hyb128** | `hyb128.py` | Hybrid length codec (4 modes: 00 / 01 / 10 / 11) |
-| **Dict** | `dict.py` | 128-entry static dictionary, O(1) lookup |
+| **Dict** | `dict.py` | 128-entry static + 127 session dictionary, O(1) lookup |
 | **Compress** | `compress.py` | Compact binary payload codec (8 value tags) |
 | **Frame** | `frame.py` | Frame builder/parser (12 frame types, 4 flags) |
 | **Frame Assembler** | `frame_assembler.py` | Zero-allocation streaming reassembler |
@@ -47,7 +47,7 @@ Mirrors the TypeScript `@lumen/mcp-transport` package exactly:
 | Component | Status |
 |---|---|
 | Hyb128 codec | 🟢 Done |
-| Static dictionary | 🟢 Done |
+| Static dictionary | 🟢 Done — 128 static + 127 session |
 | Binary compressor | 🟢 Done |
 | Frame builder/parser | 🟢 Done |
 | Frame assembler | 🟢 Done |
@@ -55,7 +55,7 @@ Mirrors the TypeScript `@lumen/mcp-transport` package exactly:
 | Stdio transport | 🟢 Done |
 | WebSocket transport | 🟢 Done |
 | Cadencia bridge | 🟢 Done |
-| Test suite | 🟢 Done (not yet executed — needs Python ≥3.10) |
+| Test suite | ✅ 94/94 passing |
 
 ## Quick start
 
@@ -113,7 +113,7 @@ implementations/python/
 
 ## Protocol
 
-LUMEN v1.0-draft. See `../../SPEC.md` for the full protocol specification.
+LUMEN v0.1.0. See `../../RFC_LUMEN.md` for the formal RFC or `../../SPEC_DEV.md` for the developer specification.
 
 ## License
 

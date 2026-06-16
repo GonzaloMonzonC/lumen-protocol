@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import subprocess
+import os
 import sys
 from abc import ABC, abstractmethod
 from typing import Any, Callable
@@ -36,6 +37,15 @@ from .negotiation import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+
+def _flush_stdin(process: "subprocess.Popen[bytes]") -> None:
+    """Cross-platform stdin flush. Windows raises OSError on pipe flush."""
+    try:
+        process.stdin.flush()
+    except OSError:
+        pass  # Windows: flushing stdin pipe may fail
 
 # ═══ Message types ═══════════════════════════════════════════════════════════
 
@@ -128,7 +138,7 @@ class LumenStdioTransport(Transport):
             "cwd": self._cwd,
         }
         if self._env:
-            kwargs["env"] = {**sys.executable, **self._env}
+            kwargs["env"] = {**os.environ, **self._env}
 
         # Use regular subprocess for simplicity; Python's asyncio subprocess
         # has quirks on Windows. We'll use a thread-based reader instead.
@@ -143,7 +153,7 @@ class LumenStdioTransport(Transport):
             probe = build_probe()
             assert self._process.stdin
             self._process.stdin.write(probe.to_bytes())
-            self._process.stdin.flush()
+            _flush_stdin(self._process)
 
             if await self._wait_for_ack():
                 self._use_lumen = True
@@ -165,6 +175,14 @@ class LumenStdioTransport(Transport):
 
     async def close(self) -> None:
         """Close the transport and terminate the child process."""
+        # Close stdin FIRST so the child process exits and the reader
+        # tasks (blocked on stdout/stderr.read()) can complete.
+        if self._process and self._process.stdin:
+            try:
+                self._process.stdin.close()
+            except Exception:
+                pass
+
         if self._reader_task:
             self._reader_task.cancel()
             try:
@@ -174,10 +192,6 @@ class LumenStdioTransport(Transport):
             self._reader_task = None
 
         if self._process:
-            try:
-                self._process.stdin.close()
-            except Exception:
-                pass
             self._process.terminate()
             try:
                 self._process.wait(timeout=3)
@@ -195,7 +209,7 @@ class LumenStdioTransport(Transport):
         assert self._process and self._process.stdin
         line = json.dumps(message, ensure_ascii=False) + "\n"
         self._process.stdin.write(line.encode("utf-8"))
-        self._process.stdin.flush()
+        _flush_stdin(self._process)
 
     def _send_lumen(self, message: JsonRpcMessage) -> None:
         assert self._process and self._process.stdin
@@ -210,7 +224,7 @@ class LumenStdioTransport(Transport):
         payload = compress_value(message)
         frame = build_frame(frame_type, FLAG_COMPRESSED, payload)
         self._process.stdin.write(frame.to_bytes())
-        self._process.stdin.flush()
+        _flush_stdin(self._process)
 
     # ── Receive helpers ────────────────────────────────────────────────────
 
@@ -222,8 +236,10 @@ class LumenStdioTransport(Transport):
 
         while True:
             try:
+                # Use readline for line-delimited JSON-RPC (read() would
+                # block until EOF on Windows pipes)
                 chunk = await loop.run_in_executor(
-                    None, self._process.stdout.read, 65536
+                    None, self._process.stdout.readline
                 )
             except Exception as exc:
                 if self.onerror:
@@ -257,8 +273,10 @@ class LumenStdioTransport(Transport):
 
         while True:
             try:
+                # Use readline for line-delimited JSON-RPC (read() would
+                # block until EOF on Windows pipes)
                 chunk = await loop.run_in_executor(
-                    None, self._process.stdout.read, 65536
+                    None, self._process.stdout.readline
                 )
             except Exception as exc:
                 if self.onerror:
@@ -270,6 +288,9 @@ class LumenStdioTransport(Transport):
                     self.onclose()
                 return
 
+            import sys as _sys
+            _sys.stderr.write(f"[LUMEN DEBUG] _read_jsonrpc got {len(chunk)} bytes: {chunk[:100]!r}\n")
+            _sys.stderr.flush()
             buf += chunk
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
@@ -292,7 +313,7 @@ class LumenStdioTransport(Transport):
         while True:
             try:
                 chunk = await loop.run_in_executor(
-                    None, self._process.stderr.read, 4096
+                    None, self._process.stderr.readline
                 )
             except Exception:
                 return

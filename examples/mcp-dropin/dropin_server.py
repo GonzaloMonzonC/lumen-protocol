@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                      LUMEN MCP DROP-IN  -  v1.0                            ║
@@ -524,8 +524,8 @@ def main() -> None:
 
     print()
     print("  " + "\u2550" * 68)
-    print("  \u2551" + f"{"LUMEN MCP Drop-In Server":^66}" + "\u2551")
-    print("  \u2551" + f"{"\"Your MCP server. Our wire. Zero code changes.\"":^66}" + "\u2551")
+    print("  \u2551" + "LUMEN MCP Drop-In Server".center(66) + "\u2551")
+    print("  \u2551" + "\"Your MCP server. Our wire. Zero code changes.\"".center(66) + "\u2551")
     print("  " + "\u2550" * 68)
     print()
     print(f"  Server listening on http://{args.bind}:{args.port}")
