@@ -21,7 +21,9 @@
 JSON-RPC over stdio is the MCP standard. It works. But at scale, it hurts:
 
 | Pain | LUMEN answer |
-|------|-------------|
+|
+[![Hermes Integration](HERMES_INTEGRATION.md)](HERMES_INTEGRATION.md)
+------|-------------|
 | **Verbose wire** — `{"jsonrpc":"2.0","id":7,...}` on every message | **Static dictionary** (128 keys) + **session dictionary** (127 keys). Repeated keys → 1 byte. |
 | **Costly parsing** — every JSON blob must be fully decoded | **Self-delimiting frames** (Hyb128). Skip entire frames in O(1). |
 | **No streaming** — JSON is a single, complete document | **Native streaming** (`STREAM_DATA` + `STREAM_INIT` frames). Tokens arrive token-by-token. |
