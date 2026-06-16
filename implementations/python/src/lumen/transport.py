@@ -288,9 +288,6 @@ class LumenStdioTransport(Transport):
                     self.onclose()
                 return
 
-            import sys as _sys
-            _sys.stderr.write(f"[LUMEN DEBUG] _read_jsonrpc got {len(chunk)} bytes: {chunk[:100]!r}\n")
-            _sys.stderr.flush()
             buf += chunk
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
