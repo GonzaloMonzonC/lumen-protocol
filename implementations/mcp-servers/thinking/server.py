@@ -331,6 +331,29 @@ TOOLS = [
             },
             "required": ["path"]
         }
+    },
+    {
+        "name": "context_preserve",
+        "description": "Mark a piece of information as critical to preserve. Use when you discover something important that MUST survive context compression: a key finding, a user preference, a decision rationale, a bug root cause. This is your 'don't forget this' tool.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The information to preserve"},
+                "priority": {"type": "string", "enum": ["critical", "high", "medium"], "description": "How critical is this? (default: high)", "default": "high"},
+                "category": {"type": "string", "description": "Category: 'finding', 'decision', 'user_pref', 'bug_cause', 'architecture', 'todo', 'other'", "default": "other"}
+            },
+            "required": ["content"]
+        }
+    },
+    {
+        "name": "context_check",
+        "description": "Check what information has been preserved and assess decay risk. Shows the preservation list with priorities, suggests what might be at risk of being lost. Use this when the conversation gets long or before a context compression event.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_items": {"type": "integer", "description": "Max items to show (default: 20)", "default": 20}
+            }
+        }
     }
 ]
 
@@ -1100,6 +1123,95 @@ def tool_model_remove(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Context Decay Detector — preserve critical info from context loss
+# ═══════════════════════════════════════════════════════════════════════
+
+_preserved: list[dict] = []
+
+
+def tool_context_preserve(args: dict) -> dict:
+    """Mark information as worth preserving."""
+    content = args["content"]
+    priority = args.get("priority", "high")
+    category = args.get("category", "other")
+
+    item = {
+        "content": content,
+        "priority": priority,
+        "category": category,
+        "timestamp": time.time(),
+    }
+    _preserved.append(item)
+
+    priority_icon = {"critical": "🔴", "high": "🟡", "medium": "🟢"}.get(priority, "⚪")
+    lines = [
+        f"{priority_icon} Preserved [{priority}] [{category}]:",
+        f"   \"{content[:200]}\"",
+    ]
+
+    # Warn if list is growing
+    critical_count = sum(1 for p in _preserved if p["priority"] == "critical")
+    total = len(_preserved)
+    lines.append(f"   📊 Preservation list: {total} items ({critical_count} critical)")
+
+    if total > 15:
+        lines.append(f"   ⚠️  List is large ({total} items). Consider using thought_summarize to condense.")
+    if total > 30:
+        lines.append(f"   🚨 List is very large ({total} items). High risk of losing information.")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_context_check(args: dict) -> dict:
+    """Check preserved items and decay risk."""
+    max_items = args.get("max_items", 20)
+
+    if not _preserved:
+        return {"content": [{"type": "text", "text": "📋 No items preserved yet. Use context_preserve to mark critical information."}]}
+
+    total = len(_preserved)
+    by_priority = {"critical": 0, "high": 0, "medium": 0}
+    by_category = {}
+    for p in _preserved:
+        by_priority[p["priority"]] = by_priority.get(p["priority"], 0) + 1
+        cat = p["category"]
+        by_category[cat] = by_category.get(cat, 0) + 1
+
+    lines = [f"📋 Context Preservation Check — {total} items"]
+    lines.append(f"   🔴 {by_priority.get('critical',0)} critical | 🟡 {by_priority.get('high',0)} high | 🟢 {by_priority.get('medium',0)} medium")
+    lines.append("")
+
+    # Risk assessment
+    if total > 20:
+        lines.append(f"   🚨 HIGH DECAY RISK: {total} items preserved.")
+        lines.append(f"   💡 Actions: (1) use thought_summarize to condense,")
+        lines.append(f"        (2) move non-critical items to memory,")
+        lines.append(f"        (3) prioritize critical items only.")
+    elif total > 10:
+        lines.append(f"   ⚠️  MEDIUM DECAY RISK: {total} items. Monitor closely.")
+    else:
+        lines.append(f"   ✅ LOW DECAY RISK: {total} items. Context should be stable.")
+
+    # Show by category
+    lines.append(f"\n   By category:")
+    for cat, count in sorted(by_category.items(), key=lambda x: -x[1]):
+        lines.append(f"   {cat:<15} {'█' * min(count, 20)} {count}")
+
+    # Show most recent critical/high
+    lines.append(f"\n   Recent critical/high items:")
+    shown = 0
+    for p in reversed(_preserved):
+        if p["priority"] in ("critical", "high") and shown < max_items:
+            icon = {"critical": "🔴", "high": "🟡"}.get(p["priority"], "⚪")
+            lines.append(f"   {icon} [{p['category']}] {p['content'][:120]}...")
+            shown += 1
+        if shown >= 10:
+            break
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -1116,6 +1228,8 @@ HANDLERS = {
     "model_stats": tool_model_stats,
     "model_map": tool_model_map,
     "model_remove": tool_model_remove,
+    "context_preserve": tool_context_preserve,
+    "context_check": tool_context_check,
 }
 
 
