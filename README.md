@@ -146,6 +146,48 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 ---
 
+## Status & Roadmap
+
+### ✅ Built & Working
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Hyb128 framing | ✅ | 1/3/5B modes, O(1) skip, consistent across Rust/Python/TS |
+| Static dictionary | ✅ | 128 keys, matches LUMEN spec |
+| Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
+| Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
+| MCP servers | ✅ | 33 tools across filesystem (9), web (2), thinking (22) |
+| Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
+| ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation |
+| X25519 key exchange | ✅ | Rust + TypeScript |
+| QUIC transport (L4) | ⚠️ | Rust: `quinn` deps present, early-stage |
+| Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
+| TypeScript impl | ✅ | Node.js + browser, zero-copy SHM via koffi |
+| PHP 8.5+ impl | ✅ | 217/217 e2e passing |
+| C#/.NET 9 impl | ✅ | P/Invoke FFI to Rust |
+| WASM target | ✅ | 22 KB gzipped, browser-ready |
+
+### 🚧 Planned / Under Development
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Macaroons (zero-trust auth) | 📝 Spec only | §4.7 of RFC — design ready, not yet implemented |
+| MUX channels | 📝 Constants only | `MUX=0x09` defined; channel open/close/pause/resume not built |
+| Native token streaming | 📝 Constants only | `STREAM_INIT`/`STREAM_DATA` defined; structured payload builder pending |
+| Multi-agent sessions | 🚧 Rust partial | Per-transport dict; full session isolation WIP |
+
+### 📐 Known Spec/Code Mismatches
+
+| Paper says | Code does | Resolution |
+|------------|-----------|------------|
+| Big-endian integers | Little-endian | Code is correct (LE is faster on modern CPUs); paper will be updated in v0.2 |
+| Frame `DICT_REF` field | No `DICT_REF` | Paper describes planned v2 frame format; current spec is in [SPEC_DEV.md](SPEC_DEV.md) |
+| Hyb128 Extended = `5+N` bytes | `1+N` (mode byte + LEB128) | Paper diagram is wrong; code and [RFC_LUMEN.md](RFC_LUMEN.md) are correct |
+
+Paper & RFC will be aligned with the implementation in v0.2. See [RFC_LUMEN.md](RFC_LUMEN.md) for the authoritative specification.
+
+---
+
 ## Docs
 
 | Doc | Content |

@@ -95,6 +95,9 @@ def compressed_size(value: Any) -> int:
     if isinstance(value, int):
         return 1 + _zigzag_leb128_len(value)
     if isinstance(value, float):
+        # Canonicalization: whole-number floats → TAG_INT (matches encode_value)
+        if value == int(value) and -0x8000000000000000 <= int(value) <= 0x7FFFFFFFFFFFFFFF:
+            return 1 + _zigzag_leb128_len(int(value))
         return 9
     if isinstance(value, str):
         dict_id = lookup_dict_id(value)
@@ -135,6 +138,12 @@ def _encode_value(value: Any, out: list[bytes]) -> None:
         return
 
     if isinstance(value, float):
+        # Canonicalization: whole-number floats → TAG_INT for cross-language interop.
+        # Rust (as_i64 round-trip) and TS (Number.isSafeInteger) both encode 0.0/42.0 as TAG_INT.
+        if value == int(value) and -0x8000000000000000 <= int(value) <= 0x7FFFFFFFFFFFFFFF:
+            out.append(bytes([TAG_INT]))
+            out.append(_encode_zigzag_leb128(int(value)))
+            return
         buf = bytearray(9)
         buf[0] = TAG_FLOAT
         struct.pack_into("<d", buf, 1, value)

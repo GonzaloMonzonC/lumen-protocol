@@ -55,6 +55,11 @@ const AEAD_ALGORITHM = "ChaCha20-Poly1305";
 /** Key derivation: HKDF-SHA256 with domain-separation info. */
 const HKDF_INFO = new TextEncoder().encode("lumen-v1-cipher-key");
 
+/** Narrow Uint8Array to BufferSource for Web Crypto API compatibility with Node.js strict types. */
+function asBufferSource(data: Uint8Array): BufferSource {
+  return data as unknown as BufferSource;
+}
+
 // ═══ Keypair ════════════════════════════════════════════════════════════════
 
 /**
@@ -94,7 +99,7 @@ export async function deriveSharedSecret(
 ): Promise<Uint8Array> {
   const ourKey = await crypto.subtle.importKey(
     "raw",
-    secretKey,
+    asBufferSource(secretKey),
     "X25519",
     false,
     ["deriveBits"]
@@ -102,7 +107,7 @@ export async function deriveSharedSecret(
 
   const peerKey = await crypto.subtle.importKey(
     "raw",
-    peerPublicKey,
+    asBufferSource(peerPublicKey),
     "X25519",
     false,
     []
@@ -128,9 +133,10 @@ export async function deriveSharedSecret(
  * Maintains independent nonce counters for each direction.
  */
 export class Cipher {
-  private key: CryptoKey;
-  private sendCounter: bigint = 0n;
-  private recvCounter: bigint = 0n;
+  // Definite assignment: key is set in init() before any encrypt/decrypt call
+  private key!: CryptoKey;
+  private sendCounter: bigint = BigInt(0);
+  private recvCounter: bigint = BigInt(0);
   private _initialized = false;
 
   /**
@@ -146,7 +152,7 @@ export class Cipher {
     // HKDF-SHA256: derive the actual ChaCha20-Poly1305 key
     const hkdfKey = await crypto.subtle.importKey(
       "raw",
-      sharedSecret,
+      asBufferSource(sharedSecret),
       "HKDF",
       false,
       ["deriveBits"]
@@ -163,13 +169,13 @@ export class Cipher {
     );
     this.key = await crypto.subtle.importKey(
       "raw",
-      derivedBits,
+      derivedBits as BufferSource,
       { name: AEAD_ALGORITHM },
       false,
       ["encrypt", "decrypt"]
     );
-    this.sendCounter = 0n;
-    this.recvCounter = 0n;
+    this.sendCounter = BigInt(0);
+    this.recvCounter = BigInt(0);
     this._initialized = true;
   }
 
@@ -197,13 +203,13 @@ export class Cipher {
     if (!this._initialized) throw new Error("Cipher not initialized");
 
     const nonce = Cipher.makeNonce(this.sendCounter);
-    this.sendCounter += 1n;
+    this.sendCounter += BigInt(1);
 
     const ciphertext = new Uint8Array(
       await crypto.subtle.encrypt(
-        { name: AEAD_ALGORITHM, nonce, additionalData: new Uint8Array(0) },
+        { name: AEAD_ALGORITHM, nonce, additionalData: new Uint8Array(0) } as any,
         this.key,
-        plaintext
+        asBufferSource(plaintext)
       )
     );
 
@@ -234,13 +240,13 @@ export class Cipher {
     if (recvNonce < this.recvCounter) {
       throw new DecryptError("nonce reuse detected");
     }
-    this.recvCounter = recvNonce + 1n;
+    this.recvCounter = recvNonce + BigInt(1);
 
     try {
       const plaintext = await crypto.subtle.decrypt(
-        { name: AEAD_ALGORITHM, nonce, additionalData: new Uint8Array(0) },
+        { name: AEAD_ALGORITHM, nonce, additionalData: new Uint8Array(0) } as any,
         this.key,
-        ciphertext
+        asBufferSource(ciphertext)
       );
       return new Uint8Array(plaintext);
     } catch {
