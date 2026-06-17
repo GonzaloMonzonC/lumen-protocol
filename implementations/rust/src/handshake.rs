@@ -17,6 +17,7 @@
 //! and communication continues over the stream transport unchanged.
 
 use std::io;
+use std::sync::Arc;
 
 use crate::frame;
 use crate::hyb128;
@@ -45,8 +46,8 @@ struct AckMsg {
 
 /// The negotiated transport after handshake.
 pub enum NegotiatedTransport {
-    /// Level 2 zero-copy transport established.
-    Shm(ShmTransport),
+    /// Level 2 zero-copy transport established with region kept alive via Arc.
+    Shm(ShmTransport, Arc<ShmRegion>),
     /// Fallback: stay on Level 1 (the caller keeps the existing stream).
     Stream,
 }
@@ -101,14 +102,12 @@ pub fn server_negotiate(
         let write_ring = region.ring_buffer(RingSide::B); // server→client
         let read_ring = region.ring_buffer(RingSide::A);  // client→server
 
-        // We must NOT drop the ShmRegion — it holds the mapping.
-        // Leak it so the mapping stays alive.
-        // NOTE: This leaks memory. A proper fix would wrap ShmRegion
-        // in Arc and store it in NegotiatedTransport for lifetime mgmt.
-        // Tracked as #31 in plan-mejoras-2.
-        std::mem::forget(region);
-
-        NegotiatedTransport::Shm(ShmTransport::new(write_ring, read_ring))
+        // Keep the ShmRegion alive via Arc — the transport holds a ref.
+        // When the NegotiatedTransport is dropped, the region is freed.
+        NegotiatedTransport::Shm(
+            ShmTransport::new(write_ring, read_ring),
+            Arc::new(region),
+        )
     } else {
         NegotiatedTransport::Stream
     };
@@ -177,11 +176,11 @@ pub fn client_negotiate(
         let write_ring = region.ring_buffer(RingSide::A); // client→server
         let read_ring = region.ring_buffer(RingSide::B);  // server→client
 
-        // Leak the region to keep the mapping alive
-        // NOTE: intentional memory leak — see #31 in plan-mejoras-2.
-        std::mem::forget(region);
-
-        Ok(NegotiatedTransport::Shm(ShmTransport::new(write_ring, read_ring)))
+        // Keep the ShmRegion alive via Arc — see server_negotiate for rationale.
+        Ok(NegotiatedTransport::Shm(
+            ShmTransport::new(write_ring, read_ring),
+            Arc::new(region),
+        ))
     } else {
         Ok(NegotiatedTransport::Stream)
     }
