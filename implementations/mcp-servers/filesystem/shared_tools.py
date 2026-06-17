@@ -149,6 +149,20 @@ TOOLS = [
 
 _ALLOWED_ROOTS: list[str] | None = None
 
+# Directories to skip during recursive searches (performance + security)
+_DEFAULT_IGNORE_DIRS = {
+    ".git", "node_modules", "__pycache__", ".venv", "venv",
+    "target", "dist", "build", ".tox", ".eggs", "*.egg-info",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "bower_components", ".next", ".nuxt",
+}
+
+# Hard limits for search/rglob operations
+_MAX_SEARCH_FILES = 10_000     # Max files to scan in any search
+_MAX_SEARCH_SECONDS = 30       # Max wall time for regex search
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB — reject files above this
+_MAX_CONTENT_SIZE = 5 * 1024 * 1024  # 5 MB — max content to write
+
 def _get_allowed_roots() -> list[str]:
     """Load allowed root directories from ALLOWED_ROOTS env var (comma-separated).
     Defaults to the current working directory if not set."""
@@ -183,6 +197,34 @@ def resolve_path(path: str) -> Path:
         raise PermissionError(f"Path escapes allowed roots: {resolved}")
 
     return resolved
+
+
+def _should_skip_dir(entry: Path) -> bool:
+    """Check if a directory should be skipped during traversal."""
+    return entry.name in _DEFAULT_IGNORE_DIRS or entry.name.startswith(".")
+
+
+def _safe_rglob(base: Path, pattern: str):
+    """Like Path.rglob but skips ignored dirs and enforces max files."""
+    count = 0
+    stack = [base]
+    while stack:
+        dirpath = stack.pop()
+        try:
+            for entry in dirpath.iterdir():
+                if _should_skip_dir(entry):
+                    continue
+                if entry.is_dir():
+                    stack.append(entry)
+                elif entry.match(pattern):
+                    count += 1
+                    if count > _MAX_SEARCH_FILES:
+                        raise StopIteration(f"Max files ({_MAX_SEARCH_FILES}) exceeded")
+                    yield entry
+        except PermissionError:
+            continue
+        except StopIteration:
+            return
 
 
 def suggest_similar(path: Path) -> str:
@@ -221,9 +263,17 @@ def tool_read_file(args: dict) -> dict:
     if not path.is_file():
         return {"content": [{"type": "text", "text": f"Error: Not a file: {path}"}]}
 
+    # File size guard
+    try:
+        fsize = path.stat().st_size
+        if fsize > _MAX_FILE_SIZE:
+            return {"content": [{"type": "text", "text": f"Error: File too large ({fsize:,}B, max {_MAX_FILE_SIZE:,}B)"}]}
+    except OSError:
+        pass
+
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
+            all_lines = f.readlines(_MAX_FILE_SIZE // 80)
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error reading file: {e}"}]}
 
@@ -250,14 +300,29 @@ def tool_read_file(args: dict) -> dict:
 
 
 def tool_write_file(args: dict) -> dict:
-    """Write content to a file, creating parent directories."""
+    """Write content to a file atomically, creating parent directories."""
     path = resolve_path(args["path"])
     content = args["content"]
 
+    # Content size guard
+    if len(content) > _MAX_CONTENT_SIZE:
+        return {"content": [{"type": "text", "text": f"Error: Content too large ({len(content):,} chars, max {_MAX_CONTENT_SIZE:,})"}]}
+
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Atomic write: write to temp file, then rename
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix="." + path.name + ".", delete=False
+        )
+        try:
+            tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        finally:
+            tmp.close()
+        os.replace(tmp.name, path)  # atomic on POSIX + Windows
         size = path.stat().st_size
         return {"content": [{"type": "text", "text": f"Wrote {size} bytes to {path}"}]}
     except Exception as e:
@@ -282,7 +347,7 @@ def tool_search_files(args: dict) -> dict:
         try:
             glob_pattern = pattern if "*" in pattern else f"*{pattern}*"
             results = []
-            for f in resolved.rglob(glob_pattern):
+            for f in _safe_rglob(resolved, glob_pattern):
                 if f.is_file():
                     results.append(str(f.relative_to(resolved)))
                 if len(results) >= limit + offset:
@@ -306,7 +371,7 @@ def tool_search_files(args: dict) -> dict:
     counts = {}  # for output_mode='count'
 
     try:
-        for fpath in resolved.rglob(glob_filter):
+        for fpath in _safe_rglob(resolved, glob_filter):
             if not fpath.is_file():
                 continue
             if fpath.stat().st_size > 1_000_000:
@@ -458,7 +523,7 @@ def tool_search_with_context(args: dict) -> dict:
     MAX_OUTPUT = 80000
 
     try:
-        for fpath in resolved.rglob(glob_filter):
+        for fpath in _safe_rglob(resolved, glob_filter):
             if not fpath.is_file():
                 continue
             if fpath.stat().st_size > 1_000_000:
@@ -513,9 +578,17 @@ def tool_stream_read(args: dict) -> dict:
     if not path.is_file():
         return {"content": [{"type": "text", "text": f"Error: Not a file: {path}"}]}
 
+    # File size guard
+    try:
+        fsize = path.stat().st_size
+        if fsize > _MAX_FILE_SIZE:
+            return {"content": [{"type": "text", "text": f"Error: File too large ({fsize:,}B, max {_MAX_FILE_SIZE:,}B)"}]}
+    except OSError:
+        pass
+
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
+            all_lines = f.readlines(_MAX_FILE_SIZE // 80)
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error reading file: {e}"}]}
 
