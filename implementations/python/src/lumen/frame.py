@@ -156,10 +156,10 @@ def build_frame(
     return Frame(frame_type=frame_type, flags=flags, payload=bytes(payload))
 
 
-def build_size(frame_type: int = 0, payload_len: int = 0) -> int:
+def build_size(payload_len: int = 0, *, frame_type: int = 0) -> int:
     """Total wire size needed for a frame.
 
-    The *frame_type* parameter is accepted for API compatibility but ignored
+    The *frame_type* keyword is accepted for API compatibility but ignored
     (type is always 1 byte regardless of value).
     """
     return hyb128_encoded_len(payload_len) + 2 + payload_len
