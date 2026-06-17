@@ -13,6 +13,11 @@ __pycache__/
 implementations/csharp/bin/
 implementations/csharp/obj/
 
+# Python build artifacts
+implementations/python/build/
+implementations/python/dist/
+implementations/python/src/*.egg-info/
+
 # Bench results (regenerate locally)
 bench_results*.json
 bench_stderr*.txt
