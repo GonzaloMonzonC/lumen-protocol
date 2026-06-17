@@ -253,6 +253,15 @@ impl ShmRingBuffer {
             }
         }
         let flen = u32::from_le_bytes(lb) as usize;
+        // Reject oversized frames — prevents memory exhaustion DoS.
+        // Must match MAX_FRAME_SIZE from handshake.rs (16 MiB).
+        const MAX_SHM_FRAME: usize = 16 * 1024 * 1024;
+        if flen > MAX_SHM_FRAME {
+            return Err(ShmError(format!(
+                "Frame too large: {} bytes (max {})",
+                flen, MAX_SHM_FRAME
+            )));
+        }
         buf.clear();
         buf.resize(flen, 0);
         let mut total = 0;
