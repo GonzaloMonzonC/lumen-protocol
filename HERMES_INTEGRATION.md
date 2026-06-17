@@ -193,7 +193,7 @@ LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`:
 |--------|-------|-------------|--------|
 | Filesystem | 9 tools (read, read_files, write, search, search_ctx, stream_read, list, patch, stats) | 32-70% | `transport: lumen` |
 | Web | 2 tools (web_search, web_extract unified) | 40-50% | `transport: lumen` |
-| Thinking | 7 tools (sequential, similarity, contradiction, summarize, to_plan, evaluate, bridge) | 60-80% | `transport: lumen` |
+| Thinking | 15 tools (sequential, similarity, contradiction, summarize, to_plan, evaluate, bridge, assume, list_assumptions, check_assumption, model_add, model_query, model_stats, model_map, model_remove) | 60-80% | `transport: lumen` |
 
 ```yaml
 mcp_servers:
@@ -204,7 +204,7 @@ mcp_servers:
     lumen_force_json_rpc: true
 ```
 
-18 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
+26 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
 
 ### Tool Selection — SOUL.md
 
