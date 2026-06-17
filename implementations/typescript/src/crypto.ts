@@ -10,8 +10,6 @@
  * [NONCE:12B] [CIPHERTEXT:N bytes] [TAG:16B]
  * ```
  *
- * The TAG is appended automatically by the AEAD cipher.
- *
  * ## Nonce construction
  *
  * Nonce = [counter: u64 LE][zeros: 4B] = 12 bytes
@@ -22,8 +20,10 @@
  * 1. Each side generates an X25519 keypair
  * 2. Public keys are exchanged via PROBE/PROBE_ACK (base64-encoded)
  * 3. Shared secret = X25519(own_secret, peer_public)
- * 4. Cipher key derived via HKDF-SHA256 from shared secret with
- *    domain-separation info string "lumen-v1-cipher-key"
+ * 4. TWO independent keys derived via HKDF-SHA256:
+ *    `lumen-c2s-key` (client→server) and `lumen-s2c-key` (server→client).
+ *    The initiator sends with c2s and receives with s2c; the responder
+ *    does the reverse. This prevents catastrophic (key, nonce) reuse.
  */
 
 import {
@@ -34,219 +34,162 @@ import {
 
 // ═══ Constants ══════════════════════════════════════════════════════════════
 
-/** ChaCha20-Poly1305 nonce size in bytes. */
 export const NONCE_SIZE = 12;
-
-/** Poly1305 authentication tag size in bytes (appended to ciphertext). */
 export const TAG_SIZE = 16;
-
-/** X25519 public key size in bytes. */
 export const PUBLIC_KEY_SIZE = 32;
-
-/** X25519 secret key size in bytes. */
 export const SECRET_KEY_SIZE = 32;
-
-/** Total overhead per encrypted frame: nonce (12B) + tag (16B) = 28 bytes. */
 export const ENCRYPTION_OVERHEAD = NONCE_SIZE + TAG_SIZE;
 
-/** AEAD algorithm identifier for Web Crypto. */
 const AEAD_ALGORITHM = "ChaCha20-Poly1305";
+const HKDF_INFO_C2S = new TextEncoder().encode("lumen-c2s-key");
+const HKDF_INFO_S2C = new TextEncoder().encode("lumen-s2c-key");
+const WINDOW_SIZE = 64; // anti-replay bitmap width
 
-/** Key derivation: HKDF-SHA256 with domain-separation info. */
-const HKDF_INFO = new TextEncoder().encode("lumen-v1-cipher-key");
-
-/** Narrow Uint8Array to BufferSource for Web Crypto API compatibility with Node.js strict types. */
+/** Narrow Uint8Array to BufferSource for Web Crypto API. */
 function asBufferSource(data: Uint8Array): BufferSource {
   return data as unknown as BufferSource;
 }
 
-// ═══ Keypair ════════════════════════════════════════════════════════════════
+// ═══ Role ═══════════════════════════════════════════════════════════════════
 
-/**
- * An X25519 keypair for LUMEN wire encryption.
- */
-export interface Keypair {
-  secretKey: Uint8Array; // 32 bytes
-  publicKey: Uint8Array; // 32 bytes
+export enum Role {
+  Initiator = "initiator",
+  Responder = "responder",
 }
 
-/**
- * Generate a new random X25519 keypair using Web Crypto.
- */
+// ═══ Keypair ════════════════════════════════════════════════════════════════
+
+export interface Keypair {
+  secretKey: Uint8Array;
+  publicKey: Uint8Array;
+}
+
 export async function generateKeypair(): Promise<Keypair> {
   const kp = await crypto.subtle.generateKey(
-    "X25519",
-    true, // extractable
-    ["deriveBits"]
+    "X25519", true, ["deriveBits"]
   ) as CryptoKeyPair;
-
-  const publicKey = new Uint8Array(
-    await crypto.subtle.exportKey("raw", kp.publicKey)
-  );
-  const secretKey = new Uint8Array(
-    await crypto.subtle.exportKey("raw", kp.privateKey)
-  );
-
+  const publicKey = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+  const secretKey = new Uint8Array(await crypto.subtle.exportKey("raw", kp.privateKey));
   return { secretKey, publicKey };
 }
 
-/**
- * Derive a 256-bit shared secret from our secret key and peer's public key.
- */
 export async function deriveSharedSecret(
-  secretKey: Uint8Array,
-  peerPublicKey: Uint8Array
+  secretKey: Uint8Array, peerPublicKey: Uint8Array
 ): Promise<Uint8Array> {
   const ourKey = await crypto.subtle.importKey(
-    "raw",
-    asBufferSource(secretKey),
-    "X25519",
-    false,
-    ["deriveBits"]
+    "raw", asBufferSource(secretKey), "X25519", false, ["deriveBits"]
   );
-
   const peerKey = await crypto.subtle.importKey(
-    "raw",
-    asBufferSource(peerPublicKey),
-    "X25519",
-    false,
-    []
+    "raw", asBufferSource(peerPublicKey), "X25519", false, []
   );
-
   const sharedBits = await crypto.subtle.deriveBits(
-    {
-      name: "X25519",
-      public: peerKey,
-    },
-    ourKey,
-    256
+    { name: "X25519", public: peerKey }, ourKey, 256
   );
-
   return new Uint8Array(sharedBits);
+}
+
+/** Derive a single 256-bit key from shared secret via HKDF. */
+async function hkdfExpand(sharedSecret: Uint8Array, info: Uint8Array): Promise<CryptoKey> {
+  const hkdfKey = await crypto.subtle.importKey(
+    "raw", asBufferSource(sharedSecret), "HKDF", false, ["deriveBits"]
+  );
+  const derived = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: asBufferSource(new Uint8Array(0)), info: asBufferSource(info) },
+    hkdfKey, 256
+  );
+  return crypto.subtle.importKey(
+    "raw", derived as BufferSource, { name: AEAD_ALGORITHM }, false,
+    ["encrypt", "decrypt"]
+  );
 }
 
 // ═══ Cipher ═════════════════════════════════════════════════════════════════
 
-/**
- * An initialized LUMEN cipher with a derived shared key.
- *
- * Maintains independent nonce counters for each direction.
- */
 export class Cipher {
-  // Definite assignment: key is set in init() before any encrypt/decrypt call
-  private key!: CryptoKey;
+  private sendKey!: CryptoKey;
+  private recvKey!: CryptoKey;
   private sendCounter: bigint = BigInt(0);
-  private recvCounter: bigint = BigInt(0);
+  // Anti-replay sliding window
+  private recvWindow: bigint = BigInt(0);
+  private recvBitmap: bigint = BigInt(0);
   private _initialized = false;
 
-  /**
-   * Create a new cipher. Call `await cipher.init(sharedSecret)` before use.
-   */
   constructor() {}
 
-  /**
-   * Initialize the cipher with a 32-byte X25519 shared secret.
-   * Derives the actual cipher key via HKDF-SHA256 with domain separation.
-   */
-  async init(sharedSecret: Uint8Array): Promise<void> {
-    // HKDF-SHA256: derive the actual ChaCha20-Poly1305 key
-    const hkdfKey = await crypto.subtle.importKey(
-      "raw",
-      asBufferSource(sharedSecret),
-      "HKDF",
-      false,
-      ["deriveBits"]
-    );
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: "HKDF",
-        hash: "SHA-256",
-        salt: new Uint8Array(0), // no salt
-        info: HKDF_INFO,
-      },
-      hkdfKey,
-      256 // 32 bytes for ChaCha20-Poly1305
-    );
-    this.key = await crypto.subtle.importKey(
-      "raw",
-      derivedBits as BufferSource,
-      { name: AEAD_ALGORITHM },
-      false,
-      ["encrypt", "decrypt"]
-    );
+  async init(sharedSecret: Uint8Array, role: Role): Promise<void> {
+    const [c2sKey, s2cKey] = await Promise.all([
+      hkdfExpand(sharedSecret, HKDF_INFO_C2S),
+      hkdfExpand(sharedSecret, HKDF_INFO_S2C),
+    ]);
+    if (role === Role.Initiator) {
+      this.sendKey = c2sKey;
+      this.recvKey = s2cKey;
+    } else {
+      this.sendKey = s2cKey;
+      this.recvKey = c2sKey;
+    }
     this.sendCounter = BigInt(0);
-    this.recvCounter = BigInt(0);
+    this.recvWindow = BigInt(0);
+    this.recvBitmap = BigInt(0);
     this._initialized = true;
   }
 
-  get initialized(): boolean {
-    return this._initialized;
-  }
+  get initialized(): boolean { return this._initialized; }
 
-  /**
-   * Build a 12-byte nonce from a counter value (little-endian u64 + 4 zero bytes).
-   */
   private static makeNonce(counter: bigint): Uint8Array {
     const nonce = new Uint8Array(NONCE_SIZE);
-    const view = new DataView(nonce.buffer);
-    view.setBigUint64(0, counter, true); // little-endian
-    // bytes 8-11 remain zero
+    new DataView(nonce.buffer).setBigUint64(0, counter, true);
     return nonce;
   }
 
-  /**
-   * Encrypt a plaintext frame payload.
-   *
-   * Returns `[NONCE:12B][CIPHERTEXT+tag]`.
-   */
   async encrypt(plaintext: Uint8Array): Promise<Uint8Array> {
     if (!this._initialized) throw new Error("Cipher not initialized");
-
     const nonce = Cipher.makeNonce(this.sendCounter);
     this.sendCounter += BigInt(1);
-
     const ciphertext = new Uint8Array(
       await crypto.subtle.encrypt(
         { name: AEAD_ALGORITHM, nonce, additionalData: new Uint8Array(0) } as any,
-        this.key,
-        asBufferSource(plaintext)
+        this.sendKey, asBufferSource(plaintext)
       )
     );
-
     const out = new Uint8Array(NONCE_SIZE + ciphertext.length);
     out.set(nonce, 0);
     out.set(ciphertext, NONCE_SIZE);
     return out;
   }
 
-  /**
-   * Decrypt a received encrypted payload.
-   *
-   * Expects `[NONCE:12B][CIPHERTEXT+tag]`. Returns the plaintext.
-   */
   async decrypt(encrypted: Uint8Array): Promise<Uint8Array> {
     if (!this._initialized) throw new Error("Cipher not initialized");
-
     if (encrypted.length < NONCE_SIZE + TAG_SIZE) {
       throw new DecryptError("encrypted payload too short");
     }
-
     const nonce = encrypted.slice(0, NONCE_SIZE);
     const ciphertext = encrypted.slice(NONCE_SIZE);
 
-    // Nonce replay detection
-    const view = new DataView(nonce.buffer, nonce.byteOffset, 8);
-    const recvNonce = view.getBigUint64(0, true);
-    if (recvNonce < this.recvCounter) {
+    // Anti-replay sliding window (matches Rust crypto.rs)
+    const recvNonce = new DataView(nonce.buffer, nonce.byteOffset, 8).getBigUint64(0, true);
+    const windowSize = BigInt(WINDOW_SIZE);
+
+    if (recvNonce > this.recvWindow) {
+      const diff = recvNonce - this.recvWindow;
+      this.recvBitmap = diff >= windowSize
+        ? BigInt(1)
+        : (this.recvBitmap << diff) | BigInt(1);
+      this.recvWindow = recvNonce;
+    } else if (recvNonce === this.recvWindow) {
       throw new DecryptError("nonce reuse detected");
+    } else {
+      const offset = this.recvWindow - recvNonce;
+      if (offset > windowSize) throw new DecryptError("nonce reuse detected");
+      const mask = BigInt(1) << (offset - BigInt(1));
+      if (this.recvBitmap & mask) throw new DecryptError("nonce reuse detected");
+      this.recvBitmap |= mask;
     }
-    this.recvCounter = recvNonce + BigInt(1);
 
     try {
       const plaintext = await crypto.subtle.decrypt(
         { name: AEAD_ALGORITHM, nonce, additionalData: new Uint8Array(0) } as any,
-        this.key,
-        asBufferSource(ciphertext)
+        this.recvKey, asBufferSource(ciphertext)
       );
       return new Uint8Array(plaintext);
     } catch {
@@ -254,15 +197,8 @@ export class Cipher {
     }
   }
 
-  /**
-   * Encrypt and build a full LUMEN frame (with Hyb128 + TYPE + FLAGS).
-   *
-   * Returns the complete frame bytes ready for transport.
-   */
   async buildEncryptedFrame(
-    frameType: number,
-    flags: number,
-    plaintext: Uint8Array
+    frameType: number, flags: number, plaintext: Uint8Array
   ): Promise<Uint8Array> {
     const encryptedPayload = await this.encrypt(plaintext);
     const total = buildSize(encryptedPayload.length);
@@ -283,9 +219,6 @@ export class DecryptError extends Error {
 
 // ═══ Helpers ════════════════════════════════════════════════════════════════
 
-/**
- * Calculate the total encrypted payload size for a given plaintext length.
- */
 export function encryptedLen(plaintextLen: number): number {
   return NONCE_SIZE + plaintextLen + TAG_SIZE;
 }

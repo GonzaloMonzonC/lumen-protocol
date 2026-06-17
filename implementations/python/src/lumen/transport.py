@@ -27,7 +27,6 @@ from .frame import (
     TYPE_REQUEST,
     TYPE_RESPONSE,
     build_frame,
-    build_size,
     is_compressed,
 )
 from .frame_assembler import FrameAssembler

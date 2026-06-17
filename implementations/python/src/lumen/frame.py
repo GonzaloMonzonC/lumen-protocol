@@ -15,7 +15,7 @@ from __future__ import annotations
 import struct
 from typing import NamedTuple
 
-from .hyb128 import decode_hyb128, encode_hyb128, encoded_len as hyb128_encoded_len
+from .hyb128 import decode_hyb128, encode_hyb128, MAX_ENCODED_LEN, encoded_len as hyb128_encoded_len
 
 # ═══ Frame Types ══════════════════════════════════════════════════════════════
 
@@ -111,7 +111,7 @@ class ParseIncomplete:
         return "ParseIncomplete"
 
 
-ParseResult = ParseComplete | ParseIncompletePayload | ParseIncomplete
+ParseResult = ParseComplete | ParseIncompletePayload | ParseIncomplete | ParseError
 
 
 # ═══ Builder ══════════════════════════════════════════════════════════════════
@@ -183,6 +183,10 @@ def parse_frame(data: bytes | bytearray | memoryview, offset: int = 0) -> ParseR
     # Decode Hyb128 length
     decoded = decode_hyb128(data, offset)
     if decoded is None:
+        # If we have enough bytes for a full Hyb128 header but still can't
+        # decode, the data is malformed, not incomplete.
+        if len(data) - offset >= MAX_ENCODED_LEN:
+            return ParseError(message="malformed Hyb128 header")
         return ParseIncomplete()
 
     payload_len, header_len = decoded
