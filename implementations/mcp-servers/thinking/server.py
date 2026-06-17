@@ -275,6 +275,51 @@ TOOLS = [
             },
             "required": ["assumption_id", "outcome"]
         }
+    },
+    {
+        "name": "model_add",
+        "description": "Add a file or directory to the project mental model. Build a living map of the project so the agent understands its structure without re-reading everything. This is purely FACTUAL — no opinions or automation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File or directory path (relative to project root)"},
+                "role": {"type": "string", "description": "What this file does: 'authentication', 'database', 'config', 'api', 'model', 'test', 'util', 'entry_point', 'other'"},
+                "deps": {"type": "array", "items": {"type": "string"}, "description": "List of files this depends on"},
+                "notes": {"type": "string", "description": "Brief note about this file (e.g. 'Handles JWT token validation')"}
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "model_query",
+        "description": "Query the project mental model. Ask: 'what files depend on X?', 'what role does Y have?', 'what would break if I change Z?'",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to ask: 'deps of <path>', 'dependents of <path>', 'role=<role>', 'impact of <path>', 'all'"},
+                "target": {"type": "string", "description": "File path or role name to query about"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "model_stats",
+        "description": "Get statistics about the project mental model: how many files are mapped, what roles exist, dependency density.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "model_map",
+        "description": "Generate a visual tree map of the project from the mental model. Shows files, their roles, and dependency relationships.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "root_path": {"type": "string", "description": "Root directory to start the map from (default: project root)", "default": "."},
+                "max_depth": {"type": "integer", "description": "Max depth to show (default: 3)", "default": 3, "maximum": 5}
+            }
+        }
     }
 ]
 
@@ -816,6 +861,210 @@ def tool_check_assumption(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Mental Model Builder — project knowledge graph
+# ═══════════════════════════════════════════════════════════════════════
+
+_model: dict[str, dict] = {}  # path → {role, deps, dependents, notes, added_at}
+
+
+def _update_dependents():
+    """Recalculate reverse dependencies (who depends on whom)."""
+    for path in _model:
+        _model[path]["dependents"] = []
+    for path, node in _model.items():
+        for dep in node.get("deps", []):
+            if dep in _model:
+                _model[dep]["dependents"].append(path)
+
+
+def tool_model_add(args: dict) -> dict:
+    """Add a file to the mental model."""
+    path = args["path"]
+    role = args.get("role", "other")
+    deps = args.get("deps", [])
+    notes = args.get("notes", "")
+
+    existing = path in _model
+
+    _model[path] = {
+        "role": role,
+        "deps": list(deps),
+        "dependents": [],
+        "notes": notes,
+        "added_at": time.time(),
+    }
+    _update_dependents()
+
+    action = "Updated" if existing else "Added"
+    lines = [f"🧠 {action} to model: {path}"]
+    if role != "other":
+        lines.append(f"   Role: {role}")
+    if deps:
+        lines.append(f"   Dependencies: {', '.join(deps[:5])}")
+    if notes:
+        lines.append(f"   Notes: {notes[:120]}")
+
+    # Show connected files
+    connected = set(deps)
+    for p, node in _model.items():
+        if path in node.get("deps", []) and p != path:
+            connected.add(p)
+    if connected:
+        lines.append(f"   🔗 Connected: {len(connected)} file(s)")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_model_query(args: dict) -> dict:
+    """Query the mental model."""
+    query = args["query"].strip()
+    target = args.get("target", "")
+
+    if not _model:
+        return {"content": [{"type": "text", "text": "Model is empty. Use model_add to populate it first."}]}
+
+    lines = []
+
+    # "deps of path"
+    if query.startswith("deps of ") or query.startswith("deps "):
+        path = target or query.replace("deps of ", "").replace("deps ", "").strip()
+        if path in _model:
+            deps = _model[path].get("deps", [])
+            lines.append(f"📦 Dependencies of {path} ({_model[path].get('role','?')}):")
+            for d in deps:
+                role_str = f" [{_model[d]['role']}]" if d in _model else " [unknown]"
+                lines.append(f"   → {d}{role_str}")
+            if not deps:
+                lines.append("   (no dependencies)")
+        else:
+            lines.append(f"❌ '{path}' not in model. Add it with model_add first.")
+
+    # "dependents of path" / "who depends on path"
+    elif "dependent" in query or "who depends" in query:
+        path = target or query.split("of ")[-1].strip()
+        if path in _model:
+            deps_of = _model[path].get("dependents", [])
+            lines.append(f"📦 Files that depend on {path}:")
+            for d in deps_of:
+                lines.append(f"   ← {d} [{_model[d].get('role','?')}]")
+            if not deps_of:
+                lines.append(f"   ✅ No files depend on {path} — safe to change!")
+        else:
+            lines.append(f"❌ '{path}' not in model.")
+
+    # "role=X"
+    elif query.startswith("role="):
+        role = query.replace("role=", "").strip()
+        matches = [p for p, n in _model.items() if n.get("role") == role]
+        lines.append(f"📦 Files with role '{role}' ({len(matches)}):")
+        for m in sorted(matches):
+            lines.append(f"   {m}" + (f" — {_model[m].get('notes','')[:60]}" if _model[m].get('notes') else ""))
+
+    # "impact of path"
+    elif "impact" in query:
+        path = target or query.split("of ")[-1].strip()
+        if path in _model:
+            deps_of = _model[path].get("dependents", [])
+            lines.append(f"💥 Impact of changing {path}:")
+            if deps_of:
+                lines.append(f"   {len(deps_of)} file(s) would be affected:")
+                for d in deps_of:
+                    lines.append(f"   ⚠️  {d} [{_model[d].get('role','?')}]")
+            else:
+                lines.append(f"   ✅ No impact — safe to change!")
+        else:
+            lines.append(f"❌ '{path}' not in model.")
+
+    # "all"
+    elif query == "all":
+        lines.append(f"📦 Full model ({len(_model)} files):")
+        for path in sorted(_model):
+            n = _model[path]
+            lines.append(f"   {path} [{n.get('role','?')}] → {len(n.get('deps',[]))} deps, {len(n.get('dependents',[]))} users")
+
+    else:
+        lines.append(f"❓ Unknown query: '{query}'")
+        lines.append("Try: 'deps of <path>', 'dependents of <path>', 'role=<name>', 'impact of <path>', 'all'")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_model_stats(args: dict) -> dict:
+    """Model statistics."""
+    if not _model:
+        return {"content": [{"type": "text", "text": "Model is empty."}]}
+
+    roles = Counter(n.get("role", "other") for n in _model.values())
+    total_deps = sum(len(n.get("deps", [])) for n in _model.values())
+    total_files = len(_model)
+    avg_deps = total_deps / total_files if total_files else 0
+
+    # Most connected files
+    connections = [(p, len(n.get("deps", [])) + len(n.get("dependents", []))) for p, n in _model.items()]
+    connections.sort(key=lambda x: -x[1])
+
+    lines = [
+        f"📊 Mental Model Stats:",
+        f"   Files mapped:   {total_files}",
+        f"   Dependencies:   {total_deps} (avg {avg_deps:.1f}/file)",
+        f"",
+        f"   Roles:",
+    ]
+    for role, count in roles.most_common():
+        bar = "█" * min(count, 30)
+        lines.append(f"   {role:<20} {bar} {count}")
+
+    lines.append(f"\n   Most connected files:")
+    for path, conn in connections[:5]:
+        n = _model[path]
+        lines.append(f"   {path} [{n.get('role','?')}] — {conn} connections")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_model_map(args: dict) -> dict:
+    """Visual tree map of the model."""
+    if not _model:
+        return {"content": [{"type": "text", "text": "Model is empty."}]}
+
+    root = args.get("root_path", ".")
+    max_depth = args.get("max_depth", 3)
+
+    # Build tree from paths
+    lines = [f"🗺️  Project Map:"]
+
+    # Find entry points (files with no incoming deps from the model)
+    has_dependents = set()
+    for n in _model.values():
+        for d in n.get("dependents", []):
+            has_dependents.add(d)
+
+    # Entry points: files with dependents but no deps within model, OR files with deps but no dependents
+    entries = sorted(_model.keys())
+
+    # Group by directory
+    dirs: dict[str, list] = {}
+    for path in entries:
+        d = os.path.dirname(path) or "."
+        if d not in dirs:
+            dirs[d] = []
+        dirs[d].append(path)
+
+    for directory in sorted(dirs):
+        lines.append(f"\n📁 {directory}/")
+        for path in sorted(dirs[directory]):
+            n = _model[path]
+            fname = os.path.basename(path)
+            role_icon = {"authentication":"🔐","database":"🗄️","config":"⚙️","api":"🔌","model":"📊","test":"🧪","util":"🔧","entry_point":"🚀"}.get(n.get("role",""),"📄")
+            deps_str = f" → {', '.join(n.get('deps',[])[:3])}" if n.get("deps") else ""
+            lines.append(f"   {role_icon} {fname} [{n.get('role','?')}]{deps_str}")
+
+    lines.append(f"\n📊 {len(_model)} files mapped across {len(dirs)} directories")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -827,6 +1076,10 @@ HANDLERS = {
     "assume": tool_assume,
     "list_assumptions": tool_list_assumptions,
     "check_assumption": tool_check_assumption,
+    "model_add": tool_model_add,
+    "model_query": tool_model_query,
+    "model_stats": tool_model_stats,
+    "model_map": tool_model_map,
 }
 
 
