@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: lumen-mcp
 Version: 0.1.0
 Summary: LUMEN binary protocol transport for MCP (Model Context Protocol)
-Author: LUMEN Contributors
+Author-email: Gonzalo Monzón <gonzalo@cadenceslab.com>
 License: MIT
 Keywords: mcp,model-context-protocol,binary-protocol,lumen
 Classifier: Development Status :: 3 - Alpha
