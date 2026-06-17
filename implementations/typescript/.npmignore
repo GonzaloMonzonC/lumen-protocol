@@ -1,0 +1,8 @@
+bench*.js
+bench*.d.ts
+bench*.js.map
+bench*.d.ts.map
+*.test.js
+*.test.d.ts
+*.test.js.map
+*.test.d.ts.map

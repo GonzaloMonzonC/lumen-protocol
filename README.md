@@ -181,14 +181,19 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 |---------|--------|-------|
 | Multi-agent sessions | 🚧 Rust partial | Per-transport dict; full session isolation WIP |
 
-### 📐 Known Spec/Code Mismatches
+### 📐 Known Spec/Code Mismatches — RESOLVED
 
-| Paper says | Code does | Resolution |
-|------------|-----------|------------|
-| Frame `DICT_REF` field | No `DICT_REF` | Paper describes planned v2 frame format; current spec matches code |
-| Hyb128 Extended = `5+N` bytes | `1+N` (mode byte + LEB128) | Code and RFC are correct; paper diagram outdated |
+All mismatches identified in the initial audit have been resolved.
+The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 
-Paper & RFC will be aligned with the implementation in v0.2. See [RFC_LUMEN.md](RFC_LUMEN.md) for the authoritative specification.
+| Original mismatch | Resolution |
+|-------------------|------------|
+| Big-endian → Little-endian | RFC §2 corrected (LE is canonical). Code was always correct. |
+| Frame `DICT_REF` field | Removed from RFC §3.1. Dict lookups are handled by Hyb128 STR_DICT tag. |
+| Hyb128 Extended diagram | RFC Appendix A rewritten with accurate LE frames + mode-byte tables. |
+| §5 "binary headers" | §5.1-5.6 rewritten to describe actual JSON-RPC opaque blobs with v2 notes. |
+| CBOR references | Replaced with "LUMEN binary format (TAGs 0xE0-0xE7)" throughout. |
+| Static dictionary table | Updated to match DICTIONARY.md (128 field keys, not method names). |
 
 ---
 
