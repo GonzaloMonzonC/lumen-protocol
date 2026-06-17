@@ -578,4 +578,84 @@ mod tests {
         let close = MuxFrame::close(1);
         assert_eq!(close.encode().len(), close.encoded_len());
     }
+
+    // ── Edge cases ──────────────────────────────────────────────────────
+
+    #[test]
+    fn mux_channel_id_max() {
+        let frame = MuxFrame::open(u16::MAX);
+        let decoded = MuxFrame::decode(&frame.encode()).unwrap();
+        assert_eq!(decoded.channel_id, u16::MAX);
+    }
+
+    #[test]
+    fn mux_double_pause_idempotent() {
+        let mut reg = MuxRegistry::new();
+        reg.accept(&MuxFrame::open(1)).unwrap();
+        reg.accept(&MuxFrame::pause(1)).unwrap();
+        assert_eq!(reg.state(1), Some(ChannelState::Paused));
+        // Second pause on already-paused channel should succeed (idempotent)
+        reg.accept(&MuxFrame::pause(1)).unwrap();
+        assert_eq!(reg.state(1), Some(ChannelState::Paused));
+    }
+
+    #[test]
+    fn mux_resume_when_active_idempotent() {
+        let mut reg = MuxRegistry::new();
+        reg.accept(&MuxFrame::open(1)).unwrap();
+        // Resume on already-active channel should succeed (idempotent)
+        reg.accept(&MuxFrame::resume(1)).unwrap();
+        assert_eq!(reg.state(1), Some(ChannelState::Active));
+    }
+
+    #[test]
+    fn mux_close_paused_channel() {
+        let mut reg = MuxRegistry::new();
+        reg.accept(&MuxFrame::open(1)).unwrap();
+        reg.accept(&MuxFrame::pause(1)).unwrap();
+        // Closing a paused channel should work
+        reg.accept(&MuxFrame::close(1)).unwrap();
+        assert_eq!(reg.state(1), Some(ChannelState::Closed));
+    }
+
+    #[test]
+    fn mux_remove_idle_channel() {
+        let mut reg = MuxRegistry::new();
+        reg.accept(&MuxFrame::open(1)).unwrap();
+        reg.accept(&MuxFrame::close(1)).unwrap();
+        let old_state = reg.remove(1);
+        assert_eq!(old_state, Some(ChannelState::Closed));
+        // Now channel_id 1 is free — open should work
+        assert!(reg.accept(&MuxFrame::open(1)).is_ok());
+    }
+
+    #[test]
+    fn mux_remove_nonexistent() {
+        let mut reg = MuxRegistry::new();
+        assert_eq!(reg.remove(999), None);
+        assert_eq!(reg.state(999), None);
+    }
+
+    #[test]
+    fn mux_data_empty_inner() {
+        // DATA with empty inner frame — unusual but valid
+        let frame = MuxFrame::data(1, vec![]);
+        let mut reg = MuxRegistry::new();
+        reg.accept(&MuxFrame::open(1)).unwrap();
+        let inner = reg.accept(&frame).unwrap();
+        assert_eq!(inner, Some(vec![]));
+    }
+
+    #[test]
+    fn mux_is_predicates_unknown_command() {
+        let bad = MuxFrame {
+            sub_command: 0xFF,
+            channel_id: 0,
+            inner: vec![],
+        };
+        assert!(!bad.is_open());
+        assert!(!bad.is_data());
+        assert!(!bad.is_close());
+        assert_eq!(bad.sub_command_name(), "UNKNOWN");
+    }
 }

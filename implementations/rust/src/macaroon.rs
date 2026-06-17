@@ -280,10 +280,9 @@ fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
 
 /// Generate a random 32-byte root key using the OS CSPRNG.
 pub fn generate_root_key() -> [u8; 32] {
-    use chacha20poly1305::aead::{KeyInit, OsRng};
-    use rand_core::RngCore;
+    use rand::RngCore;
     let mut key = [0u8; 32];
-    OsRng.fill_bytes(&mut key);
+    rand::rngs::OsRng.fill_bytes(&mut key);
     key
 }
 
@@ -501,6 +500,97 @@ mod tests {
         let encoded = mac.encode();
         let decoded = Macaroon::decode(&encoded).unwrap();
         assert_eq!(decoded.id, "");
+        assert!(decoded.verify(&root_key, |_| true));
+    }
+
+    // ── Edge cases ──────────────────────────────────────────────────────
+
+    #[test]
+    fn macaroon_max_caveats_truncation() {
+        let root_key = generate_root_key();
+        let mut mac = Macaroon::create(&root_key, "s1", "lumen");
+        // Add more than MAX_CAVEATS
+        for i in 0..40 {
+            mac = mac.attenuate(&format!("caveat-{i}"));
+        }
+        // Encode truncates to 32 caveats
+        let encoded = mac.encode();
+        let decoded = Macaroon::decode(&encoded).unwrap();
+        // Decode sees only 32 caveats (the encoded ones)
+        assert_eq!(decoded.caveats.len(), 32);
+
+        // Signature was computed with all 40 caveats, but decode only has 32
+        // → verification MUST fail for truncated macaroons
+        assert!(!decoded.verify(&root_key, |_| true));
+    }
+
+    #[test]
+    fn macaroon_wrong_version_decode() {
+        let root_key = generate_root_key();
+        let mac = Macaroon::create(&root_key, "s", "l");
+        let mut encoded = mac.encode();
+        encoded[0] = 99; // corrupt version
+
+        let decoded = Macaroon::decode(&encoded).unwrap();
+        assert_eq!(decoded.version, 99); // decode accepts any version
+        // But verify still works — version is not validated in verify()
+        assert!(decoded.verify(&root_key, |_| true));
+    }
+
+    #[test]
+    fn macaroon_tampered_signature_detected() {
+        let root_key = generate_root_key();
+        let mut mac = Macaroon::create(&root_key, "s", "l");
+        // Flip a bit in the signature
+        mac.signature[0] ^= 0x01;
+        assert!(!mac.verify(&root_key, |_| true));
+    }
+
+    #[test]
+    fn macaroon_tampered_id_detected() {
+        let root_key = generate_root_key();
+        let mac = Macaroon::create(&root_key, "original-id", "l");
+        let mut encoded = mac.encode();
+        // Tamper the id bytes (id is at offset 3: version=1, len=1)
+        encoded[3] = b'X'; // change 'o' to 'X'
+
+        let decoded = Macaroon::decode(&encoded).unwrap();
+        assert!(!decoded.verify(&root_key, |_| true));
+    }
+
+    #[test]
+    fn macaroon_id_truncation_roundtrip() {
+        let root_key = generate_root_key();
+        let long_id = "a".repeat(300);
+        let mac = Macaroon::create(&root_key, &long_id, "lumen");
+        let encoded = mac.encode();
+        let decoded = Macaroon::decode(&encoded).unwrap();
+        // Id was truncated to 255 bytes during encode → decode sees 255
+        assert_eq!(decoded.id.len(), 255);
+        // Signature was computed with full 300-char id, but decode has 255
+        // → verification fails (this is expected: truncation breaks signature)
+        assert!(!decoded.verify(&root_key, |_| true));
+    }
+
+    #[test]
+    fn macaroon_encoded_len_matches()
+    {
+        let root_key = generate_root_key();
+        let mac = Macaroon::create(&root_key, "session-1", "lumen-mcp")
+            .attenuate(&caveats::method("tools/list"))
+            .attenuate(&caveats::read_only());
+        assert_eq!(mac.encode().len(), mac.encoded_len());
+    }
+
+    #[test]
+    fn macaroon_verify_with_trailing_data_in_buffer() {
+        let root_key = generate_root_key();
+        let mac = Macaroon::create(&root_key, "s", "l");
+        let mut encoded = mac.encode();
+        // Append garbage after the signature
+        encoded.extend_from_slice(b"trailing garbage that should not matter");
+        // decode ignores trailing bytes after signature
+        let decoded = Macaroon::decode(&encoded).unwrap();
         assert!(decoded.verify(&root_key, |_| true));
     }
 }
