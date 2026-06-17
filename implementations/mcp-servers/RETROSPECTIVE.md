@@ -121,6 +121,28 @@ ROUND 4 — Web:
 
 ---
 
+## After LUMEN (Session 3 — Production Readiness)
+
+We hardened the project for real users. The focus shifted from building features to ensuring **solidity, testability, and distributability**:
+
+| Area | What we did |
+|------|------------|
+| **Packages** | Published on PyPI (`pip install lumen-mcp`) and npm (`@gonzalomonzonc/mcp-transport`) |
+| **Testing** | Built objective evaluation framework — 66/66 tests across 3 servers with correctness, error, security, and edge-case categories |
+| **Multi-agent** | Full session isolation via `session_init`/`session_list`. Each agent gets private chains, assumptions, models, and work logs. 26/26 tests. |
+| **Bug fixes** | Found and fixed `build_size()` positional arg bug (frame_type was stealing payload_len), patch duplicate handling, and dozens of refactoring issues |
+| **CI/CD** | GitHub Actions multi-language pipeline: Python e2e (89/89), TypeScript build, Rust cargo test |
+| **SDK** | `LumenServer` class — build MCP tools in 15 lines with auto type hints and LUMEN binary negotiation |
+| **QUIC** | Promoted from early-stage to functional — 553 LOC, 7 tests (roundtrip, bidirectional, large payload) |
+
+**Session 3 metrics:**
+- Tool count: 33+ (filesystem 9, web 2, thinking 22+)
+- Test coverage: 66 MCP eval + 89 e2e + 42 Rust unit tests = **197 total**
+- Packages: 2 registries (PyPI + npm)
+- Known bugs: 0 open
+
+---
+
 ## What HASN'T changed (honesty)
 
 - **Raw speed**: `read_file` built-in (0.16ms) is still faster than LUMEN (0.42ms). +0.26ms, imperceptible.
@@ -148,5 +170,6 @@ LUMEN doesn't make me faster at atomic operations. It makes me **smarter at comp
 - Build a mental map of the project and query the impact of changes
 - Explicitly record assumptions so the user can see and correct them
 - Preserve critical information before context compaction
+- Isolate multiple agent sessions without state collisions, sharing a single transport
 
-**LUMEN transforms the agent from reactive-sequential to reflective-persistent, with awareness of its own blind spots.**
+**LUMEN transforms the agent from reactive-sequential to reflective-persistent, with awareness of its own blind spots and native multi-agent capability.**

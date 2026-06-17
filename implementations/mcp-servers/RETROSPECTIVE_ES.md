@@ -121,6 +121,28 @@ RONDA 4 — Web:
 
 ---
 
+## Después de LUMEN (Sesión 3 — Madurez de Producción)
+
+Endurecimos el proyecto para usuarios reales. El foco pasó de construir funcionalidades a garantizar **solidez, testabilidad y distribuibilidad**:
+
+| Área | Qué hicimos |
+|------|------------|
+| **Paquetes** | Publicados en PyPI (`pip install lumen-mcp`) y npm (`@gonzalomonzonc/mcp-transport`) |
+| **Testing** | Framework de evaluación objetiva — 66/66 tests en 3 servidores con categorías de corrección, error, seguridad y edge-cases |
+| **Multi-agente** | Aislamiento total de sesiones vía `session_init`/`session_list`. Cada agente tiene sus propias cadenas, asunciones, modelos y registros de trabajo. 26/26 tests. |
+| **Bugs** | Encontrado y arreglado `build_size()` con arg posicional (frame_type robaba payload_len), manejo de duplicados en patch, y docenas de issues de refactorización |
+| **CI/CD** | GitHub Actions multi-lenguaje: Python e2e (89/89), TypeScript build, Rust cargo test |
+| **SDK** | Clase `LumenServer` — construir tools MCP en 15 líneas con auto type hints y negociación LUMEN binaria |
+| **QUIC** | Promovido de early-stage a funcional — 553 LOC, 7 tests (roundtrip, bidireccional, payload grande) |
+
+**Métricas de la Sesión 3:**
+- Tools: 33+ (filesystem 9, web 2, thinking 22+)
+- Cobertura de tests: 66 MCP eval + 89 e2e + 42 Rust unit = **197 total**
+- Paquetes: 2 registros (PyPI + npm)
+- Bugs conocidos: 0 abiertos
+
+---
+
 ## Lo que NO ha cambiado (honestidad)
 
 - **Velocidad pura**: `read_file` built-in (0.16ms) sigue siendo más rápido que LUMEN (0.42ms). +0.26ms, imperceptible.
@@ -148,5 +170,6 @@ LUMEN no me hace más rápido en operaciones atómicas. Me hace más **inteligen
 - Construir un mapa mental del proyecto y consultar impacto de cambios
 - Registrar asunciones explícitamente para que el usuario las vea y corrija
 - Preservar información crítica antes de que el contexto se compacte
+- Aislar sesiones de múltiples agentes sin colisiones de estado, compartiendo un solo transporte
 
-**LUMEN transforma al agente de reactivo-secuencial a reflexivo-persistente, con conciencia de sus propios puntos ciegos.**
+**LUMEN transforma al agente de reactivo-secuencial a reflexivo-persistente, con conciencia de sus propios puntos ciegos y capacidad multi-agente nativa.**
