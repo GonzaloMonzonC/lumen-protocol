@@ -17,6 +17,7 @@ import sys
 import json
 import os
 import re
+import fnmatch
 import glob as globmod
 from pathlib import Path
 from typing import Any
@@ -180,8 +181,15 @@ def tool_read_file(args: dict) -> dict:
     end = min(total, start + limit)
 
     result_lines = []
+    output = ""
     for i in range(start, end):
-        result_lines.append(f"{i+1}|{all_lines[i].rstrip()}")
+        line_text = f"{i+1}|{all_lines[i].rstrip()}"
+        result_lines.append(line_text)
+        output = "\n".join(result_lines)
+        # Guard: prevent flooding context with huge files
+        if len(output) > 100_000:
+            output += f"\n... (truncated at line {i+1}/{total}, result too large)"
+            return {"content": [{"type": "text", "text": output}]}
 
     output = "\n".join(result_lines)
     if total > end:
@@ -212,21 +220,24 @@ def tool_search_files(args: dict) -> dict:
     search_path = args.get("path", ".")
     file_glob = args.get("file_glob")
     limit = min(args.get("limit", 50), 200)
+    offset = args.get("offset", 0)
+    output_mode = args.get("output_mode", "content")
 
     resolved = resolve_path(search_path)
     if not resolved.exists():
         return {"content": [{"type": "text", "text": f"Error: Path not found: {resolved}"}]}
 
     if target == "files":
-        # Find files by glob pattern
         try:
             glob_pattern = pattern if "*" in pattern else f"*{pattern}*"
             results = []
             for f in resolved.rglob(glob_pattern):
                 if f.is_file():
                     results.append(str(f.relative_to(resolved)))
-                    if len(results) >= limit:
-                        break
+                if len(results) >= limit + offset:
+                    break
+            total_found = len(results)
+            results = results[offset:offset + limit]
             if results:
                 return {"content": [{"type": "text", "text": "\n".join(results)}]}
             return {"content": [{"type": "text", "text": f"No files matching '{pattern}'"}]}
@@ -241,28 +252,47 @@ def tool_search_files(args: dict) -> dict:
 
     results = []
     glob_filter = file_glob or "*"
+    counts = {}  # for output_mode='count'
 
     try:
         for fpath in resolved.rglob(glob_filter):
             if not fpath.is_file():
                 continue
-            if fpath.stat().st_size > 1_000_000:  # Skip files > 1MB
+            if fpath.stat().st_size > 1_000_000:
                 continue
 
+            file_match_count = 0
             try:
                 with open(fpath, "r", encoding="utf-8", errors="replace") as f:
                     for line_no, line in enumerate(f, 1):
                         if compiled.search(line):
                             rel = str(fpath.relative_to(resolved))
-                            results.append(f"{rel}:{line_no}: {line.rstrip()[:200]}")
-                            if len(results) >= limit:
+                            if output_mode == "count":
+                                file_match_count += 1
+                            elif output_mode == "files_only":
+                                file_match_count = 1
                                 break
-                    if len(results) >= limit:
-                        break
+                            else:
+                                results.append(f"{rel}:{line_no}: {line.rstrip()[:200]}")
+                                if len(results) >= limit + offset:
+                                    break
+                    if output_mode == "count" and file_match_count:
+                        counts[rel] = counts.get(rel, 0) + file_match_count
+                    elif output_mode == "files_only" and file_match_count:
+                        results.append(rel)
             except Exception:
                 continue
 
-        if results:
+            if len(results) >= limit + offset:
+                break
+
+        if output_mode == "count" and counts:
+            out = "\n".join(f"{path}: {n}" for path, n in counts.items())
+            return {"content": [{"type": "text", "text": out}]}
+        elif output_mode == "files_only" and results:
+            return {"content": [{"type": "text", "text": "\n".join(results[:limit])}]}
+        elif results:
+            results = results[offset:offset + limit]
             return {"content": [{"type": "text", "text": "\n".join(results)}]}
         return {"content": [{"type": "text", "text": f"No matches for '{pattern}' in {resolved}"}]}
     except Exception as e:
@@ -284,7 +314,6 @@ def tool_list_directory(args: dict) -> dict:
         for entry in sorted(path.iterdir()):
             name = entry.name
             if file_glob:
-                import fnmatch
                 if not fnmatch.fnmatch(name, file_glob):
                     continue
             entry_type = "📁" if entry.is_dir() else "📄"

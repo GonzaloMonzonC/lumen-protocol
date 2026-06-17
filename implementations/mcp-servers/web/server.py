@@ -244,7 +244,7 @@ def tool_web_extract(args: dict) -> dict:
     
     results = []
     for url in urls:
-        result = _cached(f"extract:{url}", lambda: _extract_page(url, max_chars))
+        result = _cached(f"extract:{url}", lambda u=url: _extract_page(u, max_chars))
         results.append(result)
     
     return {"content": [{"type": "text", "text": json.dumps(results, indent=2, ensure_ascii=False)}]}
