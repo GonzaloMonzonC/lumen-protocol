@@ -232,9 +232,25 @@ impl ShmRingBuffer {
 
     /// Read a complete length-prefixed frame. Returns `Ok(len)` or `Err(ShmError)` on timeout.
     pub fn read_frame(&self, buf: &mut Vec<u8>) -> Result<usize, ShmError> {
+        // Read 4-byte length header with retry — partial reads would corrupt
         let mut lb = [0u8; 4];
-        if self.read(&mut lb) < 4 {
-            return Err(ShmError("SHM ring buffer: no frame header available".into()));
+        let mut hdr_read = 0;
+        let mut hdr_spins: u32 = 0;
+        while hdr_read < 4 {
+            let n = self.read(&mut lb[hdr_read..]);
+            if n > 0 {
+                hdr_read += n;
+                hdr_spins = 0;
+            } else {
+                hdr_spins += 1;
+                if hdr_spins >= MAX_SPIN {
+                    return Err(ShmError("SHM ring buffer timeout: header never arrived".into()));
+                }
+                std::hint::spin_loop();
+                if hdr_spins % YIELD_INTERVAL == 0 {
+                    std::thread::yield_now();
+                }
+            }
         }
         let flen = u32::from_le_bytes(lb) as usize;
         buf.clear();
