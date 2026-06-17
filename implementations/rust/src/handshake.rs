@@ -74,6 +74,11 @@ pub fn server_negotiate(
     };
 
     if frame.frame_type != frame::TYPE_TRANSPORT_INIT {
+        // NOTE: If client sent PROBE instead of TRANSPORT_INIT (Level 3
+        // encryption negotiation before Level 2 transport negotiation),
+        // the frame has already been consumed and we cannot recover.
+        // The caller should implement a PROBE-detection interceptor
+        // before calling server_negotiate. Tracked as #17 in plan-mejoras-2.
         return Err(io::Error::new(io::ErrorKind::InvalidData, "expected TRANSPORT_INIT"));
     }
 
