@@ -13,10 +13,20 @@
 //!
 //! ## Feature flag
 //!
-//! `	oml
+//! ```toml
 //! [dependencies]
 //! lumen = { version = "0.1", features = ["quic"] }
-//! `
+//! ```
+//!
+//! ## Security Warning
+//!
+//! **The default QUIC client does NOT verify server certificates.**
+//! This is suitable ONLY for local development and testing on trusted
+//! networks.  For production use, provide a `rustls::ClientConfig`
+//! with proper certificate verification via `QuicClient::with_config()`.
+//!
+//! The `SkipCertVerifier` is marked `#[deprecated]` and will be
+//! removed in v0.2 in favor of mandatory certificate validation.
 
 use std::io;
 use std::net::SocketAddr;
