@@ -168,6 +168,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Native token streaming | ✅ | Rust: stream.rs — StreamInit, StreamData, StreamRegistry |
 | MUX channels | ✅ | Rust: mux.rs — 5 sub-commands, MuxRegistry with state machine |
 | Macaroons (capability auth) | ✅ | Rust: macaroon.rs — HMAC-SHA256 chained sigs, caveat attenuation |
+| Multi-agent sessions | ✅ | Python: thinking server — session_init, session_list, per-session isolation |
 | QUIC transport (L4) | ✅ | Rust: `quic.rs` — server/client endpoints, TLS 1.3, bidirectional streams, 7 tests |
 | Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
 | TypeScript impl | ✅ | Node.js + browser, zero-copy SHM via koffi |
@@ -177,9 +178,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 ### 🚧 Planned / Under Development
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Multi-agent sessions | 🚧 Rust partial | Per-transport dict; full session isolation WIP |
+*Nothing pending — all planned features are implemented. See RFC_LUMEN.md §Status.*
 
 ### 📐 Known Spec/Code Mismatches — RESOLVED
 
