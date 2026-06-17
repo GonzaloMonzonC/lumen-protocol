@@ -312,6 +312,11 @@ def tool_write_file(args: dict) -> dict:
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # TOCTOU guard: re-resolve and re-validate after creating parent dirs
+        # to ensure no symlink substitution happened between initial check and write
+        rechecked = path.resolve()
+        if rechecked != path:
+            raise PermissionError(f"Path changed during write: {rechecked} != {path}")
         # Atomic write: write to temp file, then rename
         import tempfile
         tmp = tempfile.NamedTemporaryFile(
@@ -363,11 +368,15 @@ def tool_search_files(args: dict) -> dict:
             return {"content": [{"type": "text", "text": f"Error searching files: {e}"}]}
 
     # Content search
+    _MAX_PATTERN_LEN = 500  # reject suspiciously long patterns (ReDoS prevention)
+    if len(pattern) > _MAX_PATTERN_LEN:
+        return {"content": [{"type": "text", "text": f"Error: Pattern too long ({len(pattern)} chars, max {_MAX_PATTERN_LEN})"}]}
     try:
         compiled = re.compile(pattern)
     except re.error as e:
         return {"content": [{"type": "text", "text": f"Invalid regex: {e}"}]}
-
+    search_start = time.time()
+    matches: list[dict] = []
     results = []
     glob_filter = file_glob or "*"
     counts = {}  # for output_mode='count'
@@ -513,12 +522,16 @@ def tool_search_with_context(args: dict) -> dict:
     resolved = resolve_path(search_path)
     if not resolved.exists():
         return {"content": [{"type": "text", "text": f"Error: Path not found: {resolved}"}]}
-
+    # Content search
+    _MAX_PATTERN_LEN = 500  # reject suspiciously long patterns (ReDoS prevention)
+    if len(pattern) > _MAX_PATTERN_LEN:
+        return {"content": [{"type": "text", "text": f"Error: Pattern too long ({len(pattern)} chars, max {_MAX_PATTERN_LEN})"}]}
     try:
         compiled = re.compile(pattern)
     except re.error as e:
         return {"content": [{"type": "text", "text": f"Invalid regex: {e}"}]}
-
+    search_start = time.time()
+    matches: list[dict] = []
     results = []
     glob_filter = file_glob or "*"
     total_chars = 0

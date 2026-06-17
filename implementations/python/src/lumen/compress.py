@@ -43,6 +43,7 @@ TAG_ARRAY: int = 0xE6
 TAG_OBJECT: int = 0xE7
 
 _MAX_COUNT: int = 1024  # safety cap on container element counts
+_MAX_DEPTH: int = 32    # safety cap on nesting depth (prevents stack overflow DoS)
 
 
 # ═══ Public API ═══════════════════════════════════════════════════════════════
@@ -193,9 +194,11 @@ def _encode_key(key: str, out: list[bytes]) -> None:
 
 
 def _decode_value(
-    data: bytes | bytearray | memoryview, pos: int, end: int
+    data: bytes | bytearray | memoryview, pos: int, end: int, depth: int = 0
 ) -> tuple[Any, int]:
     """Decode one value starting at *pos*. Returns ``(value, new_pos)``."""
+    if depth > _MAX_DEPTH:
+        return None, pos  # reject deeply nested payloads
     if pos >= end:
         return None, pos
 
@@ -245,7 +248,7 @@ def _decode_value(
         count = min(count, _MAX_COUNT)
         arr: list[Any] = [None] * count
         for i in range(count):
-            arr[i], pos = _decode_value(data, pos, end)
+            arr[i], pos = _decode_value(data, pos, end, depth + 1)
         return arr, pos
 
     if tag == TAG_OBJECT:
@@ -258,7 +261,7 @@ def _decode_value(
         obj: dict[str, Any] = {}
         for _ in range(count):
             key, pos = _decode_key(data, pos, end)
-            val, pos = _decode_value(data, pos, end)
+            val, pos = _decode_value(data, pos, end, depth + 1)
             if key is not None:
                 obj[key] = val
         return obj, pos
