@@ -22,7 +22,8 @@
  * 1. Each side generates an X25519 keypair
  * 2. Public keys are exchanged via PROBE/PROBE_ACK (base64-encoded)
  * 3. Shared secret = X25519(own_secret, peer_public)
- * 4. Cipher initialized with shared secret as ChaCha20-Poly1305 key
+ * 4. Cipher key derived via HKDF-SHA256 from shared secret with
+ *    domain-separation info string "lumen-v1-cipher-key"
  */
 
 import {
@@ -51,8 +52,8 @@ export const ENCRYPTION_OVERHEAD = NONCE_SIZE + TAG_SIZE;
 /** AEAD algorithm identifier for Web Crypto. */
 const AEAD_ALGORITHM = "ChaCha20-Poly1305";
 
-/** Key derivation: raw X25519 shared secret is used directly. */
-const KEY_ALGORITHM = "ChaCha20-Poly1305";
+/** Key derivation: HKDF-SHA256 with domain-separation info. */
+const HKDF_INFO = new TextEncoder().encode("lumen-v1-cipher-key");
 
 // ═══ Keypair ════════════════════════════════════════════════════════════════
 
@@ -138,12 +139,31 @@ export class Cipher {
   constructor() {}
 
   /**
-   * Initialize the cipher with a 32-byte shared secret.
+   * Initialize the cipher with a 32-byte X25519 shared secret.
+   * Derives the actual cipher key via HKDF-SHA256 with domain separation.
    */
   async init(sharedSecret: Uint8Array): Promise<void> {
-    this.key = await crypto.subtle.importKey(
+    // HKDF-SHA256: derive the actual ChaCha20-Poly1305 key
+    const hkdfKey = await crypto.subtle.importKey(
       "raw",
       sharedSecret,
+      "HKDF",
+      false,
+      ["deriveBits"]
+    );
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(0), // no salt
+        info: HKDF_INFO,
+      },
+      hkdfKey,
+      256 // 32 bytes for ChaCha20-Poly1305
+    );
+    this.key = await crypto.subtle.importKey(
+      "raw",
+      derivedBits,
       { name: AEAD_ALGORITHM },
       false,
       ["encrypt", "decrypt"]

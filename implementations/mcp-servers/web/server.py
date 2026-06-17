@@ -17,7 +17,7 @@ Hermes config:
       transport: lumen
 """
 
-import sys, os, json, re, time, urllib.request, urllib.error
+import sys, os, json, re, time, urllib.request, urllib.error, urllib.parse, socket, ipaddress
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,63 @@ def _cached(key: str, fetcher, ttl: int = _CACHE_TTL):
     if len(_cache) > 100:
         _cache.pop(next(iter(_cache)))
     return val
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SSRF protection
+# ═══════════════════════════════════════════════════════════════════════
+
+# Private/reserved networks that must never be reached
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),      # Loopback
+    ipaddress.ip_network("10.0.0.0/8"),        # RFC 1918
+    ipaddress.ip_network("172.16.0.0/12"),     # RFC 1918
+    ipaddress.ip_network("192.168.0.0/16"),    # RFC 1918
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / cloud metadata
+    ipaddress.ip_network("::1/128"),            # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),           # IPv6 unique-local
+]
+
+# Extra blocked hostnames (comma-separated via LUMEN_BLOCKED_HOSTS env var)
+BLOCKED_HOSTS: list[str] = [
+    h.strip().lower() for h in os.environ.get("LUMEN_BLOCKED_HOSTS", "").split(",") if h.strip()
+]
+
+
+class SSRFError(Exception):
+    """Raised when a URL targets a private/blocked destination."""
+
+
+def _is_safe_url(url: str) -> None:
+    """Validate that *url* does not point to a private or blocked destination.
+
+    Raises SSRFError if the URL is unsafe.
+    """
+    parsed = urllib.parse.urlparse(url)
+
+    # Scheme check
+    if parsed.scheme not in ("http", "https"):
+        raise SSRFError(f"Blocked: unsupported scheme '{parsed.scheme}' (only http/https allowed)")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise SSRFError("Blocked: URL has no hostname")
+
+    # Blocked-hosts check (before DNS to avoid TOCTOU)
+    if hostname.lower() in BLOCKED_HOSTS:
+        raise SSRFError(f"Blocked: hostname '{hostname}' is in blocked hosts list")
+
+    # Resolve and check every returned address
+    try:
+        addr_infos = socket.getaddrinfo(hostname, parsed.port or 80, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise SSRFError(f"Blocked: cannot resolve hostname '{hostname}'") from exc
+
+    for family, _type, _proto, _canon, sockaddr in addr_infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        for net in _PRIVATE_NETWORKS:
+            if ip in net:
+                raise SSRFError(f"Blocked: '{hostname}' resolves to private IP {ip}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -89,6 +146,7 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
     # Try DuckDuckGo Instant Answer API (no API key, returns JSON)
     try:
         api_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
+        _is_safe_url(api_url)
         req = urllib.request.Request(api_url, headers={
             "User-Agent": "Mozilla/5.0 (compatible; LUMEN-Web/1.0)"
         })
@@ -127,6 +185,10 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
     
     # Fallback: HTML scraping
     url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+    try:
+        _is_safe_url(url)
+    except SSRFError:
+        return [{"error": "Search request blocked by SSRF protection"}]
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     })
@@ -159,6 +221,10 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
 
 def _extract_page(url: str, max_chars: int = 5000) -> dict:
     """Extract a web page as simplified markdown text."""
+    try:
+        _is_safe_url(url)
+    except SSRFError as e:
+        return {"url": url, "content": f"[SSRF blocked: {e}]", "error": str(e)}
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (compatible; LUMEN-Web/1.0)"

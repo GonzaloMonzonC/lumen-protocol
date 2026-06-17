@@ -23,7 +23,7 @@ fn json_parse(data: &[u8]) -> serde_json::Value {
 
 /// LUMEN serialize: compress JSON → frame.
 fn lumen_serialize(frame_type: u8, flags: u8, payload_value: &serde_json::Value) -> Vec<u8> {
-    let compressed = compress::compress(payload_value);
+    let compressed = compress::compress(payload_value, None);
     let mut buf = vec![0u8; frame::build_size(compressed.len())];
     let n = frame::build(frame_type, flags, &compressed, &mut buf);
     buf.truncate(n);
@@ -34,7 +34,7 @@ fn lumen_serialize(frame_type: u8, flags: u8, payload_value: &serde_json::Value)
 fn lumen_parse(data: &[u8]) -> (u8, u8, serde_json::Value) {
     match frame::parse(data) {
         frame::ParseResult::Complete { frame, .. } => {
-            let value = compress::decompress(frame.payload)
+            let value = compress::decompress(frame.payload, None)
                 .expect("LUMEN decompress failed");
             (frame.frame_type, frame.flags, value)
         }
@@ -327,16 +327,17 @@ fn run_s5() -> ResultRow {
 
 fn run_s6() -> ResultRow {
     println!("\n═══ S6: session_dict — 127 custom keys ═══");
-    use lumen::dict;
+    use lumen::dict::SessionDict;
 
-    // Register 127 custom keys in session dict (0x80–0xFE)
+    // Create a local session dictionary and register 127 custom keys (0x80–0xFE)
+    let mut session = SessionDict::new();
     let custom_keys: Vec<String> = (0..127)
         .map(|i| format!("custom_key_{i:03}"))
         .collect();
     for (i, key) in custom_keys.iter().enumerate() {
-        dict::register_session(key, 0x80 + i as u8).unwrap();
+        session.register(key, 0x80 + i as u8).unwrap();
     }
-    assert_eq!(dict::session_len(), 127);
+    assert_eq!(session.len(), 127);
 
     // Build a JSON object with all 127 session keys + some values
     let mut map = serde_json::Map::with_capacity(127);
@@ -350,20 +351,29 @@ fn run_s6() -> ResultRow {
     let (json_ser_ns, _) = time("JSON serialize", ITERS, || json_serialize(&payload));
     let (json_deser_ns, _) = time("JSON deserialize", ITERS, || json_parse(&json_bytes));
 
-    // LUMEN side
+    // LUMEN side — use the session dict
     let (lumen_ser_ns, lumen_bytes) = time("LUMEN serialize", ITERS, || {
-        lumen_serialize(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, &payload)
+        let compressed = compress::compress(&payload, Some(&session));
+        let mut buf = vec![0u8; frame::build_size(compressed.len())];
+        let n = frame::build(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, &compressed, &mut buf);
+        buf.truncate(n);
+        buf
     });
     let lumen_wire = lumen_bytes.len();
-    let (lumen_deser_ns, _) = time("LUMEN deserialize", ITERS, || lumen_parse(&lumen_bytes));
+    let (lumen_deser_ns, _) = time("LUMEN deserialize", ITERS, || {
+        match frame::parse(&lumen_bytes) {
+            frame::ParseResult::Complete { frame, .. } => {
+                compress::decompress(frame.payload, Some(&session))
+                    .expect("LUMEN decompress failed")
+            }
+            _ => panic!("LUMEN parse failed"),
+        }
+    });
 
     wire("JSON wire size", json_bytes.len());
     wire("LUMEN wire size", lumen_wire);
     let sav = (1.0 - lumen_wire as f64 / json_bytes.len() as f64) * 100.0;
     println!("  Wire savings: {sav:.1}%");
-
-    // Clean up
-    dict::clear_session();
 
     ResultRow {
         scenario: "S6: session_dict (127 keys)",

@@ -77,7 +77,8 @@ class CadenciaBridge:
         self._opts = options
         self._process: subprocess.Popen[bytes] | None = None
         self._reader_task: asyncio.Task[None] | None = None
-        self._response_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
+        self._seq = 0
         self._protocol_version: str = ""
 
     async def start(self) -> dict[str, Any]:
@@ -139,13 +140,23 @@ class CadenciaBridge:
         if files:
             command["files"] = files
 
+        self._seq += 1
+        seq = self._seq
+        command["id"] = seq
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._pending[seq] = future
+
         line = json.dumps(command) + "\n"
         self._process.stdin.write(line.encode("utf-8"))
-        self._process.stdin.flush()
+        try:
+            self._process.stdin.flush()
+        except OSError:
+            pass  # Windows: flushing stdin pipe may fail
 
         try:
-            return await asyncio.wait_for(self._response_queue.get(), timeout=30)
+            return await asyncio.wait_for(future, timeout=30)
         except asyncio.TimeoutError:
+            self._pending.pop(seq, None)
             raise TimeoutError(f"Cadencia bridge did not respond to '{cmd}' within 30s")
 
     async def _read_responses(self) -> None:
@@ -155,25 +166,44 @@ class CadenciaBridge:
         loop = asyncio.get_running_loop()
         buf = b""
 
-        while True:
-            try:
-                chunk = await loop.run_in_executor(
-                    None, self._process.stdout.read, 4096
-                )
-            except Exception:
-                return
-
-            if not chunk:
-                return
-
-            buf += chunk
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                line = line.strip()
-                if not line:
-                    continue
+        try:
+            while True:
                 try:
-                    msg = json.loads(line)
-                    await self._response_queue.put(msg)
-                except json.JSONDecodeError:
-                    logger.warning("Cadencia bridge: malformed JSON line: %s", line)
+                    # Read 1 byte at a time — prevents blocking on Windows pipes
+                    # (read(N) blocks until N bytes or EOF on Windows)
+                    chunk = await loop.run_in_executor(
+                        None, self._process.stdout.read, 1
+                    )
+                except Exception:
+                    return
+
+                if not chunk:
+                    return
+
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        msg = json.loads(line)
+                        # Match response to its pending request by sequence id
+                        rid = msg.get("id")
+                        if rid is not None and rid in self._pending:
+                            future = self._pending.pop(rid)
+                            future.set_result(msg)
+                        else:
+                            logger.warning(
+                                "Cadencia bridge: unsolicited response (id=%s)", rid
+                            )
+                    except json.JSONDecodeError:
+                        logger.warning("Cadencia bridge: malformed JSON line: %s", line)
+        finally:
+            # Reject any still-pending futures (process died)
+            for seq, future in self._pending.items():
+                if not future.done():
+                    future.set_exception(
+                        RuntimeError("Cadencia bridge process exited")
+                    )
+            self._pending.clear()

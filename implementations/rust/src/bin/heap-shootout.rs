@@ -101,11 +101,11 @@ fn lumen_roundtrip(v: &serde_json::Value) {
 
     let max_hdr = hyb128::MAX_ENCODED_LEN; // 11 bytes — worst-case Hyb128
 
-    let mut buf = Vec::with_capacity(max_hdr + 2 + compress::compressed_size(v));
+    let mut buf = Vec::with_capacity(max_hdr + 2 + compress::compressed_size(v, None));
     buf.resize(max_hdr + 2, 0u8); // placeholder: [Hyb128(11B)][TYPE][FLAGS]
 
     // Compress directly into buf after the placeholder
-    compress::compress_into(v, &mut buf);
+    compress::compress_into(v, &mut buf, None);
     let payload_len = buf.len() - (max_hdr + 2);
 
     // Compute real Hyb128 header size and shift TYPE+FLAGS+payload left if needed
@@ -125,7 +125,7 @@ fn lumen_roundtrip(v: &serde_json::Value) {
 
     match frame::parse(&buf) {
         frame::ParseResult::Complete { frame, .. } => {
-            let _val = compress::decompress(frame.payload).expect("LUMEN decompress");
+            let _val = compress::decompress(frame.payload, None).expect("LUMEN decompress");
         }
         _ => panic!("LUMEN parse"),
     }

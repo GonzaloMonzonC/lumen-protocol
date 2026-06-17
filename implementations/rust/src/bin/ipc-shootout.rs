@@ -119,7 +119,7 @@ fn json_roundtrip(stream: &mut TcpStream, payload: &serde_json::Value) -> u128 {
 fn lumen_roundtrip(stream: &mut TcpStream, payload: &serde_json::Value) -> u128 {
     let t0 = Instant::now();
 
-    let compressed = compress::compress(payload);
+    let compressed = compress::compress(payload, None);
     let overhead = 1 + 1 + hyb128::MAX_ENCODED_LEN;
     let mut frame_buf = vec![0u8; compressed.len() + overhead];
     let n = frame::build(
@@ -155,7 +155,7 @@ fn lumen_roundtrip(stream: &mut TcpStream, payload: &serde_json::Value) -> u128 
     let combined: Vec<u8> = [&len_buf[..header_pos], &echo_frame[..]].concat();
     match frame::parse(&combined) {
         frame::ParseResult::Complete { frame, .. } => {
-            let _val = compress::decompress(frame.payload).expect("lumen decompress");
+            let _val = compress::decompress(frame.payload, None).expect("lumen decompress");
         }
         _ => panic!("lumen parse failed"),
     }
@@ -267,7 +267,7 @@ fn run_protocol(workload: &Workload, is_lumen: bool) -> (Vec<u128>, usize) {
     for i in WARMUP..WARMUP + ITERS {
         let ns = if is_lumen {
             let ns = lumen_roundtrip(&mut stream, &workload.payloads[i]);
-            let compressed = compress::compress(&workload.payloads[i]);
+            let compressed = compress::compress(&workload.payloads[i], None);
             let overhead = 1 + 1 + hyb128::MAX_ENCODED_LEN;
             let mut fb = vec![0u8; compressed.len() + overhead];
             let n = frame::build(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &compressed, &mut fb);

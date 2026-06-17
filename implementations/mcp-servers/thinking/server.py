@@ -710,8 +710,8 @@ def tool_thought_to_plan(args: dict) -> dict:
         lines.append(f"## Step {i}")
         lines.append(f"**Origin**: Thought #{t['number']}")
         lines.append(f"**Action**: {t['thought']}")
-        if i < len(active):
-            lines.append(f"**Depends on**: Step {i + 1}")
+        if i > 1:
+            lines.append(f"**Depends on**: Step {i - 1}")
         lines.append("")
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}

@@ -25,7 +25,7 @@
 //! 3. Server generates ephemeral X25519 keypair
 //! 4. Server derives shared secret, replies PROBE_ACK with its `pk`
 //! 5. Client derives the same shared secret
-//! 6. Both sides derive AES-256 key via HKDF-SHA256 from shared secret
+//! 6. Both sides derive ChaCha20-Poly1305 key via HKDF-SHA256 from shared secret
 //! 7. Nonce counters start at 0 per direction (client→server, server→client)
 //!
 //! ## Nonce construction
@@ -37,6 +37,8 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, OsRng},
     ChaCha20Poly1305, Nonce,
 };
+use hkdf::Hkdf;
+use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -103,9 +105,14 @@ pub struct Cipher {
 }
 
 impl Cipher {
-    /// Create a new cipher from a 32-byte shared secret.
+    /// Create a new cipher from a 32-byte X25519 shared secret.
+    /// Derives the actual cipher key via HKDF-SHA256 with domain separation.
     pub fn new(shared_secret: &[u8; 32]) -> Self {
-        let key = chacha20poly1305::Key::from_slice(shared_secret);
+        let hkdf = Hkdf::<Sha256>::new(None, shared_secret);
+        let mut derived_key = [0u8; 32];
+        hkdf.expand(b"lumen-v1-cipher-key", &mut derived_key)
+            .expect("HKDF expand should not fail");
+        let key = chacha20poly1305::Key::from_slice(&derived_key);
         Self {
             aead: ChaCha20Poly1305::new(key),
             send_counter: 0,

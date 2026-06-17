@@ -40,6 +40,8 @@ struct Command {
     cmd: String,
     #[serde(default)]
     files: Vec<String>,
+    #[serde(default)]
+    id: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,6 +65,8 @@ struct Response {
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<u64>,
 }
 
 impl Response {
@@ -78,6 +82,7 @@ impl Response {
             elapsed_us: None,
             error: None,
             reason: None,
+            id: None,
         }
     }
 
@@ -99,11 +104,11 @@ fn encode_file(_path: &str, content: &[u8]) -> io::Result<Vec<u8>> {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
     );
 
-    let est = compress::compressed_size(&value);
+    let est = compress::compressed_size(&value, None);
     let max_hdr = hyb128::MAX_ENCODED_LEN;
     let mut buf = Vec::with_capacity(max_hdr + 2 + est);
     buf.resize(max_hdr + 2, 0u8);
-    compress::compress_into(&value, &mut buf);
+    compress::compress_into(&value, &mut buf, None);
 
     let payload_len = buf.len() - (max_hdr + 2);
     let real_hdr = hyb128::encoded_len(payload_len as u64);
@@ -205,12 +210,13 @@ fn main() -> io::Result<()> {
             }
         };
 
-        let resp = match cmd.cmd.as_str() {
+        let mut resp = match cmd.cmd.as_str() {
             "ping" => handle_ping(),
             "index" => handle_index(&cmd.files),
             "stop" => {
                 let mut r = Response::ok();
                 r.reason = Some("requested".into());
+                r.id = cmd.id;
                 writeln!(stdout, "{}", serde_json::to_string(&r).unwrap())?;
                 stdout.flush()?;
                 break;
@@ -218,6 +224,7 @@ fn main() -> io::Result<()> {
             _ => Response::err(&format!("unknown command: {}", cmd.cmd)),
         };
 
+        resp.id = cmd.id;
         writeln!(stdout, "{}", serde_json::to_string(&resp).unwrap())?;
         stdout.flush()?;
     }

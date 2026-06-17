@@ -9,6 +9,25 @@ __pycache__/
 *.pyo
 *.egg-info/
 
+# .NET build artifacts
+implementations/csharp/bin/
+implementations/csharp/obj/
+
+# Bench results (regenerate locally)
+bench_results*.json
+bench_stderr*.txt
+bench_out.json
+bench_err.txt
+implementations/python/bench_results*.json
+implementations/python/bench_stderr.txt
+implementations/typescript/bench_results*.json
+implementations/typescript/bench_stderr*.txt
+implementations/php/bench_*.json
+implementations/php/bench_*.txt
+
+# Work log (runtime artifact)
+implementations/mcp-servers/thinking/.work_log.json
+
 .vscode/
 .idea/
 *.swp

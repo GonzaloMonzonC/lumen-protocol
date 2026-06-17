@@ -105,11 +105,11 @@ fn lumen_encode(file_path: &str, content: &str) -> Vec<u8> {
         "content": content,
     });
 
-    let est = compress::compressed_size(&payload);
+    let est = compress::compressed_size(&payload, None);
     let max_hdr = hyb128::MAX_ENCODED_LEN;
     let mut buf = Vec::with_capacity(max_hdr + 2 + est);
     buf.resize(max_hdr + 2, 0u8);
-    compress::compress_into(&payload, &mut buf);
+    compress::compress_into(&payload, &mut buf, None);
 
     let payload_len = buf.len() - (max_hdr + 2);
     let real_hdr = hyb128::encoded_len(payload_len as u64);

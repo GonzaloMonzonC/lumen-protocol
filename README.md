@@ -17,7 +17,7 @@
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> &nbsp;|&nbsp;
-  <strong>✅ 29 tools — works with Hermes</strong>
+  <strong>✅ 33 tools — works with Hermes</strong>
 </p>
 
 ---
@@ -112,9 +112,9 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 |--------|-------|-------------|---------------|
 | **[Filesystem](implementations/mcp-servers/filesystem/)** | 9 (read, write, search, stream, stats...) | 32-70% | `transport: lumen` |
 | **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 40-50% | `transport: lumen` |
-| **[Thinking](implementations/mcp-servers/thinking/)** | 7 (sequential, similarity, contradiction...) | 60-80% | `transport: lumen` |
+| **[Thinking](implementations/mcp-servers/thinking/)** | 22 (sequential, similarity, contradiction, assumptions, model, work...) | 60-80% | `transport: lumen` |
 
-> **18 tools, 3 servers, 0 API keys required.**
+> **33 tools, 3 servers, 0 API keys required.**
 
 ---
 
