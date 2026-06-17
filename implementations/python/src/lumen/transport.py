@@ -16,6 +16,7 @@ import logging
 import subprocess
 import os
 import sys
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 
@@ -121,6 +122,10 @@ class LumenStdioTransport(Transport):
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._closed = False
+        # Chunk reader: a dedicated thread pushes stdout chunks into an
+        # asyncio queue to avoid O(threadpool) byte-at-a-time dispatch.
+        self._chunk_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=256)
+        self._stdout_thread: threading.Thread | None = None
 
         # Callbacks
         self.onmessage: OnMessageCallback = None
@@ -145,6 +150,9 @@ class LumenStdioTransport(Transport):
         # Use regular subprocess for simplicity; Python's asyncio subprocess
         # has quirks on Windows. We'll use a thread-based reader instead.
         self._process = subprocess.Popen(**kwargs)
+
+        # Start the stdout reader thread (feeds chunks into async queue)
+        self._start_stdout_thread()
 
         # Start stderr passthrough
         if self._process.stderr:
@@ -236,26 +244,49 @@ class LumenStdioTransport(Transport):
 
     # ── Receive helpers ────────────────────────────────────────────────────
 
-    async def _read_lumen(self) -> None:
-        """Read binary LUMEN frames from stdout."""
-        assert self._process and self._process.stdout
+    def _start_stdout_thread(self) -> None:
+        """Launch a dedicated thread that reads stdout in 64 KiB chunks.
 
+        Chunks are pushed into ``_chunk_queue`` via the event loop so the
+        async reader can consume them without per-byte threadpool dispatch.
+        On EOF the thread pushes ``b""`` as a sentinel.
+        """
         loop = asyncio.get_running_loop()
+        stdout = self._process.stdout  # captured before thread starts
 
+        def _run() -> None:
+            try:
+                while True:
+                    # 64 KiB chunks — large enough to amortize syscall cost,
+                    # small enough to keep latency acceptable.
+                    chunk = stdout.read(65536)
+                    if chunk is not None:
+                        loop.call_soon_threadsafe(self._chunk_queue.put_nowait, chunk)
+                    if not chunk:
+                        break  # EOF
+            except Exception:
+                # Pipe closed or other I/O error — push sentinel so the
+                # async reader can clean up.
+                try:
+                    loop.call_soon_threadsafe(self._chunk_queue.put_nowait, b"")
+                except Exception:
+                    pass
+
+        self._stdout_thread = threading.Thread(target=_run, daemon=True)
+        self._stdout_thread.start()
+
+    async def _read_lumen(self) -> None:
+        """Read binary LUMEN frames from the chunk queue (fed by reader thread)."""
         while True:
             try:
-                # Read 1 byte at a time — prevents blocking on Windows pipes
-                # (read(N) blocks until N bytes or EOF on Windows)
-                chunk = await loop.run_in_executor(
-                    None, self._process.stdout.read, 1
-                )
+                chunk = await self._chunk_queue.get()
             except Exception as exc:
                 if self.onerror:
                     self.onerror(exc)
                 return
 
             if not chunk:
-                # EOF
+                # EOF sentinel
                 if not self._closed and self.onclose:
                     self.onclose()
                 return
@@ -271,27 +302,27 @@ class LumenStdioTransport(Transport):
                         self.onerror(exc)
 
     async def _read_jsonrpc(self) -> None:
-        """Read JSON-RPC line-delimited messages from stdout."""
-        assert self._process and self._process.stdout
-
-        loop = asyncio.get_running_loop()
-
+        """Read JSON-RPC line-delimited messages from the chunk queue."""
         # Buffer for partial lines
         buf = b""
 
         while True:
             try:
-                # Use readline for line-delimited JSON-RPC (read() would
-                # block until EOF on Windows pipes)
-                chunk = await loop.run_in_executor(
-                    None, self._process.stdout.readline
-                )
+                chunk = await self._chunk_queue.get()
             except Exception as exc:
                 if self.onerror:
                     self.onerror(exc)
                 return
 
             if not chunk:
+                # Partial line at EOF is normal
+                if buf.strip():
+                    try:
+                        message = json.loads(buf)
+                        if self.onmessage:
+                            self.onmessage(message)
+                    except json.JSONDecodeError:
+                        pass
                 if not self._closed and self.onclose:
                     self.onclose()
                 return
@@ -307,7 +338,6 @@ class LumenStdioTransport(Transport):
                     if self.onmessage:
                         self.onmessage(message)
                 except json.JSONDecodeError:
-                    # Ignore malformed lines (including binary probe garbage)
                     pass
 
     async def _log_stderr(self) -> None:
@@ -327,9 +357,7 @@ class LumenStdioTransport(Transport):
             logger.debug("[mcp-server stderr] %s", chunk.decode("utf-8", errors="replace"))
 
     async def _wait_for_ack(self) -> bool:
-        """Wait for a PROBE_ACK frame from stdout within timeout."""
-        assert self._process and self._process.stdout
-
+        """Wait for a PROBE_ACK frame via the chunk queue (fed by reader thread)."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._probe_timeout_ms
 
@@ -339,10 +367,8 @@ class LumenStdioTransport(Transport):
                 break
 
             try:
-                # Read 1 byte at a time — prevents blocking on Windows pipes
-                # (read(N) blocks until N bytes or EOF on Windows)
                 chunk = await asyncio.wait_for(
-                    loop.run_in_executor(None, self._process.stdout.read, 1),
+                    self._chunk_queue.get(),
                     timeout=min(remaining, 0.1),
                 )
             except asyncio.TimeoutError:
@@ -351,7 +377,7 @@ class LumenStdioTransport(Transport):
                 return False
 
             if not chunk:
-                return False
+                return False  # EOF
 
             frames = self._assembler.push(chunk)
             for frame in frames:
