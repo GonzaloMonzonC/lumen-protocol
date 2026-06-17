@@ -34,7 +34,8 @@ Status of This Document
    README.md §Status & Roadmap and the source code in implementations/.
 
    Sections marked [PLANNED] describe features designed for future
-   versions and not present in the current codebase.
+   versions. Currently, no sections carry this marker — all planned
+   features have been implemented as of v0.1.0.
 
 Abstract
 
