@@ -50,14 +50,24 @@ def _cached(key: str, fetcher, ttl: int = _CACHE_TTL):
 
 # Private/reserved networks that must never be reached
 _PRIVATE_NETWORKS = [
-    ipaddress.ip_network("127.0.0.0/8"),      # Loopback
+    ipaddress.ip_network("0.0.0.0/8"),        # Current network (DHCP)
     ipaddress.ip_network("10.0.0.0/8"),        # RFC 1918
+    ipaddress.ip_network("100.64.0.0/10"),     # RFC 6598 (CGNAT)
+    ipaddress.ip_network("127.0.0.0/8"),       # Loopback
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / cloud metadata
     ipaddress.ip_network("172.16.0.0/12"),     # RFC 1918
     ipaddress.ip_network("192.168.0.0/16"),    # RFC 1918
-    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / cloud metadata
-    ipaddress.ip_network("::1/128"),            # IPv6 loopback
-    ipaddress.ip_network("fc00::/7"),           # IPv6 unique-local
+    ipaddress.ip_network("224.0.0.0/4"),       # Multicast
+    ipaddress.ip_network("240.0.0.0/4"),       # Reserved (Class E)
+    ipaddress.ip_network("::1/128"),           # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),          # IPv6 unique-local
+    ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
 ]
+
+# Max redirects to follow (prevents infinite loops)
+_MAX_REDIRECTS = 5
+# Max response bytes to avoid OOM
+_MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 # Extra blocked hostnames (comma-separated via LUMEN_BLOCKED_HOSTS env var)
 BLOCKED_HOSTS: list[str] = [
@@ -88,9 +98,13 @@ def _is_safe_url(url: str) -> None:
     if hostname.lower() in BLOCKED_HOSTS:
         raise SSRFError(f"Blocked: hostname '{hostname}' is in blocked hosts list")
 
+    # Default port: 443 for HTTPS, 80 for HTTP
+    default_port = 443 if parsed.scheme == "https" else 80
+    port = parsed.port or default_port
+
     # Resolve and check every returned address
     try:
-        addr_infos = socket.getaddrinfo(hostname, parsed.port or 80, proto=socket.IPPROTO_TCP)
+        addr_infos = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise SSRFError(f"Blocked: cannot resolve hostname '{hostname}'") from exc
 
@@ -147,11 +161,7 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
     try:
         api_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
         _is_safe_url(api_url)
-        req = urllib.request.Request(api_url, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; LUMEN-Web/1.0)"
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        data = json.loads(_safe_fetch(api_url, max_bytes=512 * 1024).decode("utf-8", errors="replace"))
         
         results = []
         # Abstract (main result)
@@ -189,13 +199,9 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
         _is_safe_url(url)
     except SSRFError:
         return [{"error": "Search request blocked by SSRF protection"}]
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    })
-    
+
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
+        html = _safe_fetch(url, max_bytes=2 * 1024 * 1024).decode("utf-8", errors="replace")
     except Exception:
         return [{"error": "Search request failed — check network"}]
     
@@ -219,6 +225,37 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
     return results if results else [{"error": f"No results for: {query}"}]
 
 
+def _safe_fetch(url: str, max_bytes: int = _MAX_RESPONSE_BYTES, timeout: int = 20) -> bytes:
+    """Fetch URL with SSRF check per redirect hop and size cap."""
+    current_url = url
+    for _ in range(_MAX_REDIRECTS + 1):
+        _is_safe_url(current_url)
+        req = urllib.request.Request(current_url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; LUMEN-Web/1.0)"
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if 300 <= resp.status < 400:
+                    loc = resp.headers.get("Location", "")
+                    if not loc:
+                        raise urllib.error.URLError("Redirect without Location header")
+                    current_url = urllib.parse.urljoin(current_url, loc)
+                    continue
+                # Streaming read with byte limit
+                chunks = []
+                total = 0
+                while total < max_bytes:
+                    chunk = resp.read(min(8192, max_bytes - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                return b"".join(chunks)
+        except urllib.error.HTTPError:
+            raise
+    raise urllib.error.URLError(f"Too many redirects (>{_MAX_REDIRECTS})")
+
+
 def _extract_page(url: str, max_chars: int = 5000) -> dict:
     """Extract a web page as simplified markdown text."""
     try:
@@ -226,15 +263,9 @@ def _extract_page(url: str, max_chars: int = 5000) -> dict:
     except SSRFError as e:
         return {"url": url, "content": f"[SSRF blocked: {e}]", "error": str(e)}
     try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; LUMEN-Web/1.0)"
-        })
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            if "text/html" not in content_type and "text/plain" not in content_type:
-                return {"url": url, "content": f"[Non-HTML content: {content_type}]", "content_type": content_type}
-            
-            raw = resp.read().decode("utf-8", errors="replace")
+        raw_bytes = _safe_fetch(url)
+        content_type = "text/html"  # assumed
+        raw = raw_bytes.decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         return {"url": url, "content": f"[HTTP {e.code}: {e.reason}]", "error": str(e)}
     except Exception as e:
@@ -296,7 +327,7 @@ def tool_web_search(args: dict) -> dict:
         extracts = []
         for r in results[:extract_top]:
             if "url" in r:
-                cached_extract = _cached(f"extract:{r['url']}", lambda: _extract_page(r['url'], extract_max))
+                cached_extract = _cached(f"extract:{r['url']}:{extract_max}", lambda: _extract_page(r['url'], extract_max))
                 extracts.append(cached_extract)
         output["extracted"] = extracts
     
@@ -310,7 +341,7 @@ def tool_web_extract(args: dict) -> dict:
     
     results = []
     for url in urls:
-        result = _cached(f"extract:{url}", lambda u=url: _extract_page(u, max_chars))
+        result = _cached(f"extract:{url}:{max_chars}", lambda u=url: _extract_page(u, max_chars))
         results.append(result)
     
     return {"content": [{"type": "text", "text": json.dumps(results, indent=2, ensure_ascii=False)}]}
