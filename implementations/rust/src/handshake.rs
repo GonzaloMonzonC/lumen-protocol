@@ -243,7 +243,15 @@ fn read_frame(stream: &mut dyn Transport) -> io::Result<Vec<u8>> {
     };
 
     // Phase 2: allocate buffer for the complete frame
-    let total = decoded.header_len + 2 + decoded.value as usize;
+    const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024; // 16 MB — reject larger
+    let payload_len = decoded.value as usize;
+    if payload_len > MAX_FRAME_SIZE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("frame payload too large: {payload_len} (max {MAX_FRAME_SIZE})"),
+        ));
+    }
+    let total = decoded.header_len + 2 + payload_len;
     let mut frame_buf = vec![0u8; total];
     frame_buf[..decoded.header_len].copy_from_slice(&header[..decoded.header_len]);
 
