@@ -301,8 +301,13 @@ fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> 
         TAG_ARRAY => {
             let len = hyb128::decode(&data[*pos..])?;
             *pos += len.header_len;
-            let mut arr = Vec::with_capacity((len.value as usize).min(1024));
-            for _ in 0..len.value {
+            let count = len.value as usize;
+            const MAX_ITEMS: usize = 1024;
+            if count > MAX_ITEMS {
+                return None; // reject oversized containers
+            }
+            let mut arr = Vec::with_capacity(count);
+            for _ in 0..count {
                 arr.push(decode_value(data, pos, session)?);
             }
             Some(Value::Array(arr))
@@ -311,7 +316,12 @@ fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> 
         TAG_OBJECT => {
             let len = hyb128::decode(&data[*pos..])?;
             *pos += len.header_len;
-            let mut map = serde_json::Map::with_capacity((len.value as usize).min(1024));
+            let count = len.value as usize;
+            const MAX_ITEMS: usize = 1024;
+            if count > MAX_ITEMS {
+                return None; // reject oversized containers
+            }
+            let mut map = serde_json::Map::with_capacity(count);
             for _ in 0..len.value {
                 let key = decode_key(data, pos, session)?;
                 let val = decode_value(data, pos, session)?;
