@@ -258,7 +258,11 @@ fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> 
 
         TAG_BOOL => {
             if *pos >= data.len() { return None; }
-            let b = data[*pos] != 0;
+            let b = match data[*pos] {
+                0 => false,
+                1 => true,
+                _ => return None, // non-canonical bool rejected
+            };
             *pos += 1;
             Some(Value::Bool(b))
         }
