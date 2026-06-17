@@ -9,7 +9,7 @@ The LUMEN binary compression happens transparently at the transport layer
 
 Usage:
     python server.py                          # direct
-    node server.py                            # via Hermes mcp_servers config
+    python server.py                            # via Hermes mcp_servers config
     hermes mcp add lumen-fs --command python --args server.py
 """
 
