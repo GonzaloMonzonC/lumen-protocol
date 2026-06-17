@@ -1,5 +1,5 @@
 {
-  "name": "@lumen/mcp-transport",
+  "name": "@lumen-protocol/mcp-transport",
   "version": "0.1.0",
   "description": "LUMEN binary transport for Model Context Protocol (MCP) — drop-in replacement for JSON-RPC transports",
   "license": "MIT",
