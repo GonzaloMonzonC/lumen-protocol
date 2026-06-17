@@ -2,8 +2,11 @@
 LUMEN Native Server — Inline Test (no subprocess, same process).
 Runs process_message() on synthetic LUMEN frames.
 """
+
+from __future__ import annotations
+
 import sys, os, json
-sys.path.insert(0, r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\python\src')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'python', 'src'))
 
 from lumen import build_frame, parse_frame, compress_value, decompress_value, ParseComplete
 from lumen import TYPE_REQUEST, TYPE_RESPONSE, FLAG_COMPRESSED, build_size

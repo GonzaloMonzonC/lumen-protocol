@@ -3,6 +3,8 @@ LUMEN Sequential Thinking — Comprehensive Test Suite.
 Tests all 7 tools, edge cases, TF-IDF correctness, and error handling.
 """
 
+from __future__ import annotations
+
 import subprocess, json, sys, os, time, math
 
 python = r"C:\Users\gonzalo\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"

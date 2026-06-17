@@ -17,6 +17,8 @@ Hermes config:
       transport: lumen
 """
 
+from __future__ import annotations
+
 import sys, os, json, re, time, urllib.request, urllib.error, urllib.parse, socket, ipaddress
 from pathlib import Path
 from typing import Any
