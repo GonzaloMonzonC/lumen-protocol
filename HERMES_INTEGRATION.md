@@ -206,6 +206,31 @@ mcp_servers:
 
 18 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
 
+### Tool Selection — SOUL.md
+
+By default, both LUMEN and built-in tools are available. To make the LLM prefer LUMEN tools, add this to `~/.hermes/SOUL.md`:
+
+```markdown
+## LUMEN MCP Tools
+
+You have access to LUMEN MCP tools (prefixed `mcp_lumen_*`).
+When both a LUMEN tool and a built-in equivalent exist for the same
+operation, **prefer the LUMEN tool**.
+
+| Built-in | LUMEN MCP | Why LUMEN is better |
+|----------|-----------|---------------------|
+| `read_file` | `mcp_lumen_filesystem_read_file` | 100K guard, compressed |
+| `search_files` | `mcp_lumen_filesystem_search_files` | 6x faster, +output modes |
+| `web_search` | `mcp_lumen_web_web_search` | Search+extract 1 call |
+| _(none)_ | `mcp_lumen_thinking_sequential_thinking` | External reasoning |
+```
+
+Alternatively, disable built-in tools entirely:
+```yaml
+tools:
+  disabled_toolsets: ["file"]
+```
+
 ---
 
 ## Roadmap
