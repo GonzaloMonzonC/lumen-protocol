@@ -114,18 +114,22 @@ impl DatagramTransport {
     ///
     /// The caller is responsible for building the frame with
     /// [`crate::frame::build`] first. If the frame exceeds
-    /// [`MAX_DATAGRAM_SIZE`], it is truncated.
+    /// [`MAX_DATAGRAM_SIZE`], returns `DatagramTooLarge` error.
     ///
-    /// Returns the number of bytes sent (may be less than `frame.len()`).
+    /// Returns the number of bytes sent.
     pub fn send_frame_to(&self, frame: &[u8], addr: SocketAddr) -> io::Result<usize> {
-        let len = frame.len().min(MAX_DATAGRAM_SIZE);
-        self.socket.send_to(&frame[..len], addr)
+        if frame.len() > MAX_DATAGRAM_SIZE {
+            return Err(io::Error::new(io::ErrorKind::Other, "datagram too large"));
+        }
+        self.socket.send_to(frame, addr)
     }
 
     /// Send to the connected peer (requires `connect()`).
     pub fn send_frame(&self, frame: &[u8]) -> io::Result<usize> {
-        let len = frame.len().min(MAX_DATAGRAM_SIZE);
-        self.socket.send(&frame[..len])
+        if frame.len() > MAX_DATAGRAM_SIZE {
+            return Err(io::Error::new(io::ErrorKind::Other, "datagram too large"));
+        }
+        self.socket.send(frame)
     }
 
     // ── Receive ───────────────────────────────────────────────────
