@@ -1,22 +1,28 @@
 # LUMEN MCP Servers
 
-Reference implementations of MCP servers using the LUMEN binary protocol.
+**Experimental MCP server demos** using LUMEN binary protocol for transport compression.
 
-Each server demonstrates how to build an MCP server that speaks LUMEN.  
-Two transport modes available:
+⚠️ **Status: Alpha/Demo** — Not production-ready. Sandboxing, session isolation, and
+reproducible benchmarks are still being built. These servers demonstrate the concept
+of binary transport for MCP, but should be used with caution and explicit configuration.
 
-- **`server.py`** — JSON-RPC + LUMEN wrapper (32-60% wire savings). Works with any MCP client.
-- **`server_native.py`** — LUMEN native binary (50-80% wire savings). Requires LUMEN-aware client.
+Each server demonstrates how LUMEN reduces MCP wire overhead through Hyb128 encoding
+and dictionary compression. Two transport modes are provided:
+
+- **`server.py`** — Standard JSON-RPC over stdio, with LUMEN wrapping at transport layer.
+  Compatible with any MCP client that supports `transport: lumen`.
+- **`server_native.py`** — LUMEN binary frames directly (no JSON-RPC wrapping).
+  Requires LUMEN-aware client. **Currently experimental — frame parser and handshake still being hardened.**
 
 ## Servers
 
-| Server | Tools | Wire Savings | Multi-Agent | Unique Features |
-|--------|-------|-------------|-------------|-----------------|
-| **[Filesystem](filesystem/)** | 9 | 32-70% | ✅ | `read_files` (bulk), `search_with_context`, `stream_read`, `server_stats` |
-| **[Web](web/)** | 2 | 40-50% | ✅ | `web_search` + `web_extract` in 1 call, zero API keys |
-| **[Thinking](thinking/)** | 22 | 60-80% | ✅ | Sequential reasoning, TF-IDF similarity, contradiction detection, assumptions, mental model, work tracking |
+| Server | Tools | Key Features |
+|--------|-------|--------------|
+| **[Filesystem](filesystem/)** | 9 | `read_files` (bulk), `search_with_context`, `stream_read`, `server_stats` |
+| **[Web](web/)** | 2 | `web_search` + `web_extract` combined, zero API keys required |
+| **[Thinking](thinking/)** | 22 | Sequential reasoning chains, TF-IDF similarity, contradiction detection, assumptions, project mental model, work tracking |
 
-**33 tools across 3 servers. Zero external dependencies (stdlib only).**
+**33 tools across 3 servers. Standard library only — no external dependencies.**
 
 ## Quick Start
 
@@ -52,17 +58,10 @@ mcp_servers:
 
 ## Benchmarks
 
-Benchmarked against Hermes Agent built-in equivalents. Same machine, same operations.
-
-| Tool | Hermes Built-in | LUMEN MCP | Overhead | Wire Savings |
-|------|----------------|-----------|----------|-------------|
-| `read_file` (100 lines) | 0.16ms | 0.42ms | +0.26ms | 32-50% |
-| `search_files` | 13.8ms | 2.2ms | -11.5ms ⚡ | 50% |
-| `list_directory` (80 files) | 9.7ms | 12.7ms | +3.0ms | 23% |
-| `tools/list` (4 tools) | N/A | 1128→581B | N/A | 48% |
-| `sequential_thinking` (30 thoughts) | ❌ | 0.1ms/op | N/A | 60-80% |
-
-> **Average LUMEN overhead: +0.3ms/op** — imperceptible vs 500-5000ms LLM latency.
+> ⚠️ **Pending** — Reproducible benchmarks are being built.  
+> Current numbers in this README are illustrative only.
+> Run `python benchmarks/mcp_servers/run.py` when available.
+> See [plan-mcp.md](../temp/plan-mcp.md) for scope.
 
 ## Architecture
 
@@ -71,9 +70,8 @@ Hermes Agent                     MCP Server (this repo)
     │                                    │
     │  LUMEN binary frames               │
     │  ═════════════════════════►         │
-    │  32-80% wire savings               │  ──► OS / filesystem / web / AI
-    │  MUX channels (native)             │
-    │  STREAM_DATA (native)              │
+    │  Hyb128 + dict compression          │  ──► OS / filesystem / web / AI
+    │  Frame types: REQUEST/RESPONSE     │
 ```
 
 ## Creating a New Server
