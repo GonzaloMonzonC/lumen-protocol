@@ -915,6 +915,8 @@ def _update_dependents():
 def tool_model_add(args: dict) -> dict:
     """Add a file to the mental model."""
     path = args["path"]
+    # Normalize to forward slashes for cross-platform consistency
+    path = path.replace("\\", "/")
     role = args.get("role", "other")
     deps = args.get("deps", [])
     notes = args.get("notes", "")
@@ -1123,6 +1125,123 @@ def tool_model_remove(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+def tool_model_scan(args: dict) -> dict:
+    """Auto-scan a directory and build the mental model."""
+    scan_path = args.get("path", ".")
+    patterns = args.get("file_patterns", ["*.py", "*.js", "*.ts", "*.rs", "*.go"])
+    max_files = min(args.get("max_files", 100), 500)
+
+    scan_dir = Path(scan_path)
+    if not scan_dir.exists() or not scan_dir.is_dir():
+        return {"content": [{"type": "text", "text": f"Error: Directory not found: {scan_path}"}]}
+
+    # Discover files matching patterns
+    discovered = []
+    for pat in patterns:
+        for f in scan_dir.rglob(pat):
+            if len(discovered) >= max_files:
+                break
+            # Skip hidden dirs and common excludes
+            parts = f.parts
+            if any(p.startswith(".") and p != "." for p in parts):
+                continue
+            if any(p in ("node_modules", "__pycache__", ".git", "venv", "dist", "build", ".hermes") for p in parts):
+                continue
+            discovered.append(f)
+        if len(discovered) >= max_files:
+            break
+
+    discovered = discovered[:max_files]
+
+    # Guess role from filename and path
+    def guess_role(filepath: Path) -> str:
+        name = filepath.stem.lower()
+        path_str = str(filepath).lower()
+        if "test" in name or "spec" in name:
+            return "test"
+        if "auth" in name or "login" in name or "session" in name:
+            return "authentication"
+        if "db" in name or "database" in name or "model" in name or "schema" in name:
+            return "database"
+        if "api" in name or "route" in name or "endpoint" in name or "handler" in name:
+            return "api"
+        if "config" in name or "setting" in name or ".env" in name:
+            return "config"
+        if "main" in name or "index" in name or "app" in name or "server" in name:
+            return "entry_point"
+        if "util" in name or "helper" in name or "common" in name:
+            return "util"
+        if name.startswith("test_"):
+            return "test"
+        return "other"
+
+    # Detect import dependencies for Python files
+    def detect_deps(filepath: Path) -> list:
+        deps = []
+        if filepath.suffix != ".py":
+            return deps
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except:
+            return deps
+        # Simple from/import detection
+        for line in content.split("\n"):
+            line = line.strip()
+            if line.startswith("from ") or line.startswith("import "):
+                # Extract module names
+                parts = line.replace("from ", "").replace("import ", "").split()
+                if parts:
+                    mod = parts[0]
+                    # Convert dotted module to potential file path
+                    mod_path = mod.replace(".", os.sep) + ".py"
+                    # Check if this module exists in the scanned directory
+                    for d in discovered:
+                        if str(d).endswith(mod_path) or d.stem == mod.split(".")[-1]:
+                            rel = str(d.relative_to(scan_dir)) if d.is_relative_to(scan_dir) else str(d)
+                            deps.append(rel)
+                            break
+        return deps[:10]  # Cap deps
+
+    # Build model
+    added = 0
+    updated = 0
+    for f in discovered:
+        try:
+            rel = str(f.relative_to(scan_dir))
+        except ValueError:
+            rel = str(f)
+        # Normalize to forward slashes for cross-platform query consistency
+        rel = rel.replace("\\", "/")
+        role = guess_role(f)
+        deps = detect_deps(f)
+
+        existing = rel in _model
+        _model[rel] = {
+            "role": role,
+            "deps": deps,
+            "dependents": [],
+            "notes": f"Auto-scanned from {scan_path}",
+            "added_at": time.time(),
+        }
+        if existing:
+            updated += 1
+        else:
+            added += 1
+
+    _update_dependents()
+
+    lines = [
+        f"🔍 Scanned {scan_path}",
+        f"   Files found:    {len(discovered)}",
+        f"   Added to model: {added}",
+        f"   Updated:        {updated}",
+        f"   Total in model: {len(_model)}",
+        f"",
+        f"   Use model_map() to visualize or model_query() to explore.",
+    ]
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Context Decay Detector — preserve critical info from context loss
 # ═══════════════════════════════════════════════════════════════════════
@@ -1228,6 +1347,7 @@ HANDLERS = {
     "model_stats": tool_model_stats,
     "model_map": tool_model_map,
     "model_remove": tool_model_remove,
+    "model_scan": tool_model_scan,
     "context_preserve": tool_context_preserve,
     "context_check": tool_context_check,
 }
