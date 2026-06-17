@@ -429,7 +429,16 @@ impl SessionDict {
         let idx = (id - STATIC_MAX) as usize;
         let key_str = key.into();
 
-        // Remove old reverse entry if overwriting
+        // If this key already exists at a different ID, clean up the old slot
+        if let Some(&old_id) = self.reverse.get(&key_str) {
+            if old_id != id {
+                let old_idx = (old_id - STATIC_MAX) as usize;
+                self.forward[old_idx] = None;
+                self.lru_count[old_idx].store(0, Ordering::Relaxed);
+            }
+        }
+
+        // Remove old reverse entry if overwriting this slot
         if let Some(ref old_key) = self.forward[idx] {
             self.reverse.remove(old_key);
         }
