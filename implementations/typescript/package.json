@@ -3,18 +3,18 @@
   "version": "0.1.0",
   "description": "LUMEN binary transport for Model Context Protocol (MCP) — drop-in replacement for JSON-RPC transports",
   "license": "MIT",
-    "publishConfig": {
-      "access": "public"
-    },
-    "main": "dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-      "build": "tsc",
-      "test": "node --test dist/**/*.test.js"
-    },
+    "build": "tsc",
+    "test": "node --test dist/**/*.test.js"
+  },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.0.0"
   },
