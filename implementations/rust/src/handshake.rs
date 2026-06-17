@@ -327,7 +327,7 @@ pub fn client_encrypted_handshake(
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let probe_size = crate::frame::build_size(probe_json.len());
     let mut probe_buf = vec![0u8; probe_size];
-    crate::frame::build(crate::frame::TYPE_PROBE, crate::frame::FLAG_COMPRESSED, &probe_json, &mut probe_buf);
+    crate::frame::build(crate::frame::TYPE_PROBE, 0, &probe_json, &mut probe_buf);
     stream.write_all(&probe_buf[..probe_size])?;
     stream.flush()?;
 
@@ -440,7 +440,7 @@ pub fn server_encrypted_handshake(
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let ack_size = crate::frame::build_size(ack_json.len());
     let mut ack_buf = vec![0u8; ack_size];
-    crate::frame::build(crate::frame::TYPE_PROBE_ACK, crate::frame::FLAG_COMPRESSED, &ack_json, &mut ack_buf);
+    crate::frame::build(crate::frame::TYPE_PROBE_ACK, 0, &ack_json, &mut ack_buf);
     ack_buf.truncate(ack_size);
 
     Ok((handshake, ack_buf))
