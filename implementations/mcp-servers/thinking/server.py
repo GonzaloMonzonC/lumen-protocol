@@ -238,6 +238,43 @@ TOOLS = [
                 "topN": {"type": "integer", "description": "Max cross-chain connections (default: 3)", "default": 3, "maximum": 5}
             }
         }
+    },
+    {
+        "name": "assume",
+        "description": "Explicitly record an assumption you are making. This EXPANDS your awareness of blind spots — it does NOT make decisions for you. The user can review and correct your assumptions. Use this when solving problems: 'I'm assuming X. Let me write that down so we can verify it later.'",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "statement": {"type": "string", "description": "The assumption you are making (e.g. 'the bug is in auth.py')"},
+                "category": {"type": "string", "description": "Category: 'bug_location', 'user_env', 'dependency', 'performance', 'security', 'design', 'other'", "default": "other"},
+                "confidence_note": {"type": "string", "description": "Why you think this might be true (e.g. 'based on error trace', 'user mentioned Windows')"}
+            },
+            "required": ["statement"]
+        }
+    },
+    {
+        "name": "list_assumptions",
+        "description": "List all recorded assumptions. Shows which are confirmed, refuted, or unverified. Use this to review your blind spots before acting on them.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["all", "unverified", "confirmed", "refuted"], "description": "Filter by status (default: unverified)", "default": "unverified"},
+                "category": {"type": "string", "description": "Filter by category"}
+            }
+        }
+    },
+    {
+        "name": "check_assumption",
+        "description": "Mark an assumption as confirmed or refuted after verification. Use this to close the loop: 'I assumed X — let me check... confirmed!' This builds a track record of your accuracy without automating decisions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "assumption_id": {"type": "integer", "description": "ID of the assumption to check"},
+                "outcome": {"type": "string", "enum": ["confirmed", "refuted"], "description": "Was the assumption correct?"},
+                "evidence": {"type": "string", "description": "What evidence confirmed or refuted it"}
+            },
+            "required": ["assumption_id", "outcome"]
+        }
     }
 ]
 
@@ -659,6 +696,126 @@ def tool_thought_bridge(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Assumption Tracker — cognitive safety tools
+# ═══════════════════════════════════════════════════════════════════════
+
+_assumptions: list[dict] = []
+_next_assumption_id = 1
+
+
+def tool_assume(args: dict) -> dict:
+    """Record an assumption explicitly."""
+    global _next_assumption_id
+
+    statement = args["statement"]
+    category = args.get("category", "other")
+    confidence_note = args.get("confidence_note", "")
+
+    assumption = {
+        "id": _next_assumption_id,
+        "statement": statement,
+        "category": category,
+        "confidence_note": confidence_note,
+        "status": "unverified",
+        "timestamp": time.time(),
+    }
+    _assumptions.append(assumption)
+    _next_assumption_id += 1
+
+    lines = [
+        f"📝 Assumption #{assumption['id']} recorded:",
+        f"   \"{statement}\"",
+        f"   Category: {category}",
+    ]
+    if confidence_note:
+        lines.append(f"   Basis: {confidence_note}")
+    lines.append(f"   Status: ⏳ unverified — check later with check_assumption")
+
+    # Show related unverified assumptions for awareness
+    unverified = [a for a in _assumptions if a["status"] == "unverified" and a["id"] != assumption["id"]]
+    if unverified:
+        lines.append(f"\n   ⚠️  You have {len(unverified)} other unverified assumption(s):")
+        for a in unverified[-3:]:
+            lines.append(f"      #{a['id']}: {a['statement'][:80]}...")
+        if len(unverified) > 3:
+            lines.append(f"      ... and {len(unverified)-3} more. Use list_assumptions() to see all.")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_list_assumptions(args: dict) -> dict:
+    """List assumptions with optional filtering."""
+    status_filter = args.get("status", "unverified")
+    category_filter = args.get("category")
+
+    filtered = _assumptions
+    if status_filter != "all":
+        filtered = [a for a in filtered if a["status"] == status_filter]
+    if category_filter:
+        filtered = [a for a in filtered if a["category"] == category_filter]
+
+    if not filtered:
+        return {"content": [{"type": "text", "text": f"No assumptions found (filter: status={status_filter}, category={category_filter or 'any'})."}]}
+
+    total = len(_assumptions)
+    confirmed = sum(1 for a in _assumptions if a["status"] == "confirmed")
+    refuted = sum(1 for a in _assumptions if a["status"] == "refuted")
+    unverified_count = total - confirmed - refuted
+
+    lines = [f"📋 Assumptions ({len(filtered)} shown, {total} total)"]
+    lines.append(f"   ✅ {confirmed} confirmed | ❌ {refuted} refuted | ⏳ {unverified_count} unverified")
+    lines.append("")
+
+    for a in filtered:
+        icon = {"unverified": "⏳", "confirmed": "✅", "refuted": "❌"}.get(a["status"], "?")
+        lines.append(f"   {icon} #{a['id']} [{a['category']}] {a['statement'][:120]}")
+        if a.get("evidence"):
+            lines.append(f"      Evidence: {a['evidence'][:100]}")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_check_assumption(args: dict) -> dict:
+    """Mark an assumption as confirmed or refuted."""
+    aid = args["assumption_id"]
+    outcome = args["outcome"]
+    evidence = args.get("evidence", "")
+
+    target = None
+    for a in _assumptions:
+        if a["id"] == aid:
+            target = a
+            break
+
+    if not target:
+        return {"content": [{"type": "text", "text": f"Error: Assumption #{aid} not found."}]}
+
+    target["status"] = outcome
+    target["evidence"] = evidence
+    target["checked_at"] = time.time()
+
+    icon = "✅" if outcome == "confirmed" else "❌"
+    lines = [f"{icon} Assumption #{aid} → {outcome}"]
+    lines.append(f"   \"{target['statement'][:120]}\"")
+    if evidence:
+        lines.append(f"   Evidence: {evidence[:200]}")
+
+    # Show learning: how many right/wrong so far
+    confirmed = sum(1 for a in _assumptions if a["status"] == "confirmed")
+    refuted = sum(1 for a in _assumptions if a["status"] == "refuted")
+    total_checked = confirmed + refuted
+    if total_checked > 0:
+        pct = confirmed * 100 // total_checked
+        lines.append(f"\n   📊 Track record: {confirmed}/{total_checked} confirmed ({pct}%)")
+        if pct < 50:
+            lines.append(f"   💡 Your assumptions are often wrong — consider listing them before acting.")
+        elif pct > 80:
+            lines.append(f"   💡 Your assumptions are usually right — but don't get overconfident.")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -667,6 +824,9 @@ HANDLERS = {
     "thought_to_plan": tool_thought_to_plan,
     "thought_evaluate": tool_thought_evaluate,
     "thought_bridge": tool_thought_bridge,
+    "assume": tool_assume,
+    "list_assumptions": tool_list_assumptions,
+    "check_assumption": tool_check_assumption,
 }
 
 
