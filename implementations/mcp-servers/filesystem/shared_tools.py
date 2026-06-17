@@ -101,7 +101,7 @@ TOOLS = [
             "properties": {
                 "pattern": {"type": "string", "description": "Regex pattern to search for"},
                 "path": {"type": "string", "description": "Directory or file to search in (default: current working directory)", "default": "."},
-                "context_lines": {"type": "integer", "description": "Lines of context before and after each match (default: 3)", "default": 3, "minimum": 0, "maximum": 20},
+                "context": {"type": "integer", "description": "Lines of context before and after each match (default: 3)", "default": 3, "minimum": 0, "maximum": 20},
                 "file_glob": {"type": "string", "description": "Filter files by glob (e.g., '*.py')"},
                 "limit": {"type": "integer", "description": "Max matches to return (default: 20)", "default": 20, "maximum": 100}
             },
@@ -506,7 +506,7 @@ def tool_search_with_context(args: dict) -> dict:
     """Search with context lines around each match."""
     pattern = args["pattern"]
     search_path = args.get("path", ".")
-    context = min(args.get("context_lines", 3), 20)
+    context = min(args.get("context", 3), 20)
     file_glob = args.get("file_glob")
     limit = min(args.get("limit", 20), 100)
 
