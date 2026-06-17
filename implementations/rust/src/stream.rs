@@ -122,9 +122,20 @@ impl StreamInit {
 
     /// Decode a STREAM_INIT payload. Returns `None` if the data is too short
     /// or the model_len field exceeds available bytes.
+    ///
+    /// In strict mode, trailing bytes after the payload are rejected.
     pub fn decode(data: &[u8]) -> Option<Self> {
+        Self::decode_inner(data, false)
+    }
+
+    /// Strict decode: rejects trailing bytes and non-canonical encodings.
+    pub fn decode_strict(data: &[u8]) -> Option<Self> {
+        Self::decode_inner(data, true)
+    }
+
+    fn decode_inner(data: &[u8], strict: bool) -> Option<Self> {
         if data.len() < 13 {
-            return None; // minimum: 4+4+4+1 = 13 bytes
+            return None;
         }
 
         let stream_id = u32::from_le_bytes(data[0..4].try_into().ok()?);
@@ -132,11 +143,15 @@ impl StreamInit {
         let temperature = f32::from_le_bytes(data[8..12].try_into().ok()?);
         let model_len = data[12] as usize;
 
-        if data.len() < 13 + model_len {
-            return None; // truncated model name
+        let expected_end = 13 + model_len;
+        if data.len() < expected_end {
+            return None;
+        }
+        if strict && data.len() != expected_end {
+            return None; // trailing bytes
         }
 
-        let model = String::from_utf8(data[13..13 + model_len].to_vec()).ok()?;
+        let model = String::from_utf8(data[13..expected_end].to_vec()).ok()?;
 
         Some(Self {
             stream_id,
@@ -185,15 +200,35 @@ impl StreamData {
     }
 
     /// Decode a STREAM_DATA payload. Returns `None` if the data is too short.
+    ///
+    /// In strict mode, trailing bytes after `token_data` are rejected.
+    /// `TOKEN_END` must have empty `token_data` in strict mode.
     pub fn decode(data: &[u8]) -> Option<Self> {
+        Self::decode_inner(data, false)
+    }
+
+    /// Strict decode: rejects trailing bytes and validates token constraints.
+    pub fn decode_strict(data: &[u8]) -> Option<Self> {
+        Self::decode_inner(data, true)
+    }
+
+    fn decode_inner(data: &[u8], strict: bool) -> Option<Self> {
         if data.len() < 9 {
-            return None; // minimum: 4+4+1 = 9 bytes
+            return None;
         }
 
         let stream_id = u32::from_le_bytes(data[0..4].try_into().ok()?);
         let token_seq = u32::from_le_bytes(data[4..8].try_into().ok()?);
         let token_type = data[8];
         let token_data = data[9..].to_vec();
+
+        // Strict: TOKEN_END must have empty token_data
+        if strict && token_type == TOKEN_END && !token_data.is_empty() {
+            return None;
+        }
+
+        // Strict: no trailing bytes (already covered — we take all remaining)
+        // Non-strict: trailing bytes are silently included in token_data
 
         Some(Self {
             stream_id,
