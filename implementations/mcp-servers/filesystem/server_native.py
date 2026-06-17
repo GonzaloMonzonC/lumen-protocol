@@ -118,23 +118,20 @@ def send_lumen_frame(response: dict) -> None:
         return
 
     from lumen.negotiation import LumenAck
-    from lumen import TYPE_PROBE_ACK, FLAG_COMPRESSED as FC
 
     # Handle PROBE_ACK marker
     if response.get("__lumen_ack__"):
         ack = response["ack"]
         payload = compress_value(ack)
-        header_size = build_size(payload)
-        total_size = header_size + len(payload)
+        total_size = build_size(len(payload))
         buf = bytearray(total_size)
-        build_frame(TYPE_PROBE_ACK, FC, payload, buf, 0)
+        build_frame(TYPE_PROBE_ACK, FLAG_COMPRESSED, payload, buf, 0)
         sys.stdout.buffer.write(buf)
         sys.stdout.buffer.flush()
         return
 
     payload = compress_value(response)
-    header_size = build_size(payload)  # header only
-    total_size = header_size + len(payload)
+    total_size = build_size(len(payload))
     buf = bytearray(total_size)
     build_frame(TYPE_RESPONSE, FLAG_COMPRESSED, payload, buf, 0)
     sys.stdout.buffer.write(buf)
