@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "LUMEN binary protocol transport for MCP (Model Context Protocol)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
-    { name = "LUMEN Contributors" },
+    { name = "Gonzalo Monzón", email = "gonzalo@cadenceslab.com" },
 ]
 keywords = ["mcp", "model-context-protocol", "binary-protocol", "lumen"]
 classifiers = [
