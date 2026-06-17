@@ -19,8 +19,15 @@ import os
 import re
 import fnmatch
 import glob as globmod
+import time
+import math
 from pathlib import Path
 from typing import Any
+
+# ── Server metrics ──
+_start_time = time.time()
+_request_count = 0
+_tool_usage: dict[str, int] = {}
 
 # ═══════════════════════════════════════════════════════════════════════
 # Tool definitions (mirrors Hermes built-in schemas exactly)
@@ -107,6 +114,27 @@ TOOLS = [
                 "limit": {"type": "integer", "description": "Max matches to return (default: 20)", "default": 20, "maximum": 100}
             },
             "required": ["pattern"]
+        }
+    },
+    {
+        "name": "stream_read",
+        "description": "Stream-read a large file in chunks. Use for files too big for read_file. Call repeatedly with increasing chunk_number to paginate through the file. Returns chunk N of total chunks with line numbers. Use this instead of read_file when the file exceeds 2000 lines.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file to stream-read"},
+                "chunk_number": {"type": "integer", "description": "Which chunk to return (1-based, default: 1)", "default": 1, "minimum": 1},
+                "chunk_size": {"type": "integer", "description": "Lines per chunk (default: 500, max: 5000)", "default": 500, "maximum": 5000}
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "server_stats",
+        "description": "Get LUMEN filesystem server health metrics: uptime, request count, tool usage, memory info. Use for monitoring and debugging.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
         }
     },
     {
@@ -451,6 +479,90 @@ def tool_search_with_context(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Error searching: {e}"}]}
 
 
+def tool_stream_read(args: dict) -> dict:
+    """Stream-read a large file in chunks."""
+    path = resolve_path(args["path"])
+    chunk_number = args.get("chunk_number", 1)
+    chunk_size = min(args.get("chunk_size", 500), 5000)
+
+    if not path.exists():
+        return {"content": [{"type": "text", "text": f"Error: File not found: {path}"}]}
+    if not path.is_file():
+        return {"content": [{"type": "text", "text": f"Error: Not a file: {path}"}]}
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error reading file: {e}"}]}
+
+    total_lines = len(all_lines)
+    total_chunks = math.ceil(total_lines / chunk_size)
+    chunk_start = (chunk_number - 1) * chunk_size
+    chunk_end = min(total_lines, chunk_start + chunk_size)
+
+    if chunk_start >= total_lines:
+        return {"content": [{"type": "text", "text": f"Error: Chunk {chunk_number} out of range. File has {total_lines} lines ({total_chunks} chunks of {chunk_size})."}]}
+
+    result_lines = []
+    output = ""
+    for i in range(chunk_start, chunk_end):
+        line_text = f"{i+1}|{all_lines[i].rstrip()}"
+        result_lines.append(line_text)
+        output = "\n".join(result_lines)
+        if len(output) > 100_000:
+            output += f"\n... (truncated in chunk {chunk_number})"
+            break
+
+    output = "\n".join(result_lines)
+    header = f"📖 {path.name} — chunk {chunk_number}/{total_chunks} (lines {chunk_start+1}-{chunk_end} of {total_lines})\n"
+    if chunk_number < total_chunks:
+        header += f"   Next: stream_read(path, chunk_number={chunk_number+1})\n"
+    else:
+        header += "   🏁 Final chunk\n"
+    output = header + output
+
+    return {"content": [{"type": "text", "text": output}]}
+
+
+def tool_server_stats(args: dict) -> dict:
+    """Return server health metrics."""
+    uptime = time.time() - _start_time
+    hours = int(uptime // 3600)
+    minutes = int((uptime % 3600) // 60)
+    seconds = int(uptime % 60)
+
+    stats = {
+        "server": "lumen-filesystem",
+        "version": "1.0.0",
+        "uptime": f"{hours}h {minutes}m {seconds}s",
+        "uptime_seconds": round(uptime, 1),
+        "total_requests": _request_count,
+        "tool_usage": dict(_tool_usage),
+        "tools_available": len(HANDLERS),
+    }
+
+    # Memory estimate
+    try:
+        import sys as _sys
+        stats["memory_estimate"] = f"~{_sys.getsizeof(_tool_usage):,}B"
+    except:
+        pass
+
+    lines = [f"📊 LUMEN Filesystem Server Stats",
+             f"   Uptime:     {stats['uptime']}",
+             f"   Requests:   {stats['total_requests']}",
+             f"   Tools:      {stats['tools_available']}",
+             f"   Memory:     {stats.get('memory_estimate', 'N/A')}",
+             f"",
+             f"   Tool usage:"]
+    for tool, count in sorted(stats['tool_usage'].items(), key=lambda x: -x[1]):
+        bar = "█" * min(count, 30)
+        lines.append(f"   {tool:<20} {bar} {count}")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 def tool_patch(args: dict) -> dict:
     """Targeted find-and-replace in a file."""
     path = resolve_path(args["path"])
@@ -495,8 +607,10 @@ HANDLERS = {
     "write_file": tool_write_file,
     "search_files": tool_search_files,
     "search_with_context": tool_search_with_context,
-    "patch": tool_patch,
     "list_directory": tool_list_directory,
+    "stream_read": tool_stream_read,
+    "server_stats": tool_server_stats,
+    "patch": tool_patch,
 }
 
 
@@ -508,6 +622,9 @@ def send(msg: dict) -> None:
 
 def handle_message(msg: dict) -> None:
     """Handle a single JSON-RPC message."""
+    global _request_count, _tool_usage
+    _request_count += 1
+    
     method = msg.get("method", "")
     req_id = msg.get("id")
 
@@ -532,6 +649,7 @@ def handle_message(msg: dict) -> None:
 
         handler = HANDLERS.get(tool_name)
         if handler:
+            _tool_usage[tool_name] = _tool_usage.get(tool_name, 0) + 1
             try:
                 result = handler(tool_args)
                 send({"jsonrpc": "2.0", "id": req_id, "result": result})
