@@ -495,7 +495,6 @@ def generate_report(
     lines.append("## 📋 Summary & Recommendations")
     lines.append("")
     lines.append(f"- **Average wire savings:** {fmt_pct(avg_savings)} across all MCP payloads")
-    lines.append(f"- **Encoding speedup vs JSON:** {speedup:.1f}× (mean roundtrip)")
     lines.append(f"- **Correctness:** {passed}/{total} payloads verified")
     lines.append(f"- **Edge cases:** {sum(1 for e in edge_results if e.roundtrip_ok)}/{len(edge_results)} pass roundtrip")
     lines.append("")
