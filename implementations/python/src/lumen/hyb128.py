@@ -162,6 +162,6 @@ def _leb128_decode(data: bytes | bytearray | memoryview, offset: int) -> tuple[i
         value |= (byte & 0x7F) << shift
         i += 1
         if not (byte & 0x80):
-            return (value, i - offset + 1)  # +1 for the mode byte
+            return (value, i - offset)
         shift += 7
     return None
