@@ -14,6 +14,12 @@
   <strong>English</strong> &nbsp;|&nbsp; <a href="README_ES.md">Español</a>
 </p>
 
+<p align="center">
+  <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
+  <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> &nbsp;|&nbsp;
+  <strong>✅ 29 tools — works with Hermes</strong>
+</p>
+
 ---
 
 ## Why?
