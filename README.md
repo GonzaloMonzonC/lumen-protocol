@@ -16,14 +16,12 @@
 
 ---
 
-## ¿Por qué? / Why?
+## Why?
 
 JSON-RPC over stdio is the MCP standard. It works. But at scale, it hurts:
 
 | Pain | LUMEN answer |
-|
-[![Hermes Integration](HERMES_INTEGRATION.md)](HERMES_INTEGRATION.md)
-------|-------------|
+|------|-------------|
 | **Verbose wire** — `{"jsonrpc":"2.0","id":7,...}` on every message | **Static dictionary** (128 keys) + **session dictionary** (127 keys). Repeated keys → 1 byte. |
 | **Costly parsing** — every JSON blob must be fully decoded | **Self-delimiting frames** (Hyb128). Skip entire frames in O(1). |
 | **No streaming** — JSON is a single, complete document | **Native streaming** (`STREAM_DATA` + `STREAM_INIT` frames). Tokens arrive token-by-token. |
@@ -39,11 +37,9 @@ cd lumen-protocol
 
 # Python
 cd implementations/python && pip install -e . && cd ../..
-python examples/cost-calculator/cost_calculator.py
 
 # TypeScript
 cd implementations/typescript && npm install && npm run build && cd ../..
-node --test implementations/typescript/dist/*.test.js
 
 # Rust
 cd implementations/rust && cargo test && cargo bench && cd ../..
@@ -82,6 +78,8 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Tool list (100 tools) | 39.7 KB | 24.8 KB | **37%** |
 | LLM token stream (10K) | 1009 KB | 543 KB | **46%** |
 | Agent loop (30 turns) | 6.4 KB | 3.3 KB | **48%** |
+| tools/list (4 tools) | 1128 B | 581 B | **48%** |
+| tool call (echo) | 118 B | 61 B | **48%** |
 
 > Run it yourself: `python examples/cost-calculator/cost_calculator.py`
 
@@ -100,6 +98,20 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 
 ---
 
+## MCP Servers
+
+Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
+
+| Server | Tools | Wire Savings | Hermes Config |
+|--------|-------|-------------|---------------|
+| **[Filesystem](implementations/mcp-servers/filesystem/)** | 9 (read, write, search, stream, stats...) | 32-70% | `transport: lumen` |
+| **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 40-50% | `transport: lumen` |
+| **[Thinking](implementations/mcp-servers/thinking/)** | 7 (sequential, similarity, contradiction...) | 60-80% | `transport: lumen` |
+
+> **18 tools, 3 servers, 0 API keys required.**
+
+---
+
 ## Transport levels
 
 ```
@@ -111,25 +123,34 @@ Level 4 — QUIC            (WAN, HTTP/3, production)
 
 ---
 
-## ◆ Demos (run in <2 min each)
+## Hermes Agent Integration
 
-| Demo | Command | What it shows |
-|------|---------|---------------|
-| **Cost Calculator** | `python examples/cost-calculator/cost_calculator.py` | Cloud egress cost projection for 1,000 servers |
-| **Agent Loop** | `python examples/agent-loop/agent_loop.py` | Session dictionary learns your traffic in real time |
-| **MCP Drop-In** | `python examples/mcp-dropin/dropin_server.py` | Real HTTP server: JSON-RPC in, LUMEN binary out |
+LUMEN is integrated into Hermes Agent via [PR #47740](https://github.com/NousResearch/hermes-agent/pull/47740).
+
+```yaml
+# ~/.hermes/config.yaml
+mcp_servers:
+  lumen_filesystem:
+    command: "python"
+    args: ["implementations/mcp-servers/filesystem/server.py"]
+    transport: lumen
+```
+
+See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 ---
 
-## Documentación / Docs
+## Docs
 
 | Doc | Content |
 |-----|---------|
 | **[README_EXT.md](README_EXT.md)** | Protocol spec, all benchmarks, architecture deep-dive (EN) |
-| **[README_EXT_ES.md](README_EXT_ES.md)** | Lo mismo, en español |
+| **[README_EXT_ES.md](README_EXT_ES.md)** | Same, in Spanish |
 | **[RFC_LUMEN.md](RFC_LUMEN.md)** | Formal IETF-style protocol RFC |
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |
+| **[HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)** | Hermes Agent setup guide |
 | **[examples/](examples/)** | Runnable demos with bilingual READMEs |
+| **[implementations/mcp-servers/](implementations/mcp-servers/)** | MCP server implementations |
 
 ---
 

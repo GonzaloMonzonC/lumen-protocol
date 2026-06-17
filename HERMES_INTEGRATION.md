@@ -185,15 +185,39 @@ All options are per-server under `mcp_servers.<name>`.
 
 ---
 
+## MCP Servers
+
+LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`:
+
+| Server | Tools | Wire Savings | Config |
+|--------|-------|-------------|--------|
+| Filesystem | 9 tools (read, read_files, write, search, search_ctx, stream_read, list, patch, stats) | 32-70% | `transport: lumen` |
+| Web | 2 tools (web_search, web_extract unified) | 40-50% | `transport: lumen` |
+| Thinking | 7 tools (sequential, similarity, contradiction, summarize, to_plan, evaluate, bridge) | 60-80% | `transport: lumen` |
+
+```yaml
+mcp_servers:
+  lumen_filesystem:
+    command: "python"
+    args: ["path/to/lumen-protocol/implementations/mcp-servers/filesystem/server.py"]
+    transport: lumen
+    lumen_force_json_rpc: true
+```
+
+18 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
+
+---
+
 ## Roadmap
 
-- [x] Hermes Agent integration (merged locally, PR pending)
+- [x] Hermes Agent integration — [PR #47740](https://github.com/NousResearch/hermes-agent/pull/47740)
 - [x] Windows compatibility fixes
+- [x] MCP servers: filesystem (9 tools), web (2 tools), thinking (7 tools)
 - [ ] Package `lumen-mcp` on PyPI
-- [ ] LUMEN transport between **cadencia-mcp** and **cadences-gateway**
-      — a native LUMEN link in production, end-to-end
+- [ ] LUMEN transport between **cadencia-mcp** and **cadences-gateway** — a native LUMEN link in production, end-to-end
 - [ ] LUMEN support in Hermes's HTTP/StreamableHTTP transport path
 - [ ] LUMEN-aware `hermes mcp add` wizard (auto-detect server LUMEN support)
+- [ ] MUX channels + STREAM_DATA in `server_native.py`
 
 ---
 
