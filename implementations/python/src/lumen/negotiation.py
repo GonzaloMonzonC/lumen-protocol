@@ -29,7 +29,6 @@ from .frame import (
     TYPE_PROBE,
     TYPE_PROBE_ACK,
     build_frame,
-    build_size,
     ParseComplete,
     parse_frame,
 )
