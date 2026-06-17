@@ -236,10 +236,10 @@ class LumenStdioTransport(Transport):
 
         while True:
             try:
-                # Use readline for line-delimited JSON-RPC (read() would
-                # block until EOF on Windows pipes)
+                # Read 1 byte at a time — prevents blocking on Windows pipes
+                # (read(N) blocks until N bytes or EOF on Windows)
                 chunk = await loop.run_in_executor(
-                    None, self._process.stdout.readline
+                    None, self._process.stdout.read, 1
                 )
             except Exception as exc:
                 if self.onerror:
@@ -331,8 +331,10 @@ class LumenStdioTransport(Transport):
                 break
 
             try:
+                # Read 1 byte at a time — prevents blocking on Windows pipes
+                # (read(N) blocks until N bytes or EOF on Windows)
                 chunk = await asyncio.wait_for(
-                    loop.run_in_executor(None, self._process.stdout.read, 4096),
+                    loop.run_in_executor(None, self._process.stdout.read, 1),
                     timeout=min(remaining, 0.1),
                 )
             except asyncio.TimeoutError:
