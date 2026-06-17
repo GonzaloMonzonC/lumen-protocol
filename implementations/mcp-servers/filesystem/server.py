@@ -159,11 +159,13 @@ TOOLS = [
 
 def resolve_path(path: str) -> Path:
     """Resolve a path that may start with ~/."""
-    if path.startswith("~/"):
-        return Path.home() / path[2:]
-    if path.startswith("~\\"):
-        return Path.home() / path[2:]
-    return Path(path)
+    # Normalize Windows/Unix path separators
+    normalized = os.path.normpath(path)
+    if normalized.startswith("~/"):
+        return Path.home() / normalized[2:]
+    if normalized.startswith("~\\"):
+        return Path.home() / normalized[2:]
+    return Path(normalized)
 
 
 def suggest_similar(path: Path) -> str:
