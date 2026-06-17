@@ -28,9 +28,6 @@ Status of This Document
 
    Remaining unimplemented features (marked [PLANNED] in the body):
 
-   7. MUX channels (§8): Constant MUX=0x09 defined but channel
-      open/close/data/pause/resume logic NOT YET IMPLEMENTED.
-
    8. Macaroons (§9): Fully specified but NOT YET IMPLEMENTED in
       any language.  Planned for v0.2.
 
@@ -898,23 +895,64 @@ Table of Contents
    STREAM_DATA for an unknown stream_id MUST be rejected.
 
 
-8.  Multiplexing  **[PLANNED]**
+8.  Multiplexing
 
    The MUX frame (0x09) enables multiple logical channels over a single
    transport connection.  Each channel is identified by a 2-byte
-   channel_id, supporting up to 65,535 concurrent operations per
-   connection.
+   channel_id (u16 LE), supporting up to 65,535 concurrent channels per
+   connection.  The Rust reference implementation provides payload
+   builders and a channel registry (see implementations/rust/src/mux.rs).
+
+8.1.  Wire Format
+
+   MUX frame payload:
+
+   +==============+==========+====================================+
+   | Field        | Size     | Description                        |
+   +==============+==========+====================================+
+   | sub_command  | u8       | OPEN/DATA/CLOSE/PAUSE/RESUME       |
+   | channel_id   | u16 LE   | Logical channel identifier         |
+   | payload      | variable | Empty for control; inner frame for |
+   |              |          | DATA sub-command                   |
+   +==============+==========+====================================+
+
+8.2.  Sub-commands
+
+   +=======+==========+==============================================+
+   | Value | Command  | Description                                  |
+   +=======+==========+==============================================+
+   | 0x00  | OPEN     | Open a new logical channel                   |
+   | 0x01  | DATA     | Carry an inner LUMEN frame on the channel     |
+   | 0x02  | CLOSE    | Close the channel (no more DATA accepted)     |
+   | 0x03  | PAUSE    | Flow control — pause receiving                |
+   | 0x04  | RESUME   | Flow control — resume receiving               |
+   +=======+==========+==============================================+
+
+   For DATA frames, the payload is a complete inner LUMEN frame (Hyb128
+   header + TYPE + FLAGS + payload).  The inner frame type determines
+   the operation (REQUEST, RESPONSE, NOTIFY, etc.).
+
+8.3.  Channel Lifecycle
+
+   [IDLE] --OPEN--> [ACTIVE] --DATA(n)--> [ACTIVE]
+     ^                 |  |                   |
+     |                 |  +--PAUSE--> [PAUSED]-+
+     |                 |       RESUME          |
+     |                 +--CLOSE--> [CLOSED]     |
+     +----------------------------------------+
+            (channel_id reusable after CLOSE + remove)
+
+   The channel registry MUST validate:
+   - OPEN rejects duplicate channel_id
+   - DATA/PAUSE/RESUME reject unknown channel_id
+   - DATA rejects paused channels
+   - DATA rejects closed channels
+   - CLOSE rejects already-closed channels
+   - Unknown sub_command values rejected
 
    MUX guarantees message ordering within a channel but not across
-   channels.  If the transport guarantees ordering (e.g., TCP), frames
-   from different channels may be interleaved arbitrarily on the wire.
-
-   Flow control is per-channel via PAUSE/RESUME sub-commands.
-   A receiver that is overwhelmed sends MUX PAUSE with the channel_id;
-   the sender MUST stop transmitting on that channel until a
-   corresponding MUX RESUME is received.  PAUSE without an explicit
-   RESUME times out after a configurable interval (default 30 seconds);
-   after timeout, the sender MAY resume transmission.
+   channels.  Flow control is per-channel via PAUSE/RESUME; a paused
+   sender MUST wait for RESUME before transmitting more DATA.
 
    Channel multiplexing is OPTIONAL.  Implementations that do not need
    concurrency MAY ignore MUX frames and use the transport connection
