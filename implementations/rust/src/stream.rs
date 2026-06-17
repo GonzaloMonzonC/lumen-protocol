@@ -46,16 +46,44 @@ pub const TOKEN_END: u8 = 0x02;
 // ── STREAM_INIT ─────────────────────────────────────────────────────────────
 
 /// Find the largest valid UTF-8 boundary at or below `max_bytes` in `data`.
+///
+/// Returns the index such that `&data[..idx]` is valid UTF-8 (no partial
+/// characters) and `idx <= max_bytes`.
 fn utf8_truncate(data: &[u8], max_bytes: usize) -> usize {
     if max_bytes >= data.len() {
         return data.len();
     }
-    // Walk backwards from max_bytes to find a byte that starts a character
-    // (UTF-8 continuation bytes are 0b10xxxxxx, i.e. >= 0x80 and < 0xC0).
-    (0..=max_bytes)
-        .rev()
-        .find(|&i| data.get(i).map_or(true, |&b| b < 0x80 || b >= 0xC0))
-        .unwrap_or(0)
+    // Walk backwards from max_bytes to find the END of a complete UTF-8
+    // character. A character ends just before the next character-start byte
+    // or at the end of data.
+    // UTF-8 character start bytes are: 0x00-0x7F (ASCII), or 0xC0-0xFF
+    // Continuation bytes are: 0x80-0xBF
+    let mut boundary = max_bytes;
+    // Walk back while we're inside a multi-byte character
+    while boundary > 0 {
+        boundary -= 1;
+        let b = data[boundary];
+        if b < 0x80 || b >= 0xC0 {
+            // This is a character start byte.
+            // Check if the full character fits within max_bytes
+            let char_len = if b < 0x80 {
+                1
+            } else if b < 0xE0 {
+                2
+            } else if b < 0xF0 {
+                3
+            } else {
+                4
+            };
+            if boundary + char_len <= max_bytes {
+                // Full character fits → return end of this character
+                return boundary + char_len;
+            }
+            // Character doesn't fit → continue walking back
+        }
+    }
+    // Nothing fits at all (shouldn't happen for valid UTF-8, but handle)
+    0
 }
 
 /// Payload for a STREAM_INIT frame (0x06).
@@ -413,10 +441,9 @@ mod tests {
 
     #[test]
     fn stream_init_utf8_boundary() {
-        // 255 bytes: 84 × "ñ" (2 bytes each) = 168 bytes, then pad with "a"
-        // Actually: "ñ".repeat(128) = 256 bytes. Truncated at 255 would
-        // split the last "ñ" (bytes 254-255 are the 2nd byte of "ñ").
-        // utf8_truncate should step back to byte 254 (end of prev char).
+        // 128 × "ñ" = 256 bytes. Truncated at 255-byte cap.
+        // utf8_truncate should step back to the nearest character boundary:
+        // 254 bytes = 127 complete "ñ"s.
         let long = "ñ".repeat(128); // 256 bytes
         let init = StreamInit {
             stream_id: 1,
@@ -426,9 +453,8 @@ mod tests {
         };
         let encoded = init.encode();
         let decoded = StreamInit::decode(&encoded).unwrap();
-        // Should not panic, and decoded model should be valid UTF-8
-        assert!(decoded.model.len() < 128); // fewer chars due to truncation
-        assert!(!decoded.model.is_empty());
+        assert_eq!(decoded.model.len(), 254); // 127 chars × 2 bytes = 254
+        assert_eq!(decoded.model.chars().count(), 127);
     }
 
     // ── StreamData encode/decode ─────────────────────────────────────────
@@ -664,5 +690,156 @@ mod tests {
             token_data: b"hello world".to_vec(),
         };
         assert_eq!(data.encode().len(), data.encoded_len());
+    }
+
+    // ── Edge cases ──────────────────────────────────────────────────────
+
+    #[test]
+    fn stream_data_zero_length_token() {
+        // Empty token_data on TEXT type — unusual but valid (empty string)
+        let data = StreamData {
+            stream_id: 1,
+            token_seq: 0,
+            token_type: TOKEN_TEXT,
+            token_data: vec![],
+        };
+        assert!(!data.is_end()); // not END, even though empty
+        assert_eq!(data.as_text(), Some(""));
+        let encoded = data.encode();
+        assert_eq!(encoded.len(), 9); // header only, no data
+    }
+
+    #[test]
+    fn stream_data_unknown_token_type() {
+        // Unknown token type should still roundtrip
+        let data = StreamData {
+            stream_id: 1,
+            token_seq: 0,
+            token_type: 0xFF,
+            token_data: b"raw".to_vec(),
+        };
+        assert!(!data.is_end());
+        assert!(data.as_text().is_none());
+
+        let decoded = StreamData::decode(&data.encode()).unwrap();
+        assert_eq!(decoded.token_type, 0xFF);
+    }
+
+    #[test]
+    fn stream_init_max_values() {
+        let init = StreamInit {
+            stream_id: u32::MAX,
+            max_tokens: u32::MAX,
+            temperature: f32::INFINITY,
+            model: "gpt".into(),
+        };
+        let decoded = StreamInit::decode(&init.encode()).unwrap();
+        assert_eq!(decoded.stream_id, u32::MAX);
+        assert_eq!(decoded.max_tokens, u32::MAX);
+        assert!(decoded.temperature.is_infinite());
+    }
+
+    #[test]
+    fn stream_init_nan_temperature() {
+        let init = StreamInit {
+            stream_id: 1,
+            max_tokens: 0,
+            temperature: f32::NAN,
+            model: "gpt".into(),
+        };
+        let decoded = StreamInit::decode(&init.encode()).unwrap();
+        assert!(decoded.temperature.is_nan());
+    }
+
+    #[test]
+    fn registry_unknown_token_type_accepted() {
+        let mut reg = StreamRegistry::new();
+        reg.register(&StreamInit {
+            stream_id: 1,
+            max_tokens: 0,
+            temperature: 0.0,
+            model: "t".into(),
+        }).unwrap();
+
+        // Unknown token types are accepted (not validated by registry)
+        let data = StreamData {
+            stream_id: 1,
+            token_seq: 0,
+            token_type: 0xFF,
+            token_data: vec![],
+        };
+        assert!(!reg.accept(&data).unwrap());
+        assert_eq!(reg.len(), 1);
+    }
+
+    #[test]
+    fn registry_end_token_does_not_count() {
+        let mut reg = StreamRegistry::new();
+        reg.register(&StreamInit {
+            stream_id: 1,
+            max_tokens: 1, // only 1 token allowed
+            temperature: 0.0,
+            model: "t".into(),
+        }).unwrap();
+
+        // Accept 1 data token
+        reg.accept(&StreamData {
+            stream_id: 1, token_seq: 0, token_type: TOKEN_TEXT,
+            token_data: b"x".to_vec(),
+        }).unwrap();
+
+        // END token should NOT count against the limit
+        let end = StreamData {
+            stream_id: 1, token_seq: 1, token_type: TOKEN_END,
+            token_data: vec![],
+        };
+        assert!(reg.accept(&end).unwrap()); // true = END
+        reg.remove(1);
+    }
+
+    #[test]
+    fn registry_data_after_forgotten_remove() {
+        // BUG-CATCHER: If caller forgets remove() after END, next_seq was
+        // incremented by END, so the next DATA with matching seq PASSES.
+        // This is documented behavior — caller MUST remove after END.
+        let mut reg = StreamRegistry::new();
+        reg.register(&StreamInit {
+            stream_id: 1, max_tokens: 0, temperature: 0.0, model: "t".into(),
+        }).unwrap();
+
+        let end = StreamData {
+            stream_id: 1, token_seq: 0, token_type: TOKEN_END, token_data: vec![],
+        };
+        assert!(reg.accept(&end).unwrap()); // END, next_seq → 1
+        // Caller forgets remove() — stream still registered with next_seq=1
+
+        // seq=1 matches next_seq=1 → ACCEPTED (not rejected!)
+        let more = StreamData {
+            stream_id: 1, token_seq: 1, token_type: TOKEN_TEXT, token_data: b"x".to_vec(),
+        };
+        assert!(reg.accept(&more).is_ok()); // passes — caller's responsibility
+
+        // seq=0 is below next_seq=2 → gap
+        let backtrack = StreamData {
+            stream_id: 1, token_seq: 0, token_type: TOKEN_TEXT, token_data: b"x".to_vec(),
+        };
+        assert!(matches!(
+            reg.accept(&backtrack),
+            Err(StreamError::SequenceGap { expected: 2, received: 0 })
+        ));
+
+        // Re-registration fails (duplicate)
+        assert!(matches!(
+            reg.register(&StreamInit {
+                stream_id: 1, max_tokens: 0, temperature: 0.0, model: "t".into(),
+            }),
+            Err(StreamError::DuplicateStream(1))
+        ));
+
+        // After explicit remove, re-registration works
+        reg.remove(1);
+        assert!(reg.register(&StreamInit {
+            stream_id: 1, max_tokens: 0, temperature: 0.0, model: "t".into(),
+        }).is_ok());
     }
 }
