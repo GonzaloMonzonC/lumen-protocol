@@ -98,6 +98,9 @@ pub fn server_negotiate(
 
         // We must NOT drop the ShmRegion — it holds the mapping.
         // Leak it so the mapping stays alive.
+        // NOTE: This leaks memory. A proper fix would wrap ShmRegion
+        // in Arc and store it in NegotiatedTransport for lifetime mgmt.
+        // Tracked as #31 in plan-mejoras-2.
         std::mem::forget(region);
 
         NegotiatedTransport::Shm(ShmTransport::new(write_ring, read_ring))
@@ -170,6 +173,7 @@ pub fn client_negotiate(
         let read_ring = region.ring_buffer(RingSide::B);  // server→client
 
         // Leak the region to keep the mapping alive
+        // NOTE: intentional memory leak — see #31 in plan-mejoras-2.
         std::mem::forget(region);
 
         Ok(NegotiatedTransport::Shm(ShmTransport::new(write_ring, read_ring)))
