@@ -16,26 +16,27 @@ Status of This Document
    The IETF boilerplate previously present in this document was a
    drafting artifact and has been removed.
 
-   IMPORTANT — Known Mismatches with the Implementation (v0.1.0):
+   IMPORTANT — Implementation Status (v0.1.0):
 
    Items 1-5 (endianness, DICT_REF, LEN field semantics, CBOR
-   references, static dictionary table) have been corrected in this
-   revision and now match the implementation.
+   references, static dictionary table) corrected in revision 2.
+
+   Section 5.1-5.6 (REQUEST, RESPONSE, NOTIFY, STREAM_DATA,
+   SCHEMA_PATCH, STREAM_INIT) now accurately describe the v0.1
+   implementation: payloads are compressed JSON-RPC 2.0 messages,
+   with native binary headers planned for v2.
 
    Remaining unimplemented features (marked [PLANNED] in the body):
 
-   6. Structured payloads (§5.1-5.6): request_id, timeout_ms,
-      status_code, and stream payload fields are SPECIFIED but NOT
-      YET IMPLEMENTED.  The current implementation transports
-      JSON-RPC messages as opaque compressed blobs.
+   6. Native token streaming (§7): Constants (STREAM_INIT=0x06,
+      STREAM_DATA=0x04) are defined but the stream state machine
+      and structured payload builders are NOT YET IMPLEMENTED.
 
-   7. Native token streaming (§7) and MUX channels (§8): Constants
-      (STREAM_INIT=0x06, STREAM_DATA=0x04, MUX=0x09) are defined
-      but the structured payload builders and channel state machines
-      are NOT YET IMPLEMENTED.
+   7. MUX channels (§8): Constant MUX=0x09 defined but channel
+      open/close/data/pause/resume logic NOT YET IMPLEMENTED.
 
-   8. Macaroons (§9): Fully specified but NOT YET IMPLEMENTED in any
-      language.  Planned for v0.2.
+   8. Macaroons (§9): Fully specified but NOT YET IMPLEMENTED in
+      any language.  Planned for v0.2.
 
    The authoritative reference for what IS implemented is the project
    README.md §Status & Roadmap and the source code in implementations/.
@@ -53,13 +54,13 @@ Abstract
    self-delimiting hybrid length encoding (Hyb128) that enables O(1) frame
    skipping without full deserialization.
 
-   The protocol defines ten frame types supporting request/response,
-   notifications, native LLM token streaming, dynamic schema discovery,
-   multiplexed logical channels, and heartbeat keep-alives.  Security is
-   addressed through an integrated zero-trust capability model using
-   Macaroons with attenuable caveats, plus optional frame-level
-   authenticated encryption via ChaCha20-Poly1305 with X25519 key
-   exchange.
+   The protocol defines sixteen frame types.  The core request/response
+   and notification frames (0x01-0x03) transport compressed JSON-RPC 2.0
+   messages.  Additional frame types for native LLM token streaming,
+   multiplexed logical channels, and schema discovery are defined as
+   constants with full implementations planned for v2.  Wire-level
+   authenticated encryption is provided via ChaCha20-Poly1305 with
+   X25519 key exchange and HKDF-SHA256 key derivation.
 
    LUMEN is transport-agnostic and defines four transport levels: Level 1
    (stream-based: stdio, UDS, TCP), Level 2 (zero-copy shared memory),
@@ -419,154 +420,83 @@ Table of Contents
 
               Table 3: Frame Type Registry
 
-5.1.  REQUEST (0x01)  **[PLANNED]**
+5.1.  REQUEST (0x01)
 
-   Initiates a Remote Procedure Call.  The payload carries the method
-   name, call arguments, and a correlation identifier.
+   Initiates a Remote Procedure Call.  In the current implementation
+   (v0.1), the payload is a compressed JSON-RPC 2.0 request message:
 
-   REQUEST payload structure (uncompressed):
+   ```json
+   {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{...}}
+   ```
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | request_id    | 4 bytes  | Opaque correlation identifier   |
-   | timeout_ms    | 2 bytes  | Maximum wait in milliseconds    |
-   | method_len    | Hyb128   | Length of method name           |
-   | method        | variable | UTF-8 method name               |
-   | args          | variable | Method arguments (LUMEN binary   |
-   |               |          | format, TAGs 0xE0-0xE7)         |
-   +---------------+----------+---------------------------------+
+   The payload is compressed using the LUMEN binary format (TAGs
+   0xE0-0xE7, Section 6) and stored in the frame with the COMPRESSED
+   flag set.  Correlation between REQUEST and RESPONSE is handled by
+   the JSON-RPC "id" field embedded in the payload.
 
-   When the FRAGMENTED flag is set, the payload is prefixed with:
+   > **v2 planned**: A native binary header with request_id (4B LE),
+   > timeout_ms (2B LE), and separate method/args fields to avoid
+   > parsing the JSON-RPC envelope for routing decisions.
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | message_id    | 4 bytes  | Identifies logical message      |
-   | fragment_seq  | 2 bytes  | Zero-based fragment sequence    |
-   | fragment_count| 2 bytes  | Total fragments in message      |
-   +---------------+----------+---------------------------------+
+5.2.  RESPONSE (0x02)
 
-   The receiver MUST buffer fragments until all have arrived and then
-   reassemble the payload before processing.  If fragments do not all
-   arrive within the timeout specified, the receiver SHOULD discard
-   the partial message and MAY send a RESPONSE with error code 408
-   (Request Timeout).
+   Completes an RPC operation initiated by a REQUEST.  In v0.1, the
+   payload is a compressed JSON-RPC 2.0 response:
 
-5.2.  RESPONSE (0x02)  **[PLANNED]**
+   ```json
+   {"jsonrpc":"2.0","id":1,"result":{...}}
+   ```
+   or
+   ```json
+   {"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"..."}}
+   ```
 
-   Completes an RPC operation initiated by a REQUEST.
+   The JSON-RPC "id" matches the originating REQUEST.  Error semantics
+   follow JSON-RPC 2.0 error codes and messages.
 
-   RESPONSE payload structure (uncompressed):
+   > **v2 planned**: A 1-byte native status_code field plus the
+   > response payload in LUMEN binary format, eliminating the JSON-RPC
+   > wrapper for error paths.
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | request_id    | 4 bytes  | Echoes the REQUEST.request_id   |
-   | status_code   | 1 byte   | 0 = success, non-zero = error   |
-   | payload       | variable | Result (LUMEN binary format) or |
-   |               |          | error info                      |
-   +---------------+----------+---------------------------------+
+5.3.  NOTIFY (0x03)
 
-   Defined status codes:
+   One-way notification — no response is expected or generated.  The
+   payload is a compressed JSON-RPC 2.0 notification (message without
+   an "id" field):
 
-   +=======+=============================+
-   | Code  | Meaning                     |
-   +=======+=============================+
-   | 0x00  | Success                     |
-   | 0x01  | Method not found            |
-   | 0x02  | Invalid arguments           |
-   | 0x03  | Internal server error       |
-   | 0x04  | Timeout                     |
-   | 0x05  | Unauthorized (see Section 9)|
-   | 0x06  | Rate limited                |
-   +-------+-----------------------------+
+   ```json
+   {"jsonrpc":"2.0","method":"notifications/initialized"}
+   ```
 
-   An implementation that receives an unknown status code MUST treat
-   it as equivalent to 0x03 (Internal server error).
+   > **v2 planned**: Same native header as REQUEST, minus request_id
+   > and timeout_ms fields.
 
-5.3.  NOTIFY (0x03)  **[PLANNED]**
+5.4.  STREAM_DATA (0x04)
 
-   One-way notification.  No response is expected or generated.
-   The payload structure is identical to REQUEST but without
-   request_id and timeout_ms:
+   Carries a single token in an LLM streaming response.  In v0.1, this
+   frame type is defined but the structured payload builder is not yet
+   implemented.  The constant is reserved for the streaming subsystem.
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | method_len    | Hyb128   | Length of notification name     |
-   | method        | variable | UTF-8 notification name         |
-   | args          | variable | Notification arguments (LUMEN   |
-   |               |          | binary format)                  |
-   +---------------+----------+---------------------------------+
+   > **v2 planned**: Binary payload: [stream_id:4B LE][token_seq:4B LE]
+   > [token_type:1B][token_data:variable].
 
-   NOTIFY frames are fire-and-forget.  There is no built-in delivery
-   acknowledgment at the LUMEN layer; reliability, if required, MUST
-   be provided by the transport level or by application-layer
-   acknowledgment.
+5.5.  SCHEMA_PATCH (0x05)
 
-5.4.  STREAM_DATA (0x04)  **[PLANNED]**
+   Carries a dynamic schema update.  In v0.1, this frame type is
+   defined as a constant; the structured payload format and server-side
+   schema patching logic are not yet implemented.
 
-   Carries a single token (or small batch of tokens) in an LLM
-   streaming response.  Intended for streaming text generation where
-   tokens are delivered as they are produced by the inference engine.
+   > **v2 planned**: JSON Patch [RFC6902] payload in LUMEN binary
+   > format, with patch_seq for version tracking.
 
-   STREAM_DATA payload structure (uncompressed):
+5.6.  STREAM_INIT (0x06)
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | stream_id     | 4 bytes  | Identifies the logical stream   |
-   | token_seq     | 4 bytes  | Monotonically increasing seq no |
-   | token_type    | 1 byte   | Token type (see Section 7.2)    |
-   | token_data    | variable | The token value (UTF-8 or bin)  |
-   +---------------+----------+---------------------------------+
+   Initiates a token stream.  Sent before the first STREAM_DATA frame.
+   In v0.1, this frame type is defined but the structured payload
+   builder is not yet implemented.
 
-   STREAM_DATA frames SHOULD use the COMPRESSED flag; token sequences
-   benefit heavily from dictionary compression, particularly for
-   common tokens in the model vocabulary.
-
-5.5.  SCHEMA_PATCH (0x05)  **[PLANNED]**
-
-   Carries a dynamic schema update as a JSON Patch [RFC6902] document
-   encoded in LUMEN binary format (TAGs 0xE0-0xE7).  This enables
-   the client about new tools, updated parameter schemas, or
-   deprecated methods without requiring a reconnection.
-
-   SCHEMA_PATCH payload structure (uncompressed):
-
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | patch_seq     | 4 bytes  | Monotonic schema version        |
-   | patch_count   | 2 bytes  | Operations in this patch        |
-   | operations    | variable | JSON Patch array in LUMEN       |
-   |               |          | binary format                   |
-   +---------------+----------+---------------------------------+
-
-   A client that joins an existing session MUST request the full
-   schema via DISCOVER (Section 5.8) and then apply all SCHEMA_PATCH
-   messages with patch_seq > 0 to synchronize its view.
-
-5.6.  STREAM_INIT (0x06)  **[PLANNED]**
-
-   Initiates a stream.  Sent before the first STREAM_DATA frame.
-
-   STREAM_INIT payload structure (uncompressed):
-
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | stream_id     | 4 bytes  | Unique stream identifier        |
-   | max_tokens    | 4 bytes  | Maximum tokens to generate      |
-   | temperature   | float32  | Sampling temperature            |
-   | model_len     | Hyb128   | Length of model identifier      |
-   | model         | variable | Model name (UTF-8)              |
-   +---------------+----------+---------------------------------+
-
-   An implementation that receives STREAM_DATA for an unknown
-   stream_id SHOULD respond with a RESPONSE (status 0x01, Method not
-   found) and MAY close the transport.
+   > **v2 planned**: Binary payload: [stream_id:4B LE][max_tokens:4B LE]
+   > [temperature:f32 LE][model_len:Hyb128][model:UTF-8].
 
 5.7.  DICT_SYNC (0x07)
 
