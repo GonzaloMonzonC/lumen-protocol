@@ -320,6 +320,17 @@ TOOLS = [
                 "max_depth": {"type": "integer", "description": "Max depth to show (default: 3)", "default": 3, "maximum": 5}
             }
         }
+    },
+    {
+        "name": "model_remove",
+        "description": "Remove a file from the mental model when it's deleted or no longer relevant. Automatically updates all dependency links.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to remove from the model"}
+            },
+            "required": ["path"]
+        }
     }
 ]
 
@@ -1065,6 +1076,30 @@ def tool_model_map(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+def tool_model_remove(args: dict) -> dict:
+    """Remove a file from the mental model."""
+    path = args["path"]
+
+    if path not in _model:
+        return {"content": [{"type": "text", "text": f"'{path}' is not in the model."}]}
+
+    # Find what depends on this file
+    affected = _model[path].get("dependents", [])
+    role = _model[path].get("role", "?")
+
+    del _model[path]
+    _update_dependents()
+
+    lines = [f"🗑️  Removed from model: {path} [{role}]"]
+    if affected:
+        lines.append(f"   ⚠️  {len(affected)} file(s) had this as dependency:")
+        for a in affected:
+            lines.append(f"      {a} — check if still valid")
+    lines.append(f"   Model now has {len(_model)} file(s)")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -1080,6 +1115,7 @@ HANDLERS = {
     "model_query": tool_model_query,
     "model_stats": tool_model_stats,
     "model_map": tool_model_map,
+    "model_remove": tool_model_remove,
 }
 
 
