@@ -31,6 +31,31 @@
 //!    does the reverse. This prevents catastrophic (key, nonce) reuse.
 //! 7. Nonce counters start at 0 per direction
 //!
+//! ## Security Considerations
+//!
+//! **WARNING: X25519 key exchange provides encryption but NOT
+//! authentication.** Without an external authentication mechanism
+//! (TLS, Ed25519 signatures, pre-shared keys, or certificate pinning),
+//! LUMEN wire encryption is vulnerable to man-in-the-middle attacks.
+//!
+//! The current implementation is **opportunistic encryption** — it
+//! protects against passive eavesdropping but NOT against active
+//! attackers who can intercept and modify the key exchange.
+//!
+//! For production deployments that need authenticated channels:
+//! - Use LUMEN over a TLS connection (QUIC or TCP+TLS)
+//! - Or add Ed25519 identity keys and signature verification to the
+//!   handshake (planned for v0.2)
+//! - Or use a trusted side-channel for public key distribution
+//!
+//! **Frame metadata authentication:** frame type and flags are included
+//! in the AEAD additional authenticated data (AAD), so an attacker
+//! cannot change REQUEST↔RESPONSE or toggle COMPRESSED/ENCRYPTED
+//! without detection.
+//!
+//! **Anti-replay:** a DTLS-style sliding window (64 nonces) prevents
+//! replay attacks. The window is only advanced AFTER successful AEAD
+//! authentication, preventing DoS via invalid ciphertext.
 //! ## Nonce construction
 //!
 //! Nonce = [counter: u64 LE][zeros: 4B] = 12 bytes
