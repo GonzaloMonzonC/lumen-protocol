@@ -18,24 +18,11 @@ Status of This Document
 
    IMPORTANT — Known Mismatches with the Implementation (v0.1.0):
 
-   1. Endianness: The document previously specified big-endian; the
-      actual implementation across all five languages (Rust, Python,
-      TypeScript, PHP, C#) uses LITTLE-ENDIAN.  This document has
-      been corrected to reflect LE throughout.
+   Items 1-5 (endianness, DICT_REF, LEN field semantics, CBOR
+   references, static dictionary table) have been corrected in this
+   revision and now match the implementation.
 
-   2. Frame format: The DICT_REF field described in earlier versions
-      does not exist in the implementation.  Dictionary references
-      are embedded within the payload via TAGS 0xE0-0xE7.
-
-   3. LEN field: Encodes PAYLOAD length only (not total frame length).
-
-   4. Payload encoding: The implementation uses a custom compact binary
-      encoding (TAGs 0xE0-0xE7 + Hyb128 lengths), NOT CBOR.
-
-   5. Static dictionary: Maps field KEYS (tool, arguments, result,
-      error, id, model, temperature, ...), NOT method names
-      (tools/list, tools/call, ...).  See DICTIONARY.md for the
-      authoritative 128-entry table.
+   Remaining unimplemented features (marked [PLANNED] in the body):
 
    6. Structured payloads (§5.1-5.6): request_id, timeout_ms,
       status_code, and stream payload fields are SPECIFIED but NOT
@@ -249,9 +236,9 @@ Table of Contents
 
    A LUMEN message is called a frame.  Each frame is composed of:
 
-   +--------+--------+--------+--------+--------+--------+--------+
-   |  LEN   | TYPE   | FLAGS  | DICT_REF |  PAYLOAD (variable)    |
-   +--------+--------+--------+--------+--------+--------+--------+
+   +--------+--------+--------+--------+--------+--------+
+   |  LEN   | TYPE   | FLAGS  |  PAYLOAD (variable)       |
+   +--------+--------+--------+--------+--------+--------+
    <-- 3-8 bytes header -->  <--- 0..N bytes of payload --------->
 
    Figure 1: LUMEN Frame Structure
@@ -260,8 +247,10 @@ Table of Contents
 
    Every LUMEN frame consists of:
 
-   LEN:       Total frame length encoded in Hyb128 (Section 3.2).
-              This field is 1, 3, or 5+ bytes depending on magnitude.
+   LEN:       Payload length encoded in Hyb128 (Section 3.2).
+              This field counts the PAYLOAD bytes only; TYPE and
+              FLAGS are NOT included.  It is 1, 3, or 5+ bytes
+              depending on magnitude.
 
    TYPE:      1 byte identifying the frame type (Section 5).
               Values 0x00 and 0xFF are reserved.
@@ -280,15 +269,12 @@ Table of Contents
 
               Table 1: FLAGS Bit Definitions
 
-   DICT_REF:  Variable-length integer in Hyb128 encoding.  Present
-              only when COMPRESSED flag is set.  Identifies the
-              dictionary entry used for compression.
-
    PAYLOAD:   Variable-length byte sequence.  Its interpretation
-              depends on TYPE and FLAGS.
+              depends on TYPE and FLAGS.  When the COMPRESSED flag
+              is set, dictionary references are embedded within
+              the payload via TAGS 0xE0-0xE7.
 
-   All multi-byte integers are transmitted in network byte order
-   (big-endian).
+   All multi-byte integers are transmitted in little-endian byte order.
 
 3.2.  Hyb128 — Hybrid Length Encoding
 
@@ -319,7 +305,8 @@ Table of Contents
    with unknown TYPE values rather than closing the connection.
 
    The FLAGS byte modifies frame handling.  When the COMPRESSED flag
-   (bit 0) is set, a DICT_REF field immediately follows FLAGS.  When
+   (bit 0) is set, the payload uses dictionary compression via
+   TAGS 0xE0-0xE7 embedded in the payload.  When
    the ENCRYPTED flag (bit 1) is set, the payload is processed per
    Section 9.  The two flags MAY be combined for encrypted-compressed
    frames (compress first, then encrypt).
@@ -351,8 +338,8 @@ Table of Contents
 
    Level 1 frames are delimited solely by the Hyb128 LEN field.  No
    additional framing or start-of-message markers are required.  A
-   reader consumes the LEN field, determines the total frame size, and
-   reads exactly that many bytes before beginning the next frame.
+   reader consumes the LEN field, determines the payload length, and
+   reads exactly that many bytes of payload before beginning the next frame.
 
 4.2.  Level 2 — Zero-Copy Shared Memory
 
@@ -432,7 +419,7 @@ Table of Contents
 
               Table 3: Frame Type Registry
 
-5.1.  REQUEST (0x01)
+5.1.  REQUEST (0x01)  **[PLANNED]**
 
    Initiates a Remote Procedure Call.  The payload carries the method
    name, call arguments, and a correlation identifier.
@@ -446,7 +433,8 @@ Table of Contents
    | timeout_ms    | 2 bytes  | Maximum wait in milliseconds    |
    | method_len    | Hyb128   | Length of method name           |
    | method        | variable | UTF-8 method name               |
-   | args          | variable | Method arguments (CBOR [RFC8949]|
+   | args          | variable | Method arguments (LUMEN binary   |
+   |               |          | format, TAGs 0xE0-0xE7)         |
    +---------------+----------+---------------------------------+
 
    When the FRAGMENTED flag is set, the payload is prefixed with:
@@ -465,7 +453,7 @@ Table of Contents
    the partial message and MAY send a RESPONSE with error code 408
    (Request Timeout).
 
-5.2.  RESPONSE (0x02)
+5.2.  RESPONSE (0x02)  **[PLANNED]**
 
    Completes an RPC operation initiated by a REQUEST.
 
@@ -476,7 +464,8 @@ Table of Contents
    +===============+==========+=================================+
    | request_id    | 4 bytes  | Echoes the REQUEST.request_id   |
    | status_code   | 1 byte   | 0 = success, non-zero = error   |
-   | payload       | variable | Result (CBOR) or error info     |
+   | payload       | variable | Result (LUMEN binary format) or |
+   |               |          | error info                      |
    +---------------+----------+---------------------------------+
 
    Defined status codes:
@@ -496,7 +485,7 @@ Table of Contents
    An implementation that receives an unknown status code MUST treat
    it as equivalent to 0x03 (Internal server error).
 
-5.3.  NOTIFY (0x03)
+5.3.  NOTIFY (0x03)  **[PLANNED]**
 
    One-way notification.  No response is expected or generated.
    The payload structure is identical to REQUEST but without
@@ -507,7 +496,8 @@ Table of Contents
    +===============+==========+=================================+
    | method_len    | Hyb128   | Length of notification name     |
    | method        | variable | UTF-8 notification name         |
-   | args          | variable | Notification arguments (CBOR)   |
+   | args          | variable | Notification arguments (LUMEN   |
+   |               |          | binary format)                  |
    +---------------+----------+---------------------------------+
 
    NOTIFY frames are fire-and-forget.  There is no built-in delivery
@@ -515,7 +505,7 @@ Table of Contents
    be provided by the transport level or by application-layer
    acknowledgment.
 
-5.4.  STREAM_DATA (0x04)
+5.4.  STREAM_DATA (0x04)  **[PLANNED]**
 
    Carries a single token (or small batch of tokens) in an LLM
    streaming response.  Intended for streaming text generation where
@@ -536,10 +526,10 @@ Table of Contents
    benefit heavily from dictionary compression, particularly for
    common tokens in the model vocabulary.
 
-5.5.  SCHEMA_PATCH (0x05)
+5.5.  SCHEMA_PATCH (0x05)  **[PLANNED]**
 
    Carries a dynamic schema update as a JSON Patch [RFC6902] document
-   encoded in CBOR.  This enables "late binding": the server informs
+   encoded in LUMEN binary format (TAGs 0xE0-0xE7).  This enables
    the client about new tools, updated parameter schemas, or
    deprecated methods without requiring a reconnection.
 
@@ -550,14 +540,15 @@ Table of Contents
    +===============+==========+=================================+
    | patch_seq     | 4 bytes  | Monotonic schema version        |
    | patch_count   | 2 bytes  | Operations in this patch        |
-   | operations    | variable | CBOR-encoded JSON Patch array   |
+   | operations    | variable | JSON Patch array in LUMEN       |
+   |               |          | binary format                   |
    +---------------+----------+---------------------------------+
 
    A client that joins an existing session MUST request the full
    schema via DISCOVER (Section 5.8) and then apply all SCHEMA_PATCH
    messages with patch_seq > 0 to synchronize its view.
 
-5.6.  STREAM_INIT (0x06)
+5.6.  STREAM_INIT (0x06)  **[PLANNED]**
 
    Initiates a stream.  Sent before the first STREAM_DATA frame.
 
@@ -630,7 +621,8 @@ Table of Contents
    | name_len      | Hyb128   | Length of method name           |
    | name          | variable | Method name (UTF-8)             |
    | schema_len    | Hyb128   | Length of JSON Schema           |
-   | schema        | variable | JSON Schema [RFC8927] in CBOR   |
+   | schema        | variable | JSON Schema [RFC8927] in LUMEN  |
+   |               |          | binary format                   |
    +---------------+----------+---------------------------------+
 
 5.9.  MUX (0x09)
@@ -726,41 +718,157 @@ Table of Contents
 
    LUMEN achieves its per-message overhead reduction through dictionary-
    based semantic compression.  Rather than compressing arbitrary bytes,
-   LUMEN compresses protocol semantics: method names, tool identifiers,
-   common parameter keys, and frequently used schemas.
+   LUMEN compresses protocol semantics: field keys such as tool names,
+   argument identifiers, parameter keys, and frequently used values.
 
 6.1.  Static Dictionary (0x00–0x7F)
 
    The static dictionary is a fixed table of 128 entries known to every
-   LUMEN implementation at compile time.  It covers the MCP protocol
-   vocabulary:
+   LUMEN implementation at compile time.  It maps field KEYS (not
+   method names) to compact 1-byte identifiers for fast lookup during
+   compression and decompression:
 
-   +=======+====================================+
-   | Index | Value                              |
-   +=======+====================================+
-   | 0x00  | tools/list                          |
-   | 0x01  | tools/call                          |
-   | 0x02  | prompts/get                         |
-   | 0x03  | prompts/list                        |
-   | 0x04  | resources/read                      |
-   | 0x05  | resources/list                      |
-   | 0x06  | initialize                          |
-   | 0x07  | initialized                         |
-   | 0x08  | notifications/initialized           |
-   | 0x09  | sampling/createMessage              |
-   | 0x0A  | completion/complete                 |
-   | 0x0B  | ping                                |
-   | 0x0C  | roots/list                          |
-   | 0x0D  | logging/setLevel                    |
-   | ...   | (remaining entries for common params)|
-   +-------+------------------------------------+
+   +=======+===================+=================================+
+   | Index | Key               | Primary use                     |
+   +=======+===================+=================================+
+   | 0x00  | tool              | Name of the tool to invoke      |
+   | 0x01  | arguments         | Tool arguments                  |
+   | 0x02  | result            | Result of an operation          |
+   | 0x03  | error             | Error response                  |
+   | 0x04  | id                | Request/response identifier     |
+   | 0x05  | name              | Name (tool, resource, prompt)   |
+   | 0x06  | description       | Description                     |
+   | 0x07  | content           | Content (resource, message)     |
+   | 0x08  | text              | Plain text                      |
+   | 0x09  | type              | Data/resource type              |
+   | 0x0A  | method            | RPC method                      |
+   | 0x0B  | params            | Parameters                      |
+   | 0x0C  | jsonrpc           | JSON-RPC version                |
+   | 0x0D  | data              | Generic data                    |
+   | 0x0E  | code              | Error code                      |
+   | 0x0F  | message           | Message                         |
+   | 0x10  | input             | Input data                      |
+   | 0x11  | output            | Output data                     |
+   | 0x12  | stream            | Streaming indicator             |
+   | 0x13  | uri               | Resource URI                    |
+   | 0x14  | mimeType          | Content MIME type               |
+   | 0x15  | encoding          | Encoding (utf-8, base64)        |
+   | 0x16  | language          | Programming language            |
+   | 0x17  | title             | Title                           |
+   | 0x18  | value             | Value                           |
+   | 0x19  | key               | Key                             |
+   | 0x1A  | path              | File/directory path             |
+   | 0x1B  | version           | Version                         |
+   | 0x1C  | schema            | JSON schema                     |
+   | 0x1D  | default           | Default value                   |
+   | 0x1E  | required          | Required field                  |
+   | 0x1F  | properties        | Schema properties               |
+   | 0x20  | resources         | Resource list                   |
+   | 0x21  | tools             | Tool list                       |
+   | 0x22  | prompts           | Prompt list                     |
+   | 0x23  | resource          | Individual resource             |
+   | 0x24  | prompt            | Individual prompt               |
+   | 0x25  | handler           | Handler/function                |
+   | 0x26  | capabilities      | Server capabilities             |
+   | 0x27  | permissions       | Permissions                     |
+   | 0x28  | scope             | Scope                           |
+   | 0x29  | tags              | Tags                            |
+   | 0x2A  | category          | Category                        |
+   | 0x2B  | icon              | Icon                            |
+   | 0x2C  | metadata          | Metadata                        |
+   | 0x2D  | timestamp         | Timestamp                       |
+   | 0x2E  | status            | Status                          |
+   | 0x2F  | progress          | Progress                        |
+   | 0x30  | severity          | Error/log severity              |
+   | 0x31  | details           | Details                         |
+   | 0x32  | cause             | Root cause                      |
+   | 0x33  | stack             | Stack trace                     |
+   | 0x34  | line              | Line number                     |
+   | 0x35  | column            | Column number                   |
+   | 0x36  | source            | Source                          |
+   | 0x37  | retry             | Retry                           |
+   | 0x38  | timeout           | Timeout                         |
+   | 0x39  | limit             | Limit                           |
+   | 0x3A  | offset            | Offset                          |
+   | 0x3B  | count             | Count                           |
+   | 0x3C  | total             | Total                           |
+   | 0x3D  | page              | Page                            |
+   | 0x3E  | cursor            | Pagination cursor               |
+   | 0x3F  | next              | Next page                       |
+   | 0x40  | model             | AI model                        |
+   | 0x41  | provider          | Provider                        |
+   | 0x42  | temperature       | Sampling temperature            |
+   | 0x43  | max_tokens        | Maximum tokens to generate      |
+   | 0x44  | stop              | Stop sequences                  |
+   | 0x45  | frequency_penalty | Frequency penalty               |
+   | 0x46  | presence_penalty  | Presence penalty                |
+   | 0x47  | top_p             | Top-p sampling                  |
+   | 0x48  | logprobs          | Log probabilities               |
+   | 0x49  | user              | Role: user                      |
+   | 0x4A  | system            | Role: system                    |
+   | 0x4B  | assistant         | Role: assistant                 |
+   | 0x4C  | function          | Function call                   |
+   | 0x4D  | tool_calls        | Tool calls                      |
+   | 0x4E  | finish_reason     | Finish reason                   |
+   | 0x4F  | usage             | Usage statistics                |
+   | 0x50  | url               | URL                             |
+   | 0x51  | http_method       | HTTP method                     |
+   | 0x52  | headers           | HTTP headers                    |
+   | 0x53  | body              | Request body                    |
+   | 0x54  | query             | Query parameters                |
+   | 0x55  | http_status       | HTTP status code                |
+   | 0x56  | cookie            | Cookie                          |
+   | 0x57  | session           | Session                         |
+   | 0x58  | token             | Authentication token            |
+   | 0x59  | auth              | Authentication                  |
+   | 0x5A  | redirect          | Redirect                        |
+   | 0x5B  | host              | Host                            |
+   | 0x5C  | port              | Port                            |
+   | 0x5D  | origin            | Origin                          |
+   | 0x5E  | referrer          | Referrer                        |
+   | 0x5F  | agent             | User-Agent                      |
+   | 0x60  | filename          | File name                       |
+   | 0x61  | directory         | Directory                       |
+   | 0x62  | extension         | File extension                  |
+   | 0x63  | size              | Size in bytes                   |
+   | 0x64  | modified          | Modification date               |
+   | 0x65  | created           | Creation date                   |
+   | 0x66  | accessed          | Access date                     |
+   | 0x67  | mode              | File permissions                |
+   | 0x68  | owner             | Owner                           |
+   | 0x69  | group             | Group                           |
+   | 0x6A  | symlink           | Symbolic link                   |
+   | 0x6B  | binary            | Binary indicator                |
+   | 0x6C  | base64            | Base64 data                     |
+   | 0x6D  | hash              | Hash/checksum                   |
+   | 0x6E  | algorithm         | Algorithm                       |
+   | 0x6F  | chunk             | Chunk                           |
+   | 0x70  | execute           | Execute                         |
+   | 0x71  | read              | Read                            |
+   | 0x72  | write             | Write                           |
+   | 0x73  | delete            | Delete                          |
+   | 0x74  | update            | Update                          |
+   | 0x75  | create            | Create                          |
+   | 0x76  | search            | Search                          |
+   | 0x77  | list              | List                            |
+   | 0x78  | get               | Get                             |
+   | 0x79  | set               | Set                             |
+   | 0x7A  | watch             | Watch                           |
+   | 0x7B  | subscribe         | Subscribe                       |
+   | 0x7C  | notify            | Notify                          |
+   | 0x7D  | cancel            | Cancel                          |
+   | 0x7E  | pause             | Pause                           |
+   | 0x7F  | resume            | Resume                          |
+   +-------+-------------------+---------------------------------+
 
-              Table 4: Static Dictionary (excerpt; full 128 entries
-              listed in [SPEC_DEV])
+              Table 4: Static Dictionary — full 128 entries (field keys)
 
-   When the COMPRESSED flag is set and DICT_REF is in range 0x00–0x7F,
-   the payload begins with the arguments directly; the method name is
-   resolved from the static dictionary.
+   When the COMPRESSED flag is set, field keys in the payload are
+   replaced with their 1-byte static dictionary indices via TAGS
+   0xE0-0xE7.  The compressor scans the payload for known field-key
+   strings and substitutes the compact representation.  The
+   decompressor reverses the substitution.  See DICTIONARY.md for
+   the authoritative table.
 
 6.2.  Session Dictionary (0x80–0xFE)
 
@@ -770,14 +878,14 @@ Table of Contents
 
    Session dictionary entries are negotiated via DICT_SYNC frames
    (Section 5.7).  Either peer MAY propose entries; both peers MUST
-   agree before using an entry.  If a DICT_REF references an
+   agree before using an entry.  If a compressed frame references an
    unconfirmed session entry, the receiver MUST respond with error
    status 0x07 (Unknown dictionary reference).
 
    Index 0xFF is reserved and MUST NOT be used as a dictionary
-   reference.  It serves as an escape value: a DICT_REF of 0xFF
+   reference.  It serves as an escape value: a reference of 0xFF
    indicates that the payload is uncompressed and carries the full
-   method name inline.
+   field names inline.
 
 6.3.  Dictionary Synchronization
 
@@ -794,11 +902,11 @@ Table of Contents
    Dictionary compression is lossless at the semantic level: a
    dictionary-compressed message, when decompressed, MUST produce
    a frame that is semantically identical to the uncompressed form.
-   The dictionary substitution replaces only the method/field name;
+   The dictionary substitution replaces only the field keys;
    all argument values are transmitted as provided.
 
 
-7.  Native Streaming
+7.  Native Streaming  **[PLANNED]**
 
    LUMEN supports native token-by-token streaming, designed for LLM
    text generation where each STREAM_DATA frame carries one or more
@@ -843,7 +951,7 @@ Table of Contents
    carries citation references for retrieval-augmented generation.
 
 
-8.  Multiplexing
+8.  Multiplexing  **[PLANNED]**
 
    The MUX frame (0x09) enables multiple logical channels over a single
    transport connection.  Each channel is identified by a 2-byte
@@ -877,7 +985,7 @@ Table of Contents
    to each frame.
 
 
-9.  Security
+9.  Security  **[PLANNED — Macaroons not implemented; encryption available]**
 
    LUMEN provides security at two layers:
 
@@ -1168,7 +1276,8 @@ Table of Contents
 
 Appendix A.  Hyb128 Encoding Algorithm
 
-   The following pseudocode describes Hyb128 encoding:
+   The following pseudocode describes Hyb128 encoding.  All multi-byte
+   values are little-endian.
 
    function hyb128_encode(value: uint64) -> bytes:
        if value <= 63:
@@ -1176,46 +1285,38 @@ Appendix A.  Hyb128 Encoding Algorithm
            return [byte(value & 0x3F)]
 
        else if value <= 65535:
-           // Short mode: upper 2 = 10, value in 3 bytes
-           return [
-               0x80 | ((value >> 16) & 0x3F),
-               (value >> 8) & 0xFF,
-               value & 0xFF
-           ]
+           // Short mode: first byte = 0x80 (mode 10), then u16 LE
+           le = value.to_le_bytes_16()
+           return [0x80, le[0], le[1]]
 
        else if value <= 4294967295:
-           // Standard mode: upper 2 = 11, value in 5 bytes
-           return [
-               0xC0 | ((value >> 32) & 0x3F),
-               (value >> 24) & 0xFF,
-               (value >> 16) & 0xFF,
-               (value >> 8) & 0xFF,
-               value & 0xFF
-           ]
+           // Standard mode: first byte = 0xC0 (mode 11), then u32 LE
+           le = value.to_le_bytes_32()
+           return [0xC0, le[0], le[1], le[2], le[3]]
 
        else:
-           // Extended mode: upper 2 = 01, followed by LEB128
-           prefix = [0x40]
+           // Extended mode: first byte = 0x40 (mode 01), then LEB128
            leb = leb128_encode(value)
-           return prefix + leb
+           return [0x40] + leb
 
    function hyb128_decode(bytes: byte_array) -> (uint64, consumed):
        first = bytes[0]
        mode = (first >> 6) & 0x03
 
        switch mode:
-           case 0:  // Tiny
+           case 0:  // Tiny: lower 6 bits are the value
                return (first & 0x3F, 1)
-           case 2:  // Short
-               value = ((first & 0x3F) << 16) |
-                       (bytes[1] << 8) | bytes[2]
+
+           case 2:  // Short: next 2 bytes are u16 LE
+               value = bytes[1] | (bytes[2] << 8)
                return (value, 3)
-           case 3:  // Standard
-               value = ((first & 0x3F) << 32) |
-                       (bytes[1] << 24) | (bytes[2] << 16) |
-                       (bytes[3] << 8) | bytes[4]
+
+           case 3:  // Standard: next 4 bytes are u32 LE
+               value = bytes[1] | (bytes[2] << 8) |
+                       (bytes[3] << 16) | (bytes[4] << 24)
                return (value, 5)
-           case 1:  // Extended
+
+           case 1:  // Extended: remaining bytes are LEB128
                value, consumed = leb128_decode(bytes[1:])
                return (value, 1 + consumed)
 
@@ -1242,13 +1343,16 @@ Appendix B.  Wire Examples
      00 00    — timeout_ms = 0 (default)
      0A       — method_len (Tiny: 10 bytes)
      74 6F 6F 6C 73 2F 6C 69 73 74 — method = "tools/list"
-     80       — args (CBOR: empty array)
+     80       — args (LUMEN binary: empty array)
 
    Total: 20 bytes.  Equivalent JSON-RPC: ~55 bytes.  Reduction: 64%.
 
-   B.2.  Compressed REQUEST
+   B.2.  Compressed REQUEST  **[PLANNED]**
 
-   Same invocation using static dictionary.
+   Same invocation using dictionary compression (field keys replaced
+   with 1-byte indices inside the payload).  This example illustrates
+   the planned structured-payload format; the current implementation
+   transports JSON-RPC as an opaque blob.
 
    Byte sequence (hex):
 
@@ -1257,11 +1361,10 @@ Appendix B.  Wire Examples
    Breakdown:
      07       — LEN = 7
      01       — TYPE = REQUEST
-     01       — FLAGS = COMPRESSED
-     00       — DICT_REF = 0x00 (static: "tools/list")
+     01       — FLAGS = COMPRESSED (dictionary compression active)
      00 00 00 01 — request_id = 1
      00 00    — timeout_ms = 0
-     80       — args (CBOR: empty array)
+     80       — args (LUMEN binary: empty array)
 
    Total: 10 bytes.  Reduction vs JSON-RPC: 82%.
 
@@ -1324,7 +1427,7 @@ Acknowledgements
    the Macaroon paper authors for pioneering decentralized
    authorization.
 
-   Special thanks to the maintainers of the CBOR, QUIC, and
+   Special thanks to the maintainers of the QUIC, and
    ChaCha20-Poly1305 reference implementations, without which the
    LUMEN reference codebase would not have been possible.
 
