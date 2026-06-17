@@ -11,6 +11,7 @@ pub mod hyb128;
 #[cfg(feature = "quic")]
 pub mod quic;
 pub mod shm;
+pub mod stream;
 pub mod transport;
 
 #[cfg(feature = "wasm")]
