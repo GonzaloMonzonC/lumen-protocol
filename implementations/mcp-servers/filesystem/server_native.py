@@ -409,7 +409,23 @@ HANDLERS = {
 # ═══════════════════════════════════════════════════════════════════════
 
 def process_message(msg: dict) -> dict:
-    """Process a JSON-RPC message (extracted from LUMEN frame)."""
+    """Process a message. Handles LUMEN PROBE or JSON-RPC."""
+    
+    # ── LUMEN PROBE handshake ──
+    if "protocol" in msg and msg.get("protocol") == "LUMEN":
+        # This is a LUMEN probe, respond with PROBE_ACK
+        client_name = msg.get("client_name", "unknown")
+        client_versions = msg.get("supported_versions", ["1.0"])
+        accepted = "1.0" if "1.0" in client_versions else client_versions[0]
+        ack = {
+            "protocol": "LUMEN",
+            "server_name": "lumen-filesystem-native",
+            "accepted_version": accepted,
+        }
+        # Return special marker for send_lumen_frame to handle differently
+        return {"__lumen_ack__": True, "ack": ack}
+    
+    # ── JSON-RPC handling ──
     method = msg.get("method", "")
     req_id = msg.get("id")
 
@@ -477,6 +493,21 @@ def read_lumen_frame() -> dict | None:
 def send_lumen_frame(response: dict) -> None:
     """Build a LUMEN frame and write to stdout (binary mode)."""
     if response is None:
+        return
+
+    from lumen.negotiation import LumenAck
+    from lumen import TYPE_PROBE_ACK, FLAG_COMPRESSED as FC
+
+    # Handle PROBE_ACK marker
+    if response.get("__lumen_ack__"):
+        ack = response["ack"]
+        payload = compress_value(ack)
+        header_size = build_size(payload)
+        total_size = header_size + len(payload)
+        buf = bytearray(total_size)
+        build_frame(TYPE_PROBE_ACK, FC, payload, buf, 0)
+        sys.stdout.buffer.write(buf)
+        sys.stdout.buffer.flush()
         return
 
     payload = compress_value(response)
