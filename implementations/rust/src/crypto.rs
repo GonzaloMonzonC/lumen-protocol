@@ -138,6 +138,76 @@ pub struct Cipher {
     recv_bitmap: u64,
 }
 
+/// DTLS-style sliding window size (64 nonces).
+const WINDOW_SIZE: u64 = 64;
+
+/// Check whether `nonce` is acceptable without modifying state.
+///
+/// Returns `Ok(())` if the nonce passes anti-replay checks, or
+/// `Err(DecryptError::NonceReuse)` if it's a replay or outside window.
+fn check_nonce_candidate(
+    window: u64,
+    bitmap: u64,
+    nonce: u64,
+) -> Result<(), DecryptError> {
+    // Sentinel: u64::MAX means "no nonces received yet" — accept any.
+    if window == u64::MAX {
+        return Ok(());
+    }
+
+    if nonce > window {
+        // Nonce in the future — acceptable (gap)
+        Ok(())
+    } else if nonce == window {
+        Err(DecryptError::NonceReuse)
+    } else {
+        let offset = window - nonce;
+        if offset > WINDOW_SIZE {
+            return Err(DecryptError::NonceReuse);
+        }
+        let mask = 1u64 << (offset - 1);
+        if bitmap & mask != 0 {
+            Err(DecryptError::NonceReuse)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Commit a nonce to the sliding window after successful AEAD decryption.
+fn commit_nonce(window: &mut u64, bitmap: &mut u64, nonce: u64) {
+    // Sentinel → first nonce: mark all prior nonces as "seen" so only
+    // the first nonce itself is accepted. Anything before the session
+    // start is a replay.
+    if *window == u64::MAX {
+        *window = nonce;
+        // Mark all nonces from 0..nonce as seen (bitmask covering the gap).
+        // Cap at WINDOW_SIZE since that's all we can track.
+        if nonce > 0 {
+            let gap = nonce.min(WINDOW_SIZE);
+            *bitmap = if gap >= 64 { u64::MAX } else { (1u64 << gap) - 1 };
+        }
+        return;
+    }
+
+    if nonce > *window {
+        let diff = nonce - *window;
+        *bitmap = if diff >= WINDOW_SIZE {
+            1 // gap too large — reset
+        } else {
+            (*bitmap << diff) | 1
+        };
+        *window = nonce;
+    } else if nonce == *window {
+        // Should've been caught by check_nonce_candidate
+        return;
+    } else {
+        let offset = *window - nonce;
+        let mask = 1u64 << (offset - 1);
+        *bitmap |= mask;
+    }
+}
+
 impl Cipher {
     /// Create a new cipher from a 32-byte X25519 shared secret.
     ///
@@ -163,7 +233,10 @@ impl Cipher {
             send_aead: ChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&send_key)),
             recv_aead: ChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&recv_key)),
             send_counter: 0,
-            recv_window: 0,
+            // Sentinel: u64::MAX means "no nonces received yet".
+            // The first nonce (typically 0) will be > u64::MAX? No — but we
+            // treat the sentinel specially in check_nonce.
+            recv_window: u64::MAX,
             recv_bitmap: 0,
         }
     }
@@ -203,39 +276,23 @@ impl Cipher {
 
         let (nonce_bytes, ciphertext) = encrypted.split_at(NONCE_SIZE);
         let nonce = Nonce::from_slice(nonce_bytes);
-
-        // Anti-replay sliding window (DTLS-style, 64 nonce window).
-        // Prevents attackers from exhausting the nonce space (DoS) while
-        // tolerating limited reordering.
         let recv_nonce = u64::from_le_bytes(nonce_bytes[..8].try_into().unwrap());
-        const WINDOW_SIZE: u64 = 64;
 
-        if recv_nonce > self.recv_window {
-            let diff = recv_nonce - self.recv_window;
-            // Shift existing bitmap (old window becomes a seen nonce at offset diff-1)
-            self.recv_bitmap = if diff >= WINDOW_SIZE {
-                1 // gap too large — reset, only mark old window as seen
-            } else {
-                (self.recv_bitmap << diff) | 1
-            };
-            self.recv_window = recv_nonce;
-        } else if recv_nonce == self.recv_window {
-            return Err(DecryptError::NonceReuse);
-        } else {
-            let offset = self.recv_window - recv_nonce;
-            if offset > WINDOW_SIZE {
-                return Err(DecryptError::NonceReuse);
-            }
-            let mask = 1u64 << (offset - 1);
-            if self.recv_bitmap & mask != 0 {
-                return Err(DecryptError::NonceReuse);
-            }
-            self.recv_bitmap |= mask;
-        }
+        // Step 1: Check anti-replay WITHOUT modifying state.
+        // This prevents an attacker from advancing the window with
+        // invalid ciphertext (DoS via window exhaustion).
+        check_nonce_candidate(self.recv_window, self.recv_bitmap, recv_nonce)?;
 
-        self.recv_aead
+        // Step 2: Authenticate and decrypt.
+        let plaintext = self
+            .recv_aead
             .decrypt(nonce, ciphertext)
-            .map_err(|_| DecryptError::AuthenticationFailed)
+            .map_err(|_| DecryptError::AuthenticationFailed)?;
+
+        // Step 3: Only NOW commit the nonce — AEAD already verified.
+        commit_nonce(&mut self.recv_window, &mut self.recv_bitmap, recv_nonce);
+
+        Ok(plaintext)
     }
 
     /// Encrypt and build a full LUMEN frame (with Hyb128 + TYPE + FLAGS).
