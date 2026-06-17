@@ -210,13 +210,10 @@ def _build_probe_response() -> bytes:
 
 
 def _build_lumen_response(req_id: Any, result: Any) -> bytes:
-    """Build a LUMEN RESPONSE frame with compressed JSON payload."""
-    payload = json.dumps(
-        {"jsonrpc": "2.0", "id": req_id, "result": result},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode()
-    # TODO: actual LUMEN compression (dict + tags) — currently just raw JSON in payload
+    """Build a LUMEN RESPONSE frame with actual LUMEN-compressed payload."""
+    from lumen.compress import compress_value
+    response = {"jsonrpc": "2.0", "id": req_id, "result": result}
+    payload = compress_value(response)
     return _build_lumen_frame(_FRAME_RESPONSE, _FLAG_COMPRESSED, payload)
 
 
