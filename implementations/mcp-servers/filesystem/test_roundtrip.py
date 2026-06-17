@@ -11,19 +11,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'python',
 from lumen import build_frame, parse_frame, compress_value, decompress_value, ParseComplete
 from lumen import TYPE_REQUEST, TYPE_RESPONSE, FLAG_COMPRESSED, build_size
 
-# Import the server's handlers directly
-sys.path.insert(0, r'C:\Users\gonzalo\Documents\GitHub\cadencia\apps\lumen-fs')
+# Import the server's shared tools and handlers locally (not hardcoded path)
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(REPO_ROOT, 'implementations', 'mcp-servers', 'filesystem'))
+import shared_tools
+# The process_message function is in server_native.py directly
 import importlib.util
-spec = importlib.util.spec_from_file_location("server_native", r"C:\Users\gonzalo\Documents\GitHub\cadencia\apps\lumen-fs\server_native.py")
-server = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(server)
+server_spec = importlib.util.spec_from_file_location(
+    "server_native",
+    os.path.join(REPO_ROOT, 'implementations', 'mcp-servers', 'filesystem', 'server_native.py')
+)
+server_native = importlib.util.module_from_spec(server_spec)
+server_spec.loader.exec_module(server_native)
 
 def roundtrip(msg_dict):
     """Simulate LUMEN round-trip: client builds frame → server processes → server builds frame."""
     # Client side: build request frame
     payload = compress_value(msg_dict)
-    header = build_size(payload)
-    buf = bytearray(header + len(payload))
+    total_size = build_size(len(payload))
+    buf = bytearray(total_size)
     build_frame(TYPE_REQUEST, FLAG_COMPRESSED, payload, buf, 0)
     
     # Server side: parse, process, build response
@@ -35,15 +41,15 @@ def roundtrip(msg_dict):
     if frame.flags & FLAG_COMPRESSED:
         server_payload = decompress_value(server_payload)
     
-    response = server.process_message(server_payload)
+    response = server_native.process_message(server_payload)
     
     # Server builds response frame
     if response is None:
         return None
     
     resp_payload = compress_value(response)
-    resp_header = build_size(resp_payload)
-    resp_buf = bytearray(resp_header + len(resp_payload))
+    resp_total = build_size(len(resp_payload))
+    resp_buf = bytearray(resp_total)
     build_frame(TYPE_RESPONSE, FLAG_COMPRESSED, resp_payload, resp_buf, 0)
     
     # Client parses response
