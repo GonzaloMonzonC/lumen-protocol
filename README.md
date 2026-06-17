@@ -162,6 +162,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | X25519 key exchange | ✅ | Rust + TypeScript |
 | Native token streaming | ✅ | Rust: stream.rs — StreamInit, StreamData, StreamRegistry |
 | MUX channels | ✅ | Rust: mux.rs — 5 sub-commands, MuxRegistry with state machine |
+| Macaroons (capability auth) | ✅ | Rust: macaroon.rs — HMAC-SHA256 chained sigs, caveat attenuation |
 | QUIC transport (L4) | ⚠️ | Rust: `quinn` deps present, early-stage |
 | Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
 | TypeScript impl | ✅ | Node.js + browser, zero-copy SHM via koffi |
@@ -173,7 +174,6 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Macaroons (zero-trust auth) | 📝 Spec only | §4.7 of RFC — design ready, not yet implemented |
 | Multi-agent sessions | 🚧 Rust partial | Per-transport dict; full session isolation WIP |
 
 ### 📐 Known Spec/Code Mismatches

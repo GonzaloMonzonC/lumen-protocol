@@ -26,10 +26,9 @@ Status of This Document
    implementation: payloads are compressed JSON-RPC 2.0 messages,
    with native binary headers planned for v2.
 
-   Remaining unimplemented features (marked [PLANNED] in the body):
-
-   8. Macaroons (§9): Fully specified but NOT YET IMPLEMENTED in
-      any language.  Planned for v0.2.
+   Remaining unimplemented features: None. All sections marked [PLANNED]
+   in previous revisions have been implemented or updated to match the
+   current codebase.
 
    The authoritative reference for what IS implemented is the project
    README.md §Status & Roadmap and the source code in implementations/.
@@ -970,11 +969,12 @@ Table of Contents
    to each frame.
 
 
-9.  Security  **[PLANNED — Macaroons not implemented; encryption available]**
+9.  Security
 
    LUMEN provides security at two layers:
 
-   1.  Capability-based authorization via Macaroon tokens.
+   1.  Capability-based authorization via Macaroon tokens
+       (see implementations/rust/src/macaroon.rs).
    2.  Optional frame-level authenticated encryption via
        ChaCha20-Poly1305 and X25519.
 
