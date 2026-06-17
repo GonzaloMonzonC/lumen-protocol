@@ -163,7 +163,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
 | MCP servers | ✅ | 33 tools across filesystem (9), web (2), thinking (22) |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
-| ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports) |
+| ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
 | Macaroons (capability auth) | ✅ | Rust: macaroon.rs — HMAC-SHA256, auto expiry check, caveat attenuation |
 | MUX channels | ✅ | Rust: mux.rs — 5 sub-commands, MuxRegistry with state machine |
