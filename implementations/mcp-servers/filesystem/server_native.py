@@ -14,6 +14,8 @@ Usage:
     hermes mcp add lumen-fs-native --command python --args server_native.py --transport lumen
 """
 
+from __future__ import annotations
+
 import sys
 import json
 

@@ -6,6 +6,8 @@ transport).  The two servers share identical tool logic; only the transport laye
 differs.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys as _sys

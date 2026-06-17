@@ -13,6 +13,8 @@ Usage:
     hermes mcp add lumen-fs --command python --args server.py
 """
 
+from __future__ import annotations
+
 import sys
 import json
 
