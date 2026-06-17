@@ -373,6 +373,11 @@ pub fn client_encrypted_handshake(
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid public key length"))?;
 
             let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
+            // Validate peer public key before deriving shared secret — prevents
+            // low-order point attacks that would force a predictable shared secret.
+            if !crate::crypto::Keypair::validate_public_key(&pk_bytes) {
+                return Ok(None); // invalid peer key → fall back to unencrypted
+            }
             let shared_secret = kp.derive_shared_secret(&peer_public);
             let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Initiator);
 
@@ -433,6 +438,11 @@ pub fn server_encrypted_handshake(
         };
 
         let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
+        // Validate peer public key before deriving shared secret
+        if !crate::crypto::Keypair::validate_public_key(&pk_bytes) {
+            // Invalid peer key → fall back to unencrypted for this connection
+            return (None, None);
+        }
         let shared_secret = kp.derive_shared_secret(&peer_public);
         let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
 

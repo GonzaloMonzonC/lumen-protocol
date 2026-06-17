@@ -100,44 +100,52 @@ impl Macaroon {
         }
     }
 
-    /// Verify the macaroon against a root key and a set of caveat checkers.
+    /// Verify the macaroon against a root key and a set of caveat checkers,
+    /// validating expiry caveats against the current system time.
     ///
-    /// The `check_caveat` closure is called for each caveat in order.  If
-    /// any caveat fails, verification returns `false`.  The signature is
-    /// recomputed from the root key and all caveats, and compared against
-    /// the stored signature.
-    ///
-    /// ## Example
-    ///
-    /// ```ignore
-    /// let ok = mac.verify(&root_key, |caveat| {
-    ///     if caveat.starts_with("method = ") {
-    ///         let allowed = caveat.strip_prefix("method = ").unwrap();
-    ///         allowed == requested_method
-    ///     } else {
-    ///         false // unknown caveat format → reject
-    ///     }
-    /// });
-    /// ```
-    pub fn verify<F>(&self, root_key: &[u8; 32], mut check_caveat: F) -> bool
+    /// The `check_caveat` closure is called for each non-expiry caveat.
+    /// Expiry caveats (`expiry < ISO8601`) are checked automatically against
+    /// the current wall-clock time and do NOT reach the closure.
+    pub fn verify_with_time<F>(&self, root_key: &[u8; 32], now: u64, mut check_caveat: F) -> bool
     where
         F: FnMut(&str) -> bool,
     {
-        // Check all caveats against the verifier's policy
         for caveat in &self.caveats {
+            // Auto-check expiry caveats against provided timestamp
+            if let Some(expiry_str) = caveats::parse_expiry(caveat) {
+                // Parse ISO 8601 timestamp and compare
+                if let Some(expiry_ts) = parse_iso8601_to_unix(expiry_str) {
+                    if now >= expiry_ts {
+                        return false; // expired
+                    }
+                    continue; // expiry validated, skip user check
+                }
+                // If expiry can't be parsed, reject for safety
+                return false;
+            }
             if !check_caveat(caveat) {
                 return false;
             }
         }
-
-        // Recompute the signature chain
+        // Recompute signature chain (same as verify)
         let mut sig = hmac_sha256(root_key, self.id.as_bytes());
         for caveat in &self.caveats {
             sig = hmac_sha256(&sig, caveat.as_bytes());
         }
-
-        // Constant-time comparison to prevent timing attacks
         constant_time_eq(&sig, &self.signature)
+    }
+
+    /// Verify the macaroon with automatic expiry checking against current time.
+    /// Equivalent to `verify_with_time(root_key, SystemTime::now(), check_caveat)`.
+    pub fn verify<F>(&self, root_key: &[u8; 32], check_caveat: F) -> bool
+    where
+        F: FnMut(&str) -> bool,
+    {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.verify_with_time(root_key, now, check_caveat)
     }
 
     // ── Serialisation ──────────────────────────────────────────────────
@@ -295,6 +303,41 @@ fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
         diff |= a[i] ^ b[i];
     }
     diff == 0
+}
+
+/// Parse a simplified ISO 8601 timestamp (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+/// to a Unix timestamp. Returns None if parsing fails.
+fn parse_iso8601_to_unix(s: &str) -> Option<u64> {
+    let s = s.trim();
+    // Support both "2026-12-31" and "2026-12-31T23:59:59Z"
+    if s.len() < 10 { return None; }
+    let year: u32 = s[0..4].parse().ok()?;
+    let month: u32 = s[5..7].parse().ok()?;
+    let day: u32 = s[8..10].parse().ok()?;
+    if month < 1 || month > 12 || day < 1 || day > 31 { return None; }
+    // Simplified: use day-of-year approximation (good enough for expiry checks)
+    let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let is_leap = |y: u32| y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let feb_days = if is_leap(year) { 29 } else { 28 };
+    if month == 2 && day > feb_days { return None; }
+    if day > days_in_month[month as usize] { return None; }
+    // Days since epoch (1970-01-01)
+    let mut days = 0u64;
+    for y in 1970..year {
+        days += if is_leap(y) { 366 } else { 365 };
+    }
+    let cumulative = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let mut cum = cumulative[month as usize];
+    if month > 2 && is_leap(year) { cum += 1; }
+    days += cum as u64 + day as u64 - 1;
+    // Parse optional time part (HH:MM:SS)
+    let seconds = if s.len() >= 19 && &s[10..11] == "T" {
+        let h: u64 = s[11..13].parse().unwrap_or(0);
+        let m: u64 = s[14..16].parse().unwrap_or(0);
+        let sec: u64 = s[17..19].parse().unwrap_or(0);
+        h * 3600 + m * 60 + sec
+    } else { 0 };
+    Some(days * 86400 + seconds)
 }
 
 // ── Key generation ──────────────────────────────────────────────────────────
