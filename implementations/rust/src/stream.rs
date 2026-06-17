@@ -45,6 +45,19 @@ pub const TOKEN_END: u8 = 0x02;
 
 // ── STREAM_INIT ─────────────────────────────────────────────────────────────
 
+/// Find the largest valid UTF-8 boundary at or below `max_bytes` in `data`.
+fn utf8_truncate(data: &[u8], max_bytes: usize) -> usize {
+    if max_bytes >= data.len() {
+        return data.len();
+    }
+    // Walk backwards from max_bytes to find a byte that starts a character
+    // (UTF-8 continuation bytes are 0b10xxxxxx, i.e. >= 0x80 and < 0xC0).
+    (0..=max_bytes)
+        .rev()
+        .find(|&i| data.get(i).map_or(true, |&b| b < 0x80 || b >= 0xC0))
+        .unwrap_or(0)
+}
+
 /// Payload for a STREAM_INIT frame (0x06).
 ///
 /// Sent by the client to initiate a token stream.  The server responds
@@ -65,17 +78,16 @@ impl StreamInit {
     /// Encode into the binary payload for a STREAM_INIT frame.
     pub fn encode(&self) -> Vec<u8> {
         let model_bytes = self.model.as_bytes();
-        let cap = 4 + 4 + 4 + 1 + model_bytes.len(); // stream_id + max_tokens + temp + model_len + model
+        let truncate_at = utf8_truncate(model_bytes, 255);
+        let truncated = &model_bytes[..truncate_at];
+        let cap = 13 + truncated.len();
         let mut buf = Vec::with_capacity(cap);
 
         buf.extend_from_slice(&self.stream_id.to_le_bytes());
         buf.extend_from_slice(&self.max_tokens.to_le_bytes());
         buf.extend_from_slice(&self.temperature.to_le_bytes());
-
-        // model_len capped at u8 (255 bytes — model names are short)
-        let len = model_bytes.len().min(255) as u8;
-        buf.push(len);
-        buf.extend_from_slice(&model_bytes[..len as usize]);
+        buf.push(truncated.len() as u8);
+        buf.extend_from_slice(truncated);
 
         buf
     }
@@ -108,7 +120,7 @@ impl StreamInit {
 
     /// Size of the encoded payload in bytes.
     pub fn encoded_len(&self) -> usize {
-        13 + self.model.len().min(255)
+        13 + utf8_truncate(self.model.as_bytes(), 255)
     }
 }
 
@@ -286,7 +298,11 @@ impl StreamRegistry {
         state.next_seq += 1;
 
         if data.is_end() {
-            return Ok(true); // caller should remove the stream
+            // NOTE: The caller MUST call remove() after receiving Ok(true).
+            // If the caller forgets, the stream stays registered and any
+            // subsequent STREAM_DATA for this stream_id will be rejected
+            // (sequence gap) and re-registration will fail (duplicate).
+            return Ok(true);
         }
 
         state.token_count += 1;
@@ -323,6 +339,18 @@ impl StreamRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utf8_truncate_boundary() {
+        // "abc" = 3 bytes, all ASCII
+        assert_eq!(utf8_truncate(b"abc", 3), 3);
+        assert_eq!(utf8_truncate(b"abc", 1), 1); // 'a' is 1 byte
+        // "ñ" = 2 bytes (0xC3, 0xB1)
+        assert_eq!(utf8_truncate("ñ".as_bytes(), 2), 2);
+        assert_eq!(utf8_truncate("ñ".as_bytes(), 1), 0); // can't split
+        // empty
+        assert_eq!(utf8_truncate(b"", 0), 0);
+    }
 
     // ── StreamInit encode/decode ─────────────────────────────────────────
 
@@ -367,6 +395,40 @@ mod tests {
         let encoded = init.encode();
         let decoded = StreamInit::decode(&encoded).unwrap();
         assert_eq!(decoded.model.len(), 255); // capped at u8::MAX
+    }
+
+    #[test]
+    fn stream_init_empty_model() {
+        let init = StreamInit {
+            stream_id: 1,
+            max_tokens: 0,
+            temperature: 0.0,
+            model: String::new(),
+        };
+        let encoded = init.encode();
+        assert_eq!(encoded.len(), 13); // just the header, model_len=0
+        let decoded = StreamInit::decode(&encoded).unwrap();
+        assert_eq!(decoded.model, "");
+    }
+
+    #[test]
+    fn stream_init_utf8_boundary() {
+        // 255 bytes: 84 × "ñ" (2 bytes each) = 168 bytes, then pad with "a"
+        // Actually: "ñ".repeat(128) = 256 bytes. Truncated at 255 would
+        // split the last "ñ" (bytes 254-255 are the 2nd byte of "ñ").
+        // utf8_truncate should step back to byte 254 (end of prev char).
+        let long = "ñ".repeat(128); // 256 bytes
+        let init = StreamInit {
+            stream_id: 1,
+            max_tokens: 0,
+            temperature: 0.0,
+            model: long,
+        };
+        let encoded = init.encode();
+        let decoded = StreamInit::decode(&encoded).unwrap();
+        // Should not panic, and decoded model should be valid UTF-8
+        assert!(decoded.model.len() < 128); // fewer chars due to truncation
+        assert!(!decoded.model.is_empty());
     }
 
     // ── StreamData encode/decode ─────────────────────────────────────────
@@ -475,6 +537,10 @@ mod tests {
 
         reg.remove(1);
         assert!(reg.is_empty());
+
+        // Re-registration with same stream_id after removal MUST work
+        reg.register(&init).unwrap();
+        assert_eq!(reg.len(), 1);
     }
 
     #[test]
