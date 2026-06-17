@@ -12,7 +12,7 @@ from lumen import build_frame, parse_frame, compress_value, decompress_value, Pa
 from lumen import TYPE_REQUEST, TYPE_RESPONSE, FLAG_COMPRESSED, build_size
 
 # Import the server's shared tools and handlers locally (not hardcoded path)
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'implementations', 'mcp-servers', 'filesystem'))
 import shared_tools
 # The process_message function is in server_native.py directly
@@ -95,7 +95,7 @@ tests = [
      lambda r: "Wrote" in r['result']['content'][0]['text']),
     ("search_files", {"name":"search_files","arguments":{"pattern":"NATIVE","path":td,"target":"content"}},
      lambda r: "test.txt" in r['result']['content'][0]['text']),
-    ("search_ctx", {"name":"search_with_context","arguments":{"pattern":"NATIVE","path":td,"context_lines":1}},
+    ("search_ctx", {"name":"search_with_context","arguments":{"pattern":"NATIVE","path":td,"context":1}},
      lambda r: ">>>" in r['result']['content'][0]['text']),
     ("list_dir", {"name":"list_directory","arguments":{"path":td}},
      lambda r: len(r['result']['content'][0]['text']) > 0),
