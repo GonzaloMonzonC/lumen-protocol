@@ -28,10 +28,6 @@ Status of This Document
 
    Remaining unimplemented features (marked [PLANNED] in the body):
 
-   6. Native token streaming (§7): Constants (STREAM_INIT=0x06,
-      STREAM_DATA=0x04) are defined but the stream state machine
-      and structured payload builders are NOT YET IMPLEMENTED.
-
    7. MUX channels (§8): Constant MUX=0x09 defined but channel
       open/close/data/pause/resume logic NOT YET IMPLEMENTED.
 
@@ -836,49 +832,70 @@ Table of Contents
    all argument values are transmitted as provided.
 
 
-7.  Native Streaming  **[PLANNED]**
+7.  Native Streaming
 
-   LUMEN supports native token-by-token streaming, designed for LLM
-   text generation where each STREAM_DATA frame carries one or more
-   tokens as they are produced by the inference engine.
+   LUMEN supports native token-by-token streaming via STREAM_INIT
+   (0x06) and STREAM_DATA (0x04) frames.  The Rust reference
+   implementation provides payload builders and a stream registry
+   (see implementations/rust/src/stream.rs).
 
-7.1.  Stream Lifecycle
+7.1.  Wire Format
 
-   A stream follows this state machine:
+   STREAM_INIT payload (little-endian):
 
-   [IDLE] --> STREAM_INIT --> [ACTIVE] --> STREAM_DATA (N times)
-                                         --> STREAM_DATA with token_seq
-                                             final = [CLOSED]
+   +==============+==========+====================================+
+   | Field        | Size     | Description                        |
+   +==============+==========+====================================+
+   | stream_id    | u32 LE   | Unique stream identifier           |
+   | max_tokens   | u32 LE   | Max tokens to generate (0=unlim)   |
+   | temperature  | f32 LE   | Sampling temperature               |
+   | model_len    | u8       | Length of model identifier         |
+   | model        | variable | Model name (UTF-8, max 255 bytes)  |
+   +==============+==========+====================================+
 
-   A stream is identified by a 4-byte stream_id, unique within the
-   transport connection.  token_seq is a monotonically increasing
-   sequence number starting at 0.  The final frame in a stream MUST
-   have the high bit of token_seq set (0x80000000).
+   STREAM_DATA payload (little-endian):
 
-   The receiver SHOULD buffer tokens up to a configurable window size
-   (default 256 tokens) before delivering them to the application.
+   +==============+==========+====================================+
+   | Field        | Size     | Description                        |
+   +==============+==========+====================================+
+   | stream_id    | u32 LE   | Must match a STREAM_INIT           |
+   | token_seq    | u32 LE   | Monotonic seq, starts at 0         |
+   | token_type   | u8       | Token type (see §7.2)              |
+   | token_data   | variable | Token payload                      |
+   +==============+==========+====================================+
 
 7.2.  Token Types
 
-   The token_type field in STREAM_DATA identifies the kind of content:
-
    +=======+=============+========================================+
-   | Value | Type        | Example                                |
+   | Value | Type        | Description                            |
    +=======+=============+========================================+
-   |  0x00 | TEXT        | "Hello"                                |
-   |  0x01 | TOOL_CALL   | {"name":"read_file","args":...}        |
-   |  0x02 | THINKING    | "Let me analyze this..."               |
-   |  0x03 | ERROR       | "Rate limit exceeded"                  |
-   |  0x04 | METADATA    | {"model":"gpt-4","tokens_used":42}     |
-   |  0x05 | ANNOTATION  | Citation, reference markers            |
-   +-------+-------------+----------------------------------------+
+   | 0x00  | TEXT        | UTF-8 text token                       |
+   | 0x01  | BINARY      | Raw binary token                       |
+   | 0x02  | END         | End-of-stream (no data, closes stream) |
+   +=======+=============+========================================+
 
-   The TEXT type is the default for language model output.  TOOL_CALL
-   indicates the model is requesting a tool invocation.  THINKING is
-   used for chain-of-thought or reasoning content (the model's internal
-   monologue).  ERROR terminates the stream abnormally.  METADATA
-   provides out-of-band information about the generation.  ANNOTATION
-   carries citation references for retrieval-augmented generation.
+   Additional token types (TOOL_CALL, THINKING, ERROR, METADATA,
+   ANNOTATION) are defined for v2.
+
+7.3.  Stream Lifecycle
+
+   [IDLE] --STREAM_INIT--> [ACTIVE] --STREAM_DATA(N times)-->
+                                         --STREAM_DATA(TOKEN_END)--> [CLOSED]
+
+   1. Client sends STREAM_INIT with a unique stream_id.
+   2. Server validates and registers the stream.
+   3. Server sends STREAM_DATA frames with monotonically increasing
+      token_seq values.
+   4. Server sends a final STREAM_DATA with token_type = TOKEN_END (0x02).
+   5. Client removes the stream from its registry.
+
+   The stream registry MUST validate:
+   - stream_id is registered (STREAM_INIT received)
+   - token_seq is strictly monotonic (rejects gaps and replays)
+   - max_tokens limit is honoured (if > 0)
+
+   Duplicate STREAM_INIT for an active stream_id MUST be rejected.
+   STREAM_DATA for an unknown stream_id MUST be rejected.
 
 
 8.  Multiplexing  **[PLANNED]**

@@ -160,6 +160,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation |
 | X25519 key exchange | ✅ | Rust + TypeScript |
+| Native token streaming | ✅ | Rust: stream.rs — StreamInit, StreamData, StreamRegistry |
 | QUIC transport (L4) | ⚠️ | Rust: `quinn` deps present, early-stage |
 | Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
 | TypeScript impl | ✅ | Node.js + browser, zero-copy SHM via koffi |
@@ -173,7 +174,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 |---------|--------|-------|
 | Macaroons (zero-trust auth) | 📝 Spec only | §4.7 of RFC — design ready, not yet implemented |
 | MUX channels | 📝 Constants only | `MUX=0x09` defined; channel open/close/pause/resume not built |
-| Native token streaming | 📝 Constants only | `STREAM_INIT`/`STREAM_DATA` defined; structured payload builder pending |
+| Native token streaming | ✅ | Rust: `stream.rs` — STREAM_INIT/DATA payload builders, StreamRegistry with seq validation |
 | Multi-agent sessions | 🚧 Rust partial | Per-transport dict; full session isolation WIP |
 
 ### 📐 Known Spec/Code Mismatches
