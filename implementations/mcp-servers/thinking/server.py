@@ -50,6 +50,10 @@ class Session:
         self.model: dict[str, dict] = {}
         self.works: list[dict] = []
         self.next_work_id = 1
+        self.patterns: list[dict] = []
+        self.next_pattern_id = 1
+        self.decisions: list[dict] = []
+        self.next_decision_id = 1
         self.tool_calls = 0
         self.created_at = time.time()
         self.updated_at = time.time()
@@ -459,6 +463,62 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {}
+        }
+    },
+    {
+        "name": "pattern_record",
+        "description": "Record a recurring bug pattern, anti-pattern, or fix strategy. Builds institutional memory across sessions so the agent recognizes problems it has solved before. Patterns survive context compression and are matchable via pattern_match.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern_name": {"type": "string", "description": "Short name (e.g. 'null-check-in-async-callback')"},
+                "description": {"type": "string", "description": "What the pattern looks like and why it's a problem"},
+                "code_snippet": {"type": "string", "description": "Example code showing the pattern (optional)"},
+                "fix_strategy": {"type": "string", "description": "How to fix it (e.g. 'add null guard before await')"},
+                "category": {"type": "string", "description": "Category: 'bug', 'security', 'performance', 'design', 'testing', 'other'", "default": "bug"},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Searchable tags (e.g. ['async', 'null', 'javascript'])"}
+            },
+            "required": ["pattern_name", "description"]
+        }
+    },
+    {
+        "name": "pattern_match",
+        "description": "Search recorded patterns for matches against a problem description or code snippet. Uses TF-IDF semantic similarity to find relevant patterns. Helps the agent recognize: 'Have I seen this bug before?'",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "Problem description or code snippet to match against patterns"},
+                "category": {"type": "string", "description": "Filter by category"},
+                "min_score": {"type": "number", "description": "Minimum similarity score 0-1 (default: 0.1)", "default": 0.1},
+                "top_n": {"type": "integer", "description": "Max patterns to return (default: 3)", "default": 3}
+            },
+            "required": ["description"]
+        }
+    },
+    {
+        "name": "decision_log",
+        "description": "Record a design or implementation decision with its rationale. Tracks WHAT was decided, WHY, and what alternatives were considered. Decision logs persist across sessions, preventing repeated debates about already-settled questions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "description": "What was decided (e.g. 'Use SQLite instead of PostgreSQL for local cache')"},
+                "rationale": {"type": "string", "description": "Why this decision (e.g. 'Zero setup for users, no Docker dependency')"},
+                "alternatives": {"type": "array", "items": {"type": "string"}, "description": "Alternatives considered and why rejected"},
+                "context": {"type": "string", "description": "What was the situation when this decision was made?"},
+                "category": {"type": "string", "description": "Category: 'architecture', 'tooling', 'dependency', 'api', 'performance', 'security', 'other'", "default": "other"},
+                "revisit_trigger": {"type": "string", "description": "Condition that would make this worth revisiting (e.g. 'If we need multi-user support')"}
+            },
+            "required": ["decision", "rationale"]
+        }
+    },
+    {
+        "name": "decision_list",
+        "description": "List all recorded decisions, optionally filtered by category. Shows the decision, rationale, and when it was made.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "Filter by category"}
+            }
         }
     }
 ]
@@ -1708,6 +1768,111 @@ def tool_session_list(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Pattern Memory — institutional knowledge across sessions
+# ═══════════════════════════════════════════════════════════════════════
+
+def tool_pattern_record(args: dict) -> dict:
+    """Record a bug pattern or fix strategy."""
+    session = _get_session(args.get("session_id"))
+    pid = session.next_pattern_id
+    session.next_pattern_id += 1
+    pattern = {
+        "id": pid, "pattern_name": args["pattern_name"],
+        "description": args["description"],
+        "code_snippet": args.get("code_snippet", ""),
+        "fix_strategy": args.get("fix_strategy", ""),
+        "category": args.get("category", "bug"),
+        "tags": args.get("tags", []), "recorded_at": time.time(), "match_count": 0,
+    }
+    session.patterns.append(pattern)
+    return {"content": [{"type": "text", "text": (
+        f"📌 Pattern #{pid} recorded: '{args['pattern_name']}'\n"
+        f"   Category: {pattern['category']}\n"
+        f"   Tags: {', '.join(pattern['tags']) if pattern['tags'] else 'none'}\n"
+        f"   Total patterns in session: {len(session.patterns)}"
+    )}]}
+
+def tool_pattern_match(args: dict) -> dict:
+    """Find matching patterns via TF-IDF similarity."""
+    session = _get_session(args.get("session_id"))
+    query = args["description"]
+    category_filter = args.get("category")
+    min_score = args.get("min_score", 0.1)
+    top_n = min(args.get("top_n", 3), 10)
+    if not session.patterns:
+        return {"content": [{"type": "text", "text": "No patterns recorded yet. Use pattern_record first."}]}
+    candidates = [p for p in session.patterns if not category_filter or p["category"] == category_filter]
+    if not candidates:
+        return {"content": [{"type": "text", "text": f"No patterns in category '{category_filter}'."}]}
+    corpus = [f"{p['pattern_name']} {p['description']} {p['fix_strategy']} {' '.join(p.get('tags',[]))}" for p in candidates]
+    all_tokens = [_tokenize(doc) for doc in corpus]
+    query_tokens = _tokenize(query)
+    scores = []
+    for i, tokens in enumerate(all_tokens):
+        if not tokens or not query_tokens: continue
+        common = set(tokens) & set(query_tokens)
+        union = set(tokens) | set(query_tokens)
+        sim = len(common) / len(union) if union else 0.0
+        if sim >= min_score:
+            scores.append((sim, candidates[i]))
+    scores.sort(key=lambda x: x[0], reverse=True)
+    top = scores[:top_n]
+    if not top:
+        return {"content": [{"type": "text", "text": "No matching patterns found. Consider recording this as a new pattern."}]}
+    lines = [f"🔍 Found {len(top)} matching patterns:"]
+    for sim, p in top:
+        bar = "█" * int(sim * 10) + "░" * (10 - int(sim * 10))
+        lines.append(f"\n   {bar} {sim:.0%} — #{p['id']} {p['pattern_name']} [{p['category']}]")
+        lines.append(f"   Description: {p['description'][:120]}")
+        if p['fix_strategy']: lines.append(f"   Fix: {p['fix_strategy'][:120]}")
+        if p.get('tags'): lines.append(f"   Tags: {', '.join(p['tags'])}")
+        p['match_count'] = p.get('match_count', 0) + 1
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Decision Log — design decision memory
+# ═══════════════════════════════════════════════════════════════════════
+
+def tool_decision_log(args: dict) -> dict:
+    """Record a design decision with rationale."""
+    session = _get_session(args.get("session_id"))
+    did = session.next_decision_id
+    session.next_decision_id += 1
+    decision = {
+        "id": did, "decision": args["decision"], "rationale": args["rationale"],
+        "alternatives": args.get("alternatives", []), "context": args.get("context", ""),
+        "category": args.get("category", "other"),
+        "revisit_trigger": args.get("revisit_trigger", ""), "recorded_at": time.time(),
+    }
+    session.decisions.append(decision)
+    alt_text = "\n   ".join(f"• {a}" for a in decision['alternatives']) if decision['alternatives'] else "   (none)"
+    return {"content": [{"type": "text", "text": (
+        f"📋 Decision #{did}: '{decision['decision']}'\n"
+        f"   Category: {decision['category']}\n"
+        f"   Rationale: {decision['rationale'][:120]}\n"
+        f"   Alternatives:\n{alt_text}\n"
+        f"   Total decisions: {len(session.decisions)}"
+    )}]}
+
+def tool_decision_list(args: dict) -> dict:
+    """List recorded decisions."""
+    session = _get_session(args.get("session_id"))
+    category_filter = args.get("category")
+    if not session.decisions:
+        return {"content": [{"type": "text", "text": "No decisions recorded yet. Use decision_log to capture design decisions."}]}
+    candidates = [d for d in session.decisions if not category_filter or d["category"] == category_filter]
+    if not candidates:
+        return {"content": [{"type": "text", "text": f"No decisions in category '{category_filter}'."}]}
+    lines = [f"📋 Decisions ({len(candidates)} shown):"]
+    for d in candidates:
+        lines.append(f"\n   #{d['id']} {d['decision'][:100]} [{d['category']}]")
+        lines.append(f"   Why: {d['rationale'][:120]}")
+        if d.get('revisit_trigger'): lines.append(f"   🔄 Revisit if: {d['revisit_trigger'][:100]}")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -1734,6 +1899,10 @@ HANDLERS = {
     "context_estimate": tool_context_estimate,
     "session_init": tool_session_init,
     "session_list": tool_session_list,
+    "pattern_record": tool_pattern_record,
+    "pattern_match": tool_pattern_match,
+    "decision_log": tool_decision_log,
+    "decision_list": tool_decision_list,
 }
 
 
