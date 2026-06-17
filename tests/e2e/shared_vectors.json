@@ -40,7 +40,8 @@
     {
       "name": "float_zero",
       "value": 0.0,
-      "expectedTags": ["TAG_FLOAT"]
+      "expectedTags": ["TAG_INT"],
+      "note": "Canonicalized: whole-number float → TAG_INT for cross-language interop"
     },
     {
       "name": "float_pi",

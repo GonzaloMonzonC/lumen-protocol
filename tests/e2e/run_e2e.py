@@ -64,7 +64,11 @@ def test_compress_roundtrip(vectors: list[dict]) -> list[dict]:
             if value is None:
                 ok = decompressed is None
             elif isinstance(value, float):
-                ok = isinstance(decompressed, float) and abs(value - decompressed) < 1e-12
+                # Canonicalization: whole-number floats → TAG_INT (cross-language interop)
+                if value == int(value) and -0x8000000000000000 <= int(value) <= 0x7FFFFFFFFFFFFFFF:
+                    ok = isinstance(decompressed, int) and decompressed == int(value)
+                else:
+                    ok = isinstance(decompressed, float) and abs(value - decompressed) < 1e-12
             else:
                 ok = decompressed == value
 
