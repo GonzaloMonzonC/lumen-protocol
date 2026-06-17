@@ -107,7 +107,7 @@ pub extern "C" fn lumen_compress(
         }
     };
 
-    let compressed = compress::compress(&value);
+    let compressed = compress::compress(&value, None);
 
     // Convert Vec<u8> into a raw pointer+len that the caller owns.
     let mut boxed = compressed.into_boxed_slice();
@@ -142,7 +142,7 @@ pub extern "C" fn lumen_decompress(
 
     let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
 
-    let value = match compress::decompress(data) {
+    let value = match compress::decompress(data, None) {
         Some(v) => v,
         None => {
             set_error("decompress error: malformed LUMEN binary".into());
@@ -288,7 +288,8 @@ pub extern "C" fn lumen_shm_open(
 /// - `side`: 0 = Ring A (Client→Server), 1 = Ring B (Server→Client).
 /// - `data_ptr`, `data_len`: payload to write.
 ///
-/// Returns 0 on success, -1 if the ring is full (caller should retry).
+/// Returns 0 on success, -1 on error (call `lumen_error_message()` for details).
+/// A timeout (peer dead) also returns -1 with an error message.
 #[no_mangle]
 pub extern "C" fn lumen_shm_write_frame(
     handle: *mut ShmOpaque,
@@ -304,8 +305,13 @@ pub extern "C" fn lumen_shm_write_frame(
     let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len as usize) };
 
     let ring = h.region.ring_buffer(rs);
-    ring.write_frame(data);
-    0
+    match ring.write_frame(data) {
+        Ok(()) => 0,
+        Err(e) => {
+            set_error(format!("lumen_shm_write_frame: {e}"));
+            -1
+        }
+    }
 }
 
 /// Read a length-prefixed frame from the ring buffer.
@@ -336,7 +342,7 @@ pub extern "C" fn lumen_shm_read_frame(
     let ring = h.region.ring_buffer(rs);
     let mut frame = Vec::new();
     match ring.read_frame(&mut frame) {
-        Some(flen) => {
+        Ok(flen) => {
             if flen > buf_cap as usize {
                 set_error(format!(
                     "lumen_shm_read_frame: frame length {} exceeds buffer capacity {}",
@@ -351,7 +357,10 @@ pub extern "C" fn lumen_shm_read_frame(
             }
             0
         }
-        None => -1,
+        Err(e) => {
+            set_error(format!("lumen_shm_read_frame: {e}"));
+            -1
+        }
     }
 }
 
@@ -492,7 +501,7 @@ mod tests {
                 .unwrap_or_else(|_| panic!("Cannot read golden for {}", name));
 
             // Decompress golden to get original value
-            let value = crate::compress::decompress(&golden)
+            let value = crate::compress::decompress(&golden, None)
                 .unwrap_or_else(|| panic!("Cannot decompress golden for {}", name));
 
             // Re-serialize to JSON (what FFI expects)

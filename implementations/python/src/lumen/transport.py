@@ -34,6 +34,7 @@ from .frame_assembler import FrameAssembler
 from .negotiation import (
     DEFAULT_PROBE_TIMEOUT_MS,
     build_probe,
+    parse_ack,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,8 @@ class LumenStdioTransport(Transport):
         self._use_lumen = False
         self._assembler = FrameAssembler()
         self._reader_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self._closed = False
 
         # Callbacks
         self.onmessage: OnMessageCallback = None
@@ -146,7 +149,7 @@ class LumenStdioTransport(Transport):
 
         # Start stderr passthrough
         if self._process.stderr:
-            self._reader_task = asyncio.create_task(self._log_stderr())
+            self._stderr_task = asyncio.create_task(self._log_stderr())
 
         # ── LUMEN negotiation ──────────────────────────────────────────
         if not self._force_json_rpc:
@@ -175,6 +178,10 @@ class LumenStdioTransport(Transport):
 
     async def close(self) -> None:
         """Close the transport and terminate the child process."""
+        if self._closed:
+            return
+        self._closed = True
+
         # Close stdin FIRST so the child process exits and the reader
         # tasks (blocked on stdout/stderr.read()) can complete.
         if self._process and self._process.stdin:
@@ -183,13 +190,15 @@ class LumenStdioTransport(Transport):
             except Exception:
                 pass
 
-        if self._reader_task:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
-            self._reader_task = None
+        for task in (self._stderr_task, self._reader_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._stderr_task = None
+        self._reader_task = None
 
         if self._process:
             self._process.terminate()
@@ -248,7 +257,7 @@ class LumenStdioTransport(Transport):
 
             if not chunk:
                 # EOF
-                if self.onclose:
+                if not self._closed and self.onclose:
                     self.onclose()
                 return
 
@@ -284,7 +293,7 @@ class LumenStdioTransport(Transport):
                 return
 
             if not chunk:
-                if self.onclose:
+                if not self._closed and self.onclose:
                     self.onclose()
                 return
 

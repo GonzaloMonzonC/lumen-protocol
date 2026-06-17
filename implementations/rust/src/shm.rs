@@ -16,6 +16,31 @@ const SHM_VERSION: u32 = 1;
 const DEFAULT_REGION_SIZE: usize = 512 * 1024; // 512 KiB
 const HEADER_SIZE: usize = 128;
 
+/// Maximum spin iterations before declaring a peer-dead timeout.
+const MAX_SPIN: u32 = 1_000_000;
+/// Every this many spins, call `thread::yield_now()` for better behavior.
+const YIELD_INTERVAL: u32 = 1000;
+
+// ── Error type ──────────────────────────────────────────────────────
+
+/// Error type for SHM ring buffer operations.
+#[derive(Debug)]
+pub struct ShmError(String);
+
+impl std::fmt::Display for ShmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for ShmError {}
+
+impl From<ShmError> for io::Error {
+    fn from(e: ShmError) -> Self {
+        io::Error::new(io::ErrorKind::TimedOut, e.0)
+    }
+}
+
 // ── Header (must be #[repr(C)] for cross-process agreement) ──────────
 
 #[repr(C)]
@@ -127,18 +152,33 @@ impl ShmRingBuffer {
 
     fn rng_len(&self) -> u64 { self.rng_end() - self.rng_start() }
     // ── Write ────────────────────────────────────────────────────
-    /// Write data. Spins if ring is full. Returns bytes written.
-    pub fn write(&self, data: &[u8]) -> usize {
+    /// Write data. Spins if ring is full (up to MAX_SPIN iterations).
+    /// Returns `Ok(bytes_written)` or `Err(ShmError)` on timeout.
+    pub fn write(&self, data: &[u8]) -> Result<usize, ShmError> {
         let start = self.rng_start();
         let len = self.rng_len();
         let cap = len - 1; // one byte reserved to distinguish full/empty
         let mut written = 0usize;
+        let mut spins: u32 = 0;
         while written < data.len() {
             let w = self.wcur().load(Ordering::Acquire);
             let r = self.rcur().load(Ordering::Acquire);
             let used = if w >= r { w - r } else { w + len - r };
             let avail = cap.saturating_sub(used);
-            if avail == 0 { std::hint::spin_loop(); continue; }
+            if avail == 0 {
+                spins += 1;
+                if spins >= MAX_SPIN {
+                    return Err(ShmError(
+                        "SHM ring buffer timeout: write peer appears dead".into(),
+                    ));
+                }
+                std::hint::spin_loop();
+                if spins % YIELD_INTERVAL == 0 {
+                    std::thread::yield_now();
+                }
+                continue;
+            }
+            spins = 0; // made progress, reset counter
             let n = ((data.len() - written) as u64).min(avail);
             let wabs = start + (w % len);
             let c1 = n.min(start + len - wabs);
@@ -155,13 +195,14 @@ impl ShmRingBuffer {
             self.wcur().store(nw, Ordering::Release);
             written += n as usize;
         }
-        written
+        Ok(written)
     }
 
     /// Write a length-prefixed frame (4-byte LE length + data).
-    pub fn write_frame(&self, data: &[u8]) {
-        self.write(&(data.len() as u32).to_le_bytes());
-        self.write(data);
+    pub fn write_frame(&self, data: &[u8]) -> Result<(), ShmError> {
+        self.write(&(data.len() as u32).to_le_bytes())?;
+        self.write(data)?;
+        Ok(())
     }
 
     // ── Read ─────────────────────────────────────────────────────
@@ -189,20 +230,36 @@ impl ShmRingBuffer {
         n as usize
     }
 
-    /// Read a complete length-prefixed frame. Returns Some(len) or None.
-    pub fn read_frame(&self, buf: &mut Vec<u8>) -> Option<usize> {
+    /// Read a complete length-prefixed frame. Returns `Ok(len)` or `Err(ShmError)` on timeout.
+    pub fn read_frame(&self, buf: &mut Vec<u8>) -> Result<usize, ShmError> {
         let mut lb = [0u8; 4];
-        if self.read(&mut lb) < 4 { return None; }
+        if self.read(&mut lb) < 4 {
+            return Err(ShmError("SHM ring buffer: no frame header available".into()));
+        }
         let flen = u32::from_le_bytes(lb) as usize;
         buf.clear();
         buf.resize(flen, 0);
         let mut total = 0;
+        let mut spins: u32 = 0;
         while total < flen {
             let n = self.read(&mut buf[total..]);
-            if n == 0 { std::hint::spin_loop(); continue; }
+            if n == 0 {
+                spins += 1;
+                if spins >= MAX_SPIN {
+                    return Err(ShmError(
+                        "SHM ring buffer timeout: read peer appears dead".into(),
+                    ));
+                }
+                std::hint::spin_loop();
+                if spins % YIELD_INTERVAL == 0 {
+                    std::thread::yield_now();
+                }
+                continue;
+            }
+            spins = 0; // made progress, reset counter
             total += n;
         }
-        Some(flen)
+        Ok(flen)
     }
 
     /// Bytes available for reading (non-blocking).

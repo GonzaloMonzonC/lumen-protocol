@@ -20,6 +20,7 @@ import { createInterface } from "readline";
 export interface BridgeCommand {
   cmd: "ping" | "index" | "stop";
   files?: string[];
+  id?: number;
 }
 
 export interface BridgeResponse {
@@ -33,6 +34,7 @@ export interface BridgeResponse {
   elapsed_us?: number;
   error?: string;
   reason?: string;
+  id?: number;
 }
 
 export interface BridgeOptions {
@@ -66,12 +68,17 @@ export class CadenciaBridge {
     const rl = createInterface({ input: this.proc.stdout! });
     rl.on("line", (line: string) => {
       try {
-        const resp: BridgeResponse = JSON.parse(line);
-        // Resolve the oldest pending request (simple FIFO)
-        for (const [seq, { resolve }] of this.pending) {
-          this.pending.delete(seq);
-          resolve(resp);
-          return;
+        const msg: BridgeResponse = JSON.parse(line);
+        // Match response to its pending request by sequence id
+        if (msg.id !== undefined && this.pending.has(msg.id)) {
+          const { resolve } = this.pending.get(msg.id)!;
+          this.pending.delete(msg.id);
+          resolve(msg);
+        } else {
+          // Unsolicited response — log and drop
+          console.warn(
+            `CadenciaBridge: unsolicited response (id=${msg.id ?? "none"})`
+          );
         }
       } catch {
         // ignore malformed lines
@@ -113,7 +120,8 @@ export class CadenciaBridge {
       }
       const seq = ++this.seq;
       this.pending.set(seq, { resolve, reject });
-      this.proc.stdin.write(JSON.stringify(cmd) + "\n");
+      const wire = { ...cmd, id: seq };
+      this.proc.stdin.write(JSON.stringify(wire) + "\n");
 
       // Timeout after 30s
       setTimeout(() => {

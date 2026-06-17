@@ -19,6 +19,7 @@
 use std::io;
 
 use crate::frame;
+use crate::hyb128;
 use crate::shm::{RingSide, ShmRegion};
 use crate::transport::{ShmTransport, Transport};
 
@@ -61,9 +62,8 @@ pub fn server_negotiate(
     capabilities: &[&str],
 ) -> io::Result<(NegotiatedTransport, Vec<u8>)> {
     // 1. Read TYPE_TRANSPORT_INIT frame from client
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf)?;
-    let frame = match frame::parse(&buf[..n]) {
+    let frame_buf = read_frame(stream)?;
+    let frame = match frame::parse(&frame_buf) {
         frame::ParseResult::Complete { frame, .. } => frame,
         frame::ParseResult::Incomplete | frame::ParseResult::IncompletePayload { .. } => {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete TRANSPORT_INIT"));
@@ -138,9 +138,8 @@ pub fn client_negotiate(
     stream.flush()?;
 
     // 2. Read TYPE_TRANSPORT_ACK
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf)?;
-    let ack_frame = match frame::parse(&buf[..n]) {
+    let frame_buf = read_frame(stream)?;
+    let ack_frame = match frame::parse(&frame_buf) {
         frame::ParseResult::Complete { frame, .. } => frame,
         frame::ParseResult::Incomplete | frame::ParseResult::IncompletePayload { .. } => {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete TRANSPORT_ACK"));
@@ -206,6 +205,52 @@ fn generate_shm_name() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("/lumen-shm-{:x}-{}", ts.as_nanos(), std::process::id())
+}
+
+// ── Streaming frame read helpers ────────────────────────────────────────────
+
+/// Read exactly `buf.len()` bytes from a transport, looping until full or EOF.
+fn read_exact(stream: &mut dyn Transport, buf: &mut [u8]) -> io::Result<()> {
+    let mut offset = 0;
+    while offset < buf.len() {
+        let n = stream.read(&mut buf[offset..])?;
+        if n == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"));
+        }
+        offset += n;
+    }
+    Ok(())
+}
+
+/// Read a complete LUMEN frame from a stream transport.
+///
+/// Reads the Hyb128 length prefix byte-by-byte until the header is complete,
+/// then reads exactly the required number of type + flags + payload bytes.
+/// Returns the full frame bytes ready for `frame::parse`.
+fn read_frame(stream: &mut dyn Transport) -> io::Result<Vec<u8>> {
+    // Phase 1: read Hyb128 header byte-by-byte (max 11 bytes)
+    let mut header = [0u8; hyb128::MAX_ENCODED_LEN];
+    let mut header_len = 0;
+    let decoded = loop {
+        if header_len >= header.len() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Hyb128 header exceeds max length"));
+        }
+        read_exact(stream, &mut header[header_len..header_len + 1])?;
+        header_len += 1;
+        if let Some(d) = hyb128::decode(&header[..header_len]) {
+            break d;
+        }
+    };
+
+    // Phase 2: allocate buffer for the complete frame
+    let total = decoded.header_len + 2 + decoded.value as usize;
+    let mut frame_buf = vec![0u8; total];
+    frame_buf[..decoded.header_len].copy_from_slice(&header[..decoded.header_len]);
+
+    // Phase 3: read remaining bytes (type + flags + payload)
+    read_exact(stream, &mut frame_buf[decoded.header_len..])?;
+
+    Ok(frame_buf)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -287,9 +332,8 @@ pub fn client_encrypted_handshake(
     stream.flush()?;
 
     // 2. Read PROBE_ACK
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf)?;
-    let ack_frame = match crate::frame::parse(&buf[..n]) {
+    let frame_buf = read_frame(stream)?;
+    let ack_frame = match crate::frame::parse(&frame_buf) {
         crate::frame::ParseResult::Complete { frame, .. } => frame,
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PROBE_ACK")),
     };
@@ -339,9 +383,8 @@ pub fn server_encrypted_handshake(
     capabilities: &[&str],
 ) -> io::Result<(Option<EncryptedHandshake>, Vec<u8>)> {
     // 1. Read PROBE
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf)?;
-    let probe_frame = match crate::frame::parse(&buf[..n]) {
+    let frame_buf = read_frame(stream)?;
+    let probe_frame = match crate::frame::parse(&frame_buf) {
         crate::frame::ParseResult::Complete { frame, .. } => frame,
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PROBE")),
     };

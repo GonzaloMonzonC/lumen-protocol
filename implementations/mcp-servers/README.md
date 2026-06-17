@@ -14,9 +14,9 @@ Two transport modes available:
 |--------|-------|-------------|-------------|-----------------|
 | **[Filesystem](filesystem/)** | 9 | 32-70% | ✅ | `read_files` (bulk), `search_with_context`, `stream_read`, `server_stats` |
 | **[Web](web/)** | 2 | 40-50% | ✅ | `web_search` + `web_extract` in 1 call, zero API keys |
-| **[Thinking](thinking/)** | 7 | 60-80% | ✅ | Sequential reasoning, TF-IDF similarity, contradiction detection, chain→plan |
+| **[Thinking](thinking/)** | 22 | 60-80% | ✅ | Sequential reasoning, TF-IDF similarity, contradiction detection, assumptions, mental model, work tracking |
 
-**18 tools across 3 servers. Zero external dependencies (stdlib only).**
+**33 tools across 3 servers. Zero external dependencies (stdlib only).**
 
 ## Quick Start
 

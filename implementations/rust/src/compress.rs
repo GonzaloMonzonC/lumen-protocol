@@ -24,7 +24,7 @@
 //! - 0x00..0xFE = dict key IDs
 //! - 0xFF = raw key sentinel
 
-use crate::dict;
+use crate::dict::{self, SessionDict};
 use crate::hyb128;
 use serde_json::{Number, Value};
 
@@ -45,9 +45,12 @@ const TAG_OBJECT: u8 = 0xE7;
 ///
 /// Returns the compressed byte vector.  Decompression with
 /// [`decompress`] recovers the original `Value` losslessly.
-pub fn compress(value: &Value) -> Vec<u8> {
+///
+/// If `session` is provided, its session dictionary is used for
+/// key/value lookup in addition to the static dictionary.
+pub fn compress(value: &Value, session: Option<&SessionDict>) -> Vec<u8> {
     let mut buf = Vec::new();
-    encode_value(value, &mut buf);
+    encode_value(value, &mut buf, session);
     buf
 }
 
@@ -55,22 +58,26 @@ pub fn compress(value: &Value) -> Vec<u8> {
 ///
 /// Appends the compressed bytes to `buf`.  If `buf` has sufficient spare
 /// capacity this path performs **no heap allocations**.
-pub fn compress_into(value: &Value, buf: &mut Vec<u8>) {
-    encode_value(value, buf);
+pub fn compress_into(value: &Value, buf: &mut Vec<u8>, session: Option<&SessionDict>) {
+    encode_value(value, buf, session);
 }
 
 /// Decompress a LUMEN compact binary back to `serde_json::Value`.
 ///
 /// Returns `None` if the input is malformed.
-pub fn decompress(data: &[u8]) -> Option<Value> {
+///
+/// If `session` is provided, session-dictionary IDs (0x80..0xFE) are
+/// resolved against it. Without a session dict, session-range keys
+/// return `None` (causing decode failure for those frames).
+pub fn decompress(data: &[u8], session: Option<&SessionDict>) -> Option<Value> {
     let mut pos = 0;
-    decode_value(data, &mut pos)
+    decode_value(data, &mut pos, session)
 }
 
 /// Estimate (quickly, without full encode) the compressed size.
 ///
 /// Useful for buffer pre-allocation.
-pub fn compressed_size(value: &Value) -> usize {
+pub fn compressed_size(value: &Value, session: Option<&SessionDict>) -> usize {
     match value {
         Value::Null => 1,
         Value::Bool(_) => 2,
@@ -84,28 +91,28 @@ pub fn compressed_size(value: &Value) -> usize {
             9 // TAG_FLOAT + f64
         }
         Value::String(s) => {
-            if dict::lookup_fast(s).is_some() { 2 } else { 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
+            if dict::lookup_fast(s, session).is_some() { 2 } else { 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
         }
         Value::Array(arr) => {
             let mut sz = 1 + hyb128::encoded_len(arr.len() as u64); // TAG + count
             for v in arr {
-                sz += compressed_size(v);
+                sz += compressed_size(v, session);
             }
             sz
         }
         Value::Object(map) => {
             let mut sz = 1 + hyb128::encoded_len(map.len() as u64); // TAG + count
             for (k, v) in map {
-                sz += key_size(k);
-                sz += compressed_size(v);
+                sz += key_size(k, session);
+                sz += compressed_size(v, session);
             }
             sz
         }
     }
 }
 
-fn key_size(key: &str) -> usize {
-    if dict::lookup_fast(key).is_some() { 1 } else { 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
+fn key_size(key: &str, session: Option<&SessionDict>) -> usize {
+    if dict::lookup_fast(key, session).is_some() { 1 } else { 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
 }
 
 /// Estimate LEB128 byte count for an i64 (zigzag-encoded).
@@ -123,7 +130,7 @@ fn i64_leb128_len(v: i64) -> usize {
 
 // ── Encoder ─────────────────────────────────────────────────────────────────
 
-fn encode_value(value: &Value, buf: &mut Vec<u8>) {
+fn encode_value(value: &Value, buf: &mut Vec<u8>, session: Option<&SessionDict>) {
     match value {
         Value::Null => buf.push(TAG_NULL),
 
@@ -148,7 +155,7 @@ fn encode_value(value: &Value, buf: &mut Vec<u8>) {
         }
 
         Value::String(s) => {
-            if let Some(id) = dict::lookup_fast(s) {
+            if let Some(id) = dict::lookup_fast(s, session) {
                 buf.push(TAG_STR_DICT);
                 buf.push(id);
             } else {
@@ -161,7 +168,7 @@ fn encode_value(value: &Value, buf: &mut Vec<u8>) {
             buf.push(TAG_ARRAY);
             encode_hyb128_len(arr.len(), buf);
             for v in arr {
-                encode_value(v, buf);
+                encode_value(v, buf, session);
             }
         }
 
@@ -169,15 +176,15 @@ fn encode_value(value: &Value, buf: &mut Vec<u8>) {
             buf.push(TAG_OBJECT);
             encode_hyb128_len(map.len(), buf);
             for (k, v) in map {
-                encode_key(k, buf);
-                encode_value(v, buf);
+                encode_key(k, buf, session);
+                encode_value(v, buf, session);
             }
         }
     }
 }
 
-fn encode_key(key: &str, buf: &mut Vec<u8>) {
-    if let Some(id) = dict::lookup_fast(key) {
+fn encode_key(key: &str, buf: &mut Vec<u8>, session: Option<&SessionDict>) {
+    if let Some(id) = dict::lookup_fast(key, session) {
         buf.push(id);
     } else {
         buf.push(dict::ID_RAW);
@@ -239,7 +246,7 @@ fn decode_i64_leb128(data: &[u8], pos: &mut usize) -> Option<i64> {
 
 // ── Decoder ─────────────────────────────────────────────────────────────────
 
-fn decode_value(data: &[u8], pos: &mut usize) -> Option<Value> {
+fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Option<Value> {
     if *pos >= data.len() {
         return None;
     }
@@ -273,7 +280,7 @@ fn decode_value(data: &[u8], pos: &mut usize) -> Option<Value> {
             if *pos >= data.len() { return None; }
             let id = data[*pos];
             *pos += 1;
-            dict::resolve_any(id).map(Value::String)
+            dict::resolve_any(id, session).map(Value::String)
         }
 
         TAG_STR_RAW => {
@@ -292,7 +299,7 @@ fn decode_value(data: &[u8], pos: &mut usize) -> Option<Value> {
             *pos += len.header_len;
             let mut arr = Vec::with_capacity((len.value as usize).min(1024));
             for _ in 0..len.value {
-                arr.push(decode_value(data, pos)?);
+                arr.push(decode_value(data, pos, session)?);
             }
             Some(Value::Array(arr))
         }
@@ -302,8 +309,8 @@ fn decode_value(data: &[u8], pos: &mut usize) -> Option<Value> {
             *pos += len.header_len;
             let mut map = serde_json::Map::with_capacity((len.value as usize).min(1024));
             for _ in 0..len.value {
-                let key = decode_key(data, pos)?;
-                let val = decode_value(data, pos)?;
+                let key = decode_key(data, pos, session)?;
+                let val = decode_value(data, pos, session)?;
                 map.insert(key, val);
             }
             Some(Value::Object(map))
@@ -316,7 +323,7 @@ fn decode_value(data: &[u8], pos: &mut usize) -> Option<Value> {
     }
 }
 
-fn decode_key(data: &[u8], pos: &mut usize) -> Option<String> {
+fn decode_key(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Option<String> {
     if *pos >= data.len() {
         return None;
     }
@@ -335,7 +342,7 @@ fn decode_key(data: &[u8], pos: &mut usize) -> Option<String> {
         dict::resolve(first).map(|s| s.to_owned())
     } else if first < dict::SESSION_MAX {
         // Session dictionary lookup (0x80..0xFE)
-        dict::resolve_any(first)
+        dict::resolve_any(first, session)
     } else {
         None
     }
@@ -349,14 +356,14 @@ mod tests {
     use serde_json::json;
 
     fn roundtrip(v: Value) {
-        let comp = compress(&v);
-        let decomp = decompress(&comp);
+        let comp = compress(&v, None);
+        let decomp = decompress(&comp, None);
         assert_eq!(Some(v.clone()), decomp, "roundtrip failed for {v:?}");
     }
 
     fn compressed_lt_json(v: Value, expected_sav_pct: f64) {
         let json_bytes = serde_json::to_vec(&v).unwrap();
-        let comp_bytes = compress(&v);
+        let comp_bytes = compress(&v, None);
         let ratio = comp_bytes.len() as f64 / json_bytes.len() as f64;
         println!(
             "  JSON={}  LUMEN={}  ratio={:.1}%  (target <{:.0}%)",
@@ -449,7 +456,7 @@ mod tests {
             "total": 100
         });
         let json_bytes = serde_json::to_vec(&response).unwrap();
-        let comp_bytes = compress(&response);
+        let comp_bytes = compress(&response, None);
         let ratio = comp_bytes.len() as f64 / json_bytes.len() as f64;
         println!(
             "  tools_list(100): JSON={}  LUMEN={}  ratio={:.1}%",
@@ -462,14 +469,14 @@ mod tests {
 
     #[test]
     fn decompress_truncated_is_none() {
-        let comp = compress(&json!({"tool": "search"}));
+        let comp = compress(&json!({"tool": "search"}), None);
         // Truncate to half
-        assert_eq!(decompress(&comp[..comp.len() / 2]), None);
+        assert_eq!(decompress(&comp[..comp.len() / 2], None), None);
     }
 
     #[test]
     fn decompress_garbage_is_none() {
-        assert_eq!(decompress(&[0xFF, 0xFF, 0xFF, 0xFF]), None);
+        assert_eq!(decompress(&[0xFF, 0xFF, 0xFF, 0xFF], None), None);
     }
 
     #[test]
@@ -483,5 +490,35 @@ mod tests {
     fn raw_keys_roundtrip() {
         // Keys NOT in the dictionary must roundtrip via ID_RAW path
         roundtrip(json!({"customThing": 42, "anotherOne": "hello"}));
+    }
+
+    #[test]
+    fn session_dict_roundtrip() {
+        let mut session = SessionDict::new();
+        session.register("customThing", 0x80).unwrap();
+        session.register("anotherOne", 0x81).unwrap();
+
+        let v = json!({"customThing": 42, "anotherOne": "hello"});
+        let comp = compress(&v, Some(&session));
+        // Decompress with the same session dict
+        let decomp = decompress(&comp, Some(&session));
+        assert_eq!(Some(v), decomp);
+
+        // Decompress WITHOUT session dict should fail (session-range keys unknown)
+        let decomp_no_session = decompress(&comp, None);
+        assert!(decomp_no_session.is_none(),
+            "should fail without session dict for custom keys");
+    }
+
+    #[test]
+    fn session_dict_value_strings() {
+        let mut session = SessionDict::new();
+        // Register a value string in the session dict
+        session.register("hello_world", 0x80).unwrap();
+
+        let v = json!({"result": "hello_world"});
+        let comp = compress(&v, Some(&session));
+        let decomp = decompress(&comp, Some(&session));
+        assert_eq!(Some(v), decomp);
     }
 }
