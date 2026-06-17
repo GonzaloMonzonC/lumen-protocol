@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import subprocess, json, sys, os, time, math
 
-python = r"C:\Users\gonzalo\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
-server = r"C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\mcp-servers\thinking\server.py"
+# Use the same Python that runs this test (portable across environments)
+python = sys.executable
+server = os.path.join(os.path.dirname(__file__), 'server.py')
 
 proc = subprocess.Popen([python, "-u", server],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
