@@ -185,9 +185,8 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 | Paper says | Code does | Resolution |
 |------------|-----------|------------|
-| Big-endian integers | Little-endian | Code is correct (LE is faster on modern CPUs); paper will be updated in v0.2 |
-| Frame `DICT_REF` field | No `DICT_REF` | Paper describes planned v2 frame format; current spec is in [SPEC_DEV.md](SPEC_DEV.md) |
-| Hyb128 Extended = `5+N` bytes | `1+N` (mode byte + LEB128) | Paper diagram is wrong; code and [RFC_LUMEN.md](RFC_LUMEN.md) are correct |
+| Frame `DICT_REF` field | No `DICT_REF` | Paper describes planned v2 frame format; current spec matches code |
+| Hyb128 Extended = `5+N` bytes | `1+N` (mode byte + LEB128) | Code and RFC are correct; paper diagram outdated |
 
 Paper & RFC will be aligned with the implementation in v0.2. See [RFC_LUMEN.md](RFC_LUMEN.md) for the authoritative specification.
 
