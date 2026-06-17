@@ -354,6 +354,61 @@ TOOLS = [
                 "max_items": {"type": "integer", "description": "Max items to show (default: 20)", "default": 20}
             }
         }
+    },
+    {
+        "name": "work_start",
+        "description": "Start tracking a work item. Use when beginning a task: 'I'm starting X'. Survives across sessions (persists in local JSON file) — unlike Hermes built-in todo which is per-session. This is purely FACTUAL: what you're doing, not how to do it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item": {"type": "string", "description": "What you're working on (e.g. 'fix auth bug #42')"},
+                "category": {"type": "string", "description": "Category: 'bug', 'feature', 'refactor', 'docs', 'review', 'other'", "default": "other"}
+            },
+            "required": ["item"]
+        }
+    },
+    {
+        "name": "work_block",
+        "description": "Mark a work item as blocked. Use when you can't continue because you're waiting for something: PR review, user feedback, dependency. The agent can later check what's blocked and follow up.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "work_id": {"type": "integer", "description": "ID of the work item to mark as blocked"},
+                "reason": {"type": "string", "description": "Why it's blocked (e.g. 'waiting for PR review from Nous')"}
+            },
+            "required": ["work_id", "reason"]
+        }
+    },
+    {
+        "name": "work_done",
+        "description": "Mark a work item as completed. Use when you finish something: 'Done with X'. Records completion for future reference. The agent can see what was accomplished in past sessions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "work_id": {"type": "integer", "description": "ID of the work item to mark as done"},
+                "result": {"type": "string", "description": "What was the outcome? (e.g. 'PR merged', 'bug fixed in commit abc123')"}
+            },
+            "required": ["work_id"]
+        }
+    },
+    {
+        "name": "work_log",
+        "description": "Show the work log: what's in progress, blocked, done. Filterable by status. Survives across sessions — gives the agent continuity when resuming work.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["all", "in_progress", "blocked", "done"], "description": "Filter by status (default: all)", "default": "all"},
+                "limit": {"type": "integer", "description": "Max items to show (default: 20)", "default": 20}
+            }
+        }
+    },
+    {
+        "name": "context_estimate",
+        "description": "Estimate how much context is being used and suggest what to externalize. Based on session activity: tool call count, response sizes, task complexity. Does NOT measure actual tokens — this is a heuristic. Helps the agent be proactive about offloading before context compression hits.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
     }
 ]
 
@@ -1331,6 +1386,187 @@ def tool_context_check(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Work Tracker — persistent work log across sessions
+# ═══════════════════════════════════════════════════════════════════════
+
+_works: list[dict] = []
+_next_work_id = 1
+WORK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".work_log.json")
+
+def _load_works():
+    """Load persisted work log from disk."""
+    global _works, _next_work_id
+    try:
+        if os.path.exists(WORK_FILE):
+            with open(WORK_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                _works = data.get("works", [])
+                _next_work_id = data.get("next_id", 1)
+    except Exception:
+        pass
+
+def _save_works():
+    """Persist work log to disk."""
+    try:
+        os.makedirs(os.path.dirname(WORK_FILE), exist_ok=True)
+        with open(WORK_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"works": _works, "next_id": _next_work_id}, f, indent=2)
+    except Exception:
+        pass
+
+_load_works()
+
+
+def tool_work_start(args: dict) -> dict:
+    """Start tracking a work item."""
+    global _next_work_id
+
+    item = args["item"]
+    category = args.get("category", "other")
+
+    work = {
+        "id": _next_work_id,
+        "item": item,
+        "category": category,
+        "status": "in_progress",
+        "started_at": time.time(),
+        "blocked_at": None,
+        "blocked_reason": "",
+        "done_at": None,
+        "result": "",
+    }
+    _works.append(work)
+    _next_work_id += 1
+    _save_works()
+
+    in_progress = sum(1 for w in _works if w["status"] == "in_progress")
+    lines = [
+        f"🔧 Work #{work['id']} started: {item}",
+        f"   Category: {category}",
+        f"   You have {in_progress} active work item(s)",
+    ]
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_work_block(args: dict) -> dict:
+    """Mark a work item as blocked."""
+    wid = args["work_id"]
+    reason = args["reason"]
+
+    for w in _works:
+        if w["id"] == wid:
+            w["status"] = "blocked"
+            w["blocked_at"] = time.time()
+            w["blocked_reason"] = reason
+            _save_works()
+            return {"content": [{"type": "text", "text": f"🚫 Work #{wid} blocked: {reason}"}]}
+
+    return {"content": [{"type": "text", "text": f"Error: Work #{wid} not found."}]}
+
+
+def tool_work_done(args: dict) -> dict:
+    """Mark a work item as done."""
+    wid = args["work_id"]
+    result = args.get("result", "")
+
+    for w in _works:
+        if w["id"] == wid:
+            w["status"] = "done"
+            w["done_at"] = time.time()
+            w["result"] = result
+            _save_works()
+            lines = [f"✅ Work #{wid} completed: {w['item']}"]
+            if result:
+                lines.append(f"   Result: {result}")
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+    return {"content": [{"type": "text", "text": f"Error: Work #{wid} not found."}]}
+
+
+def tool_work_log(args: dict) -> dict:
+    """Show work log."""
+    status_filter = args.get("status", "all")
+    limit = args.get("limit", 20)
+
+    filtered = _works
+    if status_filter != "all":
+        filtered = [w for w in filtered if w["status"] == status_filter]
+    filtered = filtered[-limit:]
+
+    if not filtered:
+        return {"content": [{"type": "text", "text": "No work items found. Use work_start to begin tracking."}]}
+
+    in_progress = sum(1 for w in _works if w["status"] == "in_progress")
+    blocked = sum(1 for w in _works if w["status"] == "blocked")
+    done = sum(1 for w in _works if w["status"] == "done")
+
+    lines = [f"📋 Work Log ({len(filtered)} shown, {len(_works)} total)"]
+    lines.append(f"   🔧 {in_progress} in progress | 🚫 {blocked} blocked | ✅ {done} done")
+    lines.append("")
+
+    icons = {"in_progress": "🔧", "blocked": "🚫", "done": "✅"}
+    for w in filtered:
+        icon = icons.get(w["status"], "?")
+        lines.append(f"   {icon} #{w['id']} [{w['category']}] {w['item'][:100]}")
+        if w["status"] == "blocked" and w.get("blocked_reason"):
+            lines.append(f"      Blocked: {w['blocked_reason'][:80]}")
+        if w["status"] == "done" and w.get("result"):
+            lines.append(f"      Result: {w['result'][:80]}")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Context Estimator — heuristic context usage assessment
+# ═══════════════════════════════════════════════════════════════════════
+
+_session_start = time.time()
+_tool_calls = 0
+_estimated_chars = 0
+
+
+def tool_context_estimate(args: dict) -> dict:
+    """Estimate context usage."""
+    uptime = time.time() - _session_start
+    tool_estimate = _tool_calls * 500  # Rough: 500 tokens per tool call
+    content_estimate = _estimated_chars // 4  # Rough: 4 chars per token
+
+    total_est = tool_estimate + content_estimate
+    # Most models have ~128K context. Hermes typically uses ~60-80K with system prompt.
+    context_limit = 80_000
+    pct = min(100, (total_est * 100) // context_limit)
+
+    # Risk level
+    if pct > 70:
+        risk = "HIGH"
+        suggestion = "Consider externalizing key thoughts to sequential_thinking and summarizing with thought_summarize."
+    elif pct > 40:
+        risk = "MEDIUM"
+        suggestion = "Monitor. Use context_preserve for critical findings."
+    else:
+        risk = "LOW"
+        suggestion = "Context is healthy. No action needed."
+
+    lines = [
+        f"📊 Context Estimate: ~{pct}% used (risk: {risk})",
+        f"   Session: {uptime:.0f}s | Tool calls: {_tool_calls} | Est. tokens: ~{total_est:,}",
+        f"   Model limit: ~{context_limit:,} tokens",
+        f"",
+        f"   💡 {suggestion}",
+    ]
+
+    # Additional suggestions based on risk
+    if risk == "HIGH":
+        lines.append(f"   ⚡ Actions:")
+        lines.append(f"      • Use sequential_thinking to offload reasoning")
+        lines.append(f"      • Use context_preserve for must-keep information")
+        lines.append(f"      • Use thought_summarize to condense chains")
+        lines.append(f"      • Avoid large read_files — use search_with_context instead")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -1350,6 +1586,11 @@ HANDLERS = {
     "model_scan": tool_model_scan,
     "context_preserve": tool_context_preserve,
     "context_check": tool_context_check,
+    "work_start": tool_work_start,
+    "work_block": tool_work_block,
+    "work_done": tool_work_done,
+    "work_log": tool_work_log,
+    "context_estimate": tool_context_estimate,
 }
 
 
@@ -1378,6 +1619,8 @@ def handle_message(msg: dict) -> None:
     elif method == "tools/list":
         send({"jsonrpc": "2.0", "id": req_id, "result": {"tools": TOOLS}})
     elif method == "tools/call":
+        global _tool_calls, _estimated_chars
+        _tool_calls += 1
         params = msg.get("params", {})
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
