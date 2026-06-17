@@ -2,18 +2,59 @@
 
 
 
-
-Internet Engineering Task Force (IETF)                     G. Monzón
-Request for Comments: XXXX                              LUMEN Project
-Category: Standards Track                                 15 June 2026
-ISSN: 2070-1721
-
+Independent Submission                                          G. Monzón
+Document: lumen-protocol                               Cadences Lab
+                                                           18 June 2026
 
 
                LUMEN — Lightweight Universal Model Exchange
                       Network Protocol Specification
 
+Status of This Document
 
+   This is an independent specification document, NOT an IETF RFC.
+   The IETF boilerplate previously present in this document was a
+   drafting artifact and has been removed.
+
+   IMPORTANT — Known Mismatches with the Implementation (v0.1.0):
+
+   1. Endianness: The document previously specified big-endian; the
+      actual implementation across all five languages (Rust, Python,
+      TypeScript, PHP, C#) uses LITTLE-ENDIAN.  This document has
+      been corrected to reflect LE throughout.
+
+   2. Frame format: The DICT_REF field described in earlier versions
+      does not exist in the implementation.  Dictionary references
+      are embedded within the payload via TAGS 0xE0-0xE7.
+
+   3. LEN field: Encodes PAYLOAD length only (not total frame length).
+
+   4. Payload encoding: The implementation uses a custom compact binary
+      encoding (TAGs 0xE0-0xE7 + Hyb128 lengths), NOT CBOR.
+
+   5. Static dictionary: Maps field KEYS (tool, arguments, result,
+      error, id, model, temperature, ...), NOT method names
+      (tools/list, tools/call, ...).  See DICTIONARY.md for the
+      authoritative 128-entry table.
+
+   6. Structured payloads (§5.1-5.6): request_id, timeout_ms,
+      status_code, and stream payload fields are SPECIFIED but NOT
+      YET IMPLEMENTED.  The current implementation transports
+      JSON-RPC messages as opaque compressed blobs.
+
+   7. Native token streaming (§7) and MUX channels (§8): Constants
+      (STREAM_INIT=0x06, STREAM_DATA=0x04, MUX=0x09) are defined
+      but the structured payload builders and channel state machines
+      are NOT YET IMPLEMENTED.
+
+   8. Macaroons (§9): Fully specified but NOT YET IMPLEMENTED in any
+      language.  Planned for v0.2.
+
+   The authoritative reference for what IS implemented is the project
+   README.md §Status & Roadmap and the source code in implementations/.
+
+   Sections marked [PLANNED] describe features designed for future
+   versions and not present in the current codebase.
 
 Abstract
 
