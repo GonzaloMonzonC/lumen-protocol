@@ -182,13 +182,19 @@ impl Macaroon {
     /// Minimum encoded size: version + id_len(0) + loc_len(0) + count(0) + sig = 35.
     pub const MIN_ENCODED_LEN: usize = 1 + 1 + 1 + 1 + SIGNATURE_SIZE;
 
-    /// Decode a macaroon from binary. Returns `None` on malformed input.
+    /// Decode a macaroon from binary. Returns `None` on malformed input
+    /// or unknown version.
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < Self::MIN_ENCODED_LEN {
             return None;
         }
 
         let version = data[0];
+        // Reject unknown versions — enables safe protocol migration in the future.
+        // Currently only MACAROON_V1 (1) is accepted.
+        if version != MACAROON_V1 {
+            return None;
+        }
         let id_len = data[1] as usize;
         if data.len() < 2 + id_len {
             return None;
@@ -614,16 +620,12 @@ mod tests {
     }
 
     #[test]
-    fn macaroon_wrong_version_decode() {
+    fn macaroon_wrong_version_rejected() {
         let root_key = generate_root_key();
         let mac = Macaroon::create(&root_key, "s", "l");
         let mut encoded = mac.encode();
         encoded[0] = 99; // corrupt version
-
-        let decoded = Macaroon::decode(&encoded).unwrap();
-        assert_eq!(decoded.version, 99); // decode accepts any version
-        // But verify still works — version is not validated in verify()
-        assert!(decoded.verify(&root_key, |_| true));
+        assert!(Macaroon::decode(&encoded).is_none(), "unknown version must be rejected");
     }
 
     #[test]

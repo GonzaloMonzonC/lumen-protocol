@@ -163,11 +163,10 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
 | MCP servers | ✅ | 33 tools across filesystem (9), web (2), thinking (22) |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
-| ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation |
-| X25519 key exchange | ✅ | Rust + TypeScript |
-| Native token streaming | ✅ | Rust: stream.rs — StreamInit, StreamData, StreamRegistry |
+| ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports) |
+| X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
+| Macaroons (capability auth) | ✅ | Rust: macaroon.rs — HMAC-SHA256, auto expiry check, caveat attenuation |
 | MUX channels | ✅ | Rust: mux.rs — 5 sub-commands, MuxRegistry with state machine |
-| Macaroons (capability auth) | ✅ | Rust: macaroon.rs — HMAC-SHA256 chained sigs, caveat attenuation |
 | Multi-agent sessions | ✅ | Python: thinking server — session_init, session_list, per-session isolation |
 | QUIC transport (L4) | ✅ | Rust: `quic.rs` — server/client endpoints, TLS 1.3, bidirectional streams, 7 tests |
 | Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
