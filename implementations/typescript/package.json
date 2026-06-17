@@ -13,7 +13,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "node --test dist/**/*.test.js"
+    "pretest": "npm run build",
+    "test": "node --test dist/frame-assembler.test.js dist/zeroalloc.test.js dist/dgram.test.js dist/e2e.test.js"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.0.0"
