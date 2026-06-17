@@ -30,7 +30,6 @@
 //!   ok = m.verify(root_key, |caveat| check_caveat(caveat))
 //! ```
 
-use hkdf::Hkdf;
 use sha2::{Sha256, Digest};
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -246,22 +245,44 @@ impl Macaroon {
 
 // ── Crypto helpers ──────────────────────────────────────────────────────────
 
-/// HMAC-SHA256(key, message) → 32-byte tag.
+/// HMAC-SHA256 as defined in RFC 2104.
+///
+/// HMAC(K, m) = H((K' ⊕ opad) || H((K' ⊕ ipad) || m))
+/// where K' is K zero-padded to 64 bytes (SHA-256 block size),
+/// ipad = 0x36 repeated, opad = 0x5C repeated.
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; SIGNATURE_SIZE] {
-    use sha2::Sha256;
-    use hkdf::Hkdf;
+    use sha2::{Sha256, Digest};
 
-    // HKDF-based HMAC: derive a sub-key then hash
-    let hkdf = Hkdf::<Sha256>::new(None, key);
-    let mut derived = [0u8; SIGNATURE_SIZE];
-    hkdf.expand(message, &mut derived)
-        .expect("HKDF expand should not fail for HMAC");
+    const BLOCK_SIZE: usize = 64;
+    let mut k_prime = [0u8; BLOCK_SIZE];
 
-    // Mix the derived key with the message for the final tag
-    let mut hasher = Sha256::new();
-    hasher.update(derived);
-    hasher.update(message);
-    let result = hasher.finalize();
+    // If key is longer than block size, hash it first
+    if key.len() > BLOCK_SIZE {
+        let mut hasher = Sha256::new();
+        hasher.update(key);
+        let hashed = hasher.finalize();
+        k_prime[..32].copy_from_slice(&hashed);
+    } else {
+        let len = key.len().min(BLOCK_SIZE);
+        k_prime[..len].copy_from_slice(key);
+    }
+
+    // Inner hash: H((K' ⊕ ipad) || message)
+    let mut inner = Sha256::new();
+    for b in &k_prime {
+        inner.update([b ^ 0x36]);
+    }
+    inner.update(message);
+    let inner_hash = inner.finalize();
+
+    // Outer hash: H((K' ⊕ opad) || inner_hash)
+    let mut outer = Sha256::new();
+    for b in &k_prime {
+        outer.update([b ^ 0x5C]);
+    }
+    outer.update(inner_hash);
+    let result = outer.finalize();
+
     let mut tag = [0u8; SIGNATURE_SIZE];
     tag.copy_from_slice(&result);
     tag
@@ -336,6 +357,31 @@ pub mod caveats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hmac_sha256_test_vector() {
+        // RFC 4231 test case 1: key=20 bytes of 0x0b, data="Hi There"
+        let key = [0x0Bu8; 20];
+        let data = b"Hi There";
+        let expected: [u8; 32] = [
+            0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53,
+            0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b, 0xf1, 0x2b,
+            0x88, 0x1d, 0xc2, 0x00, 0xc9, 0x83, 0x3d, 0xa7,
+            0x26, 0xe9, 0x37, 0x6c, 0x2e, 0x32, 0xcf, 0xf7,
+        ];
+        assert_eq!(hmac_sha256(&key, data), expected);
+
+        // RFC 4231 test case 3: key 131 bytes of 0xAA
+        let key3 = [0xAAu8; 131];
+        let data3 = b"Test Using Larger Than Block-Size Key - Hash Key First";
+        let expected3: [u8; 32] = [
+            0x60, 0xe4, 0x31, 0x59, 0x1e, 0xe0, 0xb6, 0x7f,
+            0x0d, 0x8a, 0x26, 0xaa, 0xcb, 0xf5, 0xb7, 0x7f,
+            0x8e, 0x0b, 0xc6, 0x21, 0x37, 0x28, 0xc5, 0x14,
+            0x05, 0x46, 0x04, 0x0f, 0x0e, 0xe3, 0x7f, 0x54,
+        ];
+        assert_eq!(hmac_sha256(&key3, data3), expected3);
+    }
 
     #[test]
     fn create_and_verify_no_caveats() {
