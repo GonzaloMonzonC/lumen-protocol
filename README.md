@@ -38,6 +38,11 @@ JSON-RPC over stdio is the MCP standard. It works. But at scale, it hurts:
 ## Quick Start
 
 ```bash
+# 📦 Published packages (no clone needed)
+pip install lumen-mcp           # Python
+npm install @gonzalomonzonc/mcp-transport  # TypeScript
+
+# Or build from source:
 git clone https://github.com/GonzaloMonzonC/lumen-protocol.git
 cd lumen-protocol
 
@@ -96,8 +101,8 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Language | Path | Status |
 |----------|------|--------|
 | **Rust** | `implementations/rust/` | Reference impl, WASM target, FFI (C ABI) |
-| **TypeScript** | `implementations/typescript/` | Node.js + browser, zero-copy SHM via koffi |
-| **Python** | `implementations/python/` | Full protocol, session dict, MCP tools |
+| **TypeScript** | `npm i @gonzalomonzonc/mcp-transport` | Node.js + browser, zero-copy SHM via koffi |
+| **Python** | `pip install lumen-mcp` | Full protocol, session dict, MCP tools |
 | **PHP** | `implementations/php/` | PHP 8.5+, 217/217 e2e passing |
 | **C#** | `implementations/dotnet/` | .NET 9, P/Invoke FFI to Rust |
 | **WASM** | `implementations/rust/wasm/` | Browser-ready, 22 KB gzipped |
