@@ -101,7 +101,22 @@ pub struct Decoded {
 /// Decodes a Hyb128 length from `bytes`.
 ///
 /// Returns `None` if the input is too short to contain a complete header.
+/// Lenient mode: accepts non-minimal encodings (e.g., value 10 as U16).
 pub fn decode(bytes: &[u8]) -> Option<Decoded> {
+    decode_inner(bytes, false)
+}
+
+/// Strict decode: rejects non-minimal encodings.
+///
+/// Prevents canonicalization bypass attacks.  Rejects:
+/// - U16 encoding for values ≤ 63 (should be Short)
+/// - U32 encoding for values ≤ 65535 (should be U16 or Short)
+/// - LEB128 encoding for values ≤ 4294967295 (should be U32 or lower)
+pub fn decode_strict(bytes: &[u8]) -> Option<Decoded> {
+    decode_inner(bytes, true)
+}
+
+fn decode_inner(bytes: &[u8], strict: bool) -> Option<Decoded> {
     let first = *bytes.first()?;
     match first & MODE_MASK {
         MODE_SHORT => Some(Decoded {
@@ -114,10 +129,11 @@ pub fn decode(bytes: &[u8]) -> Option<Decoded> {
                 return None;
             }
             let arr = [bytes[1], bytes[2]];
-            Some(Decoded {
-                value: u16::from_le_bytes(arr) as u64,
-                header_len: 3,
-            })
+            let value = u16::from_le_bytes(arr) as u64;
+            if strict && value <= 63 {
+                return None; // should have been Short
+            }
+            Some(Decoded { value, header_len: 3 })
         }
 
         MODE_U32 => {
@@ -125,16 +141,23 @@ pub fn decode(bytes: &[u8]) -> Option<Decoded> {
                 return None;
             }
             let arr = [bytes[1], bytes[2], bytes[3], bytes[4]];
-            Some(Decoded {
-                value: u32::from_le_bytes(arr) as u64,
-                header_len: 5,
-            })
+            let value = u32::from_le_bytes(arr) as u64;
+            if strict && value <= 65535 {
+                return None; // should have been U16 or Short
+            }
+            Some(Decoded { value, header_len: 5 })
         }
 
-        MODE_LEB128 => leb128_decode(&bytes[1..]).map(|(value, consumed)| Decoded {
-            value,
-            header_len: 1 + consumed,
-        }),
+        MODE_LEB128 => {
+            let result = leb128_decode(&bytes[1..])?;
+            if strict && result.0 <= 0xFFFFFFFF {
+                return None; // should have been U32 or lower
+            }
+            Some(Decoded {
+                value: result.0,
+                header_len: 1 + result.1,
+            })
+        }
 
         _ => unreachable!(),
     }
