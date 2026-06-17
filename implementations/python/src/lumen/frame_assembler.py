@@ -12,29 +12,47 @@ from __future__ import annotations
 
 from .frame import Frame, parse_frame, ParseComplete, ParseIncomplete
 
+# Default maximum frame size (4 MiB) — prevents OOM from malicious peers.
+DEFAULT_MAX_FRAME = 4 * 1024 * 1024
+
 
 class FrameAssembler:
     """Reassembles LUMEN frames from a byte stream.
 
     Usage::
 
-        assembler = FrameAssembler()
+        assembler = FrameAssembler(max_frame=1_000_000)
         for chunk in stream:
             for frame in assembler.push(chunk):
                 handle(frame)
     """
 
-    __slots__ = ("_buf",)
+    __slots__ = ("_buf", "_max_frame")
 
-    def __init__(self) -> None:
+    def __init__(self, max_frame: int = DEFAULT_MAX_FRAME) -> None:
+        """
+        Args:
+            max_frame: Maximum allowed frame size in bytes (default 4 MiB).
+                       Frames exceeding this limit are rejected to prevent OOM.
+        """
         self._buf = bytearray()
+        self._max_frame = max_frame
 
     def push(self, chunk: bytes | bytearray | memoryview) -> list[Frame]:
         """Feed a raw byte chunk into the assembler.
 
         Returns a list of complete frames parsed from the accumulated buffer.
         Incomplete data is retained for the next call.
+
+        Raises:
+            BufferError: if the accumulated buffer exceeds ``max_frame``.
         """
+        if len(self._buf) + len(chunk) > self._max_frame:
+            self._buf.clear()
+            raise BufferError(
+                f"FrameAssembler buffer exceeded max_frame ({self._max_frame} bytes). "
+                f"Peer may be sending malformed or oversized frames."
+            )
         self._buf.extend(chunk)
 
         frames: list[Frame] = []
