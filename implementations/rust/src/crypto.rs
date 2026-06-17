@@ -248,28 +248,49 @@ impl Cipher {
         *Nonce::from_slice(&bytes)
     }
 
-    /// Encrypt a plaintext frame payload.
+    /// Encrypt a plaintext frame payload with AAD.
     ///
+    /// AAD = `[frame_type: u8][flags: u8]` — authenticates frame metadata
+    /// so an attacker cannot change type/flags without detection.
     /// Returns `[NONCE:12B][CIPHERTEXT+tag]`.
-    pub fn encrypt(&mut self, plaintext: &[u8]) -> Vec<u8> {
+    pub fn encrypt(&mut self, frame_type: u8, flags: u8, plaintext: &[u8]) -> Vec<u8> {
+        use chacha20poly1305::aead::AeadInPlace;
         let nonce = Self::make_nonce(self.send_counter);
         self.send_counter += 1;
 
-        let ciphertext = self
-            .send_aead
-            .encrypt(&nonce, plaintext)
-            .expect("ChaCha20-Poly1305 encrypt should not fail");
+        // Build AAD from frame metadata
+        let aad = [frame_type, flags];
 
-        let mut out = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
+        // ciphertext = plaintext + tag (16 bytes)
+        let mut buffer = Vec::with_capacity(plaintext.len() + TAG_SIZE);
+        buffer.extend_from_slice(plaintext);
+        buffer.resize(plaintext.len() + TAG_SIZE, 0);
+
+        let tag = self
+            .send_aead
+            .encrypt_in_place_detached(&nonce, &aad, &mut buffer[..plaintext.len()])
+            .expect("ChaCha20-Poly1305 encrypt should not fail");
+        buffer[plaintext.len()..].copy_from_slice(tag.as_slice());
+
+        let mut out = Vec::with_capacity(NONCE_SIZE + buffer.len());
         out.extend_from_slice(nonce.as_slice());
-        out.extend_from_slice(&ciphertext);
+        out.extend_from_slice(&buffer);
         out
     }
 
-    /// Decrypt a received encrypted payload.
+    /// Decrypt a received encrypted payload with AAD verification.
     ///
-    /// Expects `[NONCE:12B][CIPHERTEXT+tag]`. Returns the plaintext.
-    pub fn decrypt(&mut self, encrypted: &[u8]) -> Result<Vec<u8>, DecryptError> {
+    /// Expects `[NONCE:12B][CIPHERTEXT+tag]`. AAD must match the frame's
+    /// type and flags. Returns the plaintext.
+    pub fn decrypt(
+        &mut self,
+        frame_type: u8,
+        flags: u8,
+        encrypted: &[u8],
+    ) -> Result<Vec<u8>, DecryptError> {
+        use chacha20poly1305::aead::AeadInPlace;
+        use chacha20poly1305::Tag;
+
         if encrypted.len() < NONCE_SIZE + TAG_SIZE {
             return Err(DecryptError::TooShort);
         }
@@ -279,20 +300,24 @@ impl Cipher {
         let recv_nonce = u64::from_le_bytes(nonce_bytes[..8].try_into().unwrap());
 
         // Step 1: Check anti-replay WITHOUT modifying state.
-        // This prevents an attacker from advancing the window with
-        // invalid ciphertext (DoS via window exhaustion).
         check_nonce_candidate(self.recv_window, self.recv_bitmap, recv_nonce)?;
 
-        // Step 2: Authenticate and decrypt.
-        let plaintext = self
-            .recv_aead
-            .decrypt(nonce, ciphertext)
+        // Step 2: Authenticate and decrypt with AAD.
+        let aad = [frame_type, flags];
+        let plaintext_len = ciphertext.len() - TAG_SIZE;
+        let mut buffer = ciphertext.to_vec();
+        let tag = Tag::from_slice(&ciphertext[plaintext_len..]);
+
+        self.recv_aead
+            .decrypt_in_place_detached(nonce, &aad, &mut buffer[..plaintext_len], tag)
             .map_err(|_| DecryptError::AuthenticationFailed)?;
+
+        buffer.truncate(plaintext_len);
 
         // Step 3: Only NOW commit the nonce — AEAD already verified.
         commit_nonce(&mut self.recv_window, &mut self.recv_bitmap, recv_nonce);
 
-        Ok(plaintext)
+        Ok(buffer)
     }
 
     /// Encrypt and build a full LUMEN frame (with Hyb128 + TYPE + FLAGS).
@@ -304,7 +329,7 @@ impl Cipher {
         flags: u8,
         plaintext: &[u8],
     ) -> Vec<u8> {
-        let encrypted_payload = self.encrypt(plaintext);
+        let encrypted_payload = self.encrypt(frame_type, flags, plaintext);
         let total = crate::frame::build_size(encrypted_payload.len());
         let mut buf = vec![0u8; total];
         let n = crate::frame::build(
@@ -347,6 +372,7 @@ impl std::error::Error for DecryptError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame::TYPE_REQUEST;
 
     #[test]
     fn keypair_generate_and_dh() {
@@ -375,11 +401,11 @@ mod tests {
         let mut dec = Cipher::new(&shared, Role::Responder);
 
         let plaintext = b"Hello, encrypted LUMEN world!";
-        let ciphertext = enc.encrypt(plaintext);
+        let ciphertext = enc.encrypt(TYPE_REQUEST, 0, plaintext);
 
         assert_eq!(ciphertext.len(), NONCE_SIZE + plaintext.len() + TAG_SIZE);
 
-        let decrypted = dec.decrypt(&ciphertext).unwrap();
+        let decrypted = dec.decrypt(TYPE_REQUEST, 0, &ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -394,9 +420,9 @@ mod tests {
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec_wrong = Cipher::new(&shared, Role::Initiator); // same role!
 
-        let ct = enc.encrypt(b"secret");
+        let ct = enc.encrypt(TYPE_REQUEST, 0, b"secret");
         assert!(matches!(
-            dec_wrong.decrypt(&ct),
+            dec_wrong.decrypt(TYPE_REQUEST, 0, &ct),
             Err(DecryptError::AuthenticationFailed)
         ));
     }
@@ -410,8 +436,8 @@ mod tests {
 
         for i in 0..100u64 {
             let msg = format!("frame {}", i);
-            let ct = enc.encrypt(msg.as_bytes());
-            let pt = dec.decrypt(&ct).unwrap();
+            let ct = enc.encrypt(TYPE_REQUEST, 0, msg.as_bytes());
+            let pt = dec.decrypt(TYPE_REQUEST, 0, &ct).unwrap();
             assert_eq!(pt, msg.as_bytes());
         }
     }
@@ -424,9 +450,9 @@ mod tests {
         let mut enc = Cipher::new(&shared1, Role::Initiator);
         let mut dec = Cipher::new(&shared2, Role::Responder);
 
-        let ct = enc.encrypt(b"test");
+        let ct = enc.encrypt(TYPE_REQUEST, 0, b"test");
         assert!(matches!(
-            dec.decrypt(&ct),
+            dec.decrypt(TYPE_REQUEST, 0, &ct),
             Err(DecryptError::AuthenticationFailed)
         ));
     }
@@ -437,12 +463,12 @@ mod tests {
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
-        let mut ct = enc.encrypt(b"secret data");
+        let mut ct = enc.encrypt(TYPE_REQUEST, 0, b"secret data");
         // Flip a byte in the ciphertext
         ct[NONCE_SIZE + 2] ^= 0xFF;
 
         assert!(matches!(
-            dec.decrypt(&ct),
+            dec.decrypt(TYPE_REQUEST, 0, &ct),
             Err(DecryptError::AuthenticationFailed)
         ));
     }
@@ -453,12 +479,12 @@ mod tests {
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
-        let ct1 = enc.encrypt(b"first");
-        let ct2 = enc.encrypt(b"second");
+        let ct1 = enc.encrypt(TYPE_REQUEST, 0, b"first");
+        let ct2 = enc.encrypt(TYPE_REQUEST, 0, b"second");
 
-        let _ = dec.decrypt(&ct2).unwrap(); // skip first
+        let _ = dec.decrypt(TYPE_REQUEST, 0, &ct2).unwrap(); // skip first
         assert!(matches!(
-            dec.decrypt(&ct1),
+            dec.decrypt(TYPE_REQUEST, 0, &ct1),
             Err(DecryptError::NonceReuse)
         ));
     }
@@ -485,7 +511,7 @@ mod tests {
         assert_eq!(parsed.frame_type, crate::frame::TYPE_REQUEST);
 
         // Decrypt the payload
-        let plaintext = dec.decrypt(parsed.payload).unwrap();
+        let plaintext = dec.decrypt(TYPE_REQUEST, 0, parsed.payload).unwrap();
         assert_eq!(plaintext, b"{\"method\":\"tools/list\"}");
     }
 
@@ -494,5 +520,35 @@ mod tests {
         assert_eq!(encrypted_len(100), NONCE_SIZE + 100 + TAG_SIZE);
         assert_eq!(plaintext_len(encrypted_len(100)), Some(100));
         assert_eq!(plaintext_len(10), None); // too short
+    }
+
+    #[test]
+    fn aad_type_mismatch_detected() {
+        // Verify that AAD protects frame type: changing type fails decrypt
+        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public);
+        let mut enc = Cipher::new(&shared, Role::Initiator);
+        let mut dec = Cipher::new(&shared, Role::Responder);
+
+        let ct = enc.encrypt(TYPE_REQUEST, 0, b"data");
+        // Try to decrypt with wrong type → must fail
+        assert!(matches!(
+            dec.decrypt(crate::frame::TYPE_RESPONSE, 0, &ct),
+            Err(DecryptError::AuthenticationFailed)
+        ));
+    }
+
+    #[test]
+    fn aad_flags_mismatch_detected() {
+        // Verify that AAD protects flags: changing flags fails decrypt
+        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public);
+        let mut enc = Cipher::new(&shared, Role::Initiator);
+        let mut dec = Cipher::new(&shared, Role::Responder);
+
+        let ct = enc.encrypt(TYPE_REQUEST, 0, b"data");
+        // Try to decrypt with wrong flags → must fail
+        assert!(matches!(
+            dec.decrypt(TYPE_REQUEST, crate::frame::FLAG_COMPRESSED, &ct),
+            Err(DecryptError::AuthenticationFailed)
+        ));
     }
 }
