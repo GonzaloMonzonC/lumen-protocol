@@ -71,8 +71,8 @@
       "vector": "float_zero",
       "test": "compress_roundtrip",
       "pass": true,
-      "compressedSize": 9,
-      "compressedHash": "c22a6be504432e03",
+      "compressedSize": 2,
+      "compressedHash": "336e50127a425f3e",
       "jsonSize": 3,
       "error": null
     },
