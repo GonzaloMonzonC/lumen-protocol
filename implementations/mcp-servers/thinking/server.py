@@ -37,15 +37,40 @@ from pathlib import Path
 from typing import Any
 
 # ═══════════════════════════════════════════════════════════════════════
-# Data Model
+# Data Model — Multi-agent session isolation
 # ═══════════════════════════════════════════════════════════════════════
 
-_chains: dict[str, dict] = {}  # chain_id → chain
+class Session:
+    """Per-agent isolated state: chains, assumptions, model, work log."""
+    def __init__(self, label: str = ""):
+        self.label = label
+        self.chains: dict[str, dict] = {}
+        self.assumptions: list[dict] = []
+        self.next_assumption_id = 1
+        self.model: dict[str, dict] = {}
+        self.works: list[dict] = []
+        self.next_work_id = 1
+        self.tool_calls = 0
+        self.created_at = time.time()
+        self.updated_at = time.time()
 
-def _new_chain() -> str:
-    """Create a new chain. Returns chain_id."""
-    cid = f"chain_{len(_chains) + 1}_{int(time.time())}"
-    _chains[cid] = {
+_sessions: dict[str, Session] = {}  # session_id → Session
+_DEFAULT_SESSION = "default"
+_next_session_num = 1
+
+def _get_session(session_id: str | None = None) -> Session:
+    """Get or create a session. None → default session."""
+    sid = session_id or _DEFAULT_SESSION
+    if sid not in _sessions:
+        _sessions[sid] = Session(label=sid)
+    _sessions[sid].updated_at = time.time()
+    _sessions[sid].tool_calls += 1
+    return _sessions[sid]
+
+def _new_chain(session: Session) -> str:
+    """Create a new chain in a session. Returns chain_id."""
+    cid = f"chain_{len(session.chains) + 1}_{int(time.time())}"
+    session.chains[cid] = {
         "thoughts": [],
         "created_at": time.time(),
         "updated_at": time.time(),
@@ -53,13 +78,18 @@ def _new_chain() -> str:
     }
     return cid
 
-
-def _prune_old(n: int = 10) -> None:
-    """Keep only the N most recent chains to avoid memory bloat."""
-    if len(_chains) > n:
-        oldest = sorted(_chains.keys(), key=lambda c: _chains[c]["updated_at"])
+def _prune_old(session: Session, n: int = 10) -> None:
+    """Keep only the N most recent chains in a session."""
+    if len(session.chains) > n:
+        oldest = sorted(session.chains.keys(), key=lambda c: session.chains[c]["updated_at"])
         for cid in oldest[:-n]:
-            del _chains[cid]
+            del session.chains[cid]
+
+# Legacy compatibility: alias globals to default session properties
+def _chains() -> dict: return _get_session().chains
+def _assumptions() -> list: return _get_session().assumptions
+def _model() -> dict: return _get_session().model
+def _works() -> list: return _get_session().works
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -411,6 +441,25 @@ TOOLS = [
             "type": "object",
             "properties": {}
         }
+    },
+    {
+        "name": "session_init",
+        "description": "Create or retrieve a multi-agent session. Sessions isolate chains, assumptions, models, and work logs so multiple agents can share a transport without state collisions. Returns a session_id for use in other tool calls.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "description": "Human-friendly session label (e.g. 'agent-a', 'code-review')"},
+                "session_id": {"type": "string", "description": "Existing session ID to resume. Creates a new one if omitted."}
+            }
+        }
+    },
+    {
+        "name": "session_list",
+        "description": "List all active sessions with their stats (chains, assumptions, model size, tool calls).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
     }
 ]
 
@@ -421,6 +470,7 @@ TOOLS = [
 
 def tool_sequential_thinking(args: dict) -> dict:
     """Core: record a thought in a reasoning chain."""
+    session = _get_session(args.get("session_id"))
     thought_text = args["thought"]
     next_needed = args["nextThoughtNeeded"]
     total_thoughts = args["totalThoughts"]
@@ -432,12 +482,13 @@ def tool_sequential_thinking(args: dict) -> dict:
     needs_more = args.get("needsMoreThoughts", False)
     chain_id = args.get("chainId")
 
-    # Get or create chain
-    if chain_id and chain_id in _chains:
-        chain = _chains[chain_id]
-    else:
-        chain_id = _new_chain()
-        chain = _chains[chain_id]
+    # Auto-create chain if needed
+    if not chain_id:
+        chain_id = _new_chain(session)
+    elif chain_id not in session.chains:
+        return {"content": [{"type": "text", "text": f"Chain '{chain_id}' not found in session. Start a new chain or check the session_id."}]}
+
+    chain = session.chains[chain_id]
 
     # Auto-number if not provided
     if thought_number is None:
@@ -467,7 +518,7 @@ def tool_sequential_thinking(args: dict) -> dict:
     chain["thoughts"].append(thought_obj)
     chain["updated_at"] = time.time()
     chain["version"] += 1
-    _prune_old()
+    _prune_old(session)
 
     # Build response with context
     summary_lines = [
@@ -498,15 +549,16 @@ def tool_sequential_thinking(args: dict) -> dict:
 
 def tool_thought_similarity(args: dict) -> dict:
     """Find similar thoughts in a chain."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     chain_id = args["chainId"]
     thought_text = args["thought"]
     top_n = min(args.get("topN", 3), 10)
     min_score = args.get("minScore", 0.1)
 
-    if chain_id not in _chains:
+    if chain_id not in session.chains:
         return {"content": [{"type": "text", "text": f"Error: Chain '{chain_id}' not found"}]}
 
-    chain = _chains[chain_id]
+    chain = session.chains[chain_id]
     thoughts = chain["thoughts"]
     if len(thoughts) < 2:
         return {"content": [{"type": "text", "text": "Not enough thoughts for similarity analysis (need ≥2)"}]}
@@ -549,13 +601,14 @@ def tool_thought_similarity(args: dict) -> dict:
 
 def tool_thought_contradiction(args: dict) -> dict:
     """Detect contradictory thoughts."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     chain_id = args["chainId"]
     thought_text = args["thought"]
 
-    if chain_id not in _chains:
+    if chain_id not in session.chains:
         return {"content": [{"type": "text", "text": f"Error: Chain '{chain_id}' not found"}]}
 
-    chain = _chains[chain_id]
+    chain = session.chains[chain_id]
     thoughts = chain["thoughts"]
     if not thoughts:
         return {"content": [{"type": "text", "text": "No thoughts in chain to check against."}]}
@@ -607,13 +660,14 @@ def tool_thought_contradiction(args: dict) -> dict:
 
 def tool_thought_summarize(args: dict) -> dict:
     """Summarize a chain via semantic clustering."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     chain_id = args["chainId"]
     max_clusters = min(args.get("maxClusters", 5), 10)
 
-    if chain_id not in _chains:
+    if chain_id not in session.chains:
         return {"content": [{"type": "text", "text": f"Error: Chain '{chain_id}' not found"}]}
 
-    chain = _chains[chain_id]
+    chain = session.chains[chain_id]
     thoughts = chain["thoughts"]
     if not thoughts:
         return {"content": [{"type": "text", "text": "Chain is empty. Nothing to summarize."}]}
@@ -679,13 +733,14 @@ def tool_thought_summarize(args: dict) -> dict:
 
 def tool_thought_to_plan(args: dict) -> dict:
     """Convert chain to actionable plan."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     chain_id = args["chainId"]
     fmt = args.get("format", "markdown")
 
-    if chain_id not in _chains:
+    if chain_id not in session.chains:
         return {"content": [{"type": "text", "text": f"Error: Chain '{chain_id}' not found"}]}
 
-    chain = _chains[chain_id]
+    chain = session.chains[chain_id]
     thoughts = chain["thoughts"]
 
     # Filter out revisions, keep only final thoughts
@@ -721,13 +776,14 @@ def tool_thought_to_plan(args: dict) -> dict:
 
 def tool_thought_evaluate(args: dict) -> dict:
     """Evaluate thought quality."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     chain_id = args["chainId"]
     thought_number = args["thoughtNumber"]
 
-    if chain_id not in _chains:
+    if chain_id not in session.chains:
         return {"content": [{"type": "text", "text": f"Error: Chain '{chain_id}' not found"}]}
 
-    chain = _chains[chain_id]
+    chain = session.chains[chain_id]
     target = None
     for t in chain["thoughts"]:
         if t["number"] == thought_number:
@@ -778,10 +834,11 @@ def tool_thought_evaluate(args: dict) -> dict:
 
 def tool_thought_bridge(args: dict) -> dict:
     """Cross-chain thought connections."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     thought_text = args["thought"]
     top_n = min(args.get("topN", 3), 5)
 
-    if len(_chains) < 2:
+    if len(session.chains) < 2:
         return {"content": [{"type": "text", "text": "Need at least 2 chains for cross-chain bridging."}]}
 
     # Build query vector
@@ -790,7 +847,7 @@ def tool_thought_bridge(args: dict) -> dict:
         return {"content": [{"type": "text", "text": "No meaningful tokens in thought to bridge."}]}
 
     connections = []
-    for cid, chain in _chains.items():
+    for cid, chain in session.chains.items():
         thoughts = chain["thoughts"]
         if not thoughts:
             continue
@@ -842,6 +899,7 @@ _next_assumption_id = 1
 
 def tool_assume(args: dict) -> dict:
     """Record an assumption explicitly."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     global _next_assumption_id
 
     statement = args["statement"]
@@ -856,7 +914,7 @@ def tool_assume(args: dict) -> dict:
         "status": "unverified",
         "timestamp": time.time(),
     }
-    _assumptions.append(assumption)
+    session.assumptions.append(assumption)
     _next_assumption_id += 1
 
     lines = [
@@ -869,7 +927,7 @@ def tool_assume(args: dict) -> dict:
     lines.append(f"   Status: ⏳ unverified — check later with check_assumption")
 
     # Show related unverified assumptions for awareness
-    unverified = [a for a in _assumptions if a["status"] == "unverified" and a["id"] != assumption["id"]]
+    unverified = [a for a in session.assumptions if a["status"] == "unverified" and a["id"] != assumption["id"]]
     if unverified:
         lines.append(f"\n   ⚠️  You have {len(unverified)} other unverified assumption(s):")
         for a in unverified[-3:]:
@@ -882,10 +940,11 @@ def tool_assume(args: dict) -> dict:
 
 def tool_list_assumptions(args: dict) -> dict:
     """List assumptions with optional filtering."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     status_filter = args.get("status", "unverified")
     category_filter = args.get("category")
 
-    filtered = _assumptions
+    filtered = session.assumptions
     if status_filter != "all":
         filtered = [a for a in filtered if a["status"] == status_filter]
     if category_filter:
@@ -894,9 +953,9 @@ def tool_list_assumptions(args: dict) -> dict:
     if not filtered:
         return {"content": [{"type": "text", "text": f"No assumptions found (filter: status={status_filter}, category={category_filter or 'any'})."}]}
 
-    total = len(_assumptions)
-    confirmed = sum(1 for a in _assumptions if a["status"] == "confirmed")
-    refuted = sum(1 for a in _assumptions if a["status"] == "refuted")
+    total = len(session.assumptions)
+    confirmed = sum(1 for a in session.assumptions if a["status"] == "confirmed")
+    refuted = sum(1 for a in session.assumptions if a["status"] == "refuted")
     unverified_count = total - confirmed - refuted
 
     lines = [f"📋 Assumptions ({len(filtered)} shown, {total} total)"]
@@ -914,12 +973,13 @@ def tool_list_assumptions(args: dict) -> dict:
 
 def tool_check_assumption(args: dict) -> dict:
     """Mark an assumption as confirmed or refuted."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     aid = args["assumption_id"]
     outcome = args["outcome"]
     evidence = args.get("evidence", "")
 
     target = None
-    for a in _assumptions:
+    for a in session.assumptions:
         if a["id"] == aid:
             target = a
             break
@@ -938,8 +998,8 @@ def tool_check_assumption(args: dict) -> dict:
         lines.append(f"   Evidence: {evidence[:200]}")
 
     # Show learning: how many right/wrong so far
-    confirmed = sum(1 for a in _assumptions if a["status"] == "confirmed")
-    refuted = sum(1 for a in _assumptions if a["status"] == "refuted")
+    confirmed = sum(1 for a in session.assumptions if a["status"] == "confirmed")
+    refuted = sum(1 for a in session.assumptions if a["status"] == "refuted")
     total_checked = confirmed + refuted
     if total_checked > 0:
         pct = confirmed * 100 // total_checked
@@ -959,18 +1019,19 @@ def tool_check_assumption(args: dict) -> dict:
 _model: dict[str, dict] = {}  # path → {role, deps, dependents, notes, added_at}
 
 
-def _update_dependents():
+def _update_dependents(session: Session):
     """Recalculate reverse dependencies (who depends on whom)."""
-    for path in _model:
-        _model[path]["dependents"] = []
-    for path, node in _model.items():
+    for path in session.model:
+        session.model[path]["dependents"] = []
+    for path, node in session.model.items():
         for dep in node.get("deps", []):
-            if dep in _model:
-                _model[dep]["dependents"].append(path)
+            if dep in session.model:
+                session.model[dep]["dependents"].append(path)
 
 
 def tool_model_add(args: dict) -> dict:
     """Add a file to the mental model."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     path = args["path"]
     # Normalize to forward slashes for cross-platform consistency
     path = path.replace("\\", "/")
@@ -978,16 +1039,16 @@ def tool_model_add(args: dict) -> dict:
     deps = args.get("deps", [])
     notes = args.get("notes", "")
 
-    existing = path in _model
+    existing = path in session.model
 
-    _model[path] = {
+    session.model[path] = {
         "role": role,
         "deps": list(deps),
         "dependents": [],
         "notes": notes,
         "added_at": time.time(),
     }
-    _update_dependents()
+    _update_dependents(session)
 
     action = "Updated" if existing else "Added"
     lines = [f"🧠 {action} to model: {path}"]
@@ -1000,7 +1061,7 @@ def tool_model_add(args: dict) -> dict:
 
     # Show connected files
     connected = set(deps)
-    for p, node in _model.items():
+    for p, node in session.model.items():
         if path in node.get("deps", []) and p != path:
             connected.add(p)
     if connected:
@@ -1011,10 +1072,11 @@ def tool_model_add(args: dict) -> dict:
 
 def tool_model_query(args: dict) -> dict:
     """Query the mental model."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     query = args["query"].strip()
     target = args.get("target", "")
 
-    if not _model:
+    if not session.model:
         return {"content": [{"type": "text", "text": "Model is empty. Use model_add to populate it first."}]}
 
     lines = []
@@ -1022,11 +1084,11 @@ def tool_model_query(args: dict) -> dict:
     # "deps of path"
     if query.startswith("deps of ") or query.startswith("deps "):
         path = target or query.replace("deps of ", "").replace("deps ", "").strip()
-        if path in _model:
-            deps = _model[path].get("deps", [])
-            lines.append(f"📦 Dependencies of {path} ({_model[path].get('role','?')}):")
+        if path in session.model:
+            deps = session.model[path].get("deps", [])
+            lines.append(f"📦 Dependencies of {path} ({session.model[path].get('role','?')}):")
             for d in deps:
-                role_str = f" [{_model[d]['role']}]" if d in _model else " [unknown]"
+                role_str = f" [{session.model[d]['role']}]" if d in session.model else " [unknown]"
                 lines.append(f"   → {d}{role_str}")
             if not deps:
                 lines.append("   (no dependencies)")
@@ -1036,11 +1098,11 @@ def tool_model_query(args: dict) -> dict:
     # "dependents of path" / "who depends on path"
     elif "dependent" in query or "who depends" in query:
         path = target or query.split("of ")[-1].strip()
-        if path in _model:
-            deps_of = _model[path].get("dependents", [])
+        if path in session.model:
+            deps_of = session.model[path].get("dependents", [])
             lines.append(f"📦 Files that depend on {path}:")
             for d in deps_of:
-                lines.append(f"   ← {d} [{_model[d].get('role','?')}]")
+                lines.append(f"   ← {d} [{session.model[d].get('role','?')}]")
             if not deps_of:
                 lines.append(f"   ✅ No files depend on {path} — safe to change!")
         else:
@@ -1049,21 +1111,21 @@ def tool_model_query(args: dict) -> dict:
     # "role=X"
     elif query.startswith("role="):
         role = query.replace("role=", "").strip()
-        matches = [p for p, n in _model.items() if n.get("role") == role]
+        matches = [p for p, n in session.model.items() if n.get("role") == role]
         lines.append(f"📦 Files with role '{role}' ({len(matches)}):")
         for m in sorted(matches):
-            lines.append(f"   {m}" + (f" — {_model[m].get('notes','')[:60]}" if _model[m].get('notes') else ""))
+            lines.append(f"   {m}" + (f" — {session.model[m].get('notes','')[:60]}" if session.model[m].get('notes') else ""))
 
     # "impact of path"
     elif "impact" in query:
         path = target or query.split("of ")[-1].strip()
-        if path in _model:
-            deps_of = _model[path].get("dependents", [])
+        if path in session.model:
+            deps_of = session.model[path].get("dependents", [])
             lines.append(f"💥 Impact of changing {path}:")
             if deps_of:
                 lines.append(f"   {len(deps_of)} file(s) would be affected:")
                 for d in deps_of:
-                    lines.append(f"   ⚠️  {d} [{_model[d].get('role','?')}]")
+                    lines.append(f"   ⚠️  {d} [{session.model[d].get('role','?')}]")
             else:
                 lines.append(f"   ✅ No impact — safe to change!")
         else:
@@ -1071,9 +1133,9 @@ def tool_model_query(args: dict) -> dict:
 
     # "all"
     elif query == "all":
-        lines.append(f"📦 Full model ({len(_model)} files):")
+        lines.append(f"📦 Full model ({len(session.model)} files):")
         for path in sorted(_model):
-            n = _model[path]
+            n = session.model[path]
             lines.append(f"   {path} [{n.get('role','?')}] → {len(n.get('deps',[]))} deps, {len(n.get('dependents',[]))} users")
 
     else:
@@ -1085,16 +1147,17 @@ def tool_model_query(args: dict) -> dict:
 
 def tool_model_stats(args: dict) -> dict:
     """Model statistics."""
-    if not _model:
+    session = _get_session(args.get("session_id"))  # multi-agent
+    if not session.model:
         return {"content": [{"type": "text", "text": "Model is empty."}]}
 
-    roles = Counter(n.get("role", "other") for n in _model.values())
-    total_deps = sum(len(n.get("deps", [])) for n in _model.values())
-    total_files = len(_model)
+    roles = Counter(n.get("role", "other") for n in session.model.values())
+    total_deps = sum(len(n.get("deps", [])) for n in session.model.values())
+    total_files = len(session.model)
     avg_deps = total_deps / total_files if total_files else 0
 
     # Most connected files
-    connections = [(p, len(n.get("deps", [])) + len(n.get("dependents", []))) for p, n in _model.items()]
+    connections = [(p, len(n.get("deps", [])) + len(n.get("dependents", []))) for p, n in session.model.items()]
     connections.sort(key=lambda x: -x[1])
 
     lines = [
@@ -1110,7 +1173,7 @@ def tool_model_stats(args: dict) -> dict:
 
     lines.append(f"\n   Most connected files:")
     for path, conn in connections[:5]:
-        n = _model[path]
+        n = session.model[path]
         lines.append(f"   {path} [{n.get('role','?')}] — {conn} connections")
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
@@ -1118,7 +1181,8 @@ def tool_model_stats(args: dict) -> dict:
 
 def tool_model_map(args: dict) -> dict:
     """Visual tree map of the model."""
-    if not _model:
+    session = _get_session(args.get("session_id"))  # multi-agent
+    if not session.model:
         return {"content": [{"type": "text", "text": "Model is empty."}]}
 
     root = args.get("root_path", ".")
@@ -1129,12 +1193,12 @@ def tool_model_map(args: dict) -> dict:
 
     # Find entry points (files with no incoming deps from the model)
     has_dependents = set()
-    for n in _model.values():
+    for n in session.model.values():
         for d in n.get("dependents", []):
             has_dependents.add(d)
 
     # Entry points: files with dependents but no deps within model, OR files with deps but no dependents
-    entries = sorted(_model.keys())
+    entries = sorted(session.model.keys())
 
     # Group by directory
     dirs: dict[str, list] = {}
@@ -1147,43 +1211,45 @@ def tool_model_map(args: dict) -> dict:
     for directory in sorted(dirs):
         lines.append(f"\n📁 {directory}/")
         for path in sorted(dirs[directory]):
-            n = _model[path]
+            n = session.model[path]
             fname = os.path.basename(path)
             role_icon = {"authentication":"🔐","database":"🗄️","config":"⚙️","api":"🔌","model":"📊","test":"🧪","util":"🔧","entry_point":"🚀"}.get(n.get("role",""),"📄")
             deps_str = f" → {', '.join(n.get('deps',[])[:3])}" if n.get("deps") else ""
             lines.append(f"   {role_icon} {fname} [{n.get('role','?')}]{deps_str}")
 
-    lines.append(f"\n📊 {len(_model)} files mapped across {len(dirs)} directories")
+    lines.append(f"\n📊 {len(session.model)} files mapped across {len(dirs)} directories")
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
 def tool_model_remove(args: dict) -> dict:
     """Remove a file from the mental model."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     path = args["path"]
 
     if path not in _model:
         return {"content": [{"type": "text", "text": f"'{path}' is not in the model."}]}
 
     # Find what depends on this file
-    affected = _model[path].get("dependents", [])
-    role = _model[path].get("role", "?")
+    affected = session.model[path].get("dependents", [])
+    role = session.model[path].get("role", "?")
 
-    del _model[path]
-    _update_dependents()
+    del session.model[path]
+    _update_dependents(session)
 
     lines = [f"🗑️  Removed from model: {path} [{role}]"]
     if affected:
         lines.append(f"   ⚠️  {len(affected)} file(s) had this as dependency:")
         for a in affected:
             lines.append(f"      {a} — check if still valid")
-    lines.append(f"   Model now has {len(_model)} file(s)")
+    lines.append(f"   Model now has {len(session.model)} file(s)")
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
 def tool_model_scan(args: dict) -> dict:
     """Auto-scan a directory and build the mental model."""
+    session = _get_session(args.get("session_id"))  # multi-agent
     scan_path = args.get("path", ".")
     patterns = args.get("file_patterns", ["*.py", "*.js", "*.ts", "*.rs", "*.go"])
     max_files = min(args.get("max_files", 100), 500)
@@ -1273,7 +1339,7 @@ def tool_model_scan(args: dict) -> dict:
         deps = detect_deps(f)
 
         existing = rel in _model
-        _model[rel] = {
+        session.model[rel] = {
             "role": role,
             "deps": deps,
             "dependents": [],
@@ -1285,14 +1351,14 @@ def tool_model_scan(args: dict) -> dict:
         else:
             added += 1
 
-    _update_dependents()
+    _update_dependents(session)
 
     lines = [
         f"🔍 Scanned {scan_path}",
         f"   Files found:    {len(discovered)}",
         f"   Added to model: {added}",
         f"   Updated:        {updated}",
-        f"   Total in model: {len(_model)}",
+        f"   Total in model: {len(session.model)}",
         f"",
         f"   Use model_map() to visualize or model_query() to explore.",
     ]
@@ -1398,12 +1464,12 @@ WORK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".work_log.
 
 def _load_works():
     """Load persisted work log from disk."""
-    global _works, _next_work_id
+    # global _works, _next_work_id  # legacy, use session.works
     try:
         if os.path.exists(WORK_FILE):
             with open(WORK_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                _works = data.get("works", [])
+                session.works = data.get("works", [])
                 _next_work_id = data.get("next_id", 1)
     except Exception:
         pass
@@ -1413,7 +1479,7 @@ def _save_works():
     try:
         os.makedirs(os.path.dirname(WORK_FILE), exist_ok=True)
         with open(WORK_FILE, 'w', encoding='utf-8') as f:
-            json.dump({"works": _works, "next_id": _next_work_id}, f, indent=2)
+            json.dump({"works": session.works, "next_id": _next_work_id}, f, indent=2)
     except Exception:
         pass
 
@@ -1422,7 +1488,7 @@ _load_works()
 
 def tool_work_start(args: dict) -> dict:
     """Start tracking a work item."""
-    global _next_work_id
+    # global _next_work_id  # legacy
 
     item = args["item"]
     category = args.get("category", "other")
@@ -1438,11 +1504,11 @@ def tool_work_start(args: dict) -> dict:
         "done_at": None,
         "result": "",
     }
-    _works.append(work)
+    session.works.append(work)
     _next_work_id += 1
     _save_works()
 
-    in_progress = sum(1 for w in _works if w["status"] == "in_progress")
+    in_progress = sum(1 for w in session.works if w["status"] == "in_progress")
     lines = [
         f"🔧 Work #{work['id']} started: {item}",
         f"   Category: {category}",
@@ -1456,7 +1522,7 @@ def tool_work_block(args: dict) -> dict:
     wid = args["work_id"]
     reason = args["reason"]
 
-    for w in _works:
+    for w in session.works:
         if w["id"] == wid:
             w["status"] = "blocked"
             w["blocked_at"] = time.time()
@@ -1472,7 +1538,7 @@ def tool_work_done(args: dict) -> dict:
     wid = args["work_id"]
     result = args.get("result", "")
 
-    for w in _works:
+    for w in session.works:
         if w["id"] == wid:
             w["status"] = "done"
             w["done_at"] = time.time()
@@ -1491,7 +1557,7 @@ def tool_work_log(args: dict) -> dict:
     status_filter = args.get("status", "all")
     limit = args.get("limit", 20)
 
-    filtered = _works
+    filtered = session.works
     if status_filter != "all":
         filtered = [w for w in filtered if w["status"] == status_filter]
     filtered = filtered[-limit:]
@@ -1499,11 +1565,11 @@ def tool_work_log(args: dict) -> dict:
     if not filtered:
         return {"content": [{"type": "text", "text": "No work items found. Use work_start to begin tracking."}]}
 
-    in_progress = sum(1 for w in _works if w["status"] == "in_progress")
-    blocked = sum(1 for w in _works if w["status"] == "blocked")
-    done = sum(1 for w in _works if w["status"] == "done")
+    in_progress = sum(1 for w in session.works if w["status"] == "in_progress")
+    blocked = sum(1 for w in session.works if w["status"] == "blocked")
+    done = sum(1 for w in session.works if w["status"] == "done")
 
-    lines = [f"📋 Work Log ({len(filtered)} shown, {len(_works)} total)"]
+    lines = [f"📋 Work Log ({len(filtered)} shown, {len(session.works)} total)"]
     lines.append(f"   🔧 {in_progress} in progress | 🚫 {blocked} blocked | ✅ {done} done")
     lines.append("")
 
@@ -1530,6 +1596,79 @@ _estimated_chars = 0
 
 def tool_context_estimate(args: dict) -> dict:
     """Estimate context usage."""
+    session = _get_session(args.get("session_id"))
+    uptime = time.time() - _session_start
+    tool_estimate = _tool_calls * 500
+    content_estimate = _estimated_chars // 4
+    total_est = tool_estimate + content_estimate
+    context_limit = 80_000
+    pct = min(100, (total_est * 100) // context_limit)
+    if pct > 70:
+        risk = "HIGH"; suggestion = "Consider externalizing key thoughts to sequential_thinking and summarizing with thought_summarize."
+    elif pct > 40:
+        risk = "MEDIUM"; suggestion = "Monitor. Use context_preserve for critical findings."
+    else:
+        risk = "LOW"; suggestion = "Context is healthy. No action needed."
+    lines = [
+        f"📊 Context Estimate: ~{pct}% used (risk: {risk})",
+        f"   Session: {uptime:.0f}s | Tool calls: {_tool_calls} | Est. tokens: ~{total_est:,}",
+        f"   Model limit: ~{context_limit:,} tokens",
+        f"", f"   💡 {suggestion}",
+    ]
+    if risk == "HIGH":
+        lines += ["   ⚡ Actions:", "      • Use sequential_thinking to offload reasoning",
+                   "      • Use context_preserve for must-keep information",
+                   "      • Use thought_summarize to condense chains",
+                   "      • Avoid large read_files — use search_with_context instead"]
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Session Management Tools
+# ═══════════════════════════════════════════════════════════════════════
+
+def tool_session_init(args: dict) -> dict:
+    """Create or retrieve a multi-agent session."""
+    global _next_session_num
+    label = args.get("label", "")
+    sid = args.get("session_id")
+
+    if sid and sid in _sessions:
+        session = _sessions[sid]
+        action = "resumed"
+    else:
+        if not sid:
+            sid = f"session_{_next_session_num}"
+            _next_session_num += 1
+        _sessions[sid] = Session(label=label or sid)
+        session = _sessions[sid]
+        action = "created"
+
+    return {"content": [{"type": "text", "text": (
+        f"🟢 Session {action}: {sid}\n"
+        f"   Label: {session.label}\n"
+        f"   Chains: {len(session.chains)}\n"
+        f"   Assumptions: {len(session.assumptions)}\n"
+        f"   Model files: {len(session.model)}\n"
+        f"   Works: {len(session.works)}\n"
+        f"   Use session_id='{sid}' in subsequent tool calls to keep state isolated."
+    )}]}
+
+def tool_session_list(args: dict) -> dict:
+    """List all active sessions."""
+    if not _sessions:
+        return {"content": [{"type": "text", "text": "No active sessions. Use session_init to create one."}]}
+
+    lines = ["📋 Active Sessions:"]
+    for sid, s in sorted(_sessions.items()):
+        age = time.time() - s.updated_at
+        lines.append(
+            f"   {sid}: {s.label or '(no label)'} | "
+            f"{len(s.chains)} chains, {len(s.assumptions)} asmp, "
+            f"{len(s.model)} model, {s.tool_calls} calls | "
+            f"idle {age:.0f}s"
+        )
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
     uptime = time.time() - _session_start
     tool_estimate = _tool_calls * 500  # Rough: 500 tokens per tool call
     content_estimate = _estimated_chars // 4  # Rough: 4 chars per token
@@ -1593,6 +1732,8 @@ HANDLERS = {
     "work_done": tool_work_done,
     "work_log": tool_work_log,
     "context_estimate": tool_context_estimate,
+    "session_init": tool_session_init,
+    "session_list": tool_session_list,
 }
 
 
