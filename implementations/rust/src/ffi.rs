@@ -19,27 +19,23 @@
 //! ```
 
 use std::os::raw::c_char;
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 use crate::compress;
 
-// ── Last-error storage ─────────────────────────────────────────────────────
+// ── Last-error storage (thread-local) ──────────────────────────────────────
 
-static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
+thread_local! {
+    static LAST_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
+}
 
 fn set_error(msg: String) {
-    if let Ok(mut guard) = LAST_ERROR.lock() {
-        // Truncate to avoid unbounded growth
-        if msg.len() > 512 {
-            *guard = Some(msg[..512].to_string());
-        } else {
-            *guard = Some(msg);
-        }
-    }
+    let truncated = if msg.len() > 512 { msg[..512].to_string() } else { msg };
+    LAST_ERROR.with(|e| *e.borrow_mut() = Some(truncated));
 }
 
 fn take_error() -> Option<String> {
-    LAST_ERROR.lock().ok().and_then(|mut g| g.take())
+    LAST_ERROR.with(|e| e.borrow_mut().take())
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
