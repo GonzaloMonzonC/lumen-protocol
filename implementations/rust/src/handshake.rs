@@ -357,7 +357,7 @@ pub fn client_encrypted_handshake(
 
             let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
             let shared_secret = kp.derive_shared_secret(&peer_public);
-            let cipher = crate::crypto::Cipher::new(&shared_secret);
+            let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Initiator);
 
             Ok(Some(EncryptedHandshake {
                 cipher,
@@ -417,7 +417,7 @@ pub fn server_encrypted_handshake(
 
         let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
         let shared_secret = kp.derive_shared_secret(&peer_public);
-        let cipher = crate::crypto::Cipher::new(&shared_secret);
+        let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
 
         use base64::Engine;
         let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());

@@ -72,8 +72,20 @@ def encode_hyb128_bytes(value: int) -> bytes:
 
 # ── Decode ───────────────────────────────────────────────────────────────────
 
-def decode_hyb128(data: bytes | bytearray | memoryview, offset: int = 0) -> tuple[int, int] | None:
-    """Decode Hyb128 value. Returns (value, header_len) or None."""
+def decode_hyb128(data: bytes | bytearray | memoryview, offset: int = 0, strict: bool = False) -> tuple[int, int] | None:
+    """Decode Hyb128 value. Returns (value, header_len) or None.
+
+    Args:
+        data: Raw bytes containing Hyb128-encoded value at *offset*.
+        offset: Byte position to start decoding from.
+        strict: If True, reject non-minimal encodings (e.g. value 10 encoded
+                as U16 instead of Short). Non-strict mode is more lenient
+                for backward compatibility.
+
+    In strict mode, values that could have been encoded in a smaller mode
+    are rejected — this prevents canonicalization bypass attacks and ensures
+    deterministic wire format for hashing/dedup.
+    """
     if offset >= len(data):
         return None
 
@@ -83,18 +95,35 @@ def decode_hyb128(data: bytes | bytearray | memoryview, offset: int = 0) -> tupl
     if mode == _MODE_SHORT:
         return (first & _SHORT_MASK, 1)
 
+    value: int
+    header_len: int
+
     if mode == _MODE_U16:
         if offset + 3 > len(data):
             return None
-        return (struct.unpack_from("<H", data, offset + 1)[0], 3)
+        value = struct.unpack_from("<H", data, offset + 1)[0]
+        header_len = 3
+        if strict and value <= MAX_SHORT:
+            return None  # should have been Short (1 byte)
 
-    if mode == _MODE_U32:
+    elif mode == _MODE_U32:
         if offset + 5 > len(data):
             return None
-        return (struct.unpack_from("<I", data, offset + 1)[0], 5)
+        value = struct.unpack_from("<I", data, offset + 1)[0]
+        header_len = 5
+        if strict and value <= 0xFFFF:
+            return None  # should have been U16 or Short
 
-    # LEB128 fallback
-    return _leb128_decode(data, offset + 1)
+    else:  # LEB128 fallback
+        result = _leb128_decode(data, offset + 1)
+        if result is None:
+            return None
+        value, leb_bytes = result
+        header_len = 1 + leb_bytes
+        if strict and value <= 0xFFFFFFFF:
+            return None  # should have been U32 or lower
+
+    return (value, header_len)
 
 # ── LEB128 helpers ───────────────────────────────────────────────────────────
 
