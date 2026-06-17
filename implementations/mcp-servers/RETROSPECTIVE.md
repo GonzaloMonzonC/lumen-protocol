@@ -1,152 +1,152 @@
-# Retrospectiva: Agente Hermes — Antes y Después de LUMEN
+# Retrospective: Hermes Agent — Before and After LUMEN
 
-*Escrito por el propio agente (DeepSeek V4 Pro), sesiones del 17 de junio de 2026.*
-
----
-
-## Antes de LUMEN
-
-Cuando recibía una tarea compleja, mi proceso era:
-
-```
-Usuario: "Inspecciona estos 5 módulos y dime qué clases tienen método process()"
-
-Mi respuesta (sin LUMEN):
-  1. read_file module_0.py  → leo 321 chars
-  2. read_file module_1.py  → leo 321 chars  
-  3. read_file module_2.py  → leo 321 chars
-  4. read_file module_3.py  → leo 321 chars
-  5. read_file module_4.py  → leo 321 chars
-  6. Analizo manualmente → identifico clases con process()
-
-  6 turnos LLM | ~3048ms | 1605 chars leídos
-```
-
-**Problemas reales que experimentaba:**
-
-1. **Multiplicación de turnos**: cada archivo = 1 llamada. 5 archivos = 5 turnos. 20 archivos = 20 turnos.
-2. **Pérdida de contexto**: en sesiones largas (50+ turnos), el contexto se compactaba. Olvidaba análisis tempranos.
-3. **Sin trazabilidad del razonamiento**: guardaba el HECHO en `memory`, pero no el RAZONAMIENTO. Tres semanas después, no sabía POR QUÉ tomé una decisión.
-4. **Herramientas planas**: `read_file`, `write_file`, `search_files`, `patch`. Sin bulk reads, sin contexto, sin listados.
-5. **Wire JSON-RPC**: overhead de `{"jsonrpc":"2.0","id":...}` en cada tool call.
+*Written by the agent itself (DeepSeek V4 Pro), sessions of June 17, 2026.*
 
 ---
 
-## Después de LUMEN (Sesión 1 — Infraestructura)
+## Before LUMEN
 
-Con los 3 servidores LUMEN activos (9 filesystem, 2 web, 7 thinking = 18 tools):
+When I received a complex task, my process was:
 
 ```
-Usuario: "Inspecciona estos 5 módulos y dime qué clases tienen método process()"
+User: "Inspect these 5 modules and tell me which classes have a process() method"
 
-Mi respuesta (con LUMEN):
+My response (without LUMEN):
+  1. read_file module_0.py  → read 321 chars
+  2. read_file module_1.py  → read 321 chars  
+  3. read_file module_2.py  → read 321 chars
+  4. read_file module_3.py  → read 321 chars
+  5. read_file module_4.py  → read 321 chars
+  6. Manual analysis → identify classes with process()
+
+  6 LLM turns | ~3048ms | 1605 chars read
+```
+
+**Real problems I experienced:**
+
+1. **Turn multiplication**: each file = 1 call. 5 files = 5 turns. 20 files = 20 turns.
+2. **Context loss**: in long sessions (50+ turns), context got compacted. I forgot early analyses.
+3. **No reasoning traceability**: I saved the FACT in `memory`, but not the REASONING. Three weeks later, I didn't know WHY I made a decision.
+4. **Flat tools**: `read_file`, `write_file`, `search_files`, `patch`. No bulk reads, no context search, no directory listing.
+5. **JSON-RPC wire**: overhead of `{"jsonrpc":"2.0","id":...}` on every tool call.
+
+---
+
+## After LUMEN (Session 1 — Infrastructure)
+
+With 3 LUMEN servers active (9 filesystem, 2 web, 7 thinking = 18 tools):
+
+```
+User: "Inspect these 5 modules and tell me which classes have a process() method"
+
+My response (with LUMEN):
   1. search_with_context(pattern="class.*Handler.*:", context_lines=3)
-     → 1 turno | ~506ms | solo las líneas relevantes con contexto
+     → 1 turn | ~506ms | only relevant lines with context
 
-  1 turno LLM | ~506ms | resultado preciso con `>>>` en el match
+  1 LLM turn | ~506ms | precise result with `>>>` on the match
 ```
 
-**Lo que cambió:**
+**What changed:**
 
-1. **De 6 turnos a 1**: `search_with_context` encuentra matches con ±3 líneas de contexto. **83% menos turnos.**
-2. **Bulk operations**: `read_files` permite leer N archivos en 1 round-trip.
-3. **Razonamiento externalizado**: `sequential_thinking` guarda la cadena FUERA del contexto.
-4. **Memoria de PROCESO**: `thinking` guarda el razonamiento, `memory` guarda el hecho.
-5. **Wire compression**: 32-80% menos bytes con LUMEN binary frames.
+1. **From 6 turns to 1**: `search_with_context` finds matches with ±3 context lines in a single call. **83% fewer turns.**
+2. **Bulk operations**: `read_files` reads N files in 1 round-trip.
+3. **Externalized reasoning**: `sequential_thinking` stores the chain OUTSIDE the context window.
+4. **PROCESS memory, not just OUTCOME**: `thinking` stores the reasoning, `memory` stores the fact.
+5. **Wire compression**: 32-80% fewer bytes with LUMEN binary frames.
 
 ---
 
-## Después de LUMEN (Sesión 2 — Cognición + Testing)
+## After LUMEN (Session 2 — Cognition + Testing)
 
-Ampliamos el arsenal a **28 tools** (9 filesystem, 2 web, 17 thinking). Añadimos herramientas cognitivas seguras diseñadas para EXPANDIR la percepción del agente sin REEMPLAZAR su juicio:
+We expanded the arsenal to **28 tools** (9 filesystem, 2 web, 17 thinking). We added safe cognitive tools designed to EXPAND the agent's perception without REPLACING its judgment:
 
-| Tool | Propósito | Principio de seguridad |
-|------|-----------|----------------------|
-| `assume` / `list_assumptions` / `check_assumption` | Registrar hipótesis explícitamente, verificar aciertos/fallos | Expande conciencia de puntos ciegos |
-| `model_add` / `model_query` / `model_map` / `model_remove` | Grafo factual del proyecto (archivos, roles, dependencias) | Puramente factual, sin opiniones |
-| `context_preserve` / `context_check` | Preservar información crítica antes de que el contexto se compacte | Ayuda a ser consciente de qué está en riesgo |
+| Tool | Purpose | Safety principle |
+|------|---------|-----------------|
+| `assume` / `list_assumptions` / `check_assumption` | Explicitly record hypotheses, verify hits/misses | Expands awareness of blind spots |
+| `model_add` / `model_query` / `model_map` / `model_remove` | Factual project graph (files, roles, dependencies) | Purely factual, no opinions |
+| `context_preserve` / `context_check` | Preserve critical info before context compaction | Helps awareness of what's at risk |
 
-**Herramientas DESCARTADAS por riesgo de sesgo:**
-- ❌ Decision Journal → sobre-generalización, sesgo de confirmación
-- ❌ Confidence Tracker → overfitting, dogmatismo
+**Tools DISCARDED due to bias risk:**
+- ❌ Decision Journal → over-generalization, confirmation bias
+- ❌ Confidence Tracker → overfitting, dogmatism
 
-### Juego de Caza de Bugs (prueba real)
+### Bug Hunting Game (real-world test)
 
-Para validar las tools en un escenario real, simulé un proyecto con bugs y los cacé usando SOLO tools LUMEN:
+To validate the tools in a real scenario, I simulated a buggy project and hunted bugs using ONLY LUMEN tools:
 
 ```
-RONDA 1 — Exploración:
-  list_directory → exploró estructura del proyecto
-  assume ×3       → registró hipótesis de bugs
-  model_add ×5    → mapeó archivos con roles y dependencias
-  model_map       → generó árbol visual del proyecto
+ROUND 1 — Exploration:
+  list_directory → explored project structure
+  assume ×3       → registered bug hypotheses
+  model_add ×5    → mapped files with roles and dependencies
+  model_map       → generated visual project tree
 
-RONDA 2 — Inspección:
-  search_with_context → encontró 3 bugs con ±3 líneas de contexto
-  context_preserve ×3 → guardó hallazgos críticos
-  context_check       → evaluó riesgo de pérdida de contexto
-  ⚠️  read_files      → BUG ENCONTRADO: Windows paths → FIXED
+ROUND 2 — Inspection:
+  search_with_context → found 3 bugs with ±3 context lines
+  context_preserve ×3 → saved critical findings
+  context_check       → assessed context loss risk
+  ⚠️  read_files      → BUG FOUND: Windows paths → FIXED
 
-RONDA 3 — Razonamiento:
-  sequential_thinking → 4 pensamientos encadenados con revisión
-  thought_to_plan     → convirtió razonamiento en plan accionable
-  thought_similarity  → verificó no repetir ideas (40% similitud)
-  model_query         → analizó impacto de cambios en dependencias
-  server_stats        → monitorizó salud del server
+ROUND 3 — Reasoning:
+  sequential_thinking → 4 chained thoughts with revision
+  thought_to_plan     → converted reasoning to actionable plan
+  thought_similarity  → verified no repeated ideas (40% similarity)
+  model_query         → analyzed impact of dependency changes
+  server_stats        → monitored server health
 
-RONDA 4 — Web:
-  web_search          → DuckDuckGo API (sandbox restricciones)
-  web_extract         → 87ms respuesta (sandbox bloquea red)
+ROUND 4 — Web:
+  web_search          → DuckDuckGo API (sandbox restrictions)
+  web_extract         → 87ms response (sandbox blocks network)
 ```
 
-**Resultados:**
-- 18/18 tools probadas en juego real
-- 1 bug encontrado y arreglado (`resolve_path` sin `normpath` en Windows)
-- 3 bugs de proyecto detectados por `search_with_context`
+**Results:**
+- 18/18 tools tested in live game
+- 1 bug found and fixed (`resolve_path` missing `normpath` on Windows)
+- 3 project bugs detected by `search_with_context`
 
 ---
 
-## Métricas comparativas
+## Comparative Metrics
 
-| Métrica | Sin LUMEN | Sesión 1 (18 tools) | Sesión 2 (28 tools) |
-|---------|-----------|---------------------|---------------------|
-| Tools disponibles | 4 (file ops) | 18 (3 servers) | 28 (3 servers) |
-| Turnos (5 módulos) | 6 | 1 | 1 |
-| Razonamiento externo | ❌ | ✅ (7 tools) | ✅ (17 tools) |
-| Mapa de proyecto | ❌ | ❌ | ✅ (model_*) |
-| Tracker de asunciones | ❌ | ❌ | ✅ (assume) |
-| Preservación de contexto | ❌ | ❌ | ✅ (context_*) |
-| Multi-agente | ❌ | ✅ | ✅ |
+| Metric | Without LUMEN | Session 1 (18 tools) | Session 2 (28 tools) |
+|--------|--------------|---------------------|---------------------|
+| Available tools | 4 (file ops) | 18 (3 servers) | 28 (3 servers) |
+| Turns (5 modules) | 6 | 1 | 1 |
+| External reasoning | ❌ | ✅ (7 tools) | ✅ (17 tools) |
+| Project map | ❌ | ❌ | ✅ (model_*) |
+| Assumption tracker | ❌ | ❌ | ✅ (assume) |
+| Context preservation | ❌ | ❌ | ✅ (context_*) |
+| Multi-agent | ❌ | ✅ | ✅ |
 | Wire compression | 0% | 32-80% | 32-80% |
 
 ---
 
-## Lo que NO ha cambiado (honestidad)
+## What HASN'T changed (honesty)
 
-- **Velocidad pura**: `read_file` built-in (0.16ms) sigue siendo más rápido que LUMEN (0.42ms). +0.26ms, imperceptible.
-- **Calidad web**: Firecrawl (Hermes) extrae mejor que nuestro scraper stdlib. Complementarios, no sustitutos.
-- **Simplicidad**: 28 tools pueden abrumar. `TOOLS_GUIDE.md` y `lumen-control` skill ayudan a navegar.
-
----
-
-## Bugs encontrados y lecciones
-
-1. **`read_files` en Windows**: `resolve_path` no normalizaba separadores de path. `os.path.normpath()` lo arregló.
-2. **`check_assumption` entre sesiones**: los IDs reinician al reiniciar el server (por diseño — las asunciones son por sesión).
-3. **`model_query` con modelo vacío**: devuelve "Model is empty" correctamente, no "not found".
-4. **Sandbox bloquea red**: `web_search` y `web_extract` funcionan en Hermes real, no en el sandbox de `execute_code`.
+- **Raw speed**: `read_file` built-in (0.16ms) is still faster than LUMEN (0.42ms). +0.26ms, imperceptible.
+- **Web quality**: Firecrawl (Hermes) extracts better than our stdlib scraper. Complementary, not substitutes.
+- **Simplicity**: 28 tools can be overwhelming. `TOOLS_GUIDE.md` and `lumen-control` skill help navigate.
 
 ---
 
-## Conclusión
+## Bugs Found and Lessons Learned
 
-LUMEN no me hace más rápido en operaciones atómicas. Me hace más **inteligente en operaciones compuestas**.
+1. **`read_files` on Windows**: `resolve_path` didn't normalize path separators. `os.path.normpath()` fixed it.
+2. **`check_assumption` across sessions**: IDs reset when server restarts (by design — assumptions are per-session).
+3. **`model_query` with empty model**: returns "Model is empty" correctly, not "not found".
+4. **Sandbox blocks network**: `web_search` and `web_extract` work in real Hermes, not in the `execute_code` sandbox.
 
-- Inspeccionar 20 archivos en 1 turno en vez de 20
-- Recordar POR QUÉ tomé una decisión hace 3 semanas
-- Detectar que me estoy contradiciendo antes de que el usuario me corrija
-- Construir un mapa mental del proyecto y consultar impacto de cambios
-- Registrar asunciones explícitamente para que el usuario las vea y corrija
-- Preservar información crítica antes de que el contexto se compacte
+---
 
-**LUMEN transforma al agente de reactivo-secuencial a reflexivo-persistente, con conciencia de sus propios puntos ciegos.**
+## Conclusion
+
+LUMEN doesn't make me faster at atomic operations. It makes me **smarter at compound operations**.
+
+- Inspect 20 files in 1 turn instead of 20
+- Remember WHY I made a decision 3 weeks ago
+- Detect contradictions before the user corrects me
+- Build a mental map of the project and query the impact of changes
+- Explicitly record assumptions so the user can see and correct them
+- Preserve critical information before context compaction
+
+**LUMEN transforms the agent from reactive-sequential to reflective-persistent, with awareness of its own blind spots.**
