@@ -513,11 +513,12 @@ TOOLS = [
     },
     {
         "name": "decision_list",
-        "description": "List all recorded decisions, optionally filtered by category. Shows the decision, rationale, and when it was made.",
+        "description": "List all recorded decisions, newest first. Optionally filtered by category. Shows the decision, rationale, and when it was made.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "category": {"type": "string", "description": "Filter by category"}
+                "category": {"type": "string", "description": "Filter by category"},
+                "limit": {"type": "integer", "description": "Max results (default: 20, max: 50)", "default": 20, "maximum": 50}
             }
         }
     }
@@ -1777,12 +1778,15 @@ def tool_pattern_record(args: dict) -> dict:
     session = _get_session(args.get("session_id"))
     pid = session.next_pattern_id
     session.next_pattern_id += 1
+    category = args.get("category", "bug")
+    if category not in ("bug", "security", "performance", "design", "testing", "other"):
+        category = "other"
     pattern = {
         "id": pid, "pattern_name": args["pattern_name"],
         "description": args["description"],
         "code_snippet": args.get("code_snippet", ""),
         "fix_strategy": args.get("fix_strategy", ""),
-        "category": args.get("category", "bug"),
+        "category": category,
         "tags": args.get("tags", []), "recorded_at": time.time(), "match_count": 0,
     }
     session.patterns.append(pattern)
@@ -1794,7 +1798,7 @@ def tool_pattern_record(args: dict) -> dict:
     )}]}
 
 def tool_pattern_match(args: dict) -> dict:
-    """Find matching patterns via TF-IDF similarity."""
+    """Find matching patterns via Jaccard similarity on tokenized text."""
     session = _get_session(args.get("session_id"))
     query = args["description"]
     category_filter = args.get("category")
@@ -1819,7 +1823,7 @@ def tool_pattern_match(args: dict) -> dict:
     scores.sort(key=lambda x: x[0], reverse=True)
     top = scores[:top_n]
     if not top:
-        return {"content": [{"type": "text", "text": "No matching patterns found. Consider recording this as a new pattern."}]}
+        return {"content": [{"type": "text", "text": "No matching patterns found. Consider recording this as a new pattern with pattern_record."}]}
     lines = [f"🔍 Found {len(top)} matching patterns:"]
     for sim, p in top:
         bar = "█" * int(sim * 10) + "░" * (10 - int(sim * 10))
@@ -1827,7 +1831,7 @@ def tool_pattern_match(args: dict) -> dict:
         lines.append(f"   Description: {p['description'][:120]}")
         if p['fix_strategy']: lines.append(f"   Fix: {p['fix_strategy'][:120]}")
         if p.get('tags'): lines.append(f"   Tags: {', '.join(p['tags'])}")
-        p['match_count'] = p.get('match_count', 0) + 1
+        p['match_count'] = p.get('match_count', 0) + 1  # only matched patterns
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
@@ -1840,10 +1844,13 @@ def tool_decision_log(args: dict) -> dict:
     session = _get_session(args.get("session_id"))
     did = session.next_decision_id
     session.next_decision_id += 1
+    category = args.get("category", "other")
+    if category not in ("architecture", "tooling", "dependency", "api", "performance", "security", "other"):
+        category = "other"
     decision = {
         "id": did, "decision": args["decision"], "rationale": args["rationale"],
         "alternatives": args.get("alternatives", []), "context": args.get("context", ""),
-        "category": args.get("category", "other"),
+        "category": category,
         "revisit_trigger": args.get("revisit_trigger", ""), "recorded_at": time.time(),
     }
     session.decisions.append(decision)
@@ -1857,16 +1864,20 @@ def tool_decision_log(args: dict) -> dict:
     )}]}
 
 def tool_decision_list(args: dict) -> dict:
-    """List recorded decisions."""
+    """List recorded decisions, newest first."""
     session = _get_session(args.get("session_id"))
     category_filter = args.get("category")
+    limit = min(args.get("limit", 20), 50)
     if not session.decisions:
         return {"content": [{"type": "text", "text": "No decisions recorded yet. Use decision_log to capture design decisions."}]}
     candidates = [d for d in session.decisions if not category_filter or d["category"] == category_filter]
     if not candidates:
         return {"content": [{"type": "text", "text": f"No decisions in category '{category_filter}'."}]}
-    lines = [f"📋 Decisions ({len(candidates)} shown):"]
-    for d in candidates:
+    # Newest first
+    candidates.sort(key=lambda d: d["recorded_at"], reverse=True)
+    shown = candidates[:limit]
+    lines = [f"📋 Decisions ({len(shown)} shown, {len(session.decisions)} total):"]
+    for d in shown:
         lines.append(f"\n   #{d['id']} {d['decision'][:100]} [{d['category']}]")
         lines.append(f"   Why: {d['rationale'][:120]}")
         if d.get('revisit_trigger'): lines.append(f"   🔄 Revisit if: {d['revisit_trigger'][:100]}")
