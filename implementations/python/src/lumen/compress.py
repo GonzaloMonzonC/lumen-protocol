@@ -292,8 +292,8 @@ def _decode_key(
 
 def _zigzag_leb128_len(v: int) -> int:
     """Number of bytes needed for zigzag LEB128 encoding of signed *v*."""
-    # Zigzag: map signed to unsigned
-    u = (v >> 63) ^ (v << 1)
+    # Zigzag: map signed to unsigned (i64 semantics — mask to u64)
+    u = ((v >> 63) ^ (v << 1)) & 0xFFFFFFFFFFFFFFFF
     if u == 0:
         return 1
     count = 0

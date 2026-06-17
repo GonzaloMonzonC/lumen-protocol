@@ -46,7 +46,7 @@ pub fn lumen_compress(json: &str) -> Result<Vec<u8>, JsValue> {
         JsValue::from_str(&format!("JSON parse error: {e}"))
     })?;
 
-    Ok(compress::compress(&value))
+    Ok(compress::compress(&value, None))
 }
 
 /// Decompress LUMEN binary into a JSON string.
@@ -54,7 +54,7 @@ pub fn lumen_compress(json: &str) -> Result<Vec<u8>, JsValue> {
 /// Returns a JSON string.  Throws a JS error if the binary is malformed.
 #[wasm_bindgen]
 pub fn lumen_decompress(data: &[u8]) -> Result<String, JsValue> {
-    let value = compress::decompress(data).ok_or_else(|| {
+    let value = compress::decompress(data, None).ok_or_else(|| {
         JsValue::from_str("decompress error: malformed LUMEN binary")
     })?;
 

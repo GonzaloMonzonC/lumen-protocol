@@ -72,7 +72,7 @@ fn bench_ring_throughput(region_size: usize) {
 
         // Warmup
         for _ in 0..WARMUP {
-            wring.write_frame(&payload);
+            wring.write_frame(&payload).unwrap();
             frame_buf.clear();
             let _ = rring.read_frame(&mut frame_buf);
         }
@@ -82,11 +82,11 @@ fn bench_ring_throughput(region_size: usize) {
         let mut remaining = ITERS;
         while remaining > 0 {
             let n = batch.min(remaining);
-            for _ in 0..n { wring.write_frame(&payload); }
+            for _ in 0..n { wring.write_frame(&payload).unwrap(); }
             for _ in 0..n {
                 frame_buf.clear();
                 let got = rring.read_frame(&mut frame_buf);
-                assert!(got.is_some() && got.unwrap() == psize);
+                assert!(got.is_ok() && got.unwrap() == psize);
             }
             remaining -= n;
         }
@@ -223,7 +223,7 @@ fn bench_stream_throughput(region_size: usize) {
 
     // Warmup
     for _ in 0..WARMUP {
-        wring.write_frame(&payload);
+        wring.write_frame(&payload).unwrap();
         frame_buf.clear();
         let _ = rring.read_frame(&mut frame_buf);
     }
@@ -232,11 +232,11 @@ fn bench_stream_throughput(region_size: usize) {
     let mut i = 0;
     while i < chunks {
         let end = (i + batch_size).min(chunks);
-        for _ in i..end { wring.write_frame(&payload); }
+        for _ in i..end { wring.write_frame(&payload).unwrap(); }
         for _ in i..end {
             frame_buf.clear();
             let got = rring.read_frame(&mut frame_buf);
-            assert!(got.is_some() && got.unwrap() == chunk_size);
+            assert!(got.is_ok() && got.unwrap() == chunk_size);
         }
         i = end;
     }
@@ -267,10 +267,10 @@ fn bench_ping_pong(region_size: usize) {
 
     // Warmup
     for _ in 0..WARMUP {
-        cw.write_frame(&payload);
+        cw.write_frame(&payload).unwrap();
         let mut tmp = vec![0u8; 68];
         let n = sr.read(&mut tmp);
-        if n >= 68 { sw.write_frame(&payload); }
+        if n >= 68 { sw.write_frame(&payload).unwrap(); }
         let mut out = vec![0u8; 68];
         let _ = cr.read(&mut out);
     }
@@ -279,10 +279,10 @@ fn bench_ping_pong(region_size: usize) {
     let mut latencies = Vec::with_capacity(ITERS);
     for _ in 0..ITERS {
         let t0 = Instant::now();
-        cw.write_frame(&payload);
+        cw.write_frame(&payload).unwrap();
         let mut tmp = vec![0u8; 68];
         let n = sr.read(&mut tmp);
-        if n >= 68 { sw.write_frame(&payload); }
+        if n >= 68 { sw.write_frame(&payload).unwrap(); }
         let mut out = vec![0u8; 68];
         let _ = cr.read(&mut out);
         latencies.push(t0.elapsed().as_nanos() as f64);

@@ -27,7 +27,7 @@ fn json_serialize_size(v: &serde_json::Value) -> (Vec<u8>, usize) {
 }
 
 fn lumen_serialize_size(v: &serde_json::Value) -> (Vec<u8>, usize) {
-    let compressed = compress::compress(v);
+    let compressed = compress::compress(v, None);
     let overhead = 1 + 1 + 5; // TYPE + FLAGS + max Hyb128
     let mut buf = vec![0u8; compressed.len() + overhead];
     let n = frame::build(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &compressed, &mut buf);

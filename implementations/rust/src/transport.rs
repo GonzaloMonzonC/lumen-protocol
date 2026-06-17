@@ -71,6 +71,8 @@ impl Transport for StdioTransport {
 /// Each `write_all` call writes exactly one frame with a 4-byte LE length
 /// prefix. Each `read` call reads bytes from the current buffered frame
 /// (or pulls the next frame from the ring if the buffer is exhausted).
+///
+/// Owns a per-connection [`SessionDict`] for session-dictionary compression.
 pub struct ShmTransport {
     /// Ring we write to
     write_ring: crate::shm::ShmRingBuffer,
@@ -79,6 +81,8 @@ pub struct ShmTransport {
     /// Buffered frame being read (data + current position)
     read_buf: Vec<u8>,
     read_pos: usize,
+    /// Per-connection session dictionary for compression
+    pub session_dict: crate::dict::SessionDict,
 }
 
 impl ShmTransport {
@@ -87,7 +91,13 @@ impl ShmTransport {
     /// `write_ring` is the ring this side writes into (Ring A for client,
     /// Ring B for server). `read_ring` is the ring this side reads from.
     pub fn new(write_ring: crate::shm::ShmRingBuffer, read_ring: crate::shm::ShmRingBuffer) -> Self {
-        Self { write_ring, read_ring, read_buf: Vec::new(), read_pos: 0 }
+        Self {
+            write_ring,
+            read_ring,
+            read_buf: Vec::new(),
+            read_pos: 0,
+            session_dict: crate::dict::SessionDict::new(),
+        }
     }
 
     /// Check if there's data available without blocking.
@@ -110,7 +120,7 @@ impl Transport for ShmTransport {
         // Pull next frame from the ring
         let mut frame = Vec::new();
         match self.read_ring.read_frame(&mut frame) {
-            Some(_len) => {
+            Ok(_len) => {
                 self.read_buf = frame;
                 self.read_pos = 0;
                 let n = self.read_buf.len().min(buf.len());
@@ -118,16 +128,15 @@ impl Transport for ShmTransport {
                 self.read_pos = n;
                 Ok(n)
             }
-            None => {
-                // No complete frame available
-                Ok(0)
+            Err(e) => {
+                // Timeout or no frame available
+                Err(io::Error::from(e))
             }
         }
     }
 
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.write_ring.write_frame(buf);
-        Ok(())
+        self.write_ring.write_frame(buf).map_err(io::Error::from)
     }
 
     fn flush(&mut self) -> io::Result<()> {

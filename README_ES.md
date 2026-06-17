@@ -17,7 +17,7 @@
 <p align="center">
   <a href="INSTALL_ES.md"><strong>🚀 Instalar en Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> &nbsp;|&nbsp;
-  <strong>✅ 29 tools compatibles</strong>
+  <strong>✅ 33 tools compatibles</strong>
 </p>
 
 ---
