@@ -207,7 +207,7 @@ de stream, etc.). `FLAGS` es una máscara de bits de un byte cuyos bits indican 
 la carga útil está comprimida, cifrada, es de alta prioridad o está fragmentada.
 `DICT_REF`, presente solo cuando se activa el flag de compresión, nombra la
 entrada de diccionario utilizada. `PAYLOAD` transporta el contenido específico
-del tipo. Todos los enteros multibyte son big-endian.
+del tipo. Todos los enteros multibyte son little-endian.
 
 Esta disposición satisface G2: como `LEN` es el primer campo y es
 autodelimitante, un receptor siempre conoce exactamente cuántos bytes ocupa la

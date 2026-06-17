@@ -192,7 +192,7 @@ one of the frame types (request, response, notification, stream data, etc.).
 `FLAGS` is a one-byte bitmask whose bits indicate whether the payload is
 compressed, encrypted, high-priority, or fragmented. `DICT_REF`, present only
 when the compression flag is set, names the dictionary entry used. `PAYLOAD`
-carries the type-specific content. All multi-byte integers are big-endian.
+carries the type-specific content. All multi-byte integers are little-endian.
 
 This layout satisfies G2: because `LEN` is the first field and is
 self-delimiting, a receiver always knows exactly how many bytes the current
