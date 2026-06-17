@@ -8,6 +8,7 @@ pub mod fixtures;
 pub mod frame;
 pub mod handshake;
 pub mod hyb128;
+pub mod macaroon;
 #[cfg(feature = "quic")]
 pub mod quic;
 pub mod mux;
