@@ -913,8 +913,11 @@ def tool_thought_evaluate(args: dict) -> dict:
 def tool_thought_bridge(args: dict) -> dict:
     """Cross-chain thought connections."""
     session = _get_session(args.get("session_id"))  # multi-agent
-    thought_text = args["thought"]
+    thought_text = args.get("thought", "")
     top_n = min(args.get("topN", 3), 5)
+
+    if not thought_text:
+        return {"content": [{"type": "text", "text": "No thought provided for bridging. Pass 'thought' parameter."}]}
 
     if len(session.chains) < 2:
         return {"content": [{"type": "text", "text": "Need at least 2 chains for cross-chain bridging."}]}
