@@ -366,10 +366,23 @@ TOOLS = [
                 "path": {"type": "string", "description": "File path to remove from the model"}
             },
             "required": ["path"]
-        }
-    },
-    {
-        "name": "context_preserve",
+            }
+            },
+            {
+            "name": "model_scan",
+            "description": "Auto-scan a directory and build an initial mental model. Discovers files, guesses roles by filename (e.g. 'auth.py' -> 'authentication'), and detects Python imports for dependencies. Use this to bootstrap the model for a new project.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "root_dir": {"type": "string", "description": "Directory to scan (default: current working directory)", "default": "."},
+                    "max_depth": {"type": "integer", "description": "Max directory depth (default: 2, max: 4)", "default": 2, "maximum": 4},
+                    "file_glob": {"type": "string", "description": "File pattern to match (default: '*.py')", "default": "*.py"},
+                    "limit": {"type": "integer", "description": "Max files to scan (default: 200)", "default": 200}
+                }
+            }
+            },
+            {
+            "name": "context_preserve",
         "description": "Mark a piece of information as critical to preserve. Use when you discover something important that MUST survive context compression: a key finding, a user preference, a decision rationale, a bug root cause. This is your 'don't forget this' tool.",
         "inputSchema": {
             "type": "object",
@@ -1525,7 +1538,8 @@ WORK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".work_log.
 
 def _load_works():
     """Load persisted work log from disk."""
-    # global _works, _next_work_id  # legacy, use session.works
+    global _next_work_id
+    session = _get_session()
     try:
         if os.path.exists(WORK_FILE):
             with open(WORK_FILE, 'r', encoding='utf-8') as f:
@@ -1537,6 +1551,7 @@ def _load_works():
 
 def _save_works():
     """Persist work log to disk."""
+    session = _get_session()
     try:
         os.makedirs(os.path.dirname(WORK_FILE), exist_ok=True)
         with open(WORK_FILE, 'w', encoding='utf-8') as f:
@@ -1549,7 +1564,8 @@ _load_works()
 
 def tool_work_start(args: dict) -> dict:
     """Start tracking a work item."""
-    # global _next_work_id  # legacy
+    global _next_work_id
+    session = _get_session(args.get("session_id"))
 
     item = args["item"]
     category = args.get("category", "other")
@@ -1580,6 +1596,7 @@ def tool_work_start(args: dict) -> dict:
 
 def tool_work_block(args: dict) -> dict:
     """Mark a work item as blocked."""
+    session = _get_session(args.get("session_id"))
     wid = args["work_id"]
     reason = args["reason"]
 
@@ -1596,6 +1613,7 @@ def tool_work_block(args: dict) -> dict:
 
 def tool_work_done(args: dict) -> dict:
     """Mark a work item as done."""
+    session = _get_session(args.get("session_id"))
     wid = args["work_id"]
     result = args.get("result", "")
 
@@ -1615,6 +1633,7 @@ def tool_work_done(args: dict) -> dict:
 
 def tool_work_log(args: dict) -> dict:
     """Show work log."""
+    session = _get_session(args.get("session_id"))
     status_filter = args.get("status", "all")
     limit = args.get("limit", 20)
 
