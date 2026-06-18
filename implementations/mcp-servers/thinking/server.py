@@ -1987,7 +1987,10 @@ def handle_message(msg: dict) -> None:
 
 def main() -> None:
     while True:
-        line = sys.stdin.readline()
+        try:
+            line = sys.stdin.readline()
+        except Exception:
+            break
         if not line:
             break
         line = line.strip()
@@ -1998,6 +2001,13 @@ def main() -> None:
             handle_message(msg)
         except json.JSONDecodeError:
             pass
+        except Exception as e:
+            # Don't let a single bad message kill the server
+            try:
+                req_id = msg.get("id") if isinstance(msg, dict) else None
+                send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": f"Internal error: {e}"}})
+            except Exception:
+                pass  # If even sending the error fails, just continue
 
 
 if __name__ == "__main__":
