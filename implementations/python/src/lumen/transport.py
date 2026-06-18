@@ -514,3 +514,8 @@ class LumenWebSocketTransport(Transport):
         finally:
             if self.onclose:
                 self.onclose()
+
+# ── Backward compatibility ──────────────────────────────────
+# Hermes Agent PR #47740 references MCPLumenTransport.
+# Keep this alias until Hermes updates its import.
+MCPLumenTransport = LumenStdioTransport
