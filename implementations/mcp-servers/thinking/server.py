@@ -36,6 +36,10 @@ from collections import defaultdict, Counter
 from pathlib import Path
 from typing import Any
 
+# ── Windows: force UTF-8 on stdout so emoji don't break MCP pipes ──
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # ═══════════════════════════════════════════════════════════════════════
 # Data Model — Multi-agent session isolation
 # ═══════════════════════════════════════════════════════════════════════
