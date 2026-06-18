@@ -1421,5 +1421,5 @@ Authors' Addresses
 
    Gonzalo Monzón
    LUMEN Project
-   Email: gonzalo@lumenprotocol.org
-   URI:   https://lumenprotocol.org
+   Email: gonzalo@cadenceslab.com
+   URI:   https://github.com/GonzaloMonzonC/lumen-protocol
