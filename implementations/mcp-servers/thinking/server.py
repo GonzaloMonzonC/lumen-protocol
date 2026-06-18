@@ -1948,8 +1948,12 @@ HANDLERS = {
 # ═══════════════════════════════════════════════════════════════════════
 
 def send(msg: dict) -> None:
-    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    try:
+        sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    except (OSError, BrokenPipeError, ValueError):
+        # Pipe broken or stdout closed — can't send, but don't crash
+        pass
 
 
 def handle_message(msg: dict) -> None:
