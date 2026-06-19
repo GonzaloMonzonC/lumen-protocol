@@ -2537,6 +2537,7 @@ def _start_dashboard(port: int = 9876) -> None:
             pass  # silence HTTP logs
     
     def _build_metrics():
+        global _last_state_mtime
         # Reload state from file if it was updated by another process (e.g. SHM server)
         if _STATE_FILE.exists():
             try:
