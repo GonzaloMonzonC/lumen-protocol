@@ -102,7 +102,7 @@ tests = [
     ("patch", {"name":"patch","arguments":{"path":p,"old_string":"NATIVE","new_string":"BINARY"}},
      lambda r: "Replaced" in r['result']['content'][0]['text']),
     ("read_files", {"name":"read_files","arguments":{"paths":[p, os.path.join(td,"w.txt")]}},
-     lambda r: "═══" in r['result']['content'][0]['text']),
+     lambda r: "===" in r['result']['content'][0]['text']),
 ]
 
 for name, args, check in tests:

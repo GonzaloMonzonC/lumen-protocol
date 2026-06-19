@@ -55,8 +55,8 @@ fn skip(_name: &str) -> bool {
 fn compress_roundtrip_all() {
     for (name, value) in load_vectors() {
         if skip(&name) { continue; }
-        let compressed = compress(&value);
-        let decompressed = decompress(&compressed)
+        let compressed = compress(&value, None);
+        let decompressed = decompress(&compressed, None)
             .unwrap_or_else(|| panic!("decompress returned None for {}", name));
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
@@ -79,7 +79,7 @@ fn binary_golden_match() {
             Some(g) => g,
             None => continue,
         };
-        let compressed = compress(&value);
+        let compressed = compress(&value, None);
         assert_eq!(
             compressed, golden,
             "Binary mismatch for \"{}\": Rust output differs from Python golden",
@@ -102,10 +102,10 @@ fn semantic_compat_python_golden() {
         };
 
         // Decompress Python golden and compare with our decompress of our compress
-        let py_decoded = decompress(&golden)
+        let py_decoded = decompress(&golden, None)
             .unwrap_or_else(|| panic!("Failed to decompress Python golden for {}", name));
-        let our_compressed = compress(&value);
-        let our_decoded = decompress(&our_compressed)
+        let our_compressed = compress(&value, None);
+        let our_decoded = decompress(&our_compressed, None)
             .unwrap_or_else(|| panic!("Failed to decompress own output for {}", name));
 
         assert_eq!(
@@ -133,7 +133,7 @@ fn decode_python_golden() {
             Some(g) => g,
             None => continue,
         };
-        let decompressed = decompress(&golden)
+        let decompressed = decompress(&golden, None)
             .unwrap_or_else(|| panic!("Rust failed to decode Python golden for {}", name));
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
@@ -160,8 +160,8 @@ fn binary_stability() {
         ("mcp_init", serde_json::json!({"jsonrpc": "2.0", "method": "initialize"})),
     ];
     for (name, value) in &cases {
-        let c1 = compress(value);
-        let c2 = compress(value);
+        let c1 = compress(value, None);
+        let c2 = compress(value, None);
         assert_eq!(c1, c2, "Non-deterministic compression for {}", name);
     }
 }
@@ -288,7 +288,7 @@ fn frame_semantic_match_python() {
                             let is_compressed = !py_frame.payload.is_empty()
                                 && (py_frame.payload[0] & 0xF8) == 0xE0;
                             if is_compressed {
-                                let py_val = decompress(py_frame.payload)
+                                let py_val = decompress(py_frame.payload, None)
                                     .unwrap_or_else(|| panic!("{}: Python compressed payload failed to decompress", name));
                                 let our_val: Value = serde_json::from_slice(payload)
                                     .unwrap_or_else(|e| panic!("{}: Our payload not JSON: {}", name, e));
@@ -355,7 +355,7 @@ fn compressed_frame_integration() {
     for (pname, payload) in &payloads {
         let name = format!("integration_{}", pname);
 
-        let compressed = compress(payload);
+        let compressed = compress(payload, None);
         let mut buf = vec![0u8; build_size(compressed.len())];
         build(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, &compressed, &mut buf);
 
@@ -363,7 +363,7 @@ fn compressed_frame_integration() {
         match parse(&buf) {
             ParseResult::Complete { frame, .. } => {
                 assert_eq!(frame.flags, frame::FLAG_COMPRESSED);
-                let dec = decompress(frame.payload)
+                let dec = decompress(frame.payload, None)
                     .unwrap_or_else(|| panic!("decompress failed for {}", name));
                 assert_eq!(
                     serde_json::to_string(payload).unwrap(),
@@ -380,7 +380,7 @@ fn compressed_frame_integration() {
                 ParseResult::Complete { frame, .. } => {
                     assert_eq!(frame.flags, frame::FLAG_COMPRESSED,
                         "Python golden flags mismatch for {}", name);
-                    let dec = decompress(frame.payload)
+                    let dec = decompress(frame.payload, None)
                         .unwrap_or_else(|| panic!("decompress Python golden failed for {}", name));
                     assert_eq!(
                         serde_json::to_string(payload).unwrap(),

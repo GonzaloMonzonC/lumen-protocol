@@ -440,15 +440,16 @@ pub fn server_encrypted_handshake(
         // Validate peer public key before deriving shared secret
         if !crate::crypto::Keypair::validate_public_key(&pk_bytes) {
             // Invalid peer key → fall back to unencrypted for this connection
-            return (None, None);
+            (None, None)
+        } else {
+            let shared_secret = kp.derive_shared_secret(&peer_public);
+            let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
+
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());
+
+            (Some(EncryptedHandshake { cipher, peer_public_key: pk_bytes }), Some(b64))
         }
-        let shared_secret = kp.derive_shared_secret(&peer_public);
-        let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
-
-        use base64::Engine;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());
-
-        (Some(EncryptedHandshake { cipher, peer_public_key: pk_bytes }), Some(b64))
     } else {
         (None, None)
     };

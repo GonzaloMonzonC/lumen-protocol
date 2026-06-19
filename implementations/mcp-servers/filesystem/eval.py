@@ -85,7 +85,7 @@ runner.test("read_file", "error-handling",
 # ════════ read_files (3 tests) ════════
 r = call_tool("read_files", {"paths": [tf, os.path.join(td, "subdir", "nested.txt")]})
 runner.test("read_files", "correctness",
-            lambda: r and "═══" in r["result"]["content"][0]["text"])
+            lambda: r and "===" in r["result"]["content"][0]["text"])
 runner.test("read_files", "correctness",
             lambda: r and "test.txt" in r["result"]["content"][0]["text"] and "nested.txt" in r["result"]["content"][0]["text"])
 r = call_tool("read_files", {"paths": []})
