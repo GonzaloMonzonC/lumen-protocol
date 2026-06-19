@@ -124,7 +124,8 @@ _SAVE_INTERVAL = 10  # auto-save every N tool calls
 _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
-_call_timeline: list[dict] = []  # [{ts: timestamp, calls: total_calls}, ...]
+_call_timeline: list[dict] = []
+_session_presence: dict = {}  # session_id → {pid, last_seen, tool_calls}
 
 def _save_state() -> None:
     """Persist all state to disk atomically."""
@@ -155,6 +156,7 @@ def _save_state() -> None:
             "next_session_num": _next_session_num,
             "preserved": _preserved,
             "timeline": _call_timeline,
+            "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls} for sid, s in _sessions.items()},
             "saved_at": time.time(),
         }
         tmp = str(_STATE_FILE) + ".tmp"
@@ -2400,6 +2402,8 @@ def _start_dashboard(port: int = 9876) -> None:
                     _preserved = state.get("preserved", [])
                     if "timeline" in state:
                         _call_timeline[:] = state["timeline"]
+                    global _session_presence
+                    _session_presence = state.get("presence", {})
                     _last_state_mtime = file_mtime
             except Exception:
                 pass
@@ -2527,6 +2531,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 key=lambda x: x[1]["updated_at"], reverse=True)[:20]],
             "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
+            "presence": _session_presence,
             "timeline": _call_timeline[-60:],
         }
     
