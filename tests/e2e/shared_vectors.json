@@ -39,7 +39,7 @@
     },
     {
       "name": "float_zero",
-      "value": 0.0,
+      "value": 0,
       "expectedTags": ["TAG_INT"],
       "note": "Canonicalized: whole-number float → TAG_INT for cross-language interop"
     },
