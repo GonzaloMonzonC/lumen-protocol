@@ -82,8 +82,12 @@ pub fn compressed_size(value: &Value, session: Option<&SessionDict>) -> usize {
         Value::Null => 1,
         Value::Bool(_) => 2,
         Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                if serde_json::Number::from(i) == *n {
+            // Canonicalize whole-number floats → TAG_INT for cross-language interop.
+            // Uses as_f64() instead of as_i64() roundtrip to avoid serde_json
+            // Number representation mismatch (e.g., Number::from_f64(0.0) != Number::from(0)).
+            if let Some(f) = n.as_f64() {
+                let i = f as i64;
+                if f == (i as f64) && f.is_finite() {
                     // TAG_INT + variable LEB128
                     return 1 + i64_leb128_len(i);
                 }
@@ -140,9 +144,12 @@ fn encode_value(value: &Value, buf: &mut Vec<u8>, session: Option<&SessionDict>)
         }
 
         Value::Number(n) => {
-            // Preserve integer vs float distinction
-            if let Some(i) = n.as_i64() {
-                if serde_json::Number::from(i) == *n {
+            // Canonicalize whole-number floats → TAG_INT for cross-language interop.
+            // Uses as_f64() instead of as_i64() roundtrip to avoid serde_json
+            // Number representation mismatch (e.g., Number::from_f64(0.0) != Number::from(0)).
+            if let Some(f) = n.as_f64() {
+                let i = f as i64;
+                if f == (i as f64) && f.is_finite() {
                     buf.push(TAG_INT);
                     encode_i64_leb128(i, buf);
                     return;
