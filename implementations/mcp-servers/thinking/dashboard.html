@@ -125,14 +125,15 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
   <div class="glass"><h3>👥 Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
 </div>
 <div class="grid2">
-  <div class="glass"><h3>📬 Inbox</h3><div id="inbox-list"><div class="dim" style="font-size:11px">Loading...</div></div></div>
-  <div class="glass"><h3>📋 Activity</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
-</div>
+  <div class="glass"><h3>🧹 Manage</h3>
     <div style="display:flex;gap:8px">
       <button class="btn btn-danger" onclick="clearChains()">Clear chains</button>
       <button class="btn btn-acc" onclick="clearBridges()">Clear bridges</button>
     </div>
     <div id="mem-msg" style="font-size:10px;color:var(--dim);margin-top:8px"></div>
+  </div>
+  <div class="glass"><h3>👥 Sessions</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
+</div>
   </div>
 </div>
 
@@ -227,7 +228,7 @@ async function refresh(){
 refresh();
 
 function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||c.error)return;
-  const thoughts=(c.thoughts||[]).map(t=>`<div class="chain-row"><span class="mono ${t.score?'green':''}" style="font-size:10px">#${t.number}</span><span style="font-size:11px;flex:1;margin:0 8px">${t.thought.slice(0,120)}</span>${t.score?`<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">${t.score}★</span>`:''}${t.is_revision?'<span class="tag" style="background:rgba(168,85,247,.15);color:var(--purp)">rev</span>':''}${t.has_branch?'<span class="tag" style="background:rgba(250,204,21,.15);color:var(--yellow)">branch</span>':''}</div>`).join('');
+  const thoughts=(c.thoughts||[]).map(t=>`<div class="chain-row"><span class="mono ${t.score?'green':''}" style="font-size:10px">#${t.number}</span><span style="font-size:11px;flex:1;margin:0 8px">${t.thought}</span>${t.score?`<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">${t.score}★</span>`:''}${t.is_revision?'<span class="tag" style="background:rgba(168,85,247,.15);color:var(--purp)">rev</span>':''}${t.has_branch?'<span class="tag" style="background:rgba(250,204,21,.15);color:var(--yellow)">branch</span>':''}</div>`).join('');
   $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${c.chain_id}</h3><div class="dim mono" style="margin:8px 0">${c.total_thoughts} thoughts · v${c.version} · session ${c.session}</div><div style="max-height:50vh;overflow-y:auto">${thoughts||'<div class="dim">No thoughts</div>'}</div></div></div>`}).catch(()=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close">&times;</button><h3>Error</h3><p>Chain not found</p></div></div>'})}
 function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><pre style="font-size:11px;color:var(--text);white-space:pre-wrap;margin-top:12px;max-height:60vh;overflow-y:auto" id="wiki-content">Loading...</pre></div></div>`;
   fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars;else $('wiki-content').textContent='Not found'})}
