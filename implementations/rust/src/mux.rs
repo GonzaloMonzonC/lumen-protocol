@@ -7,7 +7,7 @@
 //! ## Wire format (little-endian)
 //!
 //! MUX frame payload:
-//! ```
+//! ```text
 //! [sub_command: u8][channel_id: u16 LE][payload: variable]
 //! ```
 //!
