@@ -62,7 +62,7 @@
 //! Counter is per-direction, monotonically increasing.
 
 use chacha20poly1305::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{KeyInit, OsRng},
     ChaCha20Poly1305, Nonce,
 };
 use hkdf::Hkdf;

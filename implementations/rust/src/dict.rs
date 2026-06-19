@@ -28,7 +28,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::sync::RwLock;
 
 // ── Reserved IDs ────────────────────────────────────────────────────────────
 
