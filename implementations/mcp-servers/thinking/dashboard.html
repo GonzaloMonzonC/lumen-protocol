@@ -59,9 +59,22 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 </div>
 
 <div class="chart-wrap">
-  <h3>Work Timeline</h3>
-  <div class="sub">Each bar = a work item</div>
-  <canvas id="work-chart" style="width:100%;height:120px"></canvas>
+  <h3>System Pulse</h3>
+  <div class="sub">NOW · RECENT · BLOCKED</div>
+  <div class="grid3" style="margin-top:8px">
+    <div class="glass" style="margin:0;background:rgba(34,211,238,.03);border-color:rgba(34,211,238,.1)">
+      <h3 style="color:var(--acc);font-size:11px">▶ NOW</h3>
+      <div id="pulse-now" style="font-size:10px;min-height:40px"></div>
+    </div>
+    <div class="glass" style="margin:0;background:rgba(74,222,128,.03);border-color:rgba(74,222,128,.1)">
+      <h3 style="color:var(--green);font-size:11px">● RECENT</h3>
+      <div id="pulse-recent" style="font-size:10px;min-height:40px"></div>
+    </div>
+    <div class="glass" style="margin:0;background:rgba(248,113,113,.03);border-color:rgba(248,113,113,.1)">
+      <h3 style="color:var(--red);font-size:11px">■ BLOCKED</h3>
+      <div id="pulse-blocked" style="font-size:10px;min-height:40px"></div>
+    </div>
+  </div>
 </div>
 
 <div class="grid2">
@@ -245,7 +258,7 @@ async function refresh(){
     const now=Date.now()/1000;$('presence-list').innerHTML=(d.presence&&Object.keys(d.presence).length)?Object.entries(d.presence).map(([id,p])=>{const ago=Math.round(now-p.last_seen);const active=ago<300;return`<div class="card"><span class="tag mono" style="background:${active?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)'};color:${active?'var(--green)':'var(--dim)'}">${active?'●':'○'} ${id}</span> <span class="dim">PID ${p.pid} · ${ago}s ago · ${p.tool_calls} calls</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No presence data</div>';
     const preserved=d.preserved||[];$('preserved-list').innerHTML=preserved.length?preserved.map(p=>{const prio=p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim';return`<div class="card"><span class="mono ${prio}">${(p.content||'').slice(0,150)}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';
     
-    drawChart(d.timeline||[]);drawWorkChart(d.works||[]);buildHeatmap(d.chains||[]);
+    drawChart(d.timeline||[]);pulseUpdate(d.works||[]);buildHeatmap(d.chains||[]);
     $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
   setTimeout(refresh,3000)}
@@ -282,6 +295,18 @@ function buildHeatmap(chains){
 }
 
 async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'POST'});const d=await r.json();$('mem-msg').textContent=d.cleared}catch(e){$('mem-msg').textContent='Error'}}
+
+function pulseUpdate(works){
+  const now=Date.now()/1000;
+  const fmtTime=ts=>{const s=Math.round(now-ts);return s<60?s+'s':s<3600?Math.floor(s/60)+'m':Math.floor(s/3600)+'h'};
+  const fmtDur=d=>d<60?d+'s':(d/60).toFixed(0)+'m';
+  const active=works.filter(w=>w.status!=='done'&&w.status!=='blocked').slice(0,3);
+  const done=works.filter(w=>w.status==='done').sort((a,b)=>(b.done_at||0)-(a.done_at||0)).slice(0,5);
+  const blocked=works.filter(w=>w.status==='blocked').slice(0,3);
+  $('pulse-now').innerHTML=active.length?active.map(w=>`<div style="margin-bottom:2px"><span style="color:var(--acc)">▶</span> ${(w.item||'').slice(0,30)} <span style="color:var(--dim)">${fmtDur(w.duration_seconds||0)}</span></div>`).join(''):'<div class="dim">idle</div>';
+  $('pulse-recent').innerHTML=done.length?done.map(w=>`<div style="margin-bottom:2px"><span style="color:var(--green)">●</span> ${(w.item||'').slice(0,30)} <span style="color:var(--dim)">${fmtTime(w.done_at||w.started_at)} ago</span></div>`).join(''):'<div class="dim">none</div>';
+  $('pulse-blocked').innerHTML=blocked.length?blocked.map(w=>`<div style="margin-bottom:2px"><span style="color:var(--red)">■</span> ${(w.item||'').slice(0,30)}</div>`).join(''):'<div class="dim">none</div>';
+}
 /* ── Wiki CRUD ── */
 function showEntity(name){fetch('/model?entity='+encodeURIComponent(name)).then(r=>r.json()).then(e=>{const props=Object.entries(e.properties||{}).map(([k,v])=>'<div class="chain-row"><span class="dim">'+k+'</span><span>'+v+'</span></div>').join('');$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>'+name+' <span class="tag mono" style="background:rgba(34,211,238,.15);color:var(--acc);float:right">'+e.role+'</span></h3>'+props+'<div style="font-size:11px;color:var(--dim);margin-top:8px">Deps: '+(e.deps||[]).join(', ')+'</div><div style="font-size:11px;color:var(--dim);margin-top:4px">Notes: '+(e.notes||'None')+'</div><div style="margin-top:12px"><button class="btn btn-acc" onclick="editEntity(\''+name+'\')">Edit</button> <button class="btn btn-danger" onclick="deleteEntity(\''+name+'\')">Delete</button></div></div></div>'}).catch(()=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><h3>Error</h3><p>Entity not found</p></div></div>'})}
 function deleteEntity(name){if(!confirm('Delete '+name+'?'))return;fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({_action:'delete',entity:name})}).then(r=>r.json()).then(d=>{loadWiki()}).catch(e=>alert('Delete failed'))}
