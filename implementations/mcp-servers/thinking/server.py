@@ -116,6 +116,7 @@ _next_session_num = 1
 _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
 _SAVE_INTERVAL = 10  # auto-save every N tool calls
 _save_counter = 0
+_last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []  # [{ts: timestamp, calls: total_calls}, ...]
 
@@ -160,6 +161,7 @@ def _load_state() -> bool:
         if "timeline" in state:
             _call_timeline[:] = state["timeline"]
         _loaded_from_disk = True
+        _last_state_mtime = _STATE_FILE.stat().st_mtime if _STATE_FILE.exists() else 0.0
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
         saved_at = state.get("saved_at", "unknown")
@@ -2226,6 +2228,23 @@ def _start_dashboard(port: int = 9876) -> None:
             pass  # silence HTTP logs
     
     def _build_metrics():
+        # Reload state from file if it was updated by another process (e.g. SHM server)
+        if _STATE_FILE.exists():
+            try:
+                file_mtime = _STATE_FILE.stat().st_mtime
+                if file_mtime > _last_state_mtime:
+                    with open(_STATE_FILE, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    global _sessions, _preserved, _call_timeline, _next_session_num
+                    _sessions = {sid: Session.from_dict(sd) for sid, sd in state.get("sessions", {}).items()}
+                    _next_session_num = state.get("next_session_num", 1)
+                    _preserved = state.get("preserved", [])
+                    if "timeline" in state:
+                        _call_timeline[:] = state["timeline"]
+                    _last_state_mtime = file_mtime
+            except Exception:
+                pass  # stale read is fine
+        
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
         total_decisions = sum(len(s.decisions) for s in _sessions.values())
