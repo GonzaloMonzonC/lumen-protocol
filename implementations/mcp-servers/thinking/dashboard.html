@@ -18,81 +18,78 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 .bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
 .dot{width:8px;height:8px;border-radius:50%}.live{background:var(--acc)}.off{background:#f87171}
 </style></head>
-<body x-data="dashData">
+<body x-data="$store.dash">
 <div class="bar">
-  <div class="dot" :class="connected?'live':'off'"></div>
-  <span style="font-weight:600" x-text="serverName">LUMEN</span>
-  <span class="mono dim" x-text="'v'+version"></span>
-  <span style="margin-left:auto;font-size:11px" :class="connected?'green':'red'" x-text="connected?'Live':'Offline'"></span>
+  <div class="dot" :class="$store.dash.connected?'live':'off'"></div>
+  <span style="font-weight:600" x-text="$store.dash.serverName">LUMEN</span>
+  <span class="mono dim" x-text="'v'+$store.dash.version"></span>
+  <span style="margin-left:auto;font-size:11px" :class="$store.dash.connected?'green':'red'" x-text="$store.dash.connected?'Live':'Offline'"></span>
 </div>
 
 <div class="grid4">
-  <div class="kpi"><div class="lbl">Chains</div><div class="val" x-text="t.chains">0</div></div>
-  <div class="kpi"><div class="lbl">Patterns</div><div class="val" x-text="t.patterns">0</div></div>
-  <div class="kpi"><div class="lbl">Model</div><div class="val" x-text="t.model_entities">0</div></div>
-  <div class="kpi"><div class="lbl">Calls</div><div class="val" x-text="t.tool_calls">0</div></div>
+  <div class="kpi"><div class="lbl">Chains</div><div class="val" x-text="$store.dash.t.chains">0</div></div>
+  <div class="kpi"><div class="lbl">Patterns</div><div class="val" x-text="$store.dash.t.patterns">0</div></div>
+  <div class="kpi"><div class="lbl">Model</div><div class="val" x-text="$store.dash.t.model_entities">0</div></div>
+  <div class="kpi"><div class="lbl">Calls</div><div class="val" x-text="$store.dash.t.tool_calls">0</div></div>
 </div>
 
 <div class="grid2">
   <div class="glass"><h3>Sessions</h3>
-    <template x-for="s in sessions" :key="s.id">
+    <template x-for="s in $store.dash.sessions" :key="s.id">
       <div class="card"><span class="tag cyan" x-text="s.id"></span> <span class="dim" x-text="s.chains+'c, '+s.patterns+'p'"></span></div>
     </template>
-    <div class="dim" style="font-size:11px" x-show="sessions.length===0">No sessions</div>
+    <div class="dim" style="font-size:11px" x-show="$store.dash.sessions.length===0">No sessions</div>
   </div>
   <div class="glass"><h3>Top Chains</h3>
-    <template x-for="c in topChains" :key="c.chain_id">
+    <template x-for="c in $store.dash.topChains" :key="c.chain_id">
       <div class="card"><span class="tag cyan mono" x-text="c.chain_id"></span> <span class="dim" x-text="c.thoughts+' thoughts'"></span></div>
     </template>
-    <div class="dim" style="font-size:11px" x-show="topChains.length===0">No chains</div>
+    <div class="dim" style="font-size:11px" x-show="$store.dash.topChains.length===0">No chains</div>
   </div>
 </div>
 
 <div class="glass"><h3>Preserved Contexts</h3>
-  <template x-for="p in preserved" :key="p.label||p.content">
+  <template x-for="p in $store.dash.preserved" :key="p.label||p.content">
     <div class="card">
       <span class="mono" :class="p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim'"
         x-text="(p.priority==='critical'?'[CRIT] ':p.priority==='high'?'[HIGH] ':'[MED] ')+p.content?.slice(0,120)"></span>
     </div>
   </template>
-  <div class="dim" style="font-size:11px" x-show="preserved.length===0">No contexts preserved</div>
+  <div class="dim" style="font-size:11px" x-show="$store.dash.preserved.length===0">No contexts preserved</div>
 </div>
 
-<div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" x-text="'Metrics: /metrics  |  Updated: '+lastUpdate"></div>
+<div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" x-text="'Metrics: /metrics  |  Updated: '+$store.dash.lastUpdate"></div>
 </body>
 <script>
-// Register Alpine data first, then bootstrap after Alpine is ready
+// Bootstrap: register store + fetch data
 document.addEventListener('alpine:init', () => {
-  Alpine.data('dashData', () => ({
+  Alpine.store('dash', {
     connected: false, serverName: 'LUMEN', version: '0.1', lastUpdate: '--',
     t: {chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},
     sessions: [], topChains: [], preserved: [],
-  }));
+  });
 });
 
-// Fetch after Alpine is fully initialized
 window.addEventListener('load', () => {
-  setTimeout(async function refresh() {
+  const store = Alpine.store('dash');
+  async function refresh() {
     try {
       const r = await fetch('/metrics');
       if (!r.ok) throw new Error();
       const data = await r.json();
-      const el = document.querySelector('[x-data]');
-      if (!el || !el._x_dataStack) return;
-      const d = el._x_dataStack[0];
-      d.connected = true;
-      d.serverName = data.server || 'LUMEN';
-      d.version = data.version || '0.1';
-      d.t = data.totals || d.t;
-      d.topChains = data.top_chains || [];
-      d.preserved = data.preserved || [];
-      d.sessions = Object.entries(data.sessions_detail || {}).map(([id, s]) => ({id, ...s}));
-      d.lastUpdate = new Date().toLocaleTimeString();
+      store.connected = true;
+      store.serverName = data.server || 'LUMEN';
+      store.version = data.version || '0.1';
+      store.t = data.totals || store.t;
+      store.topChains = data.top_chains || [];
+      store.preserved = data.preserved || [];
+      store.sessions = Object.entries(data.sessions_detail || {}).map(([id, s]) => ({id, ...s}));
+      store.lastUpdate = new Date().toLocaleTimeString();
     } catch (e) {
-      const el = document.querySelector('[x-data]');
-      if (el && el._x_dataStack) el._x_dataStack[0].connected = false;
+      store.connected = false;
     }
     setTimeout(refresh, 3000);
-  }, 500);
+  }
+  setTimeout(refresh, 500);
 });
 </script></html>
