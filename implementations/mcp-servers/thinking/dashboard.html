@@ -234,7 +234,7 @@ function drawWorkChart(works){
 }
 
 async function refresh(){
-  try{const r=await fetch('/metrics');if(!r.ok)throw Error();const d=await r.json();const t=d.totals||{},sc=d.scores||{};
+  try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();const t=d.totals||{},sc=d.scores||{};
     $('status-dot').className='dot live';$('status-label').className='status-text green';$('status-label').textContent='Live';
     $('server-name').textContent=d.server||'LUMEN';$('server-version').textContent='v'+(d.version||'0.1');const sd=d.sessions_detail||{};const models=[...new Set(Object.values(sd).map(s=>s.model||'unknown'))];$('model-name').textContent=models.length?'🤖 '+models.join(', '):'';
     $('kpi-thoughts').textContent=t.thoughts??0;$('kpi-thoughts-sub').textContent=(t.chains??0)+' chains';
@@ -271,7 +271,7 @@ async function refresh(){
     if(newW!==lastWorksStr){pulseUpdate(d.works||[]);lastWorksStr=newW}
     buildHeatmap(d.chains||[]);
     $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
-  }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
+  }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline: '+e.message;$('footer').textContent='Error: '+e.message}
   setTimeout(refresh,10000)}
 refresh();
 
