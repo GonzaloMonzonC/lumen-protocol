@@ -3032,7 +3032,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 "duration_seconds": (round(w["done_at"] - w["started_at"], 1) if w.get("done_at") and w.get("started_at") else round(time.time() - w["started_at"], 1) if w.get("started_at") else None),
                 "started_at": w.get("started_at"), "done_at": w.get("done_at")}
                 for sid, sess in _sessions.items() for w in sess.works][:20],
-            "wiki": [{"title": t, "chars": w["content"][:200], "author": w["author"], "updated": w["updated_at"]} for t, w in sorted(
+            "wiki": [{"title": t, "chars": w["content"][:500], "author": w["author"], "updated": w["updated_at"]} for t, w in sorted(
                 ((t, w) for sid, sess in _sessions.items() for t, w in sess.wiki.items()),
                 key=lambda x: x[1]["updated_at"], reverse=True)[:20]],
             "top_chains": chains_detail[:10],
