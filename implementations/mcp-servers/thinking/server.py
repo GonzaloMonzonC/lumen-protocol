@@ -375,7 +375,8 @@ TOOLS = [
                 "branchFromThought": {"type": "integer", "description": "Branch from this thought number to explore an alternative path", "minimum": 1},
                 "branchId": {"type": "string", "description": "Identifier for this branch (e.g. 'alternative-plan')"},
                 "needsMoreThoughts": {"type": "boolean", "description": "Set true to increase totalThoughts estimate", "default": False},
-                "chainId": {"type": "string", "description": "ID of an existing chain to continue. Omit to create a new chain."}
+                "chainId": {"type": "string", "description": "ID of an existing chain to continue. Omit to create a new chain."},
+                "verbose": {"type": "boolean", "description": "Show full recent history (default: false = compact mode, shows only last thought)", "default": False}
             },
             "required": ["thought", "nextThoughtNeeded", "totalThoughts"]
         }
@@ -821,11 +822,17 @@ def tool_sequential_thinking(args: dict) -> dict:
     else:
         summary_lines.append(f"   🏁 Chain complete ({len(chain['thoughts'])} thoughts)")
 
-    # Show recent thoughts for context
-    summary_lines.append(f"\n   Recent thoughts:")
-    for t in chain["thoughts"][-5:]:
-        marker = "🔄" if t.get("isRevision") else "🌿" if t.get("branchFromThought") else "  "
-        summary_lines.append(f"   {marker} #{t['number']}: {t['thought'][:80]}...")
+    # Show recent thoughts for context — compact mode (default)
+    verbose = args.get("verbose", False)
+    if verbose and chain["thoughts"]:
+        summary_lines.append(f"\n   Recent thoughts:")
+        for t in chain["thoughts"][-5:]:
+            marker = "🔄" if t.get("isRevision") else "🌿" if t.get("branchFromThought") else "  "
+            summary_lines.append(f"   {marker} #{t['number']}: {t['thought'][:80]}...")
+    elif chain["thoughts"]:
+        # Compact: just show last thought
+        last = chain["thoughts"][-1]
+        summary_lines.append(f"   Last: #{last['number']}: {last['thought'][:100]}")
 
     return {
         "content": [{"type": "text", "text": "\n".join(summary_lines)}],
