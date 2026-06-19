@@ -23,6 +23,10 @@ import sys, os, json, re, time, urllib.request, urllib.error, urllib.parse, sock
 from pathlib import Path
 from typing import Any
 
+# ── Windows: force UTF-8 on stdout so web content doesn't break MCP pipes ──
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # ═══════════════════════════════════════════════════════════════════════
 # Cache (multi-agent friendly)
 # ═══════════════════════════════════════════════════════════════════════

@@ -21,6 +21,10 @@ import json
 
 import shared_tools
 
+# ── Windows: force UTF-8 on stdout so Unicode output works ──
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # ── LUMEN native imports ──
 from lumen import (
     build_frame, build_size, parse_frame, compress_value, decompress_value,

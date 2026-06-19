@@ -3,13 +3,13 @@
 //! ## Wire format (little-endian)
 //!
 //! **STREAM_INIT** (frame type 0x06):
-//! ```
+//! ```text
 //! [stream_id: u32 LE][max_tokens: u32 LE][temperature: f32 LE]
 //! [model_len: u8][model: UTF-8]
 //! ```
 //!
 //! **STREAM_DATA** (frame type 0x04):
-//! ```
+//! ```text
 //! [stream_id: u32 LE][token_seq: u32 LE][token_type: u8]
 //! [token_data: variable UTF-8 or raw bytes]
 //! ```
