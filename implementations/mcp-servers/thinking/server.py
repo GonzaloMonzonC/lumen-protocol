@@ -117,16 +117,25 @@ _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
 _SAVE_INTERVAL = 10  # auto-save every N tool calls
 _save_counter = 0
 _loaded_from_disk = False
+_call_timeline: list[dict] = []  # [{ts: timestamp, calls: total_calls}, ...]
 
 def _save_state() -> None:
     """Persist all state to disk atomically."""
     global _save_counter
     _save_counter = 0
     try:
+        # Record timeline snapshot
+        total_calls = sum(s.tool_calls for s in _sessions.values())
+        _call_timeline.append({"ts": time.time(), "calls": total_calls})
+        # Keep last 200 snapshots (~30min at 10s intervals)
+        if len(_call_timeline) > 200:
+            _call_timeline[:] = _call_timeline[-200:]
+        
         state = {
             "sessions": {sid: s.to_dict() for sid, s in _sessions.items()},
             "next_session_num": _next_session_num,
             "preserved": _preserved,
+            "timeline": _call_timeline,
             "saved_at": time.time(),
         }
         tmp = str(_STATE_FILE) + ".tmp"
@@ -148,6 +157,8 @@ def _load_state() -> bool:
         _sessions = {sid: Session.from_dict(sd) for sid, sd in state.get("sessions", {}).items()}
         _next_session_num = state.get("next_session_num", 1)
         _preserved = state.get("preserved", [])
+        if "timeline" in state:
+            _call_timeline[:] = state["timeline"]
         _loaded_from_disk = True
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
@@ -2271,6 +2282,7 @@ def _start_dashboard(port: int = 9876) -> None:
             "sessions_detail": sessions_data,
             "top_chains": top_chains[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
+            "timeline": _call_timeline[-60:],  # last 60 snapshots
         }
     
     server = _http.HTTPServer(("127.0.0.1", port), MetricsHandler)
