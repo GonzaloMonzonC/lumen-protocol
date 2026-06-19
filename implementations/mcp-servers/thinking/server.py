@@ -2562,6 +2562,47 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path.startswith("/chain"):
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                cid = qs.get("chain_id", [None])[0]
+                if not cid:
+                    self.send_response(400); self.end_headers()
+                    self.wfile.write(b'{"error":"chain_id required"}'); return
+                found = None
+                for sid, sess in _sessions.items():
+                    if cid in sess.chains:
+                        chain = sess.chains[cid]
+                        thoughts = chain.get("thoughts", [])
+                        found = {
+                            "chain_id": cid,
+                            "session": sid,
+                            "version": chain.get("version", 1),
+                            "created_at": chain.get("created_at", 0),
+                            "updated_at": chain.get("updated_at", 0),
+                            "total_thoughts": len(thoughts),
+                            "plan": chain.get("plan"),
+                            "clusters": chain.get("clusters", []),
+                            "thoughts": [{
+                                "number": t["number"],
+                                "thought": t["thought"][:300],
+                                "score": t.get("score"),
+                                "is_revision": t.get("isRevision", False),
+                                "has_branch": bool(t.get("branchId")),
+                                "revises": t.get("revisesThought"),
+                            } for t in thoughts]
+                        }
+                        break
+                if found:
+                    body = json.dumps(found, ensure_ascii=False, indent=2).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404); self.end_headers()
+                    self.wfile.write(json.dumps({"error": "chain not found"}).encode())
             elif self.path == "/benchmarks":
                 # Phase F scorecard: compute real metrics from live data
                 total_thoughts = sum(len(c.get("thoughts",[])) for s in _sessions.values() for c in s.chains.values())
