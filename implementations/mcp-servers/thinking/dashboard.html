@@ -45,10 +45,10 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 </div>
 
 <div class="grid4">
-  <div class="kpi"><div class="lbl">Thoughts</div><div class="val" id="kpi-thoughts">0</div><div class="sub" id="kpi-thoughts-sub"></div></div>
-  <div class="kpi"><div class="lbl">Avg Score</div><div class="val" id="kpi-score">--</div><div class="sub" id="kpi-score-sub"></div></div>
-  <div class="kpi"><div class="lbl">Contradictions</div><div class="val" id="kpi-contra">0</div><div class="sub" id="kpi-contra-sub"></div></div>
-  <div class="kpi"><div class="lbl">Tool Calls</div><div class="val" id="kpi-calls">0</div><div class="sub" id="kpi-calls-sub"></div></div>
+  <div class="kpi" style="cursor:pointer" onclick="showKPI('thoughts')"><div class="lbl">Thoughts ↗</div><div class="val" id="kpi-thoughts">0</div><div class="sub" id="kpi-thoughts-sub"></div></div>
+  <div class="kpi" style="cursor:pointer" onclick="showKPI('score')"><div class="lbl">Avg Score ↗</div><div class="val" id="kpi-score">--</div><div class="sub" id="kpi-score-sub"></div></div>
+  <div class="kpi" style="cursor:pointer" onclick="showKPI('contra')"><div class="lbl">Contradictions ↗</div><div class="val" id="kpi-contra">0</div><div class="sub" id="kpi-contra-sub"></div></div>
+  <div class="kpi" style="cursor:pointer" onclick="showKPI('calls')"><div class="lbl">Tool Calls ↗</div><div class="val" id="kpi-calls">0</div><div class="sub" id="kpi-calls-sub"></div></div>
 </div>
 
 <div class="chart-wrap">
@@ -74,6 +74,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 </div>
 <div class="grid3">
   <div class="glass"><h3>📊 Clusters</h3><div id="clusters-list"><div class="dim" style="font-size:11px">No clusters</div></div></div>
+  <div class="glass"><h3>📊 Heatmap</h3><div id="heatmap-table" style="font-size:10px;overflow-x:auto"></div></div>
   <div class="glass"><h3>💭 Breakdown</h3>
     <div class="chain-row"><span class="dim">Total</span><span id="tb-total">0</span></div>
     <div class="chain-row"><span class="dim">Chains</span><span id="tb-chains">0</span></div>
@@ -219,7 +220,7 @@ async function refresh(){
     const now=Date.now()/1000;$('presence-list').innerHTML=(d.presence&&Object.keys(d.presence).length)?Object.entries(d.presence).map(([id,p])=>{const ago=Math.round(now-p.last_seen);const active=ago<300;return`<div class="card"><span class="tag mono" style="background:${active?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)'};color:${active?'var(--green)':'var(--dim)'}">${active?'●':'○'} ${id}</span> <span class="dim">PID ${p.pid} · ${ago}s ago · ${p.tool_calls} calls</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No presence data</div>';
     const preserved=d.preserved||[];$('preserved-list').innerHTML=preserved.length?preserved.map(p=>{const prio=p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim';return`<div class="card"><span class="mono ${prio}">${(p.content||'').slice(0,150)}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';
     
-    drawChart(d.timeline||[]);drawWorkChart(d.works||[]);
+    drawChart(d.timeline||[]);drawWorkChart(d.works||[]);buildHeatmap(d.chains||[]);
     $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
   setTimeout(refresh,3000)}
@@ -231,6 +232,28 @@ function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r
 function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><div class="dim mono" style="margin:8px 0" id="wiki-content">Loading...</div></div></div>`;
   fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars})}
 async function clearChains(){try{const r=await fetch('/clear-chains',{method:'POST',body:'{}'});const d=await r.json();$('mem-msg').textContent='Cleared '+d.cleared+' chains'}catch(e){$('mem-msg').textContent='Error'}}
+function showKPI(type){
+  fetch('/metrics').then(r=>r.json()).then(d=>{
+    const t=d.totals||{},sc=d.scores||{},ct=d.contradictions||{};
+    let title,body;
+    if(type==='thoughts'){title='Thoughts';body=`<div class="chain-row"><span class="dim">Total</span><span>${t.thoughts||0}</span></div><div class="chain-row"><span class="dim">Chains</span><span>${t.chains||0}</span></div><div class="chain-row"><span class="dim">Branches</span><span>${t.branches||0}</span></div><div class="chain-row"><span class="dim">Revisions</span><span>${t.revisions||0}</span></div><div class="chain-row"><span class="dim">Rated</span><span>${sc.total_rated||0} / ${t.thoughts||0}</span></div>`}
+    else if(type==='score'){title='Score Distribution';body=`<div class="chain-row"><span class="dim">Average</span><span class="cyan mono">${sc.avg||'--'}</span></div><div class="chain-row"><span class="dim">Highest</span><span class="yellow mono">${sc.max||'--'}</span></div><div class="chain-row"><span class="dim">Lowest</span><span class="dim mono">${sc.min||'--'}</span></div><div class="chain-row"><span class="dim">Unrated</span><span>${sc.unrated||0}</span></div>`}
+    else if(type==='contra'){title='Contradictions';body=`<div class="chain-row"><span class="dim">Found</span><span class="red">${ct.found||0}</span></div><div class="chain-row"><span class="dim">Chains affected</span><span>${ct.chains_affected||0}</span></div>`}
+    else if(type==='calls'){title='Tool Calls';body=`<div class="chain-row"><span class="dim">Total</span><span>${t.tool_calls||0}</span></div><div class="chain-row"><span class="dim">Sessions</span><span>${d.sessions||0}</span></div><div class="chain-row"><span class="dim">Uptime</span><span>${((d.uptime_seconds||0)/60).toFixed(1)} min</span></div>`;}
+    $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><div style="margin-top:12px">${body}</div></div></div>`;
+  });
+}
+
+function buildHeatmap(chains){
+  const months={};chains.forEach(c=>{if(!c.created_at)return;const d=new Date(c.created_at*1000);const k=d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0');if(!months[k])months[k]={};const sid=c.session||'?';months[k][sid]=(months[k][sid]||0)+c.thoughts});
+  const sessions=[...new Set(chains.map(c=>c.session).filter(Boolean))];
+  const mkeys=Object.keys(months).sort();
+  if(!mkeys.length){$('heatmap-table').innerHTML='<div class="dim" style="font-size:11px">No data</div>';return}
+  let h='<table style="width:100%;border-collapse:collapse"><tr><th style="padding:4px;text-align:left;color:var(--dim)">Session</th>'+mkeys.map(m=>`<th style="padding:4px;color:var(--dim)">${m}</th>`).join('')+'</tr>';
+  sessions.forEach(sid=>{h+='<tr><td class="dim mono" style="padding:4px">'+sid.slice(0,15)+'</td>'+mkeys.map(m=>{const v=months[m][sid]||0;const alpha=v?Math.min(1,0.05+v*0.05):0.02;return`<td style="padding:4px;text-align:center;background:rgba(34,211,238,${alpha});border-radius:4px">${v||'·'}</td>`}).join('')+'</tr>'});
+  h+='</table>';$('heatmap-table').innerHTML=h;
+}
+
 async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'POST'});const d=await r.json();$('mem-msg').textContent=d.cleared}catch(e){$('mem-msg').textContent='Error'}}
 /* ── Wiki CRUD ── */
 function showEntity(name){fetch('/model?entity='+encodeURIComponent(name)).then(r=>r.json()).then(e=>{const props=Object.entries(e.properties||{}).map(([k,v])=>'<div class="chain-row"><span class="dim">'+k+'</span><span>'+v+'</span></div>').join('');$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>'+name+' <span class="tag mono" style="background:rgba(34,211,238,.15);color:var(--acc);float:right">'+e.role+'</span></h3>'+props+'<div style="font-size:11px;color:var(--dim);margin-top:8px">Deps: '+(e.deps||[]).join(', ')+'</div><div style="font-size:11px;color:var(--dim);margin-top:4px">Notes: '+(e.notes||'None')+'</div><div style="margin-top:12px"><button class="btn btn-acc" onclick="editEntity(\''+name+'\')">Edit</button> <button class="btn btn-danger" onclick="deleteEntity(\''+name+'\')">Delete</button></div></div></div>'}).catch(()=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><h3>Error</h3><p>Entity not found</p></div></div>'})}
