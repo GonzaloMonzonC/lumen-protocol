@@ -2404,6 +2404,12 @@ def handle_message(msg: dict) -> None:
         params = msg.get("params", {})
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
+        # Track which LLM model is executing this tool
+        model = tool_args.get("_model", "")
+        if model:
+            sess = _get_session(tool_args.get("session_id"))
+            if sess and sess.model_name != model:
+                sess.model_name = model
         handler = HANDLERS.get(tool_name)
         if handler:
             try:
