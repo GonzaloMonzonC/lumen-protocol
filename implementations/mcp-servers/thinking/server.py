@@ -193,11 +193,25 @@ def _new_chain_dict(cid: str) -> dict:
     }
 
 def _prune_old(session: Session, n: int = 10) -> None:
-    """Keep only the N most recent chains in a session."""
-    if len(session.chains) > n:
-        oldest = sorted(session.chains.keys(), key=lambda c: session.chains[c]["updated_at"])
-        for cid in oldest[:-n]:
-            del session.chains[cid]
+    """Keep only the N most recently updated chains. Never prune named chains (custom IDs)."""
+    if len(session.chains) <= n:
+        return
+    # Named chains: custom IDs (not matching chain_N_* auto-generated pattern)
+    import re as _re
+    auto_pattern = _re.compile(r'^chain_\d+_\d+$')
+    named = {cid: c for cid, c in session.chains.items() if not auto_pattern.match(cid)}
+    auto = {cid: c for cid, c in session.chains.items() if auto_pattern.match(cid)}
+    # If we can keep all named + some auto, do that
+    named_count = len(named)
+    if named_count >= n:
+        # Too many named chains — keep newest N named, drop all auto
+        keep_named = dict(sorted(named.items(), key=lambda kv: kv[1]["updated_at"], reverse=True)[:n])
+        session.chains = keep_named
+    else:
+        # Keep all named + fill remaining slots with newest auto
+        slots_left = n - named_count
+        keep_auto = dict(sorted(auto.items(), key=lambda kv: kv[1]["updated_at"], reverse=True)[:slots_left])
+        session.chains = {**named, **keep_auto}
 
 # Legacy compatibility: alias globals to default session properties
 def _chains() -> dict: return _get_session().chains
@@ -1645,7 +1659,8 @@ def tool_context_check(args: dict) -> dict:
     for p in reversed(_preserved):
         if p["priority"] in ("critical", "high") and shown < max_items:
             icon = {"critical": "🔴", "high": "🟡"}.get(p["priority"], "⚪")
-            lines.append(f"   {icon} [{p['category']}] {p['content'][:120]}...")
+            label_str = f" [{p['label']}]" if p.get("label") else ""
+            lines.append(f"   {icon}{label_str} [{p['category']}] {p['content'][:120]}...")
             shown += 1
         if shown >= 10:
             break
@@ -1992,7 +2007,7 @@ def tool_decision_log(args: dict) -> dict:
     if category not in ("architecture", "tooling", "dependency", "api", "performance", "security", "other"):
         category = "other"
     decision = {
-        "id": did, "decision": args["decision"], "rationale": args["rationale"],
+        "id": did, "decision": args.get("decision", ""), "rationale": args.get("rationale", ""),
         "alternatives": args.get("alternatives", []), "context": args.get("context", ""),
         "category": category,
         "revisit_trigger": args.get("revisit_trigger", ""), "recorded_at": time.time(),
