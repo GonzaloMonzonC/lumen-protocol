@@ -139,11 +139,11 @@ def _save_state() -> None:
         hour_key = int(now // 3600)  # bucket by hour
         
         # Find or create this hour's bucket
-        if _call_timeline and _call_timeline[-1].get("hour") == hour_key:
+        if _call_timeline and _call_timeline and isinstance(_call_timeline[-1], dict) and _call_timeline[-1].get("hour") == hour_key:
             _call_timeline[-1]["calls"] = total_calls
             _call_timeline[-1]["ts"] = now
         else:
-            _call_timeline.append({"hour": hour_key, "ts": now, "calls": total_calls, "delta": total_calls - (_call_timeline[-1]["calls"] if _call_timeline else 0)})
+            _call_timeline.append({"hour": hour_key, "ts": now, "calls": total_calls, "delta": total_calls - (_call_timeline[-1].get("calls", 0) if _call_timeline else 0)})
         
         # Keep last 48h (48 buckets)
         cutoff_hour = hour_key - 48
@@ -2565,7 +2565,12 @@ def _start_dashboard(port: int = 9876) -> None:
             "bridges": bridges[:10],
             "plans": all_plans[:10],
             "clusters": all_clusters[:10],
-            "works": works_detail[:20],
+            "works": [{"id": w["id"], "item": w["item"], "status": w["status"],
+                "category": w.get("category", "other"), "session": sid,
+                "duration_seconds": (round(w["done_at"] - w["started_at"], 1) if w.get("done_at") and w.get("started_at") else round(time.time() - w["started_at"], 1) if w.get("started_at") else None),
+                "started_at": w.get("started_at"), "done_at": w.get("done_at")}
+                for sid, sess in _sessions.items() for w in sess.works][:20],
+            "old_works": works_detail[:20],
             "wiki": [{"title": t, "chars": w["content"][:200], "author": w["author"], "updated": w["updated_at"]} for t, w in sorted(
                 ((t, w) for sid, sess in _sessions.items() for t, w in sess.wiki.items()),
                 key=lambda x: x[1]["updated_at"], reverse=True)[:20]],
