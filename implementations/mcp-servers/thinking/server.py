@@ -853,6 +853,7 @@ def tool_sequential_thinking(args: dict) -> dict:
             has_numbers = bool(__import__('re').search(r'\d+', thought_text))
             score = round((min(len(thought_text)/200,1.0)*10 + (10.0 if has_action else 3.0) + (10.0 if has_numbers else 5.0))/3, 1)
             new_thought["score"] = score
+            summary_lines.append(f"   🤖 Auto-scored: {score}/10")
         except:
             pass  # Never let auto-eval break the main flow
 
