@@ -18,7 +18,7 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 .bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
 .dot{width:8px;height:8px;border-radius:50%}.live{background:var(--acc)}.off{background:#f87171}
 </style></head>
-<body x-data="{connected:false,serverName:'LUMEN',version:'0.1',lastUpdate:'--',t:{chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},sessions:[],topChains:[],preserved:[],async init(){await fetchData();setInterval(()=>fetchData(),3000);async function fetchData(){try{const r=await fetch('/metrics');if(!r.ok)throw new Error();const d=await r.json();connected=true;serverName=d.server||'LUMEN';version=d.version||'0.1';t=d.totals||t;topChains=d.top_chains||[];preserved=d.preserved||[];sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}));lastUpdate=new Date().toLocaleTimeString()}catch(e){connected=false}}}}" x-init="init()">
+<body x-data="{connected:false,serverName:'LUMEN',version:'0.1',lastUpdate:'--',t:{chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},sessions:[],topChains:[],preserved:[]}">
 <div class="bar">
   <div class="dot" :class="connected?'live':'off'"></div>
   <span style="font-weight:600" x-text="serverName">LUMEN</span>
@@ -36,7 +36,7 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 <div class="grid2">
   <div class="glass"><h3>Sessions</h3>
     <template x-for="s in sessions" :key="s.id">
-      <div class="card"><span class="tag cyan" x-text="s.id"></span> <span class="dim" x-text="s.chains+'c, '+s.patterns+'p, '+s.decisions+'d'"></span></div>
+      <div class="card"><span class="tag cyan" x-text="s.id"></span> <span class="dim" x-text="s.chains+'c, '+s.patterns+'p'"></span></div>
     </template>
     <div class="dim" style="font-size:11px" x-show="sessions.length===0">No sessions</div>
   </div>
@@ -59,4 +59,29 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 </div>
 
 <div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" x-text="'Metrics: /metrics  |  Updated: '+lastUpdate"></div>
-</body></html>
+</body>
+<script>
+// Fetch metrics and update Alpine data
+async function refreshDash() {
+  const el = document.querySelector('[x-data]');
+  if (!el || !el._x_dataStack) return;
+  const d = el._x_dataStack[0];
+  try {
+    const r = await fetch('/metrics');
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    d.connected = true;
+    d.serverName = data.server || 'LUMEN';
+    d.version = data.version || '0.1';
+    d.t = data.totals || d.t;
+    d.topChains = data.top_chains || [];
+    d.preserved = data.preserved || [];
+    d.sessions = Object.entries(data.sessions_detail || {}).map(([id, s]) => ({id, ...s}));
+    d.lastUpdate = new Date().toLocaleTimeString();
+  } catch (e) {
+    d.connected = false;
+  }
+}
+setTimeout(refreshDash, 500);
+setInterval(refreshDash, 3000);
+</script></html>
