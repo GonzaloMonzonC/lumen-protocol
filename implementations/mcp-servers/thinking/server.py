@@ -65,6 +65,7 @@ class Session:
         self.next_pattern_id = 1
         self.decisions: list[dict] = []
         self.next_decision_id = 1
+        self.bridges: list[dict] = []  # thought_bridge results
         self.tool_calls = 0
         self.created_at = time.time()
         self.updated_at = time.time()
@@ -82,6 +83,7 @@ class Session:
             "next_pattern_id": self.next_pattern_id,
             "decisions": self.decisions,
             "next_decision_id": self.next_decision_id,
+            "bridges": self.bridges,
             "tool_calls": self.tool_calls,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -303,9 +305,9 @@ def _cosine_similarity(a: dict[str, float], b: dict[str, float]) -> float:
 
 def _sentiment_heuristic(text: str) -> float:
     """Simple lexicon-free sentiment heuristic (-1 to +1)."""
-    positive = {"mejor", "bueno", "excelente", "correcto", "funciona", "solución", "éxito",
+    positive = {"mejor", "bueno", "excelente", "correcto", "funciona", "solución", "éxito", "good", "great", "excellent", "correct", "works", "perfect", "perfectly", "reliable", "robust", "success", "successful", "optimal", "safe", "secure", "stable", "zero", "never",
                 "eficiente", "óptimo", "recomiendo", "viable", "seguro", "robusto"}
-    negative = {"error", "fallo", "falla", "incorrecto", "problema", "rompe", "riesgo",
+    negative = {"error", "errors", "fail", "fails", "failure", "failing", "bug", "bugs", "broken", "crash", "crashes", "down", "downtime", "outage", "fallo", "falla", "incorrecto", "problema", "rompe", "riesgo",
                 "lento", "peligroso", "fracaso", "inviable", "débil", "frágil", "no"}
     tokens = _tokenize(text)
     pos = sum(1 for t in tokens if t in positive)
@@ -848,7 +850,7 @@ def tool_thought_contradiction(args: dict) -> dict:
         t_sentiment = _sentiment_heuristic(t["thought"])
 
         # Contradiction: similar topic (sim > 0.15) BUT opposite sentiment
-        if sim > 0.15 and abs(query_sentiment - t_sentiment) > 0.3:
+        if sim > 0.08 and abs(query_sentiment - t_sentiment) > 0.15:
             sign_q = "positive" if query_sentiment > 0 else "negative"
             sign_t = "positive" if t_sentiment > 0 else "negative"
             contradictions.append({
@@ -2243,7 +2245,7 @@ def _start_dashboard(port: int = 9876) -> None:
                         _call_timeline[:] = state["timeline"]
                     _last_state_mtime = file_mtime
             except Exception:
-                pass  # stale read is fine
+                pass
         
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
@@ -2269,19 +2271,55 @@ def _start_dashboard(port: int = 9876) -> None:
                 "updated_at": sess.updated_at,
             }
         
-        # Top chains by thought count
-        top_chains = []
+        # Rich chain detail: scores, thoughts, branches, revisions, previews
+        chains_detail = []
+        all_scores = []
+        total_thoughts = 0
+        total_branches = 0
+        total_revisions = 0
+        
         for sid, sess in _sessions.items():
             for cid, chain in sess.chains.items():
-                top_chains.append({
+                thoughts = chain.get("thoughts", [])
+                thought_count = len(thoughts)
+                total_thoughts += thought_count
+                
+                scores = [t.get("score") for t in thoughts if t.get("score") is not None]
+                all_scores.extend(scores)
+                
+                branches = [t for t in thoughts if t.get("branchId")]
+                revisions = [t for t in thoughts if t.get("isRevision")]
+                total_branches += len(branches)
+                total_revisions += len(revisions)
+                
+                chains_detail.append({
                     "chain_id": cid,
                     "session": sid,
-                    "thoughts": len(chain.get("thoughts", [])),
+                    "thoughts": thought_count,
+                    "score_avg": round(sum(scores) / len(scores), 1) if scores else None,
+                    "score_max": max(scores) if scores else None,
+                    "branches": len(branches),
+                    "revisions": len(revisions),
                     "version": chain.get("version", 1),
+                    "contradictions": chain.get("contradictions", 0),
                     "created_at": chain.get("created_at", 0),
                     "updated_at": chain.get("updated_at", 0),
+                    "preview": thoughts[0].get("thought", "")[:120] if thoughts else "",
                 })
-        top_chains.sort(key=lambda c: c["thoughts"], reverse=True)
+        
+        chains_detail.sort(key=lambda c: c["thoughts"], reverse=True)
+        
+        # Score stats
+        score_avg = round(sum(all_scores) / len(all_scores), 1) if all_scores else None
+        score_max = max(all_scores) if all_scores else None
+        score_min = min(all_scores) if all_scores else None
+        
+        # Bridge data
+        bridges = []
+        for sid, sess in _sessions.items():
+            if hasattr(sess, 'bridges'):
+                bridges.extend(sess.bridges)
+        bridges.sort(key=lambda b: b.get("score", 0), reverse=True)
         
         return {
             "server": "lumen-thinking",
@@ -2290,6 +2328,7 @@ def _start_dashboard(port: int = 9876) -> None:
             "sessions": len(_sessions),
             "totals": {
                 "chains": total_chains,
+                "thoughts": total_thoughts,
                 "patterns": total_patterns,
                 "decisions": total_decisions,
                 "model_entities": total_model,
@@ -2297,11 +2336,22 @@ def _start_dashboard(port: int = 9876) -> None:
                 "works": total_works,
                 "tool_calls": total_tool_calls,
                 "preserved_contexts": len(_preserved),
+                "branches": total_branches,
+                "revisions": total_revisions,
+            },
+            "scores": {
+                "avg": score_avg,
+                "max": score_max,
+                "min": score_min,
+                "total_rated": len(all_scores),
+                "unrated": total_thoughts - len(all_scores),
             },
             "sessions_detail": sessions_data,
-            "top_chains": top_chains[:10],
+            "chains": chains_detail[:20],
+            "bridges": bridges[:10],
+            "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
-            "timeline": _call_timeline[-60:],  # last 60 snapshots
+            "timeline": _call_timeline[-60:],
         }
     
     server = _http.HTTPServer(("127.0.0.1", port), MetricsHandler)
