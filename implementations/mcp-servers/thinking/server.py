@@ -66,6 +66,7 @@ class Session:
         self.decisions: list[dict] = []
         self.next_decision_id = 1
         self.bridges: list[dict] = []  # thought_bridge results
+        self.wiki: dict[str, dict] = {}  # named wiki pages: title → {content, created_at, updated_at, author}
         self.tool_calls = 0
         self.created_at = time.time()
         self.updated_at = time.time()
@@ -84,6 +85,7 @@ class Session:
             "decisions": self.decisions,
             "next_decision_id": self.next_decision_id,
             "bridges": self.bridges,
+            "wiki": self.wiki,
             "tool_calls": self.tool_calls,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -103,6 +105,7 @@ class Session:
         s.decisions = d.get("decisions", [])
         s.next_decision_id = d.get("next_decision_id", 1)
         s.bridges = d.get("bridges", [])
+        s.wiki = d.get("wiki", {})
         s.tool_calls = d.get("tool_calls", 0)
         s.created_at = d.get("created_at", time.time())
         s.updated_at = d.get("updated_at", time.time())
@@ -2124,6 +2127,54 @@ def tool_decision_list(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Wiki — named persistent knowledge pages
+# ═══════════════════════════════════════════════════════════════════════
+
+def tool_wiki_create(args: dict) -> dict:
+    session = _get_session(args.get("session_id"))
+    title = args.get("title", "").strip()
+    content = args.get("content", "")
+    author = args.get("author", "agent")
+    if not title: return {"content": [{"type": "text", "text": "Error: 'title' required."}]}
+    existing = title in session.wiki
+    session.wiki[title] = {"content": content, "author": author,
+        "created_at": session.wiki[title]["created_at"] if existing else time.time(),
+        "updated_at": time.time()}
+    return {"content": [{"type": "text", "text": f"{'Updated' if existing else 'Created'} wiki: {title} ({len(content)} chars)"}]}
+
+def tool_wiki_read(args: dict) -> dict:
+    session = _get_session(args.get("session_id"))
+    title = args.get("title", "").strip()
+    if not title: return {"content": [{"type": "text", "text": "Error: 'title' required."}]}
+    if title not in session.wiki:
+        similar = [t for t in session.wiki if title.lower() in t.lower()][:3]
+        return {"content": [{"type": "text", "text": f"Page '{title}' not found." + (f" Similar: {', '.join(similar)}" if similar else "")}]}
+    w = session.wiki[title]
+    return {"content": [{"type": "text", "text": f"{title}\n{w['author']} | {time.strftime('%Y-%m-%d %H:%M', time.localtime(w['updated_at']))}\n\n{w['content']}"}]}
+
+def tool_wiki_update(args: dict) -> dict:
+    session = _get_session(args.get("session_id"))
+    title = args.get("title", "").strip()
+    content = args.get("content", "")
+    mode = args.get("mode", "replace")
+    author = args.get("author", "agent")
+    if not title: return {"content": [{"type": "text", "text": "Error: 'title' required."}]}
+    if title not in session.wiki: return {"content": [{"type": "text", "text": f"Page '{title}' not found. Use wiki_create first."}]}
+    if mode == "append": session.wiki[title]["content"] += "\n" + content
+    else: session.wiki[title]["content"] = content
+    session.wiki[title]["updated_at"] = time.time(); session.wiki[title]["author"] = author
+    return {"content": [{"type": "text", "text": f"Updated wiki: {title} ({len(session.wiki[title]['content'])} chars)"}]}
+
+def tool_wiki_list(args: dict) -> dict:
+    session = _get_session(args.get("session_id"))
+    if not session.wiki: return {"content": [{"type": "text", "text": "No wiki pages yet."}]}
+    lines = [f"Wiki ({len(session.wiki)} pages):"]
+    for title, w in sorted(session.wiki.items(), key=lambda x: x[1]["updated_at"], reverse=True):
+        lines.append(f"  {title} — {len(w['content'])} chars, {w['author']} ({time.strftime('%m/%d %H:%M', time.localtime(w['updated_at']))})")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -2154,6 +2205,10 @@ HANDLERS = {
     "pattern_match": tool_pattern_match,
     "decision_log": tool_decision_log,
     "decision_list": tool_decision_list,
+    "wiki_create": tool_wiki_create,
+    "wiki_read": tool_wiki_read,
+    "wiki_update": tool_wiki_update,
+    "wiki_list": tool_wiki_list,
 }
 
 
@@ -2467,6 +2522,9 @@ def _start_dashboard(port: int = 9876) -> None:
             "plans": all_plans[:10],
             "clusters": all_clusters[:10],
             "works": works_detail[:20],
+            "wiki": [{"title": t, "chars": w["content"][:200], "author": w["author"], "updated": w["updated_at"]} for t, w in sorted(
+                ((t, w) for sid, sess in _sessions.items() for t, w in sess.wiki.items()),
+                key=lambda x: x[1]["updated_at"], reverse=True)[:20]],
             "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
             "timeline": _call_timeline[-60:],

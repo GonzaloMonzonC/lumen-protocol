@@ -63,6 +63,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 
 <div class="grid3">
   <div class="glass"><h3>📊 Clusters</h3><div id="clusters-list"><div class="dim" style="font-size:11px">No clusters</div></div></div>
+  <div class="glass"><h3>📚 Wiki</h3><div id="wiki-list"><div class="dim" style="font-size:11px">No wiki pages</div></div></div>
   <div class="glass"><h3>💭 Breakdown</h3>
     <div class="chain-row"><span class="dim">Total</span><span id="tb-total">0</span></div>
     <div class="chain-row"><span class="dim">Chains</span><span id="tb-chains">0</span></div>
@@ -161,7 +162,9 @@ async function refresh(){
     
     $('plans-list').innerHTML=(d.plans||[]).length?d.plans.map(p=>`<div class="card"><span class="tag cyan mono">${p.chain_id.slice(0,20)}</span> <span class="dim">${p.steps} steps</span><div class="dim" style="font-size:10px;margin-top:4px">${p.preview||''}</div></div>`).join(''):'<div class="dim" style="font-size:11px">No plans</div>';
     
-    $('clusters-list').innerHTML=(d.clusters||[]).length?d.clusters.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${c.label}</span> <span class="dim">${c.count}t · ${c.chain_id.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No clusters</div>';
+    $('wiki-list').innerHTML=(d.wiki||[]).length?d.wiki.map(w=>`<div class="card" style="cursor:pointer" onclick="showWiki('${w.title.replace(/'/g,"\'")}')"><span class="tag cyan mono">${w.title.slice(0,30)}</span> <span class="dim">${w.chars} · ${w.author}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No wiki pages</div>';
+
+$('clusters-list').innerHTML=(d.clusters||[]).length?d.clusters.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${c.label}</span> <span class="dim">${c.count}t · ${c.chain_id.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No clusters</div>';
     
     $('tb-total').textContent=t.thoughts??0;$('tb-chains').textContent=t.chains??0;
     $('tb-avg').textContent=t.chains?((t.thoughts/t.chains).toFixed(1)):'--';
@@ -189,5 +192,8 @@ function showChain(cid){fetch('/metrics').then(r=>r.json()).then(d=>{const c=(d.
 
 async function clearChains(){try{const r=await fetch('/clear-chains',{method:'POST',body:'{}'});const d=await r.json();$('mem-msg').textContent='Cleared '+d.cleared+' chains'}catch(e){$('mem-msg').textContent='Error'}}
 async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'POST'});const d=await r.json();$('mem-msg').textContent=d.cleared}catch(e){$('mem-msg').textContent='Error'}}
+function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><div class="dim mono" style="margin:8px 0" id="wiki-content">Loading...</div></div></div>`;
+  fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars})}
+
 window.addEventListener('resize',()=>drawChart(lastTimeline));
 </script></body></html>
