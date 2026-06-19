@@ -180,6 +180,14 @@ def _load_state() -> bool:
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
         saved_at = state.get("saved_at", "unknown")
+        # Recompute global assumption ID counter to avoid collisions after restore
+        max_id = 0
+        for s in _sessions.values():
+            for a in s.assumptions:
+                if a.get("id", 0) > max_id:
+                    max_id = a["id"]
+        global _next_assumption_id
+        _next_assumption_id = max_id + 1
         _safe_print(f"[lumen-thinking] State restored: {total_chains} chains, {total_patterns} patterns, "
                      f"{len(_preserved)} preserved items across {len(_sessions)} sessions "
                      f"(saved {saved_at})")
@@ -1249,7 +1257,7 @@ def tool_list_assumptions(args: dict) -> dict:
 def tool_check_assumption(args: dict) -> dict:
     """Mark an assumption as confirmed or refuted."""
     session = _get_session(args.get("session_id"))  # multi-agent
-    aid = args["assumption_id"]
+    aid = int(args["assumption_id"])
     outcome = args["outcome"]
     evidence = args.get("evidence", "")
 
@@ -2458,6 +2466,7 @@ def _start_dashboard(port: int = 9876) -> None:
             "bridges": bridges[:10],
             "plans": all_plans[:10],
             "clusters": all_clusters[:10],
+            "works": works_detail[:20],
             "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
             "timeline": _call_timeline[-60:],
