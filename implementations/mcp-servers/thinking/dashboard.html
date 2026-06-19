@@ -18,7 +18,7 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 .bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
 .dot{width:8px;height:8px;border-radius:50%}.live{background:var(--acc)}.off{background:#f87171}
 </style></head>
-<body x-data="{connected:false,serverName:'LUMEN',version:'0.1',lastUpdate:'--',t:{chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},sessions:[],topChains:[],preserved:[]}">
+<body x-data="dashData">
 <div class="bar">
   <div class="dot" :class="connected?'live':'off'"></div>
   <span style="font-weight:600" x-text="serverName">LUMEN</span>
@@ -61,27 +61,38 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 <div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" x-text="'Metrics: /metrics  |  Updated: '+lastUpdate"></div>
 </body>
 <script>
-// Fetch metrics and update Alpine data
-async function refreshDash() {
-  const el = document.querySelector('[x-data]');
-  if (!el || !el._x_dataStack) return;
-  const d = el._x_dataStack[0];
-  try {
-    const r = await fetch('/metrics');
-    if (!r.ok) throw new Error();
-    const data = await r.json();
-    d.connected = true;
-    d.serverName = data.server || 'LUMEN';
-    d.version = data.version || '0.1';
-    d.t = data.totals || d.t;
-    d.topChains = data.top_chains || [];
-    d.preserved = data.preserved || [];
-    d.sessions = Object.entries(data.sessions_detail || {}).map(([id, s]) => ({id, ...s}));
-    d.lastUpdate = new Date().toLocaleTimeString();
-  } catch (e) {
-    d.connected = false;
-  }
-}
-setTimeout(refreshDash, 500);
-setInterval(refreshDash, 3000);
+// Register Alpine data first, then bootstrap after Alpine is ready
+document.addEventListener('alpine:init', () => {
+  Alpine.data('dashData', () => ({
+    connected: false, serverName: 'LUMEN', version: '0.1', lastUpdate: '--',
+    t: {chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},
+    sessions: [], topChains: [], preserved: [],
+  }));
+});
+
+// Fetch after Alpine is fully initialized
+window.addEventListener('load', () => {
+  setTimeout(async function refresh() {
+    try {
+      const r = await fetch('/metrics');
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      const el = document.querySelector('[x-data]');
+      if (!el || !el._x_dataStack) return;
+      const d = el._x_dataStack[0];
+      d.connected = true;
+      d.serverName = data.server || 'LUMEN';
+      d.version = data.version || '0.1';
+      d.t = data.totals || d.t;
+      d.topChains = data.top_chains || [];
+      d.preserved = data.preserved || [];
+      d.sessions = Object.entries(data.sessions_detail || {}).map(([id, s]) => ({id, ...s}));
+      d.lastUpdate = new Date().toLocaleTimeString();
+    } catch (e) {
+      const el = document.querySelector('[x-data]');
+      if (el && el._x_dataStack) el._x_dataStack[0].connected = false;
+    }
+    setTimeout(refresh, 3000);
+  }, 500);
+});
 </script></html>
