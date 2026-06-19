@@ -32,6 +32,7 @@ implementations/php/bench_*.txt
 
 # Work log (runtime artifact)
 implementations/mcp-servers/thinking/.work_log.json
+implementations/mcp-servers/thinking/.thinking_state.json
 
 .vscode/
 .idea/

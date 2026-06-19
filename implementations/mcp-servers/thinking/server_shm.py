@@ -24,10 +24,12 @@ sys.path.insert(0, os.path.join(
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from server import TOOLS, HANDLERS
+from server import TOOLS, HANDLERS, _load_state, _save_state
 from shm_native_server import ShmNativeServer
 
 if __name__ == "__main__":
+    _load_state()  # restore cognitive state from disk
+    
     server = ShmNativeServer(
         "lumen-thinking-shm",
         TOOLS,
@@ -37,4 +39,5 @@ if __name__ == "__main__":
     try:
         server.run()
     finally:
+        _save_state()  # persist before shutdown
         server.cleanup()

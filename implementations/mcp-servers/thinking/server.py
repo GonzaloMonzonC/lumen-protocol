@@ -40,6 +40,13 @@ from typing import Any
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+def _safe_print(msg: str) -> None:
+    """Print to stderr so it doesn't interfere with JSON-RPC on stdout."""
+    try:
+        print(msg, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
 # ═══════════════════════════════════════════════════════════════════════
 # Data Model — Multi-agent session isolation
 # ═══════════════════════════════════════════════════════════════════════
@@ -62,9 +69,103 @@ class Session:
         self.created_at = time.time()
         self.updated_at = time.time()
 
+    def to_dict(self) -> dict:
+        return {
+            "label": self.label,
+            "chains": self.chains,
+            "assumptions": self.assumptions,
+            "next_assumption_id": self.next_assumption_id,
+            "model": self.model,
+            "works": self.works,
+            "next_work_id": self.next_work_id,
+            "patterns": self.patterns,
+            "next_pattern_id": self.next_pattern_id,
+            "decisions": self.decisions,
+            "next_decision_id": self.next_decision_id,
+            "tool_calls": self.tool_calls,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Session":
+        s = cls(label=d.get("label", ""))
+        s.chains = d.get("chains", {})
+        s.assumptions = d.get("assumptions", [])
+        s.next_assumption_id = d.get("next_assumption_id", 1)
+        s.model = d.get("model", {})
+        s.works = d.get("works", [])
+        s.next_work_id = d.get("next_work_id", 1)
+        s.patterns = d.get("patterns", [])
+        s.next_pattern_id = d.get("next_pattern_id", 1)
+        s.decisions = d.get("decisions", [])
+        s.next_decision_id = d.get("next_decision_id", 1)
+        s.tool_calls = d.get("tool_calls", 0)
+        s.created_at = d.get("created_at", time.time())
+        s.updated_at = d.get("updated_at", time.time())
+        return s
+
 _sessions: dict[str, Session] = {}  # session_id → Session
 _DEFAULT_SESSION = "default"
 _next_session_num = 1
+
+# ═══════════════════════════════════════════════════════════════════════
+# State Persistence — survives server restarts
+# ═══════════════════════════════════════════════════════════════════════
+
+_STATE_FILE = Path(__file__).parent / ".thinking_state.json"
+_SAVE_INTERVAL = 10  # auto-save every N tool calls
+_save_counter = 0
+_loaded_from_disk = False
+
+def _save_state() -> None:
+    """Persist all state to disk atomically."""
+    global _save_counter
+    _save_counter = 0
+    try:
+        state = {
+            "sessions": {sid: s.to_dict() for sid, s in _sessions.items()},
+            "next_session_num": _next_session_num,
+            "preserved": _preserved,
+            "saved_at": time.time(),
+        }
+        tmp = str(_STATE_FILE) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+        os.replace(tmp, str(_STATE_FILE))
+    except Exception as e:
+        _safe_print(f"[lumen-thinking] Failed to save state: {e}")
+
+def _load_state() -> bool:
+    """Restore state from disk. Returns True if state was loaded."""
+    global _sessions, _next_session_num, _preserved, _loaded_from_disk
+    if not _STATE_FILE.exists():
+        _safe_print("[lumen-thinking] No saved state found — starting fresh.")
+        return False
+    try:
+        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        _sessions = {sid: Session.from_dict(sd) for sid, sd in state.get("sessions", {}).items()}
+        _next_session_num = state.get("next_session_num", 1)
+        _preserved = state.get("preserved", [])
+        _loaded_from_disk = True
+        total_chains = sum(len(s.chains) for s in _sessions.values())
+        total_patterns = sum(len(s.patterns) for s in _sessions.values())
+        saved_at = state.get("saved_at", "unknown")
+        _safe_print(f"[lumen-thinking] State restored: {total_chains} chains, {total_patterns} patterns, "
+                     f"{len(_preserved)} preserved items across {len(_sessions)} sessions "
+                     f"(saved {saved_at})")
+        return True
+    except Exception as e:
+        _safe_print(f"[lumen-thinking] Failed to load state: {e} — starting fresh.")
+        return False
+
+def _auto_save() -> None:
+    """Called after each tool call. Saves every _SAVE_INTERVAL calls."""
+    global _save_counter
+    _save_counter += 1
+    if _save_counter >= _SAVE_INTERVAL:
+        _save_state()
 
 def _get_session(session_id: str | None = None) -> Session:
     """Get or create a session. None → default session."""
@@ -73,6 +174,7 @@ def _get_session(session_id: str | None = None) -> Session:
         _sessions[sid] = Session(label=sid)
     _sessions[sid].updated_at = time.time()
     _sessions[sid].tool_calls += 1
+    _auto_save()  # persist state periodically (works for both server.py and server_shm.py)
     return _sessions[sid]
 
 def _new_chain(session: Session) -> str:
@@ -1998,6 +2100,7 @@ def handle_message(msg: dict) -> None:
             try:
                 result = handler(tool_args)
                 send({"jsonrpc": "2.0", "id": req_id, "result": result})
+                _auto_save()  # persist state periodically
             except Exception as e:
                 send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": f"Tool error: {e}"}})
         else:
@@ -2009,6 +2112,11 @@ def handle_message(msg: dict) -> None:
 
 
 def main() -> None:
+    _load_state()
+    # Save on graceful shutdown
+    import atexit
+    atexit.register(_save_state)
+    
     while True:
         try:
             line = sys.stdin.readline()
