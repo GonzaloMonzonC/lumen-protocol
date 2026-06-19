@@ -169,30 +169,40 @@ function drawWorkChart(works){
   const W=c.parentElement.clientWidth-48,H=120;
   c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';ctx.scale(dpr,dpr);
   const now=Date.now()/1000,padX=40,padY=22,plotW=W-padX-20,timeW=48*3600;
-  const sorted=[...works].filter(w=>w.started_at).sort((a,b)=>(a.started_at||0)-(b.started_at||0));
-  if(!sorted.length)return;
+  // Show only works from last 48h, completed at top, active/blocked below
+  const recent=[...works].filter(w=>w.started_at&&(now-w.started_at)<timeW);
+  const done=[],active=[],blocked=[];
+  recent.forEach(w=>{if(w.status==='done')done.push(w);else if(w.status==='blocked')blocked.push(w);else active.push(w)});
+  const sorted=[...done.sort((a,b)=>(a.started_at||0)-(b.started_at||0)),...active,...blocked];
+  if(!sorted.length){c.style.display='none';return}
   const rowH=Math.min(22,Math.max(8,(H-padY*2-4)/sorted.length));
   const totalH=Math.min(H-padY*2,sorted.length*rowH+4);
   
-  // Grid
   ctx.strokeStyle='rgba(255,255,255,.03)';ctx.lineWidth=.5;
   for(let h=0;h<48;h+=6){const x=padX+(plotW/48)*h;ctx.beginPath();ctx.moveTo(x,padY);ctx.lineTo(x,padY+totalH);ctx.stroke();
     ctx.fillStyle='#64748b';ctx.font='8px Inter';ctx.fillText((48-h)+'h',x-8,padY-6)}
   
-  // Bars with rounded corners
-  for(let i=0;i<sorted.length;i++){const w=sorted[i];const start=w.started_at||now-3600;const end=w.done_at||now;
-    let x1=padX+((start-(now-timeW))/timeW)*plotW,x2=padX+((end-(now-timeW))/timeW)*plotW;
-    x1=Math.max(padX,x1);x2=Math.min(padX+plotW,x2);const bw=Math.max(4,x2-x1),y=padY+i*rowH;
+  for(let i=0;i<sorted.length;i++){const w=sorted[i];
+    const start=w.started_at||now-3600;
+    let x1,x2,bw;
+    if(w.status==='done'&&w.done_at){
+      // Actual duration bar
+      x1=padX+((start-(now-timeW))/timeW)*plotW;
+      x2=padX+((w.done_at-(now-timeW))/timeW)*plotW;
+      x1=Math.max(padX,x1);x2=Math.min(padX+plotW,x2);bw=Math.max(4,x2-x1);
+    } else {
+      // Active/blocked: small indicator at right edge
+      x1=padX+plotW-20;bw=14;
+    }
+    const y=padY+i*rowH;
     let color,glow;
     if(w.status==='done'){color='rgba(74,222,128,.5)';glow='rgba(74,222,128,.2)'}
     else if(w.status==='blocked'){color='rgba(248,113,113,.5)';glow='rgba(248,113,113,.2)'}
     else{color='rgba(34,211,238,.5)';glow='rgba(34,211,238,.2)'}
-    // Glow
     ctx.fillStyle=glow;ctx.beginPath();roundRect(ctx,x1-1,y-1,bw+2,rowH,3);ctx.fill();
-    // Bar
     ctx.fillStyle=color;ctx.beginPath();roundRect(ctx,x1,y,bw,rowH-2,2);ctx.fill();
-    // Label
-    if(bw>60){ctx.fillStyle='rgba(255,255,255,.85)';ctx.font=`${Math.min(9,rowH-4)}px Inter`;ctx.fillText((w.item||'').slice(0,30),x1+4,y+rowH-6)}
+    if(bw>50){ctx.fillStyle='rgba(255,255,255,.85)';ctx.font=`${Math.min(9,rowH-4)}px Inter`;ctx.fillText((w.item||'').slice(0,25),x1+4,y+rowH-6)}
+    else if(w.status!=='done'){ctx.fillStyle='rgba(255,255,255,.7)';ctx.font='8px Inter';ctx.fillText('▶',x1+3,y+rowH-6)}
   }
 }
 
