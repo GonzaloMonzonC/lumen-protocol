@@ -55,6 +55,12 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
   <canvas id="chart" style="width:100%;height:200px"></canvas>
 </div>
 
+<div class="chart-wrap">
+  <h3>Work Timeline — Last 48 Hours</h3>
+  <div class="sub">Each bar = a work item. Green = done, cyan = in progress, red = blocked.</div>
+  <canvas id="work-chart" style="width:100%;height:120px"></canvas>
+</div>
+
 <div class="grid2">
   <div class="glass"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
   <div class="glass"><h3>📝 Plans</h3><div id="plans-list"><div class="dim" style="font-size:11px">No plans</div></div></div>
@@ -104,7 +110,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 
 <script>
 const $=id=>document.getElementById(id);
-let lastTimeline=[];
+let lastTimeline=[];let lastWorks=[];
 
 function drawChart(timeline){
   const c=$('chart');if(!timeline||timeline.length<1){c.style.display='none';return}c.style.display='block';
@@ -186,7 +192,7 @@ $('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class=
     
     // Check collisions
   fetch('/collisions').then(r=>r.json()).then(d=>{const cs=d.collisions||[];$('collisions-list').innerHTML=cs.length?cs.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(248,113,113,.15);color:var(--red)">⚠️</span> <span class="dim">${c.path?.split('/').pop()||c.path}</span><div class="dim" style="font-size:10px;margin-top:2px">${c.sessions.length} sessions: ${c.sessions.join(', ')}</div></div>`).join(''):'<div class="dim" style="font-size:11px">✅ No collisions</div>'});
-  drawChart(d.timeline||[]);$('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
+  drawChart(d.timeline||[]);lastWorks=d.works||[];drawWorkChart(lastWorks);$('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
   setTimeout(refresh,3000)}
 refresh();
@@ -199,5 +205,28 @@ async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'
 function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><div class="dim mono" style="margin:8px 0" id="wiki-content">Loading...</div></div></div>`;
   fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars})}
 
-window.addEventListener('resize',()=>drawChart(lastTimeline));
+function drawWorkChart(works){
+  const c=$('work-chart');if(!works||!works.length){c.style.display='none';return}c.style.display='block';
+  const ctx=c.getContext('2d');const W=c.parentElement.clientWidth-48,H=120;
+  c.width=W*(devicePixelRatio||1);c.height=H*(devicePixelRatio||1);
+  c.style.width=W+'px';c.style.height=H+'px';ctx.scale(devicePixelRatio||1,devicePixelRatio||1);
+  const now=Date.now()/1000,padX=40,padY=20,plotW=W-padX-20,rowH=Math.min(20,Math.max(8,(H-padY*2)/Math.max(works.length,1)));
+  const timeW=48*3600;
+  // Sort by started_at
+  const sorted=[...works].filter(w=>w.started_at).sort((a,b)=>(a.started_at||0)-(b.started_at||0));
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,.03)';ctx.lineWidth=.5;
+  for(let h=0;h<48;h+=6){const x=padX+(plotW/48)*h;ctx.beginPath();ctx.moveTo(x,padY);ctx.lineTo(x,padY+sorted.length*rowH);ctx.stroke();
+    ctx.fillStyle='#64748b';ctx.font='8px Inter';ctx.fillText((48-h)+'h',x-8,padY-4)}
+  // Bars
+  for(let i=0;i<sorted.length;i++){const w=sorted[i];const start=w.started_at||now-3600;const end=w.done_at||now;
+    const x1=padX+((start-(now-timeW))/timeW)*plotW;const x2=padX+((end-(now-timeW))/timeW)*plotW;
+    const x=Math.max(padX,x1);const ww=Math.max(2,Math.min(x2,padX+plotW)-x);
+    const y=padY+i*rowH;const color=w.status==='done'?'rgba(74,222,128,.6)':w.status==='blocked'?'rgba(248,113,113,.6)':'rgba(34,211,238,.6)';
+    ctx.fillStyle=color;ctx.fillRect(x,y+1,ww,rowH-2);
+    ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='8px Inter';
+    const label=(w.item||'').slice(0,25);if(ww>40)ctx.fillText(label,x+4,y+rowH-5)}
+}
+
+window.addEventListener('resize',()=>{drawChart(lastTimeline);drawWorkChart(lastWorks)});
 </script></body></html>
