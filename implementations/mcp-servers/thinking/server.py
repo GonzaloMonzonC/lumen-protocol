@@ -2471,6 +2471,7 @@ def _start_dashboard(port: int = 9876) -> None:
     
     # Load dashboard HTML from file
     _dashboard_html_path = Path(__file__).parent / "dashboard.html"
+    _safe_print(f"[lumen-dashboard] Loading dashboard from {_dashboard_html_path}")
     if _dashboard_html_path.exists():
         with open(_dashboard_html_path, "r", encoding="utf-8") as f:
             _DASHBOARD_HTML = f.read()
