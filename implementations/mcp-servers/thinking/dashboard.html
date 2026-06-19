@@ -99,8 +99,9 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
   <div class="glass"><h3>👥 Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
 </div>
 <div class="grid2">
-  <div class="glass"><h3>📋 Details</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
-  <div class="glass"><h3>🧹 Manage</h3>
+  <div class="glass"><h3>📬 Inbox</h3><div id="inbox-list"><div class="dim" style="font-size:11px">Loading...</div></div></div>
+  <div class="glass"><h3>📋 Activity</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
+</div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-danger" onclick="clearChains()">Clear chains</button>
       <button class="btn btn-acc" onclick="clearBridges()">Clear bridges</button>
@@ -207,6 +208,7 @@ async function refresh(){
     $('mem-t').textContent=t.thoughts??0;$('mem-c').textContent=t.chains??0;$('mem-s').textContent=d.sessions||0;$('mem-bar').style.width=Math.min(100,((t.thoughts||0)/200)*100)+'%';$('mem-label').textContent=(t.thoughts||0)+' / 200';
     
     fetch('/collisions').then(r=>r.json()).then(d=>{const cs=d.collisions||[];$('collisions-list').innerHTML=cs.length?cs.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(248,113,113,.15);color:var(--red)">⚠️</span> <span class="dim">${c.path?.split('/').pop()||c.path}</span><div class="dim" style="font-size:10px;margin-top:2px">${c.sessions.length} sessions: ${c.sessions.join(', ')}</div></div>`).join(''):'<div class="dim" style="font-size:11px">✅ No collisions</div>'});
+    fetch('/inbox').then(r=>r.json()).then(msgs=>{$('inbox-list').innerHTML=msgs.length?msgs.map(m=>`<div class="card"><span class="tag mono" style="background:rgba(34,211,238,.15);color:var(--acc)">📨 ${m.from_session}</span> <span class="dim">${m.content.slice(0,80)}</span><div class="dim" style="font-size:9px;margin-top:2px">${new Date(m.timestamp*1000).toLocaleTimeString()}</div></div>`).join(''):'<div class="dim" style="font-size:11px">📭 No messages</div>'});
     $('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${Math.round(b.score*100)}%</span> <span class="dim mono">${b.query?.slice(0,50)} → ${b.chain_id?.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No bridges</div>';
     
     const sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}));

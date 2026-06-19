@@ -127,6 +127,8 @@ _loaded_from_disk = False
 _call_timeline: list[dict] = []
 _session_presence: dict = {}
 _file_touches: list[dict] = []  # [{session_id, path, timestamp}]  # session_id → {pid, last_seen, tool_calls}
+_agent_messages: list[dict] = []  # [{from_session, to_session, content, timestamp}]
+_global_patterns: list[dict] = []  # patterns shared across all sessions
 
 def _save_state() -> None:
     """Persist all state to disk atomically."""
@@ -159,6 +161,8 @@ def _save_state() -> None:
             "timeline": _call_timeline,
             "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls} for sid, s in _sessions.items()},
             "file_touches": _file_touches[-200:],  # last 200 touches
+            "agent_messages": _agent_messages[-100:],  # last 100 messages
+            "global_patterns": _global_patterns[-300:],  # last 300 global patterns
             "saved_at": time.time(),
         }
         tmp = str(_STATE_FILE) + ".tmp"
@@ -182,6 +186,9 @@ def _load_state() -> bool:
         _preserved = state.get("preserved", [])
         if "timeline" in state:
             _call_timeline[:] = state["timeline"]
+        global _agent_messages, _global_patterns
+        _agent_messages = state.get("agent_messages", [])
+        _global_patterns = state.get("global_patterns", [])
         _loaded_from_disk = True
         _last_state_mtime = _STATE_FILE.stat().st_mtime if _STATE_FILE.exists() else 0.0
         total_chains = sum(len(s.chains) for s in _sessions.values())
@@ -643,6 +650,40 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {}
+        }
+    },
+    {
+        "name": "agent_message",
+        "description": "Send a message to another agent session. Enables cross-session coordination between Hermes instances working on related tasks.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to_session": {"type": "string", "description": "Target session ID or label to send message to"},
+                "content": {"type": "string", "description": "Message content to send"},
+                "priority": {"type": "string", "description": "Message priority: 'normal', 'high', 'urgent'", "default": "normal"}
+            },
+            "required": ["to_session", "content"]
+        }
+    },
+    {
+        "name": "agent_inbox",
+        "description": "Read messages sent to this agent session from other Hermes instances. Returns unread messages by default.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max messages to return (default: 20, max: 50)", "default": 20},
+                "unread_only": {"type": "boolean", "description": "Only return unread messages", "default": False}
+            }
+        }
+    },
+    {
+        "name": "collision_check",
+        "description": "Check for file collisions between active sessions. Detects when multiple sessions are modifying the same files.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "window_seconds": {"type": "integer", "description": "Time window in seconds (default: 300)", "default": 300}
+            }
         }
     },
     {
@@ -1970,14 +2011,32 @@ def tool_session_list(args: dict) -> dict:
         return {"content": [{"type": "text", "text": "No active sessions. Use session_init to create one."}]}
 
     lines = ["📋 Active Sessions:"]
+    # Build collision map from file touches
+    from collections import defaultdict
+    now = time.time()
+    window = 300  # 5 minute window
+    by_file = defaultdict(set)
+    for t in _file_touches:
+        if now - t.get("timestamp", 0) < window:
+            by_file[t.get("path", "")].add(t.get("session_id", ""))
+    collisions = {f: sids for f, sids in by_file.items() if len(sids) > 1}
     for sid, s in sorted(_sessions.items()):
         age = time.time() - s.updated_at
-        lines.append(
+        line = (
             f"   {sid}: {s.label or '(no label)'} | "
             f"{len(s.chains)} chains, {len(s.assumptions)} asmp, "
             f"{len(s.model)} model, {s.tool_calls} calls | "
             f"idle {age:.0f}s"
         )
+        # Check if this session has collisions
+        for fpath, sids in collisions.items():
+            if sid in sids:
+                others = sids - {sid}
+                line += f" | ⚠️ touching {fpath.split('/')[-1]} with {', '.join(others)}"
+                break
+        lines.append(line)
+    if collisions:
+        lines.append(f"\n   ⚡ {len(collisions)} file(s) with multi-session activity — check /collisions for details")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
     uptime = time.time() - _session_start
     tool_estimate = _tool_calls * 500  # Rough: 500 tokens per tool call
@@ -2019,6 +2078,86 @@ def tool_session_list(args: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Cross-Session Communication — agent-to-agent messaging
+# ═══════════════════════════════════════════════════════════════════════
+
+def tool_agent_message(args: dict) -> dict:
+    """Send a message to another agent session."""
+    session = _get_session(args.get("session_id"))
+    to_session = args.get("to_session", args.get("to", ""))
+    content = args.get("content", args.get("message", ""))
+    priority = args.get("priority", "normal")
+    if not to_session or not content:
+        return {"content": [{"type": "text", "text": "Error: 'to_session' and 'content' required."}]}
+    # Resolve target: if to_session matches a session ID, use its label
+    target_label = to_session
+    if to_session in _sessions:
+        target_label = _sessions[to_session].label or to_session
+    msg = {
+        "from_session": session.label or "default",
+        "to_session": to_session,
+        "content": content,
+        "priority": priority,
+        "timestamp": time.time(),
+    }
+    _agent_messages.append(msg)
+    if len(_agent_messages) > 200:
+        _agent_messages[:] = _agent_messages[-200:]
+    _save_state()
+    return {"content": [{"type": "text", "text": f"📨 Message sent to '{to_session}' ({priority} priority)."}]}
+
+
+def tool_agent_inbox(args: dict) -> dict:
+    """Read messages sent to this agent session."""
+    session = _get_session(args.get("session_id"))
+    sid = session.label or "default"
+    limit = min(args.get("limit", 20), 50)
+    unread_only = args.get("unread_only", False)
+
+    # Match by session label, session_id, or wildcard
+    session_id = None
+    for sid, s in _sessions.items():
+        if s.label == session.label:
+            session_id = sid
+            break
+    msgs = [m for m in _agent_messages if m["to_session"] in (session.label, session_id, "*")]
+    if unread_only:
+        msgs = [m for m in msgs if not m.get("read")]
+    msgs = msgs[-limit:]
+
+    if not msgs:
+        return {"content": [{"type": "text", "text": "📭 Inbox empty."}]}
+
+    lines = [f"📬 Inbox ({len(msgs)} messages):"]
+    for m in msgs:
+        ago = int(time.time() - m["timestamp"])
+        ago_str = f"{ago}s ago" if ago < 60 else f"{ago//60}m ago" if ago < 3600 else f"{ago//3600}h ago"
+        lines.append(f"   📨 [{ago_str}] {m['from_session']}: {m['content'][:200]}")
+        m["read"] = True  # mark as read
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def tool_collision_check(args: dict) -> dict:
+    """Check for file collisions between sessions in the last 5 minutes."""
+    from collections import defaultdict
+    now = time.time()
+    window = args.get("window_seconds", 300)
+    by_file = defaultdict(set)
+    for t in _file_touches:
+        if now - t.get("timestamp", 0) < window:
+            by_file[t.get("path", "")].add(t.get("session_id", ""))
+    collisions = [(f, sids) for f, sids in by_file.items() if len(sids) > 1]
+    if not collisions:
+        return {"content": [{"type": "text", "text": "✅ No file collisions detected in the last 5 minutes."}]}
+    lines = [f"⚠️  {len(collisions)} file(s) being touched by multiple sessions:"]
+    for fpath, sids in collisions:
+        fname = fpath.split("/")[-1] if "/" in fpath else fpath
+        lines.append(f"   🔴 {fname}: {', '.join(sids)}")
+    lines.append(f"\n💡 Use agent_message to coordinate with the other session(s).")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Pattern Memory — institutional knowledge across sessions
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -2039,6 +2178,10 @@ def tool_pattern_record(args: dict) -> dict:
         "tags": args.get("tags", []), "recorded_at": time.time(), "match_count": 0,
     }
     session.patterns.append(pattern)
+    # Also add to global shared pattern store
+    _global_patterns.append(dict(pattern))
+    if len(_global_patterns) > 500:
+        _global_patterns[:] = _global_patterns[-500:]
     return {"content": [{"type": "text", "text": (
         f"📌 Pattern #{pid} recorded: '{args['pattern_name']}'\n"
         f"   Category: {pattern['category']}\n"
@@ -2050,12 +2193,14 @@ def tool_pattern_match(args: dict) -> dict:
     """Find matching patterns via Jaccard similarity on tokenized text."""
     session = _get_session(args.get("session_id"))
     query = args["description"]
+    # Search both local session patterns AND global shared patterns
+    all_patterns = list(session.patterns) + [p for p in _global_patterns if p not in session.patterns]
     category_filter = args.get("category")
     min_score = args.get("min_score", 0.1)
     top_n = min(args.get("top_n", 3), 10)
-    if not session.patterns:
+    if not all_patterns:
         return {"content": [{"type": "text", "text": "No patterns recorded yet. Use pattern_record first."}]}
-    candidates = [p for p in session.patterns if not category_filter or p["category"] == category_filter]
+    candidates = [p for p in all_patterns if not category_filter or p["category"] == category_filter]
     if not candidates:
         return {"content": [{"type": "text", "text": f"No patterns in category '{category_filter}'."}]}
     corpus = [f"{p['pattern_name']} {p['description']} {p['fix_strategy']} {' '.join(p.get('tags',[]))}" for p in candidates]
@@ -2207,6 +2352,9 @@ HANDLERS = {
     "context_estimate": tool_context_estimate,
     "session_init": tool_session_init,
     "session_list": tool_session_list,
+    "agent_message": tool_agent_message,
+    "agent_inbox": tool_agent_inbox,
+    "collision_check": tool_collision_check,
     "pattern_record": tool_pattern_record,
     "pattern_match": tool_pattern_match,
     "decision_log": tool_decision_log,
@@ -2348,6 +2496,18 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Type", "text/plain")
                 self.end_headers()
                 self.wfile.write(b"OK")
+            elif self.path.startswith("/inbox"):
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                target = qs.get("session", ["default"])[0]
+                msgs = [m for m in _agent_messages if m["to_session"] == target or m["to_session"] == "*"]
+                body = json.dumps(msgs[-50:], ensure_ascii=False, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             elif self.path.startswith("/model"):
                 # GET /model or GET /model?entity=X
                 from urllib.parse import urlparse, parse_qs
