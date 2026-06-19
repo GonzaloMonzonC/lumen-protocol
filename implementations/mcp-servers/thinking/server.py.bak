@@ -65,7 +65,6 @@ class Session:
         self.next_pattern_id = 1
         self.decisions: list[dict] = []
         self.next_decision_id = 1
-        self.bridges: list[dict] = []  # thought_bridge results
         self.tool_calls = 0
         self.created_at = time.time()
         self.updated_at = time.time()
@@ -83,7 +82,6 @@ class Session:
             "next_pattern_id": self.next_pattern_id,
             "decisions": self.decisions,
             "next_decision_id": self.next_decision_id,
-            "bridges": self.bridges,
             "tool_calls": self.tool_calls,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -305,9 +303,9 @@ def _cosine_similarity(a: dict[str, float], b: dict[str, float]) -> float:
 
 def _sentiment_heuristic(text: str) -> float:
     """Simple lexicon-free sentiment heuristic (-1 to +1)."""
-    positive = {"mejor", "bueno", "excelente", "correcto", "funciona", "solución", "éxito", "good", "great", "excellent", "correct", "works", "perfect", "perfectly", "reliable", "robust", "success", "successful", "optimal", "safe", "secure", "stable", "zero", "never",
+    positive = {"mejor", "bueno", "excelente", "correcto", "funciona", "solución", "éxito",
                 "eficiente", "óptimo", "recomiendo", "viable", "seguro", "robusto"}
-    negative = {"error", "errors", "fail", "fails", "failure", "failing", "bug", "bugs", "broken", "crash", "crashes", "down", "downtime", "outage", "fallo", "falla", "incorrecto", "problema", "rompe", "riesgo",
+    negative = {"error", "fallo", "falla", "incorrecto", "problema", "rompe", "riesgo",
                 "lento", "peligroso", "fracaso", "inviable", "débil", "frágil", "no"}
     tokens = _tokenize(text)
     pos = sum(1 for t in tokens if t in positive)
@@ -850,7 +848,7 @@ def tool_thought_contradiction(args: dict) -> dict:
         t_sentiment = _sentiment_heuristic(t["thought"])
 
         # Contradiction: similar topic (sim > 0.15) BUT opposite sentiment
-        if sim > 0.08 and abs(query_sentiment - t_sentiment) > 0.15:
+        if sim > 0.15 and abs(query_sentiment - t_sentiment) > 0.3:
             sign_q = "positive" if query_sentiment > 0 else "negative"
             sign_t = "positive" if t_sentiment > 0 else "negative"
             contradictions.append({
