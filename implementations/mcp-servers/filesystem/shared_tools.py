@@ -443,7 +443,7 @@ def tool_list_directory(args: dict) -> dict:
             if file_glob:
                 if not fnmatch.fnmatch(name, file_glob):
                     continue
-            entry_type = "📁" if entry.is_dir() else "📄"
+            entry_type = "[DIR]" if entry.is_dir() else "[FILE]"
             try:
                 size = entry.stat().st_size if entry.is_file() else 0
                 size_str = f" ({size:,}B)" if entry.is_file() else ""
@@ -472,7 +472,7 @@ def tool_read_files(args: dict) -> dict:
 
     for file_path in paths[:20]:  # Hard cap: 20 files max
         path = resolve_path(file_path)
-        header = f"\n═══ {file_path} ═══"
+        header = f"\n=== {file_path} ==="
 
         if not path.exists():
             output_parts.append(f"{header}\n  [NOT FOUND]")
@@ -560,7 +560,7 @@ def tool_search_with_context(args: dict) -> dict:
                 ctx_end = min(total_lines, line_no - 1 + context + 1)
                 rel = str(fpath.relative_to(resolved))
 
-                block = f"\n─── {rel}:{line_no} ───\n"
+                block = f"\n--- {rel}:{line_no} ---\n"
                 for i in range(ctx_start, ctx_end):
                     marker = ">>>" if i == line_no - 1 else "   "
                     block += f"{marker} {i+1}|{all_lines[i].rstrip()}\n"
@@ -626,11 +626,11 @@ def tool_stream_read(args: dict) -> dict:
             break
 
     output = "\n".join(result_lines)
-    header = f"📖 {path.name} — chunk {chunk_number}/{total_chunks} (lines {chunk_start+1}-{chunk_end} of {total_lines})\n"
+    header = f"FILE: {path.name} — chunk {chunk_number}/{total_chunks} (lines {chunk_start+1}-{chunk_end} of {total_lines})\n"
     if chunk_number < total_chunks:
         header += f"   Next: stream_read(path, chunk_number={chunk_number+1})\n"
     else:
-        header += "   🏁 Final chunk\n"
+        header += "   [FINAL CHUNK]\n"
     output = header + output
 
     return {"content": [{"type": "text", "text": output}]}
@@ -659,7 +659,7 @@ def tool_server_stats(args: dict) -> dict:
     except Exception:
         pass
 
-    lines = ["📊 LUMEN Filesystem Server Stats",
+    lines = ["LUMEN Filesystem Server Stats",
              f"   Uptime:     {stats['uptime']}",
              f"   Requests:   {stats['total_requests']}",
              f"   Tools:      {stats['tools_available']}",
@@ -667,7 +667,7 @@ def tool_server_stats(args: dict) -> dict:
              "",
              "   Tool usage:"]
     for tool, count in sorted(stats["tool_usage"].items(), key=lambda x: -x[1]):
-        bar = "█" * min(count, 30)
+        bar = "#" * min(count, 30)
         lines.append(f"   {tool:<20} {bar} {count}")
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}

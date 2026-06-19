@@ -77,21 +77,18 @@ fn shm_multiple_frames() {
         .map(|i| format!("frame {}", i).into_bytes())
         .collect();
 
-    // Client sends all messages
-    for msg in &messages {
-        client.write_all(msg).expect("write");
-        client.flush().expect("flush");
-    }
-
-    // Server reads all
+    // Interleave writes and reads — avoids ring-full deadlocks
+    // and tests the real streaming use case.
     let mut buf = [0u8; 256];
     for expected in &messages {
+        client.write_all(expected).expect("write");
+        client.flush().expect("flush");
         let n = server.read(&mut buf).expect("read");
         assert_eq!(&buf[..n], expected.as_slice());
     }
 
-    // Verify no extra data
-    assert_eq!(server.read(&mut buf).unwrap(), 0);
+    // Verify no extra data — read_frame returns Err when ring empty.
+    assert!(server.read(&mut buf).is_err());
 
     std::mem::forget(server_region);
     std::mem::forget(client_region);

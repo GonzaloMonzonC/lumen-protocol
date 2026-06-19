@@ -6,13 +6,14 @@
 //!
 //! ## Wire format (little-endian)
 //!
-//! ```
+//! ```text
 //! [version: u8][id_len: u8][id: UTF-8]
 //! [location_len: u8][location: UTF-8]
 //! [caveat_count: u8][caveats...]
 //! [signature: 32 bytes]
-//!
+//! ```
 //! Each caveat:
+//! ```text
 //! [caveat_len: u8][caveat: UTF-8]
 //! ```
 //!
@@ -30,6 +31,7 @@
 //!   ok = m.verify(root_key, |caveat| check_caveat(caveat))
 //! ```
 
+#[allow(unused_imports)]
 use sha2::{Sha256, Digest};
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -265,6 +267,7 @@ impl Macaroon {
 /// where K' is K zero-padded to 64 bytes (SHA-256 block size),
 /// ipad = 0x36 repeated, opad = 0x5C repeated.
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; SIGNATURE_SIZE] {
+    #[allow(unused_imports)]
     use sha2::{Sha256, Digest};
 
     const BLOCK_SIZE: usize = 64;

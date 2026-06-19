@@ -199,9 +199,13 @@ impl ShmRingBuffer {
     }
 
     /// Write a length-prefixed frame (4-byte LE length + data).
+    /// Uses a single write call so the frame is atomic — the reader
+    /// never sees a partial frame (header without data).
     pub fn write_frame(&self, data: &[u8]) -> Result<(), ShmError> {
-        self.write(&(data.len() as u32).to_le_bytes())?;
-        self.write(data)?;
+        let mut frame = Vec::with_capacity(4 + data.len());
+        frame.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        frame.extend_from_slice(data);
+        self.write(&frame)?;
         Ok(())
     }
 

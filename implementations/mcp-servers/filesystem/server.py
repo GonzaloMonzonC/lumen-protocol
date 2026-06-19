@@ -17,6 +17,16 @@ from __future__ import annotations
 
 import sys
 import json
+import os
+import re
+import time as _time
+import glob as _glob
+from pathlib import Path
+from typing import Any
+
+# ── Windows: force UTF-8 on stdout so Unicode output works ──
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 import shared_tools
 

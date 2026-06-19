@@ -1,6 +1,6 @@
 ---
 name: lumen-mcp-server-pattern
-description: Proven pattern for creating LUMEN MCP servers — JSON-RPC wrapper + LUMEN native binary. Used for filesystem (9 tools), web (2 tools), and thinking (23 tools). Covers session isolation, evaluation framework, and security patterns.
+description: Proven pattern for creating LUMEN MCP servers — JSON-RPC wrapper + LUMEN native binary. Used for filesystem (9 tools), web (2 tools), and thinking (29 tools). Covers session isolation, evaluation framework, and security patterns.
 version: 1.1.0
 platforms: [linux, macos, windows]
 metadata:
@@ -11,7 +11,7 @@ metadata:
 # LUMEN MCP Server Creation Pattern
 
 Proven pattern for building MCP servers that speak LUMEN. Used successfully
-for 3 production servers (34 tools total: filesystem 9, web 2, thinking 23).
+for 3 production servers (40 tools total: filesystem 9, web 2, thinking 29).
 
 ## Quick Start
 
@@ -138,7 +138,94 @@ Cross-session knowledge that survives context compression. ~80-120 lines each.
 - **Pattern Memory**: `pattern_record` → `pattern_match` — capture bug patterns and fix strategies. Match new problems against recorded patterns via Jaccard similarity. Tags, categories, match_count tracking.
 - **Decision Log**: `decision_log` → `decision_list` — record design decisions with rationale, alternatives, and revisit triggers. Newest-first sorted, filterable by category. Prevents repeated debates about settled questions.
 
-## Security Patterns
+## Silent Override Plugin Pattern (Hermes)
+
+Proven pattern for transparently replacing Hermes built-in tools with LUMEN
+MCP equivalents without changing tool names or schemas — the LLM never knows.
+
+### Architecture
+
+```
+Hermes Agent
+    │
+    │  read_file("config.yaml")
+    ▼
+Plugin (lumen-native-fs)          ← ctx.register_tool(override=True)
+    │
+    │  JSON-RPC via persistent subprocess
+    ▼
+LUMEN filesystem MCP server (1 process, N calls)
+    │
+    ▼
+Filesystem
+```
+
+### Plugin Template (~100 lines)
+
+```python
+# plugins/<name>/__init__.py
+import json, subprocess, threading, os
+
+_server = None
+_server_lock = threading.Lock()
+
+def _get_server():
+    global _server
+    with _server_lock:
+        if _server is None or _server.poll() is not None:
+            _server = subprocess.Popen(
+                [PYTHON, "-u", SERVER_PATH],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, bufsize=1,
+                cwd=os.path.expanduser("~"),  # ALLOWED_ROOTS sandbox
+            )
+            # Initialize MCP handshake
+            ...
+        return _server
+
+def _call_tool(name, args):
+    server = _get_server()
+    with _server_lock:
+        server.stdin.write(json.dumps({...}) + "\n")
+        server.stdin.flush()
+        return json.loads(server.stdout.readline())
+
+def register(ctx):
+    ctx.register_tool(
+        name="read_file",           # Same name as built-in
+        toolset="lumen-native",
+        schema=READ_FILE_SCHEMA,     # Same schema
+        handler=_handle_read_file,   # Routes to MCP
+        override=True                # ← Replaces built-in
+    )
+```
+
+### Key Requirements
+
+- **`cwd` at user home**: Server sandboxes to ALLOWED_ROOTS (default: cwd). Set
+  cwd to `os.path.expanduser("~")` so all user files are accessible.
+- **Persistent subprocess**: One `subprocess.Popen` per plugin lifetime, not
+  per call. Use `threading.Lock` for thread safety.
+- **Schema parity**: Copy the EXACT built-in schema from
+  `hermes-agent/tools/file_tools.py`. Any divergence breaks prompt cache.
+- **`override=True`**: Critical — without it, registry rejects duplicate names.
+- **Config**: `hermes config set plugins.<name>.enabled true`
+
+### When to Use
+
+- Replacing 1-4 built-in tools with MCP equivalents for wire savings
+- Adding multi-agent shared filesystem access
+- Preserving prompt cache while changing I/O backend
+
+**Reference implementation**: `~/AppData/Local/hermes/plugins/lumen-native-fs/__init__.py` (444 lines, Hermes plugin) and `lumen-protocol/implementations/mcp-servers/plugins/lumen-native-fs/__init__.py` (repo copy). Overrides read_file, write_file, search_files, patch with LUMEN filesystem MCP backend. Persistent subprocess, thread-safe, ALLOWED_ROOTS sandbox via cwd.
+
+### Pitfalls
+
+- **Windows Unicode**: Add `sys.stdout.reconfigure(encoding="utf-8")` to server.py
+  or replace emoji/box-drawing chars with ASCII. See `lumen-server-development`.
+- **Sandbox**: ALLOWED_ROOTS restricts to cwd. Set cwd carefully.
+- **Process lifecycle**: Server restarts on crash. Poll `_server.poll()` before use.
+- **Python path**: Use full path to hermes venv Python, not system Python.
 
 ### Path Sandboxing (filesystem servers)
 Prevent path traversal attacks with `ALLOWED_ROOTS` env var:
@@ -238,6 +325,8 @@ def _safe_rglob(base: Path, pattern: str):
 ### Platform
 - Windows pipes: `sys.stdin.buffer.read(N)` blocks until N bytes or EOF. Use `read(1)`.
 - MCP stdio is NOT thread-safe. Benchmark sequentially.
+- **Windows charmap encoding (🐛 June 2026)**: All servers MUST add `sys.stdout.reconfigure(encoding="utf-8")` at the top. Without it, any Unicode output (emojis, accented web content, box-drawing chars) crashes `json.dumps(ensure_ascii=False)` + `sys.stdout.write()` with `'charmap' codec can't encode character`. The crash is silent — Hermes retries 4 times in 8 seconds then marks the server unreachable. Also replace non-ASCII chars in output: `█`→`#`, `═══`→`===`, `📁`→`[DIR]`, etc. See `references/windows-encoding-fix.md`.
+- **MCP retry exhaustion (🐛 June 2026)**: After 4 consecutive failures, Hermes permanently stops trying to connect an MCP server. Fix: toggle `enabled false` → `enabled true` in config, then `/reset`. The server won't auto-retry otherwise.
 - **Python 3.9 compatibility**: `list[str] | None` fails on Python <3.10 at runtime. Add `from __future__ import annotations` to every `.py` file in the MCP server directory. This must be the first import after the docstring. Without it, `filesystem/server.py` crashes on import with `TypeError: unsupported operand type(s) for |`.
 
 ### Test portability
@@ -247,7 +336,7 @@ def _safe_rglob(base: Path, pattern: str):
 ### Server organization
 - `server.py` pattern works everywhere. `server_native.py` needs LUMEN-aware client.
 - **`server_native.py` duplicates 95% of `server.py`** — extract shared code to `shared_tools.py` (see Pattern C above). Applied to filesystem server June 2026.
-- **Hidden handlers**: `model_scan` was in `HANDLERS` but not in `TOOLS` — callable by name but invisible to `tools/list`. Every handler must have a corresponding schema in `TOOLS` or be removed from `HANDLERS`.
+- **Hidden handlers (🐛 recurring)**: `model_scan` was in `HANDLERS` but not in `TOOLS` — callable by name but invisible to `tools/list`. This means the tool exists at runtime but clients never discover it. Every handler MUST have a corresponding schema in `TOOLS` OR be removed from `HANDLERS`. A quick check: `grep -c HANDLERS` should equal `grep -c '"name"' in TOOLS`. The thinking server (June 2026) had 29 handlers but only 28 TOOLS entries — `model_scan` was the hidden one. Fixed by adding the missing schema.
 - **Schema parameter naming consistency**: Tool schema parameter names MUST match Hermes built-in equivalents exactly. `search_with_context` used `context_lines` while built-in `search_files` uses `context`. This causes agent confusion. Always check the built-in tool schema for the canonical parameter name. Fixed June 2026.
 - **REPO_ROOT in nested test files**: Tests at `implementations/mcp-servers/filesystem/test_roundtrip.py` need `os.path.join(os.path.dirname(__file__), '..', '..', '..')` (3 levels) to reach repo root. Using 2 levels creates a doubled `implementations/implementations/` prefix.
 
@@ -257,6 +346,9 @@ def _safe_rglob(base: Path, pattern: str):
 - **`bare except:` catches SystemExit/KeyboardInterrupt** — always use `except Exception:` instead.
 - **`thought_to_plan` dependency direction**: each step depends on the PREVIOUS step (`Step {i-1}`), not the next. The original code had `Step {i+1}` which is logically inverted.
 - **TF-IDF vector construction duplicated** in similarity/contradiction/bridge tools — extract to a shared helper.
+- **Session migration bugs in work tracker (🐛 June 2026)**: `work_start`, `work_block`, `work_done`, `work_log` used `session` without calling `_get_session()`. `_next_work_id` was missing `global` declaration. `_load_works()` and `_save_works()` also lacked session resolution. All 4 tools raised `NameError` at runtime. Fix: add `session = _get_session(args.get("session_id"))` as the first line of every stateful tool function, and declare `global _next_work_id` where needed. This is a REFACTORING PITFALL — when migrating from global state to per-session state, every function that accesses state needs the session parameter.
+- **Session migration**: work tracker tools had incomplete migration from global state to `_get_session()`. `session` variable not defined + `global _next_work_id` was commented out. See `references/session-migration-pitfalls.md`.
+- **Hidden handlers**: `model_scan` was in `HANDLERS` but missing from `TOOLS` — callable by name, invisible to `tools/list`. Always verify `tools/list` against `HANDLERS.keys()`. See `references/session-migration-pitfalls.md`.
 
 ### Security
 - **Path traversal**: Always sandbox filesystem tools with `ALLOWED_ROOTS`. Without it, `../../../etc/passwd` works.
@@ -349,3 +441,6 @@ implementations/mcp-servers/<name>/
 - `references/cognitive-safety.md` — Full analysis of safe vs dangerous cognitive tools
 - **[lumen-cognitive-safety](../skills/lumen-cognitive-safety/SKILL.md)** — SAFE/UNSAFE taxonomy, 7-gate audit checklist, implementation rule, regression tests (operationalized version)
 - `references/security-hardening-patterns.md` — 10 vulnerability patterns from external audit: X25519 validation, macaroon expiry, depth limits, SHM size, Arc refactoring, TOCTOU, ReDoS, version validation, MITM scope
+- `references/windows-encoding-fix.md` — **NEW** — Windows charmap encoding bug: `reconfigure(encoding="utf-8")` + ASCII-safe output replacements for all 3 servers
+- `references/session-migration-pitfalls.md` — **NEW** — Work tracker session migration case study: missing `session` variable, `global` declaration, hidden handlers
+- `references/plugin-override-pattern.md` — **NEW** — Phase 1 silent override: replacing Hermes built-in file tools with LUMEN MCP via `ctx.register_tool(override=True)`
