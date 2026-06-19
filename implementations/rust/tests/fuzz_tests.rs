@@ -219,7 +219,7 @@ mod fuzz_compress {
                     state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                     *b = state as u8;
                 }
-                let _ = compress::decompress(&buf);
+                let _ = compress::decompress(&buf, None);
             }
         }
     }
@@ -249,16 +249,16 @@ mod fuzz_compress {
         ];
 
         for (i, (val, desc)) in cases.iter().enumerate() {
-            let compressed = compress::compress(val);
+            let compressed = compress::compress(val, None);
 
             // Compressed size must match estimate
-            let estimated = compress::compressed_size(val);
+            let estimated = compress::compressed_size(val, None);
             assert_eq!(estimated, compressed.len(),
                 "case {i} ({desc}): compressed_size mismatch: estimated {estimated}, actual {}",
                 compressed.len());
 
             // Decompress must recover original
-            let recovered = compress::decompress(&compressed)
+            let recovered = compress::decompress(&compressed, None)
                 .unwrap_or_else(|| panic!("case {i} ({desc}): decompress returned None"));
             assert_eq!(&recovered, val,
                 "case {i} ({desc}): roundtrip mismatch.\nExpected: {val}\nGot: {recovered}");
@@ -269,13 +269,13 @@ mod fuzz_compress {
     #[test]
     fn truncated_compressed() {
         let val = json!({"tool": "search", "arguments": {"query": "hello world", "limit": 10}});
-        let compressed = compress::compress(&val);
+        let compressed = compress::compress(&val, None);
 
         for trim in 1..compressed.len() {
             let prefix = &compressed[..compressed.len() - trim];
             // Must not panic. May return Some (if the trim falls on a valid boundary),
             // but that's acceptable — partial valid data is fine.
-            let _ = compress::decompress(prefix);
+            let _ = compress::decompress(prefix, None);
         }
     }
 
@@ -284,8 +284,8 @@ mod fuzz_compress {
     fn large_array() {
         let arr: Vec<Value> = (0..100).map(|i| json!({ "n": i })).collect();
         let val = Value::Array(arr);
-        let compressed = compress::compress(&val);
-        let recovered = compress::decompress(&compressed).expect("decompress failed");
+        let compressed = compress::compress(&val, None);
+        let recovered = compress::decompress(&compressed, None).expect("decompress failed");
         assert_eq!(recovered, val);
     }
 
@@ -296,8 +296,8 @@ mod fuzz_compress {
         for _ in 0..20 {
             val = json!({"child": val});
         }
-        let compressed = compress::compress(&val);
-        let recovered = compress::decompress(&compressed).expect("decompress failed");
+        let compressed = compress::compress(&val, None);
+        let recovered = compress::decompress(&compressed, None).expect("decompress failed");
         assert_eq!(recovered, val);
     }
 }
