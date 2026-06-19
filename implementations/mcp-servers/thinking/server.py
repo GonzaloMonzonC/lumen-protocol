@@ -127,9 +127,11 @@ def _save_state() -> None:
     global _save_counter
     _save_counter = 0
     try:
-        # Record timeline snapshot
+        # Record timeline snapshot with delta (calls since last save)
         total_calls = sum(s.tool_calls for s in _sessions.values())
-        _call_timeline.append({"ts": time.time(), "calls": total_calls})
+        delta = total_calls - (_last_timeline_total if hasattr(_save_state, '_last_total') else 0)
+        _save_state._last_total = total_calls
+        _call_timeline.append({"ts": time.time(), "calls": total_calls, "delta": delta})
         # Keep last 200 snapshots (~30min at 10s intervals)
         if len(_call_timeline) > 200:
             _call_timeline[:] = _call_timeline[-200:]
