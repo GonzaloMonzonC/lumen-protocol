@@ -2520,6 +2520,30 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"window_s": window, "collisions": collisions}).encode())
+            elif self.path == "/wiki":
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    raw = self.rfile.read(content_len) if content_len else b'{}'
+                    params = json.loads(raw)
+                    title = params.get("title", "").strip()
+                    content = params.get("content", "")
+                    author = params.get("author", "dashboard")
+                    if not title:
+                        self.send_response(400); self.end_headers()
+                        self.wfile.write(b'{"error":"title required"}'); return
+                    sess = _get_session(params.get("session_id", _DEFAULT_SESSION))
+                    existing = title in sess.wiki
+                    sess.wiki[title] = {"content": content, "author": author,
+                        "created_at": sess.wiki[title]["created_at"] if existing else time.time(),
+                        "updated_at": time.time()}
+                    _save_state()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"created": title, "chars": len(content)}).encode())
+                except Exception as e:
+                    self.send_response(500); self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
             else:
                 self.send_response(404)
                 self.end_headers()
