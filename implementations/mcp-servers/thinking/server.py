@@ -102,6 +102,7 @@ class Session:
         s.next_pattern_id = d.get("next_pattern_id", 1)
         s.decisions = d.get("decisions", [])
         s.next_decision_id = d.get("next_decision_id", 1)
+        s.bridges = d.get("bridges", [])
         s.tool_calls = d.get("tool_calls", 0)
         s.created_at = d.get("created_at", time.time())
         s.updated_at = d.get("updated_at", time.time())
@@ -812,6 +813,15 @@ def tool_thought_similarity(args: dict) -> dict:
         bar = "█" * int(sim * 10) + "░" * (10 - int(sim * 10))
         lines.append(f"   {bar} {sim:.0%} — #{num}: {text}")
 
+    # Store similarity results for dashboard
+    if top:
+        session.chains[chain_id].setdefault("similarities", []).append({
+            "query": thought_text[:100],
+            "top_match_score": top[0][0] if top else 0,
+            "top_match_thought": top[0][2][:100] if top else "",
+            "recorded_at": time.time(),
+        })
+
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
@@ -944,6 +954,22 @@ def tool_thought_summarize(args: dict) -> dict:
     branches = sum(1 for t in thoughts if t.get("branchFromThought"))
     lines.append(f"\n   📊 {len(thoughts)} thoughts | {revisions} revisions | {branches} branches | {len(clusters)} themes")
 
+    # Store clusters in chain metadata for dashboard
+    cluster_data = []
+    for ci, cluster in enumerate(clusters, 1):
+        all_terms = Counter()
+        for idx in cluster:
+            for term, score in vectors[idx].items():
+                all_terms[term] += score
+        top_terms = [t for t, _ in all_terms.most_common(3)]
+        cluster_data.append({
+            "theme": ci,
+            "label": f"Theme {ci}: {', '.join(top_terms)}",
+            "count": len(cluster),
+            "preview": thoughts[cluster[0]]["thought"][:120] if cluster else "",
+        })
+    session.chains[chain_id]["clusters"] = cluster_data
+
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
@@ -972,22 +998,29 @@ def tool_thought_to_plan(args: dict) -> dict:
             "totalSteps": len(active),
             "steps": [{"step": i + 1, "number": t["number"], "action": t["thought"]} for i, t in enumerate(active)]
         }
-        return {"content": [{"type": "text", "text": json.dumps(plan, indent=2, ensure_ascii=False)}]}
-
-    # Markdown plan
-    lines = [f"# 📋 Action Plan — Chain '{chain_id}'", ""]
-    lines.append(f"**{len(active)} steps** extracted from {len(thoughts)} thoughts")
-    lines.append("")
-
-    for i, t in enumerate(active, 1):
-        lines.append(f"## Step {i}")
-        lines.append(f"**Origin**: Thought #{t['number']}")
-        lines.append(f"**Action**: {t['thought']}")
-        if i > 1:
-            lines.append(f"**Depends on**: Step {i - 1}")
+        result_text = json.dumps(plan, indent=2, ensure_ascii=False)
+    else:
+        lines = [f"# 📋 Action Plan — Chain '{chain_id}'", ""]
+        lines.append(f"**{len(active)} steps** extracted from {len(thoughts)} thoughts")
         lines.append("")
-
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+        for i, t in enumerate(active, 1):
+            lines.append(f"## Step {i}")
+            lines.append(f"**Origin**: Thought #{t['number']}")
+            lines.append(f"**Action**: {t['thought']}")
+            if i > 1:
+                lines.append(f"**Depends on**: Step {i - 1}")
+            lines.append("")
+        result_text = "\n".join(lines)
+    
+    # Store plan in chain metadata for dashboard
+    session.chains[chain_id]["plan"] = {
+        "steps": len(active),
+        "format": fmt,
+        "preview": active[0]["thought"][:150] if active else "",
+        "created_at": time.time(),
+    }
+    
+    return {"content": [{"type": "text", "text": result_text}]}
 
 
 def tool_thought_evaluate(args: dict) -> dict:
@@ -1044,6 +1077,9 @@ def tool_thought_evaluate(args: dict) -> dict:
         f"   Concreteness:  {scores['concreteness']}/10",
         "",
     ] + feedback
+
+    # Store score on thought object for dashboard stats
+    target["score"] = overall
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
@@ -1104,6 +1140,16 @@ def tool_thought_bridge(args: dict) -> dict:
     for cid, sim, t in top:
         bar = "█" * int(sim * 10) + "░" * (10 - int(sim * 10))
         lines.append(f"   {bar} {sim:.0%} — Chain '{cid}', #{t['number']}: {t['thought'][:100]}...")
+
+    # Store bridges in session for dashboard
+    for cid, sim, t in top:
+        session.bridges.append({
+            "query": thought_text[:80],
+            "chain_id": cid,
+            "score": round(sim, 2),
+            "thought_preview": t["thought"][:100],
+            "recorded_at": time.time(),
+        })
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
@@ -2228,6 +2274,42 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.end_headers()
                 self.wfile.write(b"Not found -- try /metrics or /health")
         
+        def do_POST(self):
+            if self.path == "/clear-chains":
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    body = self.rfile.read(content_len) if content_len else b'{}'
+                    params = json.loads(body)
+                    session_id = params.get("session_id", _DEFAULT_SESSION)
+                    if session_id in _sessions:
+                        count = len(_sessions[session_id].chains)
+                        _sessions[session_id].chains.clear()
+                        _save_state()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"cleared": count, "session": session_id}).encode())
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                        self.wfile.write(b'{"error":"Session not found"}')
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+            elif self.path == "/clear-bridges":
+                for sess in _sessions.values():
+                    sess.bridges.clear()
+                _save_state()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"cleared":"all bridges"}')
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b'{"error":"Unknown endpoint"}')
+        
         def log_message(self, *args):
             pass  # silence HTTP logs
     
@@ -2304,6 +2386,9 @@ def _start_dashboard(port: int = 9876) -> None:
                     "revisions": len(revisions),
                     "version": chain.get("version", 1),
                     "contradictions": chain.get("contradictions", 0),
+                    "plan": chain.get("plan"),
+                    "clusters": chain.get("clusters", [])[:3],
+                    "similarities": chain.get("similarities", [])[-3:],
                     "created_at": chain.get("created_at", 0),
                     "updated_at": chain.get("updated_at", 0),
                     "preview": thoughts[0].get("thought", "")[:120] if thoughts else "",
@@ -2322,6 +2407,16 @@ def _start_dashboard(port: int = 9876) -> None:
             if hasattr(sess, 'bridges'):
                 bridges.extend(sess.bridges)
         bridges.sort(key=lambda b: b.get("score", 0), reverse=True)
+        
+        # Extract plans and clusters from chains
+        all_plans = []
+        all_clusters = []
+        for sid, sess in _sessions.items():
+            for cid, chain in sess.chains.items():
+                if chain.get("plan"):
+                    all_plans.append({"chain_id": cid, "session": sid, **chain["plan"]})
+                for cl in chain.get("clusters", []):
+                    all_clusters.append({"chain_id": cid, "session": sid, **cl})
         
         return {
             "server": "lumen-thinking",
@@ -2351,6 +2446,8 @@ def _start_dashboard(port: int = 9876) -> None:
             "sessions_detail": sessions_data,
             "chains": chains_detail[:20],
             "bridges": bridges[:10],
+            "plans": all_plans[:10],
+            "clusters": all_clusters[:10],
             "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
             "timeline": _call_timeline[-60:],
