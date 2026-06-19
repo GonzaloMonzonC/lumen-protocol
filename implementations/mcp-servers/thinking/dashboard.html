@@ -1,0 +1,76 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUMEN Dashboard</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>
+:root{--bg:#0a0a0f;--panel:rgba(255,255,255,.03);--border:rgba(255,255,255,.06);--acc:#22d3ee;--purp:#a855f7;--text:#e2e8f0;--dim:#64748b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px}
+h3{font-size:16px;font-weight:600;margin-bottom:12px}
+.glass{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:12px}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:center}
+.kpi .val{font-size:36px;font-weight:800;background:linear-gradient(135deg,var(--acc),var(--purp));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.kpi .lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.card{background:rgba(255,255,255,.02);border-radius:12px;padding:12px;margin-bottom:6px;font-size:12px}
+.tag{font-size:10px;padding:2px 8px;border-radius:999px;font-family:monospace}
+.mono{font-family:'JetBrains Mono',monospace;font-size:10px}
+.cyan{color:var(--acc)}.dim{color:var(--dim)}.green{color:#4ade80}.yellow{color:#facc15}.red{color:#f87171}
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.dot{width:8px;height:8px;border-radius:50%}.live{background:var(--acc)}.off{background:#f87171}
+[x-cloak]{display:none!important}
+</style></head>
+<body x-data="dash" x-init="init()" x-cloak>
+<div class="bar">
+  <div class="dot" :class="connected?'live':'off'"></div>
+  <span style="font-weight:600" x-text="serverName">LUMEN</span>
+  <span class="mono dim" x-text="'v'+version"></span>
+  <span style="margin-left:auto;font-size:11px" :class="connected?'green':'red'" x-text="connected?'Live':'Offline'"></span>
+</div>
+
+<div class="grid4">
+  <div class="kpi"><div class="lbl">Chains</div><div class="val" x-text="t.chains">0</div></div>
+  <div class="kpi"><div class="lbl">Patterns</div><div class="val" x-text="t.patterns">0</div></div>
+  <div class="kpi"><div class="lbl">Model</div><div class="val" x-text="t.model_entities">0</div></div>
+  <div class="kpi"><div class="lbl">Calls</div><div class="val" x-text="t.tool_calls">0</div></div>
+</div>
+
+<div class="grid2">
+  <div class="glass"><h3>Sessions</h3>
+    <template x-for="s in sessions" :key="s.id">
+      <div class="card"><span class="tag cyan" x-text="s.id"></span> <span class="dim" x-text="s.chains+' chains, '+s.patterns+' patterns'"></span></div>
+    </template>
+    <div class="dim" style="font-size:11px" x-show="sessions.length===0">No sessions</div>
+  </div>
+  <div class="glass"><h3>Top Chains</h3>
+    <template x-for="c in topChains" :key="c.chain_id">
+      <div class="card"><span class="tag cyan mono" x-text="c.chain_id"></span> <span class="dim" x-text="c.thoughts+' thoughts'"></span></div>
+    </template>
+    <div class="dim" style="font-size:11px" x-show="topChains.length===0">No chains</div>
+  </div>
+</div>
+
+<div class="glass"><h3>Preserved Contexts</h3>
+  <template x-for="p in preserved" :key="p.label||p.content">
+    <div class="card">
+      <span class="mono" :class="p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim'"
+        x-text="(p.priority==='critical'?'[CRIT] ':p.priority==='high'?'[HIGH] ':'[MED] ')+p.content?.slice(0,120)"></span>
+    </div>
+  </template>
+  <div class="dim" style="font-size:11px" x-show="preserved.length===0">No contexts preserved</div>
+</div>
+
+<div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" x-text="'Metrics: /metrics  |  Updated: '+lastUpdate"></div>
+</body>
+<script>
+document.addEventListener('alpine:init',()=>{Alpine.data('dash',()=>({
+  connected:false,serverName:'LUMEN',version:'0.1',lastUpdate:'--',
+  t:{chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},
+  sessions:[],topChains:[],preserved:[],
+  async init(){await this.fetch();setInterval(()=>this.fetch(),3000)},
+  async fetch(){try{const r=await fetch('/metrics');if(!r.ok)throw new Error();const d=await r.json()
+    this.connected=true;this.serverName=d.server||'LUMEN';this.version=d.version||'0.1'
+    this.t=d.totals||this.t;this.topChains=d.top_chains||[];this.preserved=d.preserved||[]
+    this.sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}))
+    this.lastUpdate=new Date().toLocaleTimeString()}catch(e){this.connected=false}}
+}))});
+</script></html>
