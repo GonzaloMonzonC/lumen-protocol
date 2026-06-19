@@ -78,13 +78,17 @@ def _get_session(session_id: str | None = None) -> Session:
 def _new_chain(session: Session) -> str:
     """Create a new chain in a session. Returns chain_id."""
     cid = f"chain_{len(session.chains) + 1}_{int(time.time())}"
-    session.chains[cid] = {
+    session.chains[cid] = _new_chain_dict(cid)
+    return cid
+
+def _new_chain_dict(cid: str) -> dict:
+    """Create a new chain dict without adding to session."""
+    return {
         "thoughts": [],
         "created_at": time.time(),
         "updated_at": time.time(),
         "version": 1,
     }
-    return cid
 
 def _prune_old(session: Session, n: int = 10) -> None:
     """Keep only the N most recent chains in a session."""
@@ -564,7 +568,8 @@ def tool_sequential_thinking(args: dict) -> dict:
     if not chain_id:
         chain_id = _new_chain(session)
     elif chain_id not in session.chains:
-        return {"content": [{"type": "text", "text": f"Chain '{chain_id}' not found in session. Start a new chain or check the session_id."}]}
+        # Auto-create with custom ID on first use
+        session.chains[chain_id] = _new_chain_dict(chain_id)
 
     chain = session.chains[chain_id]
 
@@ -1111,18 +1116,21 @@ def _update_dependents(session: Session):
 
 
 def tool_model_add(args: dict) -> dict:
-    """Add a file to the mental model."""
+    """Add an entity to the mental model."""
     session = _get_session(args.get("session_id"))  # multi-agent
-    path = args["path"]
+    # Accept both "entity" (new API) and "path" (legacy)
+    entity = args.get("entity") or args.get("path", "")
+    if not entity:
+        return {"content": [{"type": "text", "text": "Error: 'entity' or 'path' parameter required."}]}
     # Normalize to forward slashes for cross-platform consistency
-    path = path.replace("\\", "/")
+    entity = entity.replace("\\", "/")
     role = args.get("role", "other")
     deps = args.get("deps", [])
     notes = args.get("notes", "")
 
-    existing = path in session.model
+    existing = entity in session.model
 
-    session.model[path] = {
+    session.model[entity] = {
         "role": role,
         "deps": list(deps),
         "dependents": [],
@@ -1132,7 +1140,7 @@ def tool_model_add(args: dict) -> dict:
     _update_dependents(session)
 
     action = "Updated" if existing else "Added"
-    lines = [f"🧠 {action} to model: {path}"]
+    lines = [f"🧠 {action} to model: {entity}"]
     if role != "other":
         lines.append(f"   Role: {role}")
     if deps:
@@ -1332,26 +1340,33 @@ def tool_model_scan(args: dict) -> dict:
     """Auto-scan a directory and build the mental model."""
     session = _get_session(args.get("session_id"))  # multi-agent
     scan_path = args.get("path", ".")
-    patterns = args.get("file_patterns", ["*.py", "*.js", "*.ts", "*.rs", "*.go"])
-    max_files = min(args.get("max_files", 100), 500)
+    patterns = args.get("file_patterns", ["*.py", "*.js", "*.ts"])
+    max_files = min(args.get("max_files", 50), 200)
+    max_depth = args.get("max_depth", 1)  # 1 = non-recursive, 0 = unlimited
+    detect_deps_flag = args.get("detect_deps", False)
 
     scan_dir = Path(scan_path)
     if not scan_dir.exists() or not scan_dir.is_dir():
         return {"content": [{"type": "text", "text": f"Error: Directory not found: {scan_path}"}]}
 
-    # Discover files matching patterns
+    # Use os.walk for depth control (faster than rglob on huge dirs)
     discovered = []
-    for pat in patterns:
-        for f in scan_dir.rglob(pat):
-            if len(discovered) >= max_files:
-                break
-            # Skip hidden dirs and common excludes
-            parts = f.parts
-            if any(p.startswith(".") and p != "." for p in parts):
-                continue
-            if any(p in ("node_modules", "__pycache__", ".git", "venv", "dist", "build", ".hermes") for p in parts):
-                continue
-            discovered.append(f)
+    for root, dirs, files in os.walk(scan_path):
+        # Skip hidden dirs and common excludes
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ("node_modules", "__pycache__", ".git", "venv", "dist", "build", ".hermes")]
+        
+        # Check depth
+        if max_depth > 0:
+            depth = root[len(str(scan_path)):].count(os.sep)
+            if depth >= max_depth:
+                dirs[:] = []  # Don't go deeper
+        
+        for fname in files:
+            fpath = Path(root) / fname
+            if any(fpath.match(p) for p in patterns):
+                discovered.append(fpath)
+                if len(discovered) >= max_files:
+                    break
         if len(discovered) >= max_files:
             break
 
@@ -1379,32 +1394,28 @@ def tool_model_scan(args: dict) -> dict:
             return "test"
         return "other"
 
-    # Detect import dependencies for Python files
+    # Detect import dependencies for Python files (only if requested)
     def detect_deps(filepath: Path) -> list:
+        if not detect_deps_flag or filepath.suffix != ".py":
+            return []
         deps = []
-        if filepath.suffix != ".py":
-            return deps
         try:
             content = filepath.read_text(encoding="utf-8", errors="replace")
         except:
             return deps
-        # Simple from/import detection
         for line in content.split("\n"):
             line = line.strip()
             if line.startswith("from ") or line.startswith("import "):
-                # Extract module names
                 parts = line.replace("from ", "").replace("import ", "").split()
                 if parts:
                     mod = parts[0]
-                    # Convert dotted module to potential file path
                     mod_path = mod.replace(".", os.sep) + ".py"
-                    # Check if this module exists in the scanned directory
                     for d in discovered:
                         if str(d).endswith(mod_path) or d.stem == mod.split(".")[-1]:
                             rel = str(d.relative_to(scan_dir)) if d.is_relative_to(scan_dir) else str(d)
                             deps.append(rel)
                             break
-        return deps[:10]  # Cap deps
+        return deps[:10]
 
     # Build model
     added = 0
@@ -1455,11 +1466,15 @@ _preserved: list[dict] = []
 
 def tool_context_preserve(args: dict) -> dict:
     """Mark information as worth preserving."""
-    content = args["content"]
+    content = args.get("content", "")
+    if not content:
+        return {"content": [{"type": "text", "text": "Error: 'content' parameter required."}]}
+    label = args.get("label", "")
     priority = args.get("priority", "high")
     category = args.get("category", "other")
 
     item = {
+        "label": label,
         "content": content,
         "priority": priority,
         "category": category,
@@ -1468,8 +1483,9 @@ def tool_context_preserve(args: dict) -> dict:
     _preserved.append(item)
 
     priority_icon = {"critical": "🔴", "high": "🟡", "medium": "🟢"}.get(priority, "⚪")
+    label_str = f" [{label}]" if label else ""
     lines = [
-        f"{priority_icon} Preserved [{priority}] [{category}]:",
+        f"{priority_icon} Preserved{label_str} [{priority}] [{category}]:",
         f"   \"{content[:200]}\"",
     ]
 
