@@ -16,7 +16,7 @@ _parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _parent)
 
 from native_transport import native_main, set_server_name
-from server import HANDLERS, TOOLS
+from server import HANDLERS, TOOLS, _load_state, _save_state
 
 # ── Windows: force UTF-8 on stdout ──
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,6 +26,9 @@ set_server_name("lumen-thinking-native")
 
 _tool_calls = 0
 _estimated_chars = 0
+
+# Load persisted state on startup
+_load_state()
 
 
 def process_message(msg: dict) -> dict | None:
