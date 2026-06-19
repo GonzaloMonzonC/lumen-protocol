@@ -2708,6 +2708,60 @@ def _start_dashboard(port: int = 9876) -> None:
                 except Exception as e:
                     self.send_response(500); self.end_headers()
                     self.wfile.write(json.dumps({"error": str(e)}).encode())
+            elif self.path == "/claim":
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    raw = self.rfile.read(content_len) if content_len else b'{}'
+                    params = json.loads(raw)
+                    filepath = params.get("path", "").strip()
+                    sid = params.get("session_id", _DEFAULT_SESSION)
+                    ttl = params.get("ttl", 60)
+                    if not filepath:
+                        self.send_response(400); self.end_headers()
+                        self.wfile.write(b'{"error":"path required"}'); return
+                    existing = _file_claims.get(filepath)
+                    if existing and existing.get("expires_at", 0) > time.time() and existing.get("owner") != sid:
+                        existing.setdefault("requests", []).append({"session": sid, "timestamp": time.time()})
+                        _save_state()
+                        self.send_response(409)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "conflict", "owner": existing["owner"],
+                            "expires_in": round(existing["expires_at"] - time.time(), 1)}).encode())
+                    else:
+                        _file_claims[filepath] = {"owner": sid, "expires_at": time.time() + ttl,
+                            "status": "active", "requests": existing.get("requests", []) if existing else []}
+                        _save_state()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "claimed", "expires_in": ttl}).encode())
+                except Exception as e:
+                    self.send_response(500); self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+            elif self.path == "/release":
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    raw = self.rfile.read(content_len) if content_len else b'{}'
+                    params = json.loads(raw)
+                    filepath = params.get("path", "").strip()
+                    sid = params.get("session_id", _DEFAULT_SESSION)
+                    if filepath in _file_claims and _file_claims[filepath].get("owner") == sid:
+                        requests = _file_claims[filepath].get("requests", [])
+                        if requests:
+                            next_owner = requests[0]["session"]
+                            _file_claims[filepath] = {"owner": next_owner, "expires_at": time.time() + 60,
+                                "status": "transferred", "requests": requests[1:]}
+                        else:
+                            del _file_claims[filepath]
+                        _save_state()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "released"}).encode())
+                except Exception as e:
+                    self.send_response(500); self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
             else:
                 self.send_response(404)
                 self.end_headers()
