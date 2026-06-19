@@ -123,6 +123,16 @@ from .cadencia import (
     CadenciaBridge,
 )
 
+# ═══ Shared Memory ══════════════════════════════════════════════════════════════
+from .shm import (
+    ShmRegion,
+    ShmRingBuffer,
+    ShmTransport,
+    RingSide,
+    DEFAULT_REGION_SIZE as SHM_DEFAULT_REGION_SIZE,
+    MAX_FRAME_SIZE as SHM_MAX_FRAME_SIZE,
+)
+
 __all__ = [
     # hyb128
     "HYB128_MAX_ENCODED_LEN",
@@ -202,4 +212,11 @@ __all__ = [
     "BridgeOptions",
     "BridgeResponse",
     "CadenciaBridge",
+    # shm
+    "ShmRegion",
+    "ShmRingBuffer",
+    "ShmTransport",
+    "RingSide",
+    "SHM_DEFAULT_REGION_SIZE",
+    "SHM_MAX_FRAME_SIZE",
 ]

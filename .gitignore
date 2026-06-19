@@ -52,3 +52,6 @@ ROADMAP.md
 # Temp / scratch files
 temp/
 *.tgz
+
+# Internal benchmarks (experimental, not for repo)
+docs/benchmarks/internal/
