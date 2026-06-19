@@ -67,6 +67,7 @@ class Session:
         self.next_decision_id = 1
         self.bridges: list[dict] = []  # thought_bridge results
         self.wiki: dict[str, dict] = {}  # named wiki pages: title → {content, created_at, updated_at, author}
+        self.model_name: str = ""  # LLM model used in this session
         self.tool_calls = 0
         self.created_at = time.time()
         self.updated_at = time.time()
@@ -86,6 +87,7 @@ class Session:
             "next_decision_id": self.next_decision_id,
             "bridges": self.bridges,
             "wiki": self.wiki,
+            "model_name": self.model_name,
             "tool_calls": self.tool_calls,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -106,6 +108,7 @@ class Session:
         s.next_decision_id = d.get("next_decision_id", 1)
         s.bridges = d.get("bridges", [])
         s.wiki = d.get("wiki", {})
+        s.model_name = d.get("model_name", "")
         s.tool_calls = d.get("tool_calls", 0)
         s.created_at = d.get("created_at", time.time())
         s.updated_at = d.get("updated_at", time.time())
