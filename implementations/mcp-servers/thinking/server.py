@@ -837,6 +837,25 @@ def tool_sequential_thinking(args: dict) -> dict:
         last = chain["thoughts"][-1]
         summary_lines.append(f"   Last: #{last['number']}: {last['thought'][:100]}")
 
+    # Auto-trigger: evaluate thought quality automatically
+    if len(chain["thoughts"]) >= 3 and not new_thought.get("score"):
+        try:
+            from server import tool_thought_evaluate as _eval
+            _ = __import__('server', fromlist=['_sessions', '_DEFAULT_SESSION'])
+            # Direct evaluation — set score on the thought
+            thought_text = new_thought["thought"]
+            specificity = min(len(thought_text) / 200, 1.0)
+            has_action = any(w in thought_text.lower() for w in
+                ["hacer", "crear", "ejecutar", "analizar", "implementar",
+                 "migrar", "configurar", "build", "deploy", "run", "test",
+                 "create", "execute", "analyze", "fix", "add", "update", "remove",
+                 "auditar", "verificar", "comparar", "identificar", "resolver"])
+            has_numbers = bool(__import__('re').search(r'\d+', thought_text))
+            score = round((min(len(thought_text)/200,1.0)*10 + (10.0 if has_action else 3.0) + (10.0 if has_numbers else 5.0))/3, 1)
+            new_thought["score"] = score
+        except:
+            pass  # Never let auto-eval break the main flow
+
     return {
         "content": [{"type": "text", "text": "\n".join(summary_lines)}],
         "chainId": chain_id,
