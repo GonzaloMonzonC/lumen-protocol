@@ -84,11 +84,25 @@ h3{font-size:15px;font-weight:600;margin-bottom:12px}
 </div>
 
 <div class="grid2">
+  <div class="glass"><h3>📝 Plans</h3><div id="plans-list"><div class="dim" style="font-size:11px">No plans generated yet</div></div></div>
+  <div class="glass"><h3>📊 Clusters</h3><div id="clusters-list"><div class="dim" style="font-size:11px">No clusters yet</div></div></div>
+</div>
+
+<div class="grid2">
   <div class="glass"><h3>Bridges</h3><div id="bridges-list"><div class="dim" style="font-size:11px">No bridges</div></div></div>
   <div class="glass"><h3>Preserved Contexts</h3><div id="preserved-list"><div class="dim" style="font-size:11px">No contexts preserved</div></div></div>
 </div>
 
-<div class="glass"><h3>Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
+<div class="grid2">
+  <div class="glass"><h3>Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
+  <div class="glass"><h3>🧹 Memory Management</h3>
+    <div style="display:flex;gap:8px">
+      <button onclick="clearChains()" style="flex:1;padding:10px;border-radius:12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.15);color:#f87171;font-size:12px;cursor:pointer;font-family:inherit">Clear all chains</button>
+      <button onclick="clearBridges()" style="flex:1;padding:10px;border-radius:12px;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.15);color:#22d3ee;font-size:12px;cursor:pointer;font-family:inherit">Clear bridges</button>
+    </div>
+    <div id="mem-msg" style="font-size:10px;color:var(--dim);margin-top:8px"></div>
+  </div>
+</div>
 
 <div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" id="footer">Metrics: /metrics  |  Updated: --</div>
 
@@ -253,4 +267,15 @@ async function refresh() {
 }
 refresh();
 window.addEventListener('resize', ()=>drawChart(lastTimeline));
+
+async function clearChains() {
+  try { const r = await fetch('/clear-chains', {method:'POST',body:'{}'});
+    const d = await r.json(); $('mem-msg').textContent = 'Cleared '+d.cleared+' chains'; }
+  catch(e) { $('mem-msg').textContent = 'Error: '+e.message; }
+}
+async function clearBridges() {
+  try { const r = await fetch('/clear-bridges', {method:'POST'});
+    const d = await r.json(); $('mem-msg').textContent = d.cleared; }
+  catch(e) { $('mem-msg').textContent = 'Error: '+e.message; }
+}
 </script></body></html>
