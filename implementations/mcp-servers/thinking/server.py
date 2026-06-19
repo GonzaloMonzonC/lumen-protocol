@@ -2175,9 +2175,24 @@ def _start_dashboard(port: int = 9876) -> None:
     """
     import threading, http.server as _http
     
+    # Load dashboard HTML from file
+    _dashboard_html_path = Path(__file__).parent / "dashboard.html"
+    if _dashboard_html_path.exists():
+        with open(_dashboard_html_path, "r", encoding="utf-8") as f:
+            _DASHBOARD_HTML = f.read()
+    else:
+        _DASHBOARD_HTML = "<html><body><h1>LUMEN Dashboard</h1><p>dashboard.html not found</p></body></html>"
+
     class MetricsHandler(_http.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/metrics":
+            if self.path == "/" or self.path == "/index.html":
+                body = _DASHBOARD_HTML.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path == "/metrics":
                 data = _build_metrics()
                 body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
                 self.send_response(200)
