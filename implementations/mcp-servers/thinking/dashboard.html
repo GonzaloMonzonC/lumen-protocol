@@ -58,6 +58,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 <div class="grid2">
   <div class="glass"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
   <div class="glass"><h3>📝 Plans</h3><div id="plans-list"><div class="dim" style="font-size:11px">No plans</div></div></div>
+  <div class="glass"><h3>🔧 Work Tracker</h3><div id="works-list"><div class="dim" style="font-size:11px">No work tracked</div></div></div>
 </div>
 
 <div class="grid3">
@@ -111,24 +112,36 @@ function drawChart(timeline){
   c.style.width=W+'px';c.style.height=H+'px';ctx.scale(devicePixelRatio||1,devicePixelRatio||1);
   const now=Math.floor(Date.now()/1000);
   const padX=40,padY=25,plotW=W-padX-20,plotH=H-padY*2;
-  const hours=48,bars=48;
+  
+  // Adaptive: count non-zero hours, show at least 4 bars, cap at 48
+  const allBuckets=[];
+  for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<48)allBuckets.push({h,val:(p.delta??0)||0})}
+  const maxH=Math.max(...allBuckets.map(b=>b.h),3); // at least 4 hours
+  const bars=Math.min(48,Math.max(4,Math.ceil(maxH*1.2))); // adaptive, rounded up
   const buckets=Array(bars).fill(0);
-  for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<bars)buckets[bars-1-h]=(p.delta??0)||0}
+  for(const b of allBuckets){if(b.h<bars)buckets[bars-1-b.h]=b.val}
   const maxV=Math.max(...buckets,1);
-  // Grid + labels
+  
+  // Grid + Y labels
   ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
   for(let i=0;i<=3;i++){const y=padY+(plotH/3)*i;ctx.beginPath();ctx.moveTo(padX,y);ctx.lineTo(W-padX,y);ctx.stroke();
     ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(Math.round(maxV-(maxV/3)*i),2,y+3)}
-  // X labels
-  for(let i=0;i<bars;i+=6){const x=padX+(plotW/bars)*i;
-    const h=((bars-1-i)*3600);const d=new Date((now-h)*1000);
-    ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(d.getHours()+':00',x-12,H-4)}
+  
+  // X labels — show ~6-8 labels max
+  const labelStep=Math.max(1,Math.floor(bars/6));
+  for(let i=0;i<bars;i+=labelStep){
+    const x=padX+(plotW/bars)*i;
+    const hAgo=Math.round(((bars-1-i)*3600)/3600);
+    let label=hAgo+'h';if(hAgo>=24)label=Math.floor(hAgo/24)+'d';
+    ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(label,x-10,H-8)}
+  
   // Bars
   const barW=Math.max(2,plotW/bars-2);
   for(let i=0;i<bars;i++){const x=padX+(plotW/bars)*i;const h=(buckets[i]/maxV)*plotH;
     const y=padY+plotH-h;const g=ctx.createLinearGradient(x,y,x,padY+plotH);
     g.addColorStop(0,'rgba(34,211,238,.5)');g.addColorStop(1,'rgba(34,211,238,.03)');
     ctx.fillStyle=g;ctx.fillRect(x+1,y,barW,h)}
+  
   // Cumulative line
   let cum=0;ctx.beginPath();ctx.strokeStyle='#a855f7';ctx.lineWidth=1.5;
   for(let i=0;i<bars;i++){cum+=buckets[i];const x=padX+(plotW/bars)*i+barW/2;const y=padY+plotH-(cum/Math.max(cum,1))*plotH;
@@ -157,7 +170,9 @@ async function refresh(){
     $('mem-t').textContent=t.thoughts??0;$('mem-c').textContent=t.chains??0;$('mem-s').textContent=d.sessions||0;
     $('mem-bar').style.width=Math.min(100,((t.thoughts||0)/200)*100)+'%';$('mem-label').textContent=(t.thoughts||0)+' / 200';
     
-    $('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${Math.round(b.score*100)}%</span> <span class="dim mono">${b.query?.slice(0,50)} → ${b.chain_id?.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No bridges</div>';
+    $('works-list').innerHTML=(d.works||[]).length?d.works.map(w=>{const icon=w.status==='done'?'✅':w.status==='blocked'?'🚫':'🔧';const dur=w.duration_seconds?` · ${w.duration_seconds<60?w.duration_seconds+'s':(w.duration_seconds/60).toFixed(1)+'m'}`:'';return`<div class="card"><span class="tag mono" style="background:${w.status==='done'?'rgba(74,222,128,.1)':w.status==='blocked'?'rgba(248,113,113,.1)':'rgba(34,211,238,.1)'};color:${w.status==='done'?'var(--green)':w.status==='blocked'?'var(--red)':'var(--acc)'}">${icon} #${w.id}</span> <span class="dim">${w.item?.slice(0,40)}${dur}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No work tracked</div>';
+
+$('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${Math.round(b.score*100)}%</span> <span class="dim mono">${b.query?.slice(0,50)} → ${b.chain_id?.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No bridges</div>';
     
     const sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}));
     $('sessions-list').innerHTML=sessions.length?sessions.map(s=>`<div class="card"><span class="tag cyan mono">${s.id}</span> <span class="dim">${s.chains}c · ${s.patterns}p · ${s.tool_calls} calls</span></div>`).join(''):'<div class="dim" style="font-size:11px">No sessions</div>';
