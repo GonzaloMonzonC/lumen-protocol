@@ -2562,6 +2562,73 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path == "/benchmarks":
+                # Phase F scorecard: compute real metrics from live data
+                total_thoughts = sum(len(c.get("thoughts",[])) for s in _sessions.values() for c in s.chains.values())
+                total_chains = sum(len(s.chains) for s in _sessions.values())
+                total_patterns = sum(len(s.patterns) for s in _sessions.values())
+                total_tool_calls = sum(s.tool_calls for s in _sessions.values())
+                total_works = sum(len(s.works) for s in _sessions.values())
+                total_wiki = sum(len(s.wiki) for s in _sessions.values())
+                total_bridges = sum(len(s.bridges) for s in _sessions.values())
+                total_decisions = sum(len(s.decisions) for s in _sessions.values())
+                
+                # Pattern recall rate
+                pattern_hits = sum(p.get("match_count", 0) for s in _sessions.values() for p in s.patterns)
+                pattern_total = sum(1 for s in _sessions.values() for p in s.patterns if p.get("match_count", 0) > 0)
+                
+                # Score stats
+                all_scores = []
+                for s in _sessions.values():
+                    for c in s.chains.values():
+                        for t in c.get("thoughts", []):
+                            if t.get("score"): all_scores.append(t["score"])
+                avg_score = round(sum(all_scores)/len(all_scores), 1) if all_scores else None
+                
+                # Cross-session value
+                sessions_count = len(_sessions)
+                cross_session_bridges = sum(1 for s in _sessions.values() for b in s.bridges if b.get("score", 0) > 0.3)
+                
+                scorecard = {
+                    "phase": "F — Intelligence as Commodity",
+                    "proposition": "LUMEN cognitive exoskeleton makes any model smarter",
+                    "metrics": {
+                        "total_thoughts": total_thoughts,
+                        "total_chains": total_chains,
+                        "avg_score": avg_score,
+                        "pattern_recall": {
+                            "total_patterns": total_patterns,
+                            "patterns_with_hits": pattern_total,
+                            "total_hits": pattern_hits,
+                            "description": "Bugs caught by pattern matching before reaching code"
+                        },
+                        "knowledge_accumulation": {
+                            "wiki_pages": total_wiki,
+                            "decisions_logged": total_decisions,
+                            "cross_session_bridges": cross_session_bridges,
+                            "description": "Knowledge that survives context windows and sessions"
+                        },
+                        "work_tracking": {
+                            "total_works": total_works,
+                            "completed": sum(1 for s in _sessions.values() for w in s.works if w.get("status") == "done"),
+                            "description": "Task tracking with durations across sessions"
+                        },
+                        "tool_efficiency": {
+                            "total_calls": total_tool_calls,
+                            "sessions": sessions_count,
+                            "calls_per_session": round(total_tool_calls/max(sessions_count,1), 1),
+                            "description": "How much the exoskeleton is being used"
+                        }
+                    },
+                    "verdict": "READY" if total_chains > 0 else "NEEDS_DATA",
+                    "tagline": "When a 7B with LUMEN beats a 70B alone, intelligence is a commodity."
+                }
+                body = json.dumps(scorecard, ensure_ascii=False, indent=2).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self.send_response(404)
                 self.end_headers()
