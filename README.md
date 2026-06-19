@@ -16,8 +16,8 @@
 
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
-  <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> &nbsp;|&nbsp;
-  <strong>✅ 33 tools — works with Hermes</strong>
+  <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
+  <strong>✅ 44 tools — Level 2 SHM zero-copy transport — works with Hermes</strong>
 </p>
 
 ---
@@ -29,9 +29,10 @@ JSON-RPC over stdio is the MCP standard. It works. But at scale, it hurts:
 | Pain | LUMEN answer |
 |------|-------------|
 | **Verbose wire** — `{"jsonrpc":"2.0","id":7,...}` on every message | **Static dictionary** (128 keys) + **session dictionary** (127 keys). Repeated keys → 1 byte. |
-| **Costly parsing** — every JSON blob must be fully decoded | **Self-delimiting frames** (Hyb128). Skip entire frames in O(1). |
+| **Kernel copies** — stdio pipes copy data twice (kernel↔user) | **Level 2 SHM** — mmap'd ring buffers eliminate all copies. Zero-copy for local IPC. |
 | **No streaming** — JSON is a single, complete document | **Native streaming** (`STREAM_DATA` + `STREAM_INIT` frames). Tokens arrive token-by-token. |
 | **No security model** — all-or-nothing access to the server | **Zero-trust Macaroons** with attenuable caveats. Wire encryption with ChaCha20-Poly1305. |
+| **Windows fragility** — shell tools (`ls`, `grep`, `stat`, `du`) unreliable on Windows | **13 filesystem tools** including `file_info`, `disk_usage`, `search_filename`, `find_duplicates` — zero shell dependency. |
 
 ---
 
@@ -79,6 +80,16 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 ```
 → LUMEN: `type=REQUEST, tool, method, name, pattern` are dict IDs (1 byte each), only `"search"` and `"TODO"` go as raw strings.
 
+**It's not just theory.** Benchmark on real MCP tool responses:
+
+| Server | JSON-RPC | LUMEN | Savings |
+|--------|----------|-------|---------|
+| Filesystem (13 tools) | 100% | 81% | **19% smaller** |
+| Thinking (29 tools) | 100% | 67% | **33% smaller** |
+| Web (2 tools) | 100% | 73% | **27% smaller** |
+
+> **Benchmarked**: 44 tools, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
+
 ---
 
 ## Key metrics
@@ -115,21 +126,22 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 
 | Server | Tools | Wire Savings | Hermes Config |
 |--------|-------|-------------|---------------|
-| **[Filesystem](implementations/mcp-servers/filesystem/)** | 9 (read, write, search, stream, stats...) | 32-70% | `transport: lumen` |
-| **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 40-50% | `transport: lumen` |
-| **[Thinking](implementations/mcp-servers/thinking/)** | 22 (sequential, similarity, contradiction, assumptions, model, work...) | 60-80% | `transport: lumen` |
+| **[Filesystem](implementations/mcp-servers/filesystem/)** | **13** 🔥 (read, write, search, stream, stats, info, du, dedup...) | 10-38% | Plugin `lumen-shm-bridge` |
+| **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 18-36% | Plugin `lumen-shm-bridge` |
+| **[Thinking](implementations/mcp-servers/thinking/)** | **29** 🔥 (chains, cross-chain, model, patterns, decisions, sessions...) | 11-59% | Plugin `lumen-shm-bridge` |
 
-> **33 tools, 3 servers, 0 API keys required.**
+> **44 tools, 3 servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
 ---
 
 ## Transport levels
 
 ```
-Level 1 — stdio/UDS       (local, zero-copy SHM)
-Level 2 — TCP             (LAN, Hyb128 framing)
-Level 3 — UDP + Multicast (service discovery, fire-and-forget)
-Level 4 — QUIC            (WAN, HTTP/3, production)
+Level 1 — stdio/Binary     (local, Hyb128 frames, 55-80% savings)
+Level 2 — SHM/mmap 🔥      (local IPC, zero-copy ring buffers, sub-ms latency)
+Level 3 — TCP              (LAN, Hyb128 framing)
+Level 4 — UDP + Multicast  (service discovery, fire-and-forget)
+Level 5 — QUIC             (WAN, HTTP/3, production)
 ```
 
 ---
@@ -161,7 +173,9 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | 33 tools across filesystem (9), web (2), thinking (22) |
+| MCP servers | ✅ | **44 tools** across filesystem (**13**), web (2), thinking (**29**) |
+| SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=50M, sub-ms latency |
+| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 44 tools, transparent override of built-ins |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
