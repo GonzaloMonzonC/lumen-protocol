@@ -258,10 +258,14 @@ async function refresh(){
     const now=Date.now()/1000;$('presence-list').innerHTML=(d.presence&&Object.keys(d.presence).length)?Object.entries(d.presence).map(([id,p])=>{const ago=Math.round(now-p.last_seen);const active=ago<300;return`<div class="card"><span class="tag mono" style="background:${active?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)'};color:${active?'var(--green)':'var(--dim)'}">${active?'●':'○'} ${id}</span> <span class="dim">PID ${p.pid} · ${ago}s ago · ${p.tool_calls} calls</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No presence data</div>';
     const preserved=d.preserved||[];$('preserved-list').innerHTML=preserved.length?preserved.map(p=>{const prio=p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim';return`<div class="card"><span class="mono ${prio}">${(p.content||'').slice(0,150)}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';
     
-    drawChart(d.timeline||[]);pulseUpdate(d.works||[]);buildHeatmap(d.chains||[]);
+    // Only redraw if data changed
+    const newTL=JSON.stringify(d.timeline||[]),newW=JSON.stringify(d.works||[]);
+    if(newTL!==lastTimelineStr){drawChart(d.timeline||[]);lastTimelineStr=newTL}
+    if(newW!==lastWorksStr){pulseUpdate(d.works||[]);lastWorksStr=newW}
+    buildHeatmap(d.chains||[]);
     $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
-  setTimeout(refresh,3000)}
+  setTimeout(refresh,10000)}
 refresh();
 
 function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||c.error)return;

@@ -38,7 +38,10 @@ if __name__ == "__main__":
             port = int(sys.argv[idx + 1]) if idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit() else 9876
         except (ValueError, IndexError):
             port = 9876
-        _server._start_dashboard(port)
+        try:
+            _server._start_dashboard(port)
+        except Exception as e:
+            print(f"[lumen-shm] Dashboard failed: {e}", file=sys.stderr)
     
     server = ShmNativeServer(
         "lumen-thinking-shm",
