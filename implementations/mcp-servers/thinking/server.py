@@ -125,7 +125,8 @@ _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []
-_session_presence: dict = {}  # session_id → {pid, last_seen, tool_calls}
+_session_presence: dict = {}
+_file_touches: list[dict] = []  # [{session_id, path, timestamp}]  # session_id → {pid, last_seen, tool_calls}
 
 def _save_state() -> None:
     """Persist all state to disk atomically."""
@@ -157,6 +158,7 @@ def _save_state() -> None:
             "preserved": _preserved,
             "timeline": _call_timeline,
             "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls} for sid, s in _sessions.items()},
+            "file_touches": _file_touches[-200:],  # last 200 touches
             "saved_at": time.time(),
         }
         tmp = str(_STATE_FILE) + ".tmp"
@@ -2380,6 +2382,43 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(b'{"cleared":"all bridges"}')
+            elif self.path == "/touch":
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    body = self.rfile.read(content_len) if content_len else b'{}'
+                    params = json.loads(body)
+                    sid = params.get("session_id", _DEFAULT_SESSION)
+                    path = params.get("path", "")
+                    if path:
+                        _file_touches.append({"session_id": sid, "path": path, "timestamp": time.time()})
+                        if len(_file_touches) > 500: _file_touches[:] = _file_touches[-500:]
+                        _save_state()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"touches": len(_file_touches)}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+            elif self.path == "/collisions":
+                now = time.time()
+                window = 300  # 5 minutes
+                # Group touches by file path
+                from collections import defaultdict
+                by_file = defaultdict(list)
+                for t in _file_touches:
+                    if now - t["timestamp"] < window:
+                        by_file[t["path"]].append(t)
+                collisions = []
+                for path, touches in by_file.items():
+                    sessions = set(t["session_id"] for t in touches)
+                    if len(sessions) > 1:
+                        collisions.append({"path": path, "sessions": list(sessions), "count": len(touches)})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"window_s": window, "collisions": collisions}).encode())
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -2402,8 +2441,9 @@ def _start_dashboard(port: int = 9876) -> None:
                     _preserved = state.get("preserved", [])
                     if "timeline" in state:
                         _call_timeline[:] = state["timeline"]
-                    global _session_presence
+                    global _session_presence, _file_touches
                     _session_presence = state.get("presence", {})
+                    _file_touches = state.get("file_touches", [])
                     _last_state_mtime = file_mtime
             except Exception:
                 pass
