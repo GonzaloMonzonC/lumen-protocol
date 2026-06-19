@@ -128,11 +128,21 @@ def _save_state() -> None:
     global _save_counter
     _save_counter = 0
     try:
-        # Record timeline snapshot with delta (calls since last save)
+        # Record timeline snapshot with hourly bucketing
         total_calls = sum(s.tool_calls for s in _sessions.values())
-        delta = total_calls - (_last_timeline_total if hasattr(_save_state, '_last_total') else 0)
-        _save_state._last_total = total_calls
-        _call_timeline.append({"ts": time.time(), "calls": total_calls, "delta": delta})
+        now = time.time()
+        hour_key = int(now // 3600)  # bucket by hour
+        
+        # Find or create this hour's bucket
+        if _call_timeline and _call_timeline[-1].get("hour") == hour_key:
+            _call_timeline[-1]["calls"] = total_calls
+            _call_timeline[-1]["ts"] = now
+        else:
+            _call_timeline.append({"hour": hour_key, "ts": now, "calls": total_calls, "delta": total_calls - (_call_timeline[-1]["calls"] if _call_timeline else 0)})
+        
+        # Keep last 48h (48 buckets)
+        cutoff_hour = hour_key - 48
+        _call_timeline[:] = [b for b in _call_timeline if b["hour"] > cutoff_hour]
         # Keep last 200 snapshots (~30min at 10s intervals)
         if len(_call_timeline) > 200:
             _call_timeline[:] = _call_timeline[-200:]
