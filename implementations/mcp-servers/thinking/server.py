@@ -1331,6 +1331,7 @@ def tool_model_add(args: dict) -> dict:
     role = args.get("role", "other")
     deps = args.get("deps", [])
     notes = args.get("notes", "")
+    properties = args.get("properties", {})
 
     existing = entity in session.model
 
@@ -1339,6 +1340,7 @@ def tool_model_add(args: dict) -> dict:
         "deps": list(deps),
         "dependents": [],
         "notes": notes,
+        "properties": dict(properties) if isinstance(properties, dict) else {},
         "added_at": time.time(),
     }
     _update_dependents(session)
@@ -2346,6 +2348,38 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Type", "text/plain")
                 self.end_headers()
                 self.wfile.write(b"OK")
+            elif self.path.startswith("/model"):
+                # GET /model or GET /model?entity=X
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                entity_name = qs.get("entity", [None])[0]
+                session_id = qs.get("session_id", [_DEFAULT_SESSION])[0]
+                session = _sessions.get(session_id, _sessions.get(_DEFAULT_SESSION))
+                if entity_name:
+                    if entity_name in session.model:
+                        data = dict(session.model[entity_name])
+                        data["entity"] = entity_name
+                        body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": f"Entity '{entity_name}' not found"}).encode())
+                else:
+                    # Return all entities
+                    all_entities = {e: dict(session.model[e]) for e in session.model}
+                    body = json.dumps(all_entities, ensure_ascii=False, indent=2).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
             elif self.path == "/collisions":
                 now = time.time(); window = 300
                 from collections import defaultdict
@@ -2370,7 +2404,56 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.wfile.write(b"Not found -- try /metrics or /health")
         
         def do_POST(self):
-            if self.path == "/clear-chains":
+            if self.path.startswith("/model"):
+                from urllib.parse import urlparse, parse_qs
+                content_len = int(self.headers.get('Content-Length', 0))
+                body_raw = self.rfile.read(content_len) if content_len else b'{}'
+                params = json.loads(body_raw)
+                action = params.get("_action", "upsert")  # upsert or delete
+                entity = params.get("entity", "")
+                session_id = params.get("session_id", _DEFAULT_SESSION)
+                if session_id not in _sessions:
+                    _sessions[session_id] = Session(label=session_id)
+                session = _sessions[session_id]
+                if action == "delete":
+                    if entity in session.model:
+                        del session.model[entity]
+                        _update_dependents(session)
+                        _save_state()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"deleted": entity}).encode())
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": f"Entity '{entity}' not found"}).encode())
+                else:
+                    if not entity:
+                        self.send_response(400)
+                        self.end_headers()
+                        self.wfile.write(b'{"error":"entity required"}')
+                        return
+                    entity = entity.replace("\\", "/")
+                    existing = entity in session.model
+                    session.model[entity] = {
+                        "role": params.get("role", "other"),
+                        "deps": list(params.get("deps", [])),
+                        "dependents": [],
+                        "notes": params.get("notes", ""),
+                        "properties": dict(params.get("properties", {})) if isinstance(params.get("properties"), dict) else {},
+                        "added_at": time.time(),
+                    }
+                    _update_dependents(session)
+                    _save_state()
+                    act = "updated" if existing else "created"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"action": act, "entity": entity}).encode())
+            elif self.path == "/clear-chains":
                 try:
                     content_len = int(self.headers.get('Content-Length', 0))
                     body = self.rfile.read(content_len) if content_len else b'{}'
@@ -2442,6 +2525,14 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.end_headers()
                 self.wfile.write(b'{"error":"Unknown endpoint"}')
         
+
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
         def log_message(self, *args):
             pass  # silence HTTP logs
     
