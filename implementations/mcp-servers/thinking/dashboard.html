@@ -28,8 +28,9 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 .btn{padding:10px 16px;border-radius:12px;font-size:12px;cursor:pointer;font-family:inherit;border:1px solid;transition:all .2s}
 .btn-danger{background:rgba(248,113,113,.06);border-color:rgba(248,113,113,.15);color:var(--red)}.btn-danger:hover{background:rgba(248,113,113,.12)}
 .btn-acc{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.15);color:var(--acc)}.btn-acc:hover{background:rgba(34,211,238,.12)}
-.chart-wrap{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:12px;position:relative}
-.chart-wrap h3{margin-bottom:8px}.chart-wrap .sub{font-size:10px;color:var(--dim);margin-bottom:16px}
+.chart-wrap{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:24px 24px 16px;margin-bottom:12px;position:relative}
+.chart-wrap h3{margin-bottom:4px}.chart-wrap .sub{font-size:10px;color:var(--dim);margin-bottom:12px}
+.chart-wrap .stats{display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--dim)}
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
 .modal{background:#111118;border:1px solid var(--border);border-radius:16px;padding:24px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto}
 .modal h3{font-size:13px}.modal-close{float:right;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px 8px}
@@ -51,25 +52,28 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 </div>
 
 <div class="chart-wrap">
-  <h3>Activity — Last 48 Hours</h3>
-  <canvas id="chart" style="width:100%;height:200px"></canvas>
+  <h3>Activity</h3>
+  <div class="sub">Calls per hour — last 48 hours</div>
+  <canvas id="chart" style="width:100%;height:220px"></canvas>
+  <div class="stats" id="chart-stats"></div>
 </div>
 
 <div class="chart-wrap">
-  <h3>Work Timeline — Last 48 Hours</h3>
-  <div class="sub">Each bar = a work item. Green = done, cyan = in progress, red = blocked.</div>
+  <h3>Work Timeline</h3>
+  <div class="sub">Each bar = a work item</div>
   <canvas id="work-chart" style="width:100%;height:120px"></canvas>
 </div>
 
 <div class="grid2">
   <div class="glass"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
   <div class="glass"><h3>📝 Plans</h3><div id="plans-list"><div class="dim" style="font-size:11px">No plans</div></div></div>
-  <div class="glass"><h3>🔧 Work Tracker</h3><div id="works-list"><div class="dim" style="font-size:11px">No work tracked</div></div></div>
 </div>
-
+<div class="grid2">
+  <div class="glass"><h3>🔧 Work Tracker</h3><div id="works-list"><div class="dim" style="font-size:11px">No work tracked</div></div></div>
+  <div class="glass"><h3>📚 Wiki</h3><div id="wiki-list"><div class="dim" style="font-size:11px">No wiki pages</div></div></div>
+</div>
 <div class="grid3">
   <div class="glass"><h3>📊 Clusters</h3><div id="clusters-list"><div class="dim" style="font-size:11px">No clusters</div></div></div>
-  <div class="glass"><h3>📚 Wiki</h3><div id="wiki-list"><div class="dim" style="font-size:11px">No wiki pages</div></div></div>
   <div class="glass"><h3>💭 Breakdown</h3>
     <div class="chain-row"><span class="dim">Total</span><span id="tb-total">0</span></div>
     <div class="chain-row"><span class="dim">Chains</span><span id="tb-chains">0</span></div>
@@ -86,16 +90,16 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
     <div class="dim mono" style="font-size:9px;margin-top:4px" id="mem-label">0 / 200</div>
   </div>
 </div>
-
 <div class="grid2">
-  <div class="glass"><h3>⚠️ Collisions</h3><div id="collisions-list"><div class="dim" style="font-size:11px">Loading...</div></div></div>
+  <div class="glass"><h3>⚠️ Collisions</h3><div id="collisions-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
   <div class="glass"><h3>🌉 Bridges</h3><div id="bridges-list"><div class="dim" style="font-size:11px">No bridges</div></div></div>
-  <div class="glass"><h3>💾 Preserved</h3><div id="preserved-list"><div class="dim" style="font-size:11px">No contexts preserved</div></div></div>
 </div>
-
 <div class="grid2">
-  <div class="glass"><h3>👥 Active Sessions</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
-  <div class="glass"><h3>📋 Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
+  <div class="glass"><h3>💾 Preserved</h3><div id="preserved-list"><div class="dim" style="font-size:11px">No contexts preserved</div></div></div>
+  <div class="glass"><h3>👥 Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
+</div>
+<div class="grid2">
+  <div class="glass"><h3>📋 Details</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
   <div class="glass"><h3>🧹 Manage</h3>
     <div style="display:flex;gap:8px">
       <button class="btn btn-danger" onclick="clearChains()">Clear chains</button>
@@ -110,51 +114,79 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 
 <script>
 const $=id=>document.getElementById(id);
-let lastTimeline=[];let lastWorks=[];
+let lastTimeline=[],lastWorks=[];
 
 function drawChart(timeline){
   const c=$('chart');if(!timeline||timeline.length<1){c.style.display='none';return}c.style.display='block';
   lastTimeline=timeline;
-  const ctx=c.getContext('2d');
-  const W=c.parentElement.clientWidth-48,H=200;
-  c.width=W*(devicePixelRatio||1);c.height=H*(devicePixelRatio||1);
-  c.style.width=W+'px';c.style.height=H+'px';ctx.scale(devicePixelRatio||1,devicePixelRatio||1);
-  const now=Math.floor(Date.now()/1000);
-  const padX=40,padY=25,plotW=W-padX-20,plotH=H-padY*2;
+  const ctx=c.getContext('2d'),dpr=devicePixelRatio||1;
+  const W=c.parentElement.clientWidth-48,H=220;
+  c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';ctx.scale(dpr,dpr);
+  const now=Math.floor(Date.now()/1000),padX=40,padY=30,plotW=W-padX-20,plotH=H-padY*2;
+  const allBuckets=[];for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<48)allBuckets.push({h,val:(p.delta??0)||0})}
+  const maxH=allBuckets.length?Math.max(...allBuckets.map(b=>b.h),3):3;
+  const bars=Math.min(48,Math.max(6,Math.ceil(maxH*1.2)));
+  const buckets=Array(bars).fill(0);for(const b of allBuckets){if(b.h<bars)buckets[bars-1-b.h]=b.val}
+  const maxV=Math.max(...buckets,1),totalCalls=buckets.reduce((a,b)=>a+b,0),peakH=buckets.indexOf(Math.max(...buckets));
   
-  // Adaptive: count non-zero hours, show at least 4 bars, cap at 48
-  const allBuckets=[];
-  for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<48)allBuckets.push({h,val:(p.delta??0)||0})}
-  const maxH=Math.max(...allBuckets.map(b=>b.h),3); // at least 4 hours
-  const bars=Math.min(48,Math.max(4,Math.ceil(maxH*1.2))); // adaptive, rounded up
-  const buckets=Array(bars).fill(0);
-  for(const b of allBuckets){if(b.h<bars)buckets[bars-1-b.h]=b.val}
-  const maxV=Math.max(...buckets,1);
-  
-  // Grid + Y labels
+  // Grid
   ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
-  for(let i=0;i<=3;i++){const y=padY+(plotH/3)*i;ctx.beginPath();ctx.moveTo(padX,y);ctx.lineTo(W-padX,y);ctx.stroke();
-    ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(Math.round(maxV-(maxV/3)*i),2,y+3)}
+  for(let i=0;i<=4;i++){const y=padY+(plotH/4)*i;ctx.beginPath();ctx.moveTo(padX,y);ctx.lineTo(W-padX,y);ctx.stroke();
+    ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(Math.round(maxV-(maxV/4)*i),2,y+3)}
+  const labelStep=Math.max(1,Math.floor(bars/8));
+  for(let i=0;i<bars;i+=labelStep){const x=padX+(plotW/bars)*i;const hAgo=Math.round(((bars-1-i)*3600)/3600);
+    let label=hAgo+'h';if(hAgo>=24)label=Math.floor(hAgo/24)+'d';ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(label,x-8,H-10)}
   
-  // X labels — show ~6-8 labels max
-  const labelStep=Math.max(1,Math.floor(bars/6));
-  for(let i=0;i<bars;i+=labelStep){
-    const x=padX+(plotW/bars)*i;
-    const hAgo=Math.round(((bars-1-i)*3600)/3600);
-    let label=hAgo+'h';if(hAgo>=24)label=Math.floor(hAgo/24)+'d';
-    ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(label,x-10,H-8)}
-  
-  // Bars
-  const barW=Math.max(2,plotW/bars-2);
-  for(let i=0;i<bars;i++){const x=padX+(plotW/bars)*i;const h=(buckets[i]/maxV)*plotH;
-    const y=padY+plotH-h;const g=ctx.createLinearGradient(x,y,x,padY+plotH);
-    g.addColorStop(0,'rgba(34,211,238,.5)');g.addColorStop(1,'rgba(34,211,238,.03)');
-    ctx.fillStyle=g;ctx.fillRect(x+1,y,barW,h)}
+  // Gradient bars
+  const barW=Math.max(3,plotW/bars-3);
+  for(let i=0;i<bars;i++){const x=padX+(plotW/bars)*i,val=buckets[i];if(!val)continue;const h=(val/maxV)*plotH;
+    const y=padY+plotH-h,grad=ctx.createLinearGradient(x,y,x,padY+plotH);
+    grad.addColorStop(0,'rgba(34,211,238,.55)');grad.addColorStop(.5,'rgba(34,211,238,.25)');grad.addColorStop(1,'rgba(34,211,238,.03)');
+    ctx.fillStyle=grad;ctx.beginPath();roundRect(ctx,x+1,y,barW,h,2);ctx.fill()}
   
   // Cumulative line
-  let cum=0;ctx.beginPath();ctx.strokeStyle='#a855f7';ctx.lineWidth=1.5;
-  for(let i=0;i<bars;i++){cum+=buckets[i];const x=padX+(plotW/bars)*i+barW/2;const y=padY+plotH-(cum/Math.max(cum,1))*plotH;
-    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke();
+  let cum=0;ctx.beginPath();ctx.strokeStyle='#a855f7';ctx.lineWidth=1.5;ctx.shadowColor='#a855f7';ctx.shadowBlur=4;
+  for(let i=0;i<bars;i++){cum+=buckets[i];const x=padX+(plotW/bars)*i+barW/2,y=padY+plotH-(cum/Math.max(cum,1))*plotH;
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke();ctx.shadowBlur=0;
+  
+  // Stats
+  $('chart-stats').innerHTML=`<span>🟢 ${totalCalls} calls</span><span>📈 Peak: ${maxV} at ${bars-1-peakH}h ago</span><span>📊 ${bars}h window</span>`;
+}
+
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath()}
+
+function drawWorkChart(works){
+  const c=$('work-chart');if(!works||!works.length){c.style.display='none';return}c.style.display='block';
+  lastWorks=works;
+  const ctx=c.getContext('2d'),dpr=devicePixelRatio||1;
+  const W=c.parentElement.clientWidth-48,H=120;
+  c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';ctx.scale(dpr,dpr);
+  const now=Date.now()/1000,padX=40,padY=22,plotW=W-padX-20,timeW=48*3600;
+  const sorted=[...works].filter(w=>w.started_at).sort((a,b)=>(a.started_at||0)-(b.started_at||0));
+  if(!sorted.length)return;
+  const rowH=Math.min(22,Math.max(8,(H-padY*2-4)/sorted.length));
+  const totalH=Math.min(H-padY*2,sorted.length*rowH+4);
+  
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,.03)';ctx.lineWidth=.5;
+  for(let h=0;h<48;h+=6){const x=padX+(plotW/48)*h;ctx.beginPath();ctx.moveTo(x,padY);ctx.lineTo(x,padY+totalH);ctx.stroke();
+    ctx.fillStyle='#64748b';ctx.font='8px Inter';ctx.fillText((48-h)+'h',x-8,padY-6)}
+  
+  // Bars with rounded corners
+  for(let i=0;i<sorted.length;i++){const w=sorted[i];const start=w.started_at||now-3600;const end=w.done_at||now;
+    let x1=padX+((start-(now-timeW))/timeW)*plotW,x2=padX+((end-(now-timeW))/timeW)*plotW;
+    x1=Math.max(padX,x1);x2=Math.min(padX+plotW,x2);const bw=Math.max(4,x2-x1),y=padY+i*rowH;
+    let color,glow;
+    if(w.status==='done'){color='rgba(74,222,128,.5)';glow='rgba(74,222,128,.2)'}
+    else if(w.status==='blocked'){color='rgba(248,113,113,.5)';glow='rgba(248,113,113,.2)'}
+    else{color='rgba(34,211,238,.5)';glow='rgba(34,211,238,.2)'}
+    // Glow
+    ctx.fillStyle=glow;ctx.beginPath();roundRect(ctx,x1-1,y-1,bw+2,rowH,3);ctx.fill();
+    // Bar
+    ctx.fillStyle=color;ctx.beginPath();roundRect(ctx,x1,y,bw,rowH-2,2);ctx.fill();
+    // Label
+    if(bw>60){ctx.fillStyle='rgba(255,255,255,.85)';ctx.font=`${Math.min(9,rowH-4)}px Inter`;ctx.fillText((w.item||'').slice(0,30),x1+4,y+rowH-6)}
+  }
 }
 
 async function refresh(){
@@ -167,66 +199,32 @@ async function refresh(){
     $('kpi-calls').textContent=t.tool_calls??0;$('kpi-calls-sub').textContent=Math.round(d.uptime_seconds||0)+'s uptime';
     
     const chains=d.chains||[];$('chains-list').innerHTML=chains.length?chains.map(c=>`<div class="card" style="cursor:pointer" onclick="showChain('${c.chain_id}')"><div style="display:flex;justify-content:space-between"><span class="tag cyan mono">${c.chain_id.slice(0,25)}</span>${c.score_avg?`<span class="yellow mono">${c.score_avg}★</span>`:''}</div><div class="dim mono" style="margin-top:4px">${c.thoughts}t · ${c.branches}b · ${c.revisions}r</div>${c.score_avg?`<div class="score-bar" style="width:${Math.min(100,c.score_avg*10)}%"></div>`:''}</div>`).join(''):'<div class="dim" style="font-size:11px">No chains</div>';
-    
     $('plans-list').innerHTML=(d.plans||[]).length?d.plans.map(p=>`<div class="card"><span class="tag cyan mono">${p.chain_id.slice(0,20)}</span> <span class="dim">${p.steps} steps</span><div class="dim" style="font-size:10px;margin-top:4px">${p.preview||''}</div></div>`).join(''):'<div class="dim" style="font-size:11px">No plans</div>';
-    
-    $('wiki-list').innerHTML=(d.wiki||[]).length?d.wiki.map(w=>`<div class="card" style="cursor:pointer" onclick="showWiki('${w.title.replace(/'/g,"\'")}')"><span class="tag cyan mono">${w.title.slice(0,30)}</span> <span class="dim">${w.chars} · ${w.author}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No wiki pages</div>';
-
-$('clusters-list').innerHTML=(d.clusters||[]).length?d.clusters.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${c.label}</span> <span class="dim">${c.count}t · ${c.chain_id.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No clusters</div>';
-    
-    $('tb-total').textContent=t.thoughts??0;$('tb-chains').textContent=t.chains??0;
-    $('tb-avg').textContent=t.chains?((t.thoughts/t.chains).toFixed(1)):'--';
-    $('tb-branches').textContent=t.branches??0;$('tb-revisions').textContent=t.revisions??0;$('tb-rated').textContent=sc.total_rated??0;
-    
-    $('mem-t').textContent=t.thoughts??0;$('mem-c').textContent=t.chains??0;$('mem-s').textContent=d.sessions||0;
-    $('mem-bar').style.width=Math.min(100,((t.thoughts||0)/200)*100)+'%';$('mem-label').textContent=(t.thoughts||0)+' / 200';
-    
+    $('clusters-list').innerHTML=(d.clusters||[]).length?d.clusters.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${c.label}</span> <span class="dim">${c.count}t · ${c.chain_id.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No clusters</div>';
+    $('wiki-list').innerHTML=(d.wiki||[]).length?d.wiki.map(w=>`<div class="card" style="cursor:pointer" onclick="showWiki('${w.title.replace(/'/g,"\\'")}')"><span class="tag cyan mono">${w.title.slice(0,30)}</span> <span class="dim">${w.chars} · ${w.author}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No wiki pages</div>';
     $('works-list').innerHTML=(d.works||[]).length?d.works.map(w=>{const icon=w.status==='done'?'✅':w.status==='blocked'?'🚫':'🔧';const dur=w.duration_seconds?` · ${w.duration_seconds<60?w.duration_seconds+'s':(w.duration_seconds/60).toFixed(1)+'m'}`:'';return`<div class="card"><span class="tag mono" style="background:${w.status==='done'?'rgba(74,222,128,.1)':w.status==='blocked'?'rgba(248,113,113,.1)':'rgba(34,211,238,.1)'};color:${w.status==='done'?'var(--green)':w.status==='blocked'?'var(--red)':'var(--acc)'}">${icon} #${w.id}</span> <span class="dim">${w.item?.slice(0,40)}${dur}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No work tracked</div>';
-
-$('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${Math.round(b.score*100)}%</span> <span class="dim mono">${b.query?.slice(0,50)} → ${b.chain_id?.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No bridges</div>';
+    $('tb-total').textContent=t.thoughts??0;$('tb-chains').textContent=t.chains??0;$('tb-avg').textContent=t.chains?((t.thoughts/t.chains).toFixed(1)):'--';$('tb-branches').textContent=t.branches??0;$('tb-revisions').textContent=t.revisions??0;$('tb-rated').textContent=sc.total_rated??0;
+    $('mem-t').textContent=t.thoughts??0;$('mem-c').textContent=t.chains??0;$('mem-s').textContent=d.sessions||0;$('mem-bar').style.width=Math.min(100,((t.thoughts||0)/200)*100)+'%';$('mem-label').textContent=(t.thoughts||0)+' / 200';
+    
+    fetch('/collisions').then(r=>r.json()).then(d=>{const cs=d.collisions||[];$('collisions-list').innerHTML=cs.length?cs.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(248,113,113,.15);color:var(--red)">⚠️</span> <span class="dim">${c.path?.split('/').pop()||c.path}</span><div class="dim" style="font-size:10px;margin-top:2px">${c.sessions.length} sessions: ${c.sessions.join(', ')}</div></div>`).join(''):'<div class="dim" style="font-size:11px">✅ No collisions</div>'});
+    $('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${Math.round(b.score*100)}%</span> <span class="dim mono">${b.query?.slice(0,50)} → ${b.chain_id?.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:11px">No bridges</div>';
     
     const sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}));
     $('sessions-list').innerHTML=sessions.length?sessions.map(s=>`<div class="card"><span class="tag cyan mono">${s.id}</span> <span class="dim">${s.chains}c · ${s.patterns}p · ${s.tool_calls} calls</span></div>`).join(''):'<div class="dim" style="font-size:11px">No sessions</div>';
-    
+    const now=Date.now()/1000;$('presence-list').innerHTML=(d.presence&&Object.keys(d.presence).length)?Object.entries(d.presence).map(([id,p])=>{const ago=Math.round(now-p.last_seen);const active=ago<300;return`<div class="card"><span class="tag mono" style="background:${active?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)'};color:${active?'var(--green)':'var(--dim)'}">${active?'●':'○'} ${id}</span> <span class="dim">PID ${p.pid} · ${ago}s ago · ${p.tool_calls} calls</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No presence data</div>';
     const preserved=d.preserved||[];$('preserved-list').innerHTML=preserved.length?preserved.map(p=>{const prio=p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim';return`<div class="card"><span class="mono ${prio}">${(p.content||'').slice(0,150)}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';
     
-    // Check collisions
-  fetch('/collisions').then(r=>r.json()).then(d=>{const cs=d.collisions||[];$('collisions-list').innerHTML=cs.length?cs.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(248,113,113,.15);color:var(--red)">⚠️</span> <span class="dim">${c.path?.split('/').pop()||c.path}</span><div class="dim" style="font-size:10px;margin-top:2px">${c.sessions.length} sessions: ${c.sessions.join(', ')}</div></div>`).join(''):'<div class="dim" style="font-size:11px">✅ No collisions</div>'});
-  drawChart(d.timeline||[]);lastWorks=d.works||[];drawWorkChart(lastWorks);$('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
+    drawChart(d.timeline||[]);drawWorkChart(d.works||[]);
+    $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
   setTimeout(refresh,3000)}
 refresh();
 
 function showChain(cid){fetch('/metrics').then(r=>r.json()).then(d=>{const c=(d.chains||[]).find(x=>x.chain_id===cid);if(!c)return;
   $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${c.chain_id}</h3><div class="dim mono" style="margin:8px 0">${c.thoughts} thoughts · ${c.branches} branches · ${c.revisions} revisions · score ${c.score_avg||'--'}★ · v${c.version}</div><div style="font-size:12px;color:var(--text)">${c.preview||'No preview'}</div></div></div>`})}
-
-async function clearChains(){try{const r=await fetch('/clear-chains',{method:'POST',body:'{}'});const d=await r.json();$('mem-msg').textContent='Cleared '+d.cleared+' chains'}catch(e){$('mem-msg').textContent='Error'}}
-async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'POST'});const d=await r.json();$('mem-msg').textContent=d.cleared}catch(e){$('mem-msg').textContent='Error'}}
 function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><div class="dim mono" style="margin:8px 0" id="wiki-content">Loading...</div></div></div>`;
   fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars})}
-
-function drawWorkChart(works){
-  const c=$('work-chart');if(!works||!works.length){c.style.display='none';return}c.style.display='block';
-  const ctx=c.getContext('2d');const W=c.parentElement.clientWidth-48,H=120;
-  c.width=W*(devicePixelRatio||1);c.height=H*(devicePixelRatio||1);
-  c.style.width=W+'px';c.style.height=H+'px';ctx.scale(devicePixelRatio||1,devicePixelRatio||1);
-  const now=Date.now()/1000,padX=40,padY=20,plotW=W-padX-20,rowH=Math.min(20,Math.max(8,(H-padY*2)/Math.max(works.length,1)));
-  const timeW=48*3600;
-  // Sort by started_at
-  const sorted=[...works].filter(w=>w.started_at).sort((a,b)=>(a.started_at||0)-(b.started_at||0));
-  // Grid
-  ctx.strokeStyle='rgba(255,255,255,.03)';ctx.lineWidth=.5;
-  for(let h=0;h<48;h+=6){const x=padX+(plotW/48)*h;ctx.beginPath();ctx.moveTo(x,padY);ctx.lineTo(x,padY+sorted.length*rowH);ctx.stroke();
-    ctx.fillStyle='#64748b';ctx.font='8px Inter';ctx.fillText((48-h)+'h',x-8,padY-4)}
-  // Bars
-  for(let i=0;i<sorted.length;i++){const w=sorted[i];const start=w.started_at||now-3600;const end=w.done_at||now;
-    const x1=padX+((start-(now-timeW))/timeW)*plotW;const x2=padX+((end-(now-timeW))/timeW)*plotW;
-    const x=Math.max(padX,x1);const ww=Math.max(2,Math.min(x2,padX+plotW)-x);
-    const y=padY+i*rowH;const color=w.status==='done'?'rgba(74,222,128,.6)':w.status==='blocked'?'rgba(248,113,113,.6)':'rgba(34,211,238,.6)';
-    ctx.fillStyle=color;ctx.fillRect(x,y+1,ww,rowH-2);
-    ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='8px Inter';
-    const label=(w.item||'').slice(0,25);if(ww>40)ctx.fillText(label,x+4,y+rowH-5)}
-}
-
+async function clearChains(){try{const r=await fetch('/clear-chains',{method:'POST',body:'{}'});const d=await r.json();$('mem-msg').textContent='Cleared '+d.cleared+' chains'}catch(e){$('mem-msg').textContent='Error'}}
+async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'POST'});const d=await r.json();$('mem-msg').textContent=d.cleared}catch(e){$('mem-msg').textContent='Error'}}
 window.addEventListener('resize',()=>{drawChart(lastTimeline);drawWorkChart(lastWorks)});
 </script></body></html>
