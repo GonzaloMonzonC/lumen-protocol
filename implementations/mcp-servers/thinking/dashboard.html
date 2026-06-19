@@ -17,9 +17,8 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 .cyan{color:var(--acc)}.dim{color:var(--dim)}.green{color:#4ade80}.yellow{color:#facc15}.red{color:#f87171}
 .bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
 .dot{width:8px;height:8px;border-radius:50%}.live{background:var(--acc)}.off{background:#f87171}
-[x-cloak]{display:none!important}
 </style></head>
-<body x-data="dash" x-init="init()" x-cloak>
+<body x-data="{connected:false,serverName:'LUMEN',version:'0.1',lastUpdate:'--',t:{chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},sessions:[],topChains:[],preserved:[],async init(){await fetchData();setInterval(()=>fetchData(),3000);async function fetchData(){try{const r=await fetch('/metrics');if(!r.ok)throw new Error();const d=await r.json();connected=true;serverName=d.server||'LUMEN';version=d.version||'0.1';t=d.totals||t;topChains=d.top_chains||[];preserved=d.preserved||[];sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}));lastUpdate=new Date().toLocaleTimeString()}catch(e){connected=false}}}}" x-init="init()">
 <div class="bar">
   <div class="dot" :class="connected?'live':'off'"></div>
   <span style="font-weight:600" x-text="serverName">LUMEN</span>
@@ -37,7 +36,7 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 <div class="grid2">
   <div class="glass"><h3>Sessions</h3>
     <template x-for="s in sessions" :key="s.id">
-      <div class="card"><span class="tag cyan" x-text="s.id"></span> <span class="dim" x-text="s.chains+' chains, '+s.patterns+' patterns'"></span></div>
+      <div class="card"><span class="tag cyan" x-text="s.id"></span> <span class="dim" x-text="s.chains+'c, '+s.patterns+'p, '+s.decisions+'d'"></span></div>
     </template>
     <div class="dim" style="font-size:11px" x-show="sessions.length===0">No sessions</div>
   </div>
@@ -60,17 +59,4 @@ h3{font-size:16px;font-weight:600;margin-bottom:12px}
 </div>
 
 <div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" x-text="'Metrics: /metrics  |  Updated: '+lastUpdate"></div>
-</body>
-<script>
-document.addEventListener('alpine:init',()=>{Alpine.data('dash',()=>({
-  connected:false,serverName:'LUMEN',version:'0.1',lastUpdate:'--',
-  t:{chains:0,patterns:0,decisions:0,model_entities:0,assumptions:0,works:0,tool_calls:0,preserved_contexts:0},
-  sessions:[],topChains:[],preserved:[],
-  async init(){await this.fetch();setInterval(()=>this.fetch(),3000)},
-  async fetch(){try{const r=await fetch('/metrics');if(!r.ok)throw new Error();const d=await r.json()
-    this.connected=true;this.serverName=d.server||'LUMEN';this.version=d.version||'0.1'
-    this.t=d.totals||this.t;this.topChains=d.top_chains||[];this.preserved=d.preserved||[]
-    this.sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}))
-    this.lastUpdate=new Date().toLocaleTimeString()}catch(e){this.connected=false}}
-}))});
-</script></html>
+</body></html>
