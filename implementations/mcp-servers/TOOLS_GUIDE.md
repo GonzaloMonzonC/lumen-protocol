@@ -250,6 +250,61 @@ Prevent context decay?  → context_preserve
 - ✅ Want zero API key dependencies (web without Firecrawl)
 - ✅ On Windows (shell tools unreliable — LUMEN is native, structured, safe)
 
+---
+
+## Thinking Tools — Cross-Session Cognition
+
+### Reasoning & Analysis
+| Tool | When to Use | Example |
+|------|-------------|---------|
+| `sequential_thinking` | Complex multi-step problems | "Plan a DB migration with 10 steps" |
+| `thought_contradiction` | Verify consistency | "Does this conclusion contradict earlier analysis?" |
+| `thought_evaluate` | Quality check reasoning | "Score this plan: is it specific and actionable?" |
+| `thought_similarity` | Avoid repeating reasoning | "Have I analyzed this before?" |
+| `thought_summarize` | Distill long chains | "Summarize 50 thoughts into 3 themes" |
+| `thought_to_plan` | Convert thinking to action | "Convert reasoning chain to markdown plan" |
+| `thought_bridge` | Cross-session insight | "Connect this analysis with past sessions" |
+
+### Institutional Memory
+| Tool | When to Use | Example |
+|------|-------------|---------|
+| `pattern_record` | Capture bug fix | "Record null-check-async pattern" |
+| `pattern_match` | Recall past solutions | "Have I seen this error before?" [18-38% Jaccard] |
+| `decision_log` | Track design choices | "We chose SQLite. Revisit if >100 users." |
+| `decision_list` | Review past decisions | "What did we decide about auth?" |
+
+### Mental Model (Knowledge Graph)
+| Tool | When to Use | Example |
+|------|-------------|---------|
+| `model_add` | Add entity with deps | "Auth service depends on User DB, Cache" |
+| `model_query` | Explore relationships | "What depends on User DB?" |
+| `model_stats` | Overview | "How many entities in the model?" |
+| `model_map` | Visualize | "Show full dependency graph" |
+
+### Cross-Session Communication 🆕
+| Tool | When to Use | Example |
+|------|-------------|---------|
+| `agent_message` | Coordinate with other agent | "Tell agent-b: PR approved, merge now" |
+| `agent_inbox` | Check for messages | "Any messages from other sessions?" |
+| `collision_check` | Detect file conflicts | "Is anyone else editing auth.py?" |
+
+### Work Tracking & Context
+| Tool | When to Use | Example |
+|------|-------------|---------|
+| `work_start/block/done` | Multi-session tasks | "Auth refactor: 3 blocks, 2 sessions" |
+| `context_preserve` | Anchor critical info | "Preserve error stack trace for 24h" |
+| `session_init` | Isolate parallel work | "Agent A and B: separate chains, no bleed" |
+| `session_list` | See active agents | "Who's working on what?" [collision warnings] |
+
+### DECISION: When to use Thinking Tools
+```
+Complex problem?    → sequential_thinking + thought_evaluate + thought_to_plan
+Uncertain decision? → assume + check_assumption + decision_log
+Recurring bug?      → pattern_record + pattern_match
+Multi-agent work?   → session_init + agent_message + collision_check
+Long task?          → work_start/block/done + context_preserve
+```
+
 **Use Built-in when:**
 - ✅ One-off simple operation (read 1 small file)
 - ✅ Professional web quality is critical (Firecrawl > DuckDuckGo)

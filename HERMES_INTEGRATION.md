@@ -41,7 +41,52 @@ The `_LumenSession` implements the subset of MCP `ClientSession` used by Hermes:
 
 ---
 
-## How to Configure
+## ⚡ Plugin Bridge — **Recommended Approach** (June 2026)
+
+The **`lumen-shm-bridge`** Hermes plugin replaces the MCP config approach entirely.
+It spawns its own MCP server subprocesses with **binary pipes**, handles the
+PROBE→ACK→SHM negotiation itself, and registers tools via `ctx.register_tool(override=True)`.
+The LLM sees standard tool names — zero prompt cache impact.
+
+### Why Plugin over MCP Config
+
+| Aspect | MCP Config (`config.yaml`) | Plugin Bridge |
+|--------|---------------------------|---------------|
+| Transport | Text pipes (stdio) | **Binary pipes** for PROBE, SHM for data |
+| SHM Level 2 | ❌ Not supported | ✅ Zero-copy mmap ring buffers |
+| Tool names | `mcp_lumen_*` (prefixed) | Standard names (read_file, etc.) |
+| LLM context | Changed (new tool names) | **Unchanged** (override built-ins) |
+| Wire savings | 32-60% (JSON-RPC wrapper) | **55-80%** (native binary) |
+| Setup | Edit config.yaml + restart | Install plugin + restart |
+
+### Install
+
+```bash
+# Already included in Hermes — enable via config:
+hermes config set plugins.enabled "[lumen-shm-bridge]"
+```
+
+### What You Get
+
+- **Filesystem**: read_file, write_file, search_files, patch, read_files, stream_read, etc. (13 tools)
+- **Thinking**: sequential_thinking, thought_contradiction, model_add, agent_message, collision_check, etc. (32 tools)
+- **Web**: web_search, web_extract (2 tools)
+- **Total**: 47 tools over Level 2 SHM zero-copy transport
+
+### Benchmarks
+
+| Métrica | Plugin (SHM) | Hermes Built-in |
+|---------|-------------|-----------------|
+| FS latency avg | 4.1ms | 33ms (terminal) |
+| Think latency avg | 0.29ms | N/A |
+| Think throughput | 3,407 calls/sec | — |
+| Errors | 0 / 530+ calls | — |
+
+Full benchmarks at [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
+---
+
+## How to Configure (Legacy MCP Config)
 
 ### Prerequisites
 

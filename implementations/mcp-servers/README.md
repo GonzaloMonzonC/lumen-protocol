@@ -54,6 +54,25 @@ for Lumen Thinking's 29 cognitive tools:
 | **[MCP Server Pattern](skills/lumen-mcp-server-pattern/SKILL.md)** | Proven patterns: shared_tools, session isolation, eval framework, security hardening | ✅ |
 | **[Server Development](skills/lumen-server-development/SKILL.md)** | Canonical guide: 3 server patterns, PROBE handshake, SHM transport, pitfall checklist | ✅ |
 
+## 🆕 Cross-Session Cognition — LUMEN Cognitive OS
+
+The thinking server now supports **multi-agent coordination** with 3 new tools (32 total):
+
+| Tool | Description |
+|------|-------------|
+| `agent_message` | Send messages between Hermes sessions. Enables agent-to-agent coordination. |
+| `agent_inbox` | Read messages from other sessions. Supports unread-only filtering. |
+| `collision_check` | Detect files touched by multiple sessions in the last 5 minutes. |
+
+### Cross-Session Features
+
+- **Global Pattern Store**: `pattern_record` saves to shared `_global_patterns`. `pattern_match` searches local + global.
+- **Session Collision Warnings**: `session_list` shows ⚠️ when multiple sessions touch the same file.
+- **Wiki CRUD via HTTP**: `GET/POST /model` endpoints for dashboard-based knowledge editing.
+- **Persistent Messages**: `_agent_messages` survive Hermes restarts (saved to `.thinking_state.json`).
+
+See [`docs/COGNITIVE_OS.md`](../../docs/COGNITIVE_OS.md) for full architecture and benchmarks.
+
 ## Quick Start
 
 ```bash
