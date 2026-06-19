@@ -41,6 +41,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
 .modal{background:rgba(20,20,35,.98);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:24px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto}
 .modal h3{font-size:13px}.modal-close{float:right;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px 8px}
+.section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
 </style></head>
 <body>
 
@@ -84,12 +85,16 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
   </div>
 </div>
 
+<div class="glass"><h3 class="section-toggle" onclick="toggleSection('reasoning-content')"><span class="arrow">▼</span> Reasoning <span class="summ" id="summary-reasoning"></span></h3><div class="collapsible" id="reasoning-content" style="max-height:3000px">
 <div class="grid2">
-  <div class="glass"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
+  <div class="glass" style="background:none;backdrop-filter:none;border:none;padding:0;margin:0"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
   <div class="glass"><h3>📝 Plans</h3><div id="plans-list"><div class="dim" style="font-size:11px">No plans</div></div></div>
 </div>
 <div class="grid2">
   <div class="glass"><h3>🔧 Work Tracker</h3><div id="works-list"><div class="dim" style="font-size:11px">No work tracked</div></div></div>
+  </div></div>
+
+<div class="grid2">
   <div class="glass"><h3>📚 Wiki</h3><div id="wiki-list"><div class="dim" style="font-size:11px">No wiki pages</div></div></div>
 </div>
 <div class="grid3">
@@ -222,6 +227,7 @@ async function refresh(){
     if(newTL!==lastTimelineStr){drawChart(d.timeline||[]);lastTimelineStr=newTL}
     if(newW!==lastWorksStr){pulseUpdate(d.works||[]);lastWorksStr=newW}
     buildHeatmap(d.chains||[]);
+    $('summary-reasoning').textContent=`${chains.length}c · ${(d.plans||[]).length}p · ${(d.clusters||[]).length}cl · ${t.branches||0}b · ${t.revisions||0}r`;
     $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline: '+e.message;$('footer').textContent='Error: '+e.message}
   setTimeout(refresh,10000)}
@@ -277,5 +283,6 @@ function editEntity(name){fetch('/model?entity='+encodeURIComponent(name)).then(
 function saveEntity(event,name){event.preventDefault();const f=event.target;const deps=f.deps.value.split(',').map(s=>s.trim()).filter(Boolean);fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:name,role:f.role.value,deps:deps,notes:f.notes.value})}).then(r=>r.json()).then(d=>{document.querySelector('.modal-overlay')?.remove();loadWiki()}).catch(e=>alert('Save failed'))}
 function newEntity(){const n=prompt('Entity name:');if(!n)return;fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:n,role:'other',deps:[],notes:''})}).then(r=>r.json()).then(d=>{loadWiki();editEntity(n)})}
 function loadWiki(){fetch('/model').then(r=>r.json()).then(data=>{const entries=Object.entries(data||{});$('wiki-list').innerHTML=entries.length?entries.map(([name,e])=>'<div class="card" style="cursor:pointer" onclick="showEntity(\''+name+'\')"><span class="tag cyan mono">'+name.slice(0,30)+'</span> <span class="dim">'+e.role+' · '+(e.deps||[]).length+' deps</span></div>').join(''):'<div class="dim" style="font-size:11px">No entities. <a href="#" onclick="newEntity()">Create one</a></div>'}).catch(()=>{$('wiki-list').innerHTML='<div class="dim" style="font-size:11px">Server offline</div>'})}
+function toggleSection(id){const el=document.getElementById(id);if(!el)return;const arrow=el.parentElement.querySelector('.arrow');if(el.classList.contains('collapsed')){el.classList.remove('collapsed');el.style.maxHeight='3000px';if(arrow)arrow.textContent='▼'}else{el.classList.add('collapsed');el.style.maxHeight='0px';if(arrow)arrow.textContent='▶'}}
 window.addEventListener('resize',()=>{drawChart(lastTimeline)});
 </script></body></html>
