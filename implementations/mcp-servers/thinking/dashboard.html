@@ -141,7 +141,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
 
 <script>
 const $=id=>document.getElementById(id);
-let lastTimeline=[],lastWorks=[];
+let lastTimeline=[],lastWorks=[],lastTimelineStr='',lastWorksStr='';
 
 function drawChart(timeline){
   const c=$('chart');if(!timeline||timeline.length<1){c.style.display='none';return}c.style.display='block';
