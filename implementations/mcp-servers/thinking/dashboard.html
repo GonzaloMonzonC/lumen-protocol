@@ -82,6 +82,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
 </div>
 
 <div class="grid2">
+  <div class="glass"><h3>⚠️ Collisions</h3><div id="collisions-list"><div class="dim" style="font-size:11px">Loading...</div></div></div>
   <div class="glass"><h3>🌉 Bridges</h3><div id="bridges-list"><div class="dim" style="font-size:11px">No bridges</div></div></div>
   <div class="glass"><h3>💾 Preserved</h3><div id="preserved-list"><div class="dim" style="font-size:11px">No contexts preserved</div></div></div>
 </div>
@@ -183,7 +184,9 @@ $('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class=
     
     const preserved=d.preserved||[];$('preserved-list').innerHTML=preserved.length?preserved.map(p=>{const prio=p.priority==='critical'?'red':p.priority==='high'?'yellow':'dim';return`<div class="card"><span class="mono ${prio}">${(p.content||'').slice(0,150)}</span></div>`}).join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';
     
-    drawChart(d.timeline||[]);$('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
+    // Check collisions
+  fetch('/collisions').then(r=>r.json()).then(d=>{const cs=d.collisions||[];$('collisions-list').innerHTML=cs.length?cs.map(c=>`<div class="card"><span class="tag mono" style="background:rgba(248,113,113,.15);color:var(--red)">⚠️</span> <span class="dim">${c.path?.split('/').pop()||c.path}</span><div class="dim" style="font-size:10px;margin-top:2px">${c.sessions.length} sessions: ${c.sessions.join(', ')}</div></div>`).join(''):'<div class="dim" style="font-size:11px">✅ No collisions</div>'});
+  drawChart(d.timeline||[]);$('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
   }catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline'}
   setTimeout(refresh,3000)}
 refresh();
