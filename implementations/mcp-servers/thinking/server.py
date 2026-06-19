@@ -126,7 +126,8 @@ _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []
 _session_presence: dict = {}
-_file_touches: list[dict] = []  # [{session_id, path, timestamp}]  # session_id → {pid, last_seen, tool_calls}
+_file_touches: list[dict] = []  # [{session_id, path, timestamp}]
+_file_claims: dict = {}  # {filepath: {owner, expires_at, status, requests[]}}  # session_id → {pid, last_seen, tool_calls}
 _agent_messages: list[dict] = []  # [{from_session, to_session, content, timestamp}]
 _global_patterns: list[dict] = []  # patterns shared across all sessions
 
@@ -160,7 +161,8 @@ def _save_state() -> None:
             "preserved": _preserved,
             "timeline": _call_timeline,
             "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls} for sid, s in _sessions.items()},
-            "file_touches": _file_touches[-200:],  # last 200 touches
+            "file_touches": _file_touches[-200:],
+            "file_claims": _file_claims,
             "agent_messages": _agent_messages[-100:],  # last 100 messages
             "global_patterns": _global_patterns[-300:],  # last 300 global patterns
             "saved_at": time.time(),
@@ -190,6 +192,8 @@ def _load_state() -> bool:
         _agent_messages = state.get("agent_messages", [])
         _global_patterns = state.get("global_patterns", [])
         _loaded_from_disk = True
+        global _file_claims
+        _file_claims = state.get("file_claims", {})
         _last_state_mtime = _STATE_FILE.stat().st_mtime if _STATE_FILE.exists() else 0.0
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
@@ -2735,9 +2739,10 @@ def _start_dashboard(port: int = 9876) -> None:
                     _preserved = state.get("preserved", [])
                     if "timeline" in state:
                         _call_timeline[:] = state["timeline"]
-                    global _session_presence, _file_touches
+                    global _session_presence, _file_touches, _file_claims
                     _session_presence = state.get("presence", {})
                     _file_touches = state.get("file_touches", [])
+                    _file_claims = state.get("file_claims", {})
                     _last_state_mtime = file_mtime
             except Exception:
                 pass
@@ -2870,6 +2875,7 @@ def _start_dashboard(port: int = 9876) -> None:
             "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
             "presence": _session_presence,
+            "claims": {f: {"owner": c["owner"], "expires_in": round(c["expires_at"]-time.time(),1) if c.get("expires_at") else 0, "status": c.get("status","active"), "requests": c.get("requests",[])} for f,c in _file_claims.items() if c.get("expires_at",0) > time.time()},
             "timeline": _call_timeline[-60:],
         }
     
