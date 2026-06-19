@@ -142,6 +142,51 @@ TOOLS = [
             },
             "required": ["path", "old_string", "new_string"]
         }
+    },
+    {
+        "name": "file_info",
+        "description": "Get detailed file metadata: size, modification time, permissions, encoding detection. Use instead of 'stat' or 'ls -la' on Windows where shell tools are unreliable.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the file or directory"}
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "disk_usage",
+        "description": "Calculate total size of a directory recursively (like 'du' on Unix). Windows has no native 'du' command — this fills that gap. Skips ignored dirs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory to measure (default: current directory)", "default": "."}
+            }
+        }
+    },
+    {
+        "name": "search_filename",
+        "description": "Find files by name using regex pattern. Unlike search_files(target='files') which uses globs, this supports full regex on filenames. Use when glob patterns aren't expressive enough.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "Regex pattern to match against filenames"},
+                "path": {"type": "string", "description": "Directory to search in (default: current directory)", "default": "."},
+                "limit": {"type": "integer", "description": "Max results (default: 50)", "default": 50}
+            },
+            "required": ["pattern"]
+        }
+    },
+    {
+        "name": "find_duplicates",
+        "description": "Find duplicate files in a directory by content hash (SHA-256). Groups identical files together. Useful for cleaning up redundant data. Skips ignored dirs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory to scan (default: current directory)", "default": "."},
+                "min_size": {"type": "integer", "description": "Minimum file size in bytes to consider (default: 1, skips empty files)", "default": 1}
+            }
+        }
     }
 ]
 
@@ -707,6 +752,210 @@ def tool_patch(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Error writing file: {e}"}]}
 
 
+def tool_file_info(args: dict) -> dict:
+    """Get detailed file/directory metadata."""
+    import hashlib, time as _time_module
+    path = resolve_path(args["path"])
+    if not path.exists():
+        return {"content": [{"type": "text", "text": f"Error: Path not found: {path}"}]}
+    
+    stat = path.stat()
+    info = {
+        "path": str(path),
+        "type": "directory" if path.is_dir() else "file",
+        "size_bytes": stat.st_size,
+        "size_human": _format_size(stat.st_size),
+        "modified": _time_module.strftime("%Y-%m-%d %H:%M:%S", _time_module.localtime(stat.st_mtime)),
+        "created": _time_module.strftime("%Y-%m-%d %H:%M:%S", _time_module.localtime(stat.st_ctime)),
+        "permissions": oct(stat.st_mode)[-3:],
+        "readable": os.access(path, os.R_OK),
+        "writable": os.access(path, os.W_OK),
+    }
+    
+    if path.is_dir():
+        try:
+            entries = list(path.iterdir())
+            info["entry_count"] = len(entries)
+            info["total_size"] = sum(
+                f.stat().st_size for f in entries if f.is_file()
+            )
+            info["total_size_human"] = _format_size(info["total_size"])
+        except PermissionError:
+            info["entry_count"] = "permission denied"
+    
+    # Try to detect encoding for text files
+    if path.is_file() and stat.st_size < 1024 * 1024:  # 1MB max
+        try:
+            with open(path, 'rb') as f:
+                head = f.read(4096)
+            # Simple detection: check for UTF-8 BOM, null bytes (binary)
+            if head.startswith(b'\xef\xbb\xbf'):
+                info["encoding"] = "utf-8-bom"
+            elif head.startswith(b'\xff\xfe'):
+                info["encoding"] = "utf-16-le"
+            elif head.startswith(b'\xfe\xff'):
+                info["encoding"] = "utf-16-be"
+            elif b'\x00' in head:
+                info["encoding"] = "binary"
+            else:
+                try:
+                    head.decode('utf-8')
+                    info["encoding"] = "utf-8"
+                except UnicodeDecodeError:
+                    info["encoding"] = "latin-1 (or other 8-bit)"
+        except Exception:
+            pass
+    
+    text = "\n".join(f"{k}: {v}" for k, v in info.items())
+    return {"content": [{"type": "text", "text": text}]}
+
+
+def tool_disk_usage(args: dict) -> dict:
+    """Calculate total directory size (like 'du')."""
+    path = resolve_path(args.get("path", "."))
+    if not path.exists():
+        return {"content": [{"type": "text", "text": f"Error: Path not found: {path}"}]}
+    if not path.is_dir():
+        return {"content": [{"type": "text", "text": f"Error: Not a directory: {path}. Use file_info for files."}]}
+    
+    total_size = 0
+    file_count = 0
+    dir_count = 0
+    errors = 0
+    
+    for root, dirs, files in os.walk(path):
+        # Skip ignored dirs
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in _DEFAULT_IGNORE_DIRS]
+        dir_count += len(dirs)
+        for f in files:
+            try:
+                fp = os.path.join(root, f)
+                total_size += os.path.getsize(fp)
+                file_count += 1
+            except OSError:
+                errors += 1
+    
+    text = (
+        f"Directory: {path}\n"
+        f"Total size: {_format_size(total_size)} ({total_size:,} bytes)\n"
+        f"Files: {file_count:,}\n"
+        f"Subdirectories: {dir_count:,}\n"
+        f"Errors (skipped): {errors}\n"
+    )
+    return {"content": [{"type": "text", "text": text}]}
+
+
+def tool_search_filename(args: dict) -> dict:
+    """Find files by regex pattern on filename."""
+    import re as _re
+    pattern = args["pattern"]
+    base_path = resolve_path(args.get("path", "."))
+    limit = args.get("limit", 50)
+    
+    if not base_path.exists():
+        return {"content": [{"type": "text", "text": f"Error: Path not found: {base_path}"}]}
+    
+    try:
+        regex = _re.compile(pattern, _re.IGNORECASE)
+    except _re.error as e:
+        return {"content": [{"type": "text", "text": f"Invalid regex pattern: {e}"}]}
+    
+    results = []
+    for root, dirs, files in os.walk(base_path):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in _DEFAULT_IGNORE_DIRS]
+        for f in files:
+            if regex.search(f):
+                full_path = os.path.join(root, f)
+                try:
+                    size = os.path.getsize(full_path)
+                    size_str = _format_size(size)
+                except OSError:
+                    size_str = "?"
+                rel_path = os.path.relpath(full_path, base_path)
+                results.append(f"  {rel_path} ({size_str})")
+                if len(results) >= limit:
+                    break
+        if len(results) >= limit:
+            break
+    
+    if not results:
+        return {"content": [{"type": "text", "text": f"No files matching regex '{pattern}' in {base_path}"}]}
+    
+    text = f"Found {len(results)} file(s) matching '{pattern}' in {base_path}:\n" + "\n".join(results)
+    return {"content": [{"type": "text", "text": text}]}
+
+
+def tool_find_duplicates(args: dict) -> dict:
+    """Find duplicate files by content hash."""
+    import hashlib
+    path = resolve_path(args.get("path", "."))
+    min_size = args.get("min_size", 1)
+    
+    if not path.exists():
+        return {"content": [{"type": "text", "text": f"Error: Path not found: {path}"}]}
+    
+    # First pass: group by size (fast filter)
+    size_map: dict[int, list[str]] = {}
+    scanned = 0
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in _DEFAULT_IGNORE_DIRS]
+        for f in files:
+            fp = os.path.join(root, f)
+            try:
+                size = os.path.getsize(fp)
+                if size >= min_size:
+                    if size not in size_map:
+                        size_map[size] = []
+                    size_map[size].append(fp)
+                    scanned += 1
+            except OSError:
+                pass
+    
+    # Second pass: hash files with same size
+    from collections import defaultdict
+    dupes = defaultdict(list)
+    hashed = 0
+    for size, files in size_map.items():
+        if len(files) < 2:
+            continue
+        for fp in files:
+            try:
+                with open(fp, 'rb') as f:
+                    h = hashlib.sha256(f.read()).hexdigest()
+                dupes[h].append(fp)
+                hashed += 1
+            except Exception:
+                pass
+    
+    # Filter to actual duplicates
+    real_dupes = {h: fps for h, fps in dupes.items() if len(fps) > 1}
+    
+    if not real_dupes:
+        return {"content": [{"type": "text", "text": f"No duplicates found in {path} (scanned {scanned} files, hashed {hashed} with size collisions)"}]}
+    
+    lines = [f"Found {len(real_dupes)} duplicate groups in {path} (scanned {scanned}, hashed {hashed}):"]
+    total_wasted = 0
+    for h, fps in real_dupes.items():
+        size = os.path.getsize(fps[0])
+        wasted = size * (len(fps) - 1)
+        total_wasted += wasted
+        lines.append(f"\n  Group ({_format_size(size)}, {len(fps)} copies, {_format_size(wasted)} wasted):")
+        for fp in fps:
+            lines.append(f"    {fp}")
+    
+    lines.append(f"\nTotal wasted space: {_format_size(total_wasted)}")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+def _format_size(size: int) -> str:
+    """Format bytes to human-readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size < 1024:
+            return f"{size:.1f} {unit}" if unit != 'B' else f"{size} B"
+        size /= 1024
+    return f"{size:.1f} PB"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Handler registry
 # ═══════════════════════════════════════════════════════════════════════
@@ -721,4 +970,8 @@ HANDLERS = {
     "stream_read": tool_stream_read,
     "server_stats": tool_server_stats,
     "patch": tool_patch,
+    "file_info": tool_file_info,
+    "disk_usage": tool_disk_usage,
+    "search_filename": tool_search_filename,
+    "find_duplicates": tool_find_duplicates,
 }
