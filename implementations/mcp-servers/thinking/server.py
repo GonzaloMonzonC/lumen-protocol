@@ -160,7 +160,7 @@ def _save_state() -> None:
             "next_session_num": _next_session_num,
             "preserved": _preserved,
             "timeline": _call_timeline,
-            "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls} for sid, s in _sessions.items()},
+            "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls, "model": s.model_name or "unknown"} for sid, s in _sessions.items()},
             "file_touches": _file_touches[-200:],
             "file_claims": _file_claims,
             "agent_messages": _agent_messages[-100:],  # last 100 messages
@@ -2930,6 +2930,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 "assumptions": len(sess.assumptions),
                 "works": len(sess.works),
                 "tool_calls": sess.tool_calls,
+                "model": sess.model_name or "unknown",
                 "created_at": sess.created_at,
                 "updated_at": sess.updated_at,
             }

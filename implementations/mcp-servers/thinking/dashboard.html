@@ -41,7 +41,7 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px}
   <div class="dot off" id="status-dot"></div>
   <span style="font-weight:600" id="server-name">LUMEN</span>
   <span class="mono dim" id="server-version">v0.1</span>
-  <span class="status-text red" id="status-label">Offline</span>
+  <span class="mono dim" id="model-name" style="margin-left:8px"></span><span class="status-text red" id="status-label">Offline</span>
 </div>
 
 <div class="grid4">
@@ -196,7 +196,7 @@ function drawWorkChart(works){
 async function refresh(){
   try{const r=await fetch('/metrics');if(!r.ok)throw Error();const d=await r.json();const t=d.totals||{},sc=d.scores||{};
     $('status-dot').className='dot live';$('status-label').className='status-text green';$('status-label').textContent='Live';
-    $('server-name').textContent=d.server||'LUMEN';$('server-version').textContent='v'+(d.version||'0.1');
+    $('server-name').textContent=d.server||'LUMEN';$('server-version').textContent='v'+(d.version||'0.1');const sd=d.sessions_detail||{};const models=[...new Set(Object.values(sd).map(s=>s.model||'unknown'))];$('model-name').textContent=models.length?'🤖 '+models.join(', '):'';
     $('kpi-thoughts').textContent=t.thoughts??0;$('kpi-thoughts-sub').textContent=(t.chains??0)+' chains';
     $('kpi-score').textContent=sc.avg??'--';$('kpi-score-sub').textContent=(sc.total_rated||0)+'/'+(t.thoughts||0)+' rated';
     $('kpi-contra').textContent=(d.contradictions||{found:0}).found;$('kpi-contra-sub').textContent=((d.contradictions||{}).found?'⚠️ ':'✅ ');
