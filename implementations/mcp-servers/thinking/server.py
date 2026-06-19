@@ -2127,10 +2127,21 @@ def handle_message(msg: dict) -> None:
 
 
 def main() -> None:
+    global _start_time
+    _start_time = time.time()
     _load_state()
     # Save on graceful shutdown
     import atexit
     atexit.register(_save_state)
+    
+    # Dashboard HTTP server (optional — pass --dashboard [port])
+    if "--dashboard" in sys.argv:
+        try:
+            idx = sys.argv.index("--dashboard")
+            port = int(sys.argv[idx + 1]) if idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit() else 9876
+        except (ValueError, IndexError):
+            port = 9876
+        _start_dashboard(port)
     
     while True:
         try:
@@ -2154,6 +2165,103 @@ def main() -> None:
                 send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": f"Internal error: {e}"}})
             except Exception:
                 pass  # If even sending the error fails, just continue
+
+
+def _start_dashboard(port: int = 9876) -> None:
+    """Start a lightweight HTTP metrics server on a daemon thread.
+    
+    Exposes /metrics (JSON) for consumption by skynet lumen-dash or any monitoring tool.
+    Runs on localhost only — no external access.
+    """
+    import threading, http.server as _http
+    
+    class MetricsHandler(_http.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/metrics":
+                data = _build_metrics()
+                body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"OK")
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"Not found -- try /metrics or /health")
+        
+        def log_message(self, *args):
+            pass  # silence HTTP logs
+    
+    def _build_metrics():
+        total_chains = sum(len(s.chains) for s in _sessions.values())
+        total_patterns = sum(len(s.patterns) for s in _sessions.values())
+        total_decisions = sum(len(s.decisions) for s in _sessions.values())
+        total_model = sum(len(s.model) for s in _sessions.values())
+        total_assumptions = sum(len(s.assumptions) for s in _sessions.values())
+        total_works = sum(len(s.works) for s in _sessions.values())
+        total_tool_calls = sum(s.tool_calls for s in _sessions.values())
+        
+        # Per-session breakdown
+        sessions_data = {}
+        for sid, sess in _sessions.items():
+            sessions_data[sid] = {
+                "label": sess.label,
+                "chains": len(sess.chains),
+                "patterns": len(sess.patterns),
+                "decisions": len(sess.decisions),
+                "model_entities": len(sess.model),
+                "assumptions": len(sess.assumptions),
+                "works": len(sess.works),
+                "tool_calls": sess.tool_calls,
+                "created_at": sess.created_at,
+                "updated_at": sess.updated_at,
+            }
+        
+        # Top chains by thought count
+        top_chains = []
+        for sid, sess in _sessions.items():
+            for cid, chain in sess.chains.items():
+                top_chains.append({
+                    "chain_id": cid,
+                    "session": sid,
+                    "thoughts": len(chain.get("thoughts", [])),
+                    "version": chain.get("version", 1),
+                    "created_at": chain.get("created_at", 0),
+                    "updated_at": chain.get("updated_at", 0),
+                })
+        top_chains.sort(key=lambda c: c["thoughts"], reverse=True)
+        
+        return {
+            "server": "lumen-thinking",
+            "version": "3.0.0",
+            "uptime_seconds": time.time() - _start_time if "_start_time" in dir() else 0,
+            "sessions": len(_sessions),
+            "totals": {
+                "chains": total_chains,
+                "patterns": total_patterns,
+                "decisions": total_decisions,
+                "model_entities": total_model,
+                "assumptions": total_assumptions,
+                "works": total_works,
+                "tool_calls": total_tool_calls,
+                "preserved_contexts": len(_preserved),
+            },
+            "sessions_detail": sessions_data,
+            "top_chains": top_chains[:10],
+            "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
+        }
+    
+    server = _http.HTTPServer(("127.0.0.1", port), MetricsHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True, name="lumen-dashboard")
+    thread.start()
+    _safe_print(f"[lumen-dashboard] Metrics server on http://127.0.0.1:{port}/metrics")
 
 
 if __name__ == "__main__":

@@ -26,9 +26,19 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from server import TOOLS, HANDLERS, _load_state, _save_state
 from shm_native_server import ShmNativeServer
+import server as _server  # for dashboard
 
 if __name__ == "__main__":
-    _load_state()  # restore cognitive state from disk
+    _load_state()
+    
+    # Dashboard (optional)
+    if "--dashboard" in sys.argv:
+        try:
+            idx = sys.argv.index("--dashboard")
+            port = int(sys.argv[idx + 1]) if idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit() else 9876
+        except (ValueError, IndexError):
+            port = 9876
+        _server._start_dashboard(port)
     
     server = ShmNativeServer(
         "lumen-thinking-shm",
