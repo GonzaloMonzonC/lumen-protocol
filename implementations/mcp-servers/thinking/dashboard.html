@@ -182,56 +182,7 @@ function drawChart(timeline){
 
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath()}
 
-function drawWorkChart(works){
-  const c=$('work-chart');if(!works||!works.length){c.style.display='none';return}c.style.display='block';
-  lastWorks=works;
-  const ctx=c.getContext('2d'),dpr=devicePixelRatio||1;
-  const W=c.parentElement.clientWidth-48,H=Math.max(120,works.length*18+40);
-  c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';ctx.scale(dpr,dpr);
-  const now=Date.now()/1000,padX=60,padY=22,plotW=W-padX-20,timeW=48*3600;
-  const recent=[...works].filter(w=>w.started_at&&(now-w.started_at)<timeW);
-  const done=[],active=[],blocked=[];
-  recent.forEach(w=>{if(w.status==='done')done.push(w);else if(w.status==='blocked')blocked.push(w);else active.push(w)});
-  const sorted=[...done.sort((a,b)=>(a.started_at||0)-(b.started_at||0)),...active,...blocked];
-  if(!sorted.length){c.style.display='none';return}
-  const rowH=Math.min(20,Math.max(14,(H-padY*2-4)/sorted.length));
-  const totalH=Math.min(H-padY*2,sorted.length*rowH+4);
-  
-  ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
-  for(let h=0;h<48;h+=6){const x=padX+(plotW/48)*h;ctx.beginPath();ctx.moveTo(x,padY);ctx.lineTo(x,padY+totalH);ctx.stroke();
-    ctx.fillStyle='#64748b';ctx.font='8px Inter';ctx.fillText((48-h)+'h',x-10,padY-4)}
-  
-  for(let i=0;i<sorted.length;i++){const w=sorted[i];
-    const start=w.started_at||now-3600;
-    let x1,x2,bw,label;
-    if(w.status==='done'&&w.done_at&&w.done_at>start){
-      x1=padX+((start-(now-timeW))/timeW)*plotW;
-      x2=padX+((w.done_at-(now-timeW))/timeW)*plotW;
-      x1=Math.max(padX,x1);x2=Math.min(padX+plotW,x2);bw=Math.max(20,x2-x1);
-      const dur=w.duration_seconds||(w.done_at-start);
-      label=dur<60?dur+'s':(dur/60).toFixed(0)+'m';
-    } else {
-      // Active/blocked: indicator at current position
-      x1=padX+plotW-30;bw=20;
-      label=w.status==='blocked'?'🚫':'▶';
-    }
-    const y=padY+i*rowH;
-    let color,glow,textColor;
-    if(w.status==='done'){color='rgba(74,222,128,.4)';glow='rgba(74,222,128,.15)';textColor='#4ade80'}
-    else if(w.status==='blocked'){color='rgba(248,113,113,.4)';glow='rgba(248,113,113,.15)';textColor='#f87171'}
-    else{color='rgba(34,211,238,.4)';glow='rgba(34,211,238,.15)';textColor='#22d3ee'}
-    ctx.fillStyle=glow;ctx.beginPath();roundRect(ctx,x1-1,y-1,bw+2,rowH,3);ctx.fill();
-    ctx.fillStyle=color;ctx.beginPath();roundRect(ctx,x1,y,bw,rowH-2,2);ctx.fill();
-    // Item name on the left
-    ctx.fillStyle='rgba(255,255,255,.6)';ctx.font='9px Inter';
-    ctx.fillText((w.item||'').slice(0,40),4,y+rowH-5);
-    // Duration label inside bar
-    if(bw>30){
-      ctx.fillStyle=textColor;ctx.font='bold 8px Inter';
-      ctx.fillText(label,x1+4,y+rowH-5);
-    }
-  }
-}
+
 
 async function refresh(){
   try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();const t=d.totals||{},sc=d.scores||{};
@@ -325,5 +276,5 @@ function editEntity(name){fetch('/model?entity='+encodeURIComponent(name)).then(
 function saveEntity(event,name){event.preventDefault();const f=event.target;const deps=f.deps.value.split(',').map(s=>s.trim()).filter(Boolean);fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:name,role:f.role.value,deps:deps,notes:f.notes.value})}).then(r=>r.json()).then(d=>{document.querySelector('.modal-overlay')?.remove();loadWiki()}).catch(e=>alert('Save failed'))}
 function newEntity(){const n=prompt('Entity name:');if(!n)return;fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:n,role:'other',deps:[],notes:''})}).then(r=>r.json()).then(d=>{loadWiki();editEntity(n)})}
 function loadWiki(){fetch('/model').then(r=>r.json()).then(data=>{const entries=Object.entries(data||{});$('wiki-list').innerHTML=entries.length?entries.map(([name,e])=>'<div class="card" style="cursor:pointer" onclick="showEntity(\''+name+'\')"><span class="tag cyan mono">'+name.slice(0,30)+'</span> <span class="dim">'+e.role+' · '+(e.deps||[]).length+' deps</span></div>').join(''):'<div class="dim" style="font-size:11px">No entities. <a href="#" onclick="newEntity()">Create one</a></div>'}).catch(()=>{$('wiki-list').innerHTML='<div class="dim" style="font-size:11px">Server offline</div>'})}
-window.addEventListener('resize',()=>{drawChart(lastTimeline);drawWorkChart(lastWorks)});
+window.addEventListener('resize',()=>{drawChart(lastTimeline)});
 </script></body></html>
