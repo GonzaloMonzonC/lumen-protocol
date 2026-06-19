@@ -2346,6 +2346,24 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Type", "text/plain")
                 self.end_headers()
                 self.wfile.write(b"OK")
+            elif self.path == "/collisions":
+                now = time.time(); window = 300
+                from collections import defaultdict
+                by_file = defaultdict(list)
+                for t in _file_touches:
+                    if now - t["timestamp"] < window:
+                        by_file[t["path"]].append(t)
+                collisions = []
+                for path, touches in by_file.items():
+                    sessions = set(t["session_id"] for t in touches)
+                    if len(sessions) > 1:
+                        collisions.append({"path": path, "sessions": list(sessions), "count": len(touches)})
+                body = json.dumps({"window_s": window, "collisions": collisions}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self.send_response(404)
                 self.end_headers()
