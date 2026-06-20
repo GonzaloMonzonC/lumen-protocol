@@ -743,13 +743,66 @@ TOOLS = [
     },
     {
         "name": "decision_list",
-        "description": "List all recorded decisions, newest first. Optionally filtered by category. Shows the decision, rationale, and when it was made.",
+        "description": "List all recorded decisions, newest first.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "category": {"type": "string", "description": "Filter by category"},
-                "limit": {"type": "integer", "description": "Max results (default: 20, max: 50)", "default": 20, "maximum": 50}
+                "category": {"type": "string", "description": "Filter by category"}
             }
+        }
+    },
+    {
+        "name": "state_snapshot",
+        "description": "Ultra-compact system health: returns chain count, thought count, avg score, pattern count, work count, and total tool calls in ONE line. No detail.",
+        "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "thought_compress",
+        "description": "Compress a reasoning chain to N key thoughts (default 3). Selects first, last, and top-scored middle thoughts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chainId": {"type": "string", "description": "Chain to compress"},
+                "targetThoughts": {"type": "integer", "default": 3, "maximum": 10}
+            },
+            "required": ["chainId"]
+        }
+    },
+    {
+        "name": "chain_diff",
+        "description": "Show only what changed between two points: additions, revisions, and branches count.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chainId": {"type": "string", "description": "Chain to diff"},
+                "from": {"type": "integer", "default": 1},
+                "to": {"type": "integer"}
+            },
+            "required": ["chainId"]
+        }
+    },
+    {
+        "name": "tool_cache",
+        "description": "Cache expensive results. SET: tool_cache(key, value, ttl). GET: tool_cache(key).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Cache key"},
+                "value": {"type": "string", "description": "Value to cache (SET mode)"},
+                "ttl": {"type": "integer", "default": 300}
+            },
+            "required": ["key"]
+        }
+    },
+    {
+        "name": "batch_call",
+        "description": "Execute multiple tools in sequence, returning ONE compact output line.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tools": {"type": "array", "items": {"type": "object"}, "description": "List of {name, args} objects"}
+            },
+            "required": ["tools"]
         }
     }
 ]
