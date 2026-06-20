@@ -212,16 +212,20 @@ var _lumenWs=null;  // LUMEN WebSocket client (loaded from lumen-client.js)
 window.renderData = function renderData(d) {
   if(!d||!d.totals)return;
   const t=d.totals||{},sc=d.scores||{},ct=d.contradictions||{};
-  // Update KPIs
+  // Update KPIs (use IDs directly)
   const kpiMap={thoughts:t.thoughts||0,chains:t.chains||0,score:sc.avg||'--',contra:ct.found||0,calls:t.tool_calls||0};
-  document.querySelectorAll('.kpi').forEach(el=>{
-    const label=el.querySelector('.kpi-label')?.textContent?.toLowerCase();
-    if(label==='thoughts'&&kpiMap.thoughts!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.thoughts;
-    if(label==='chains'&&kpiMap.chains!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.chains+' chains';
-    if(label==='avg score'&&kpiMap.score)el.querySelector('.kpi-value').textContent=kpiMap.score;
-    if(label==='contradictions'&&kpiMap.contra!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.contra;
-    if(label==='tool calls'&&kpiMap.calls!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.calls;
+  const kpiIds=['thoughts','score','contra','calls'];
+  kpiIds.forEach(id=>{
+    const el=document.getElementById('kpi-'+id);
+    if(!el)return;
+    if(id==='thoughts')el.textContent=kpiMap.thoughts;
+    else if(id==='score')el.textContent=kpiMap.score;
+    else if(id==='contra')el.textContent=kpiMap.contra;
+    else if(id==='calls')el.textContent=kpiMap.calls;
   });
+  // Update subtitles
+  const sub=document.getElementById('kpi-thoughts-sub');
+  if(sub)sub.textContent=t.chains+' chains';
   // Status dot
   const sd=document.getElementById('status-dot');const sl=document.getElementById('status-label');
   if(sd)sd.className='dot on';if(sl){sl.className='status-text green';sl.textContent='Live'}
