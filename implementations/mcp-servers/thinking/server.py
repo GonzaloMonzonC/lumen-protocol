@@ -2506,6 +2506,16 @@ def _start_dashboard(port: int = 9876) -> None:
     """
     import threading, http.server as _http
     
+    global _lumen_ws
+    try:
+        from lumen_transport import LumenWS
+        _lumen_ws = LumenWS(port=port + 1)
+        _lumen_ws.start()
+        _safe_print(f"[lumen-dashboard] LUMEN WebSocket on ws://127.0.0.1:{port + 1}")
+    except Exception as e:
+        _lumen_ws = None
+        _safe_print(f"[lumen-dashboard] LUMEN WS unavailable: {e}")
+
     # Load dashboard HTML from file
     _dashboard_html_path = Path(__file__).parent / "dashboard.html"
     _safe_print(f"[lumen-dashboard] Loading dashboard from {_dashboard_html_path}")
