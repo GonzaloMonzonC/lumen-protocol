@@ -2820,17 +2820,17 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            else:
-                self.send_response(404)
-                self.end_headers()
-                elif self.path == "/lumen-client.js":
+            elif self.path == "/lumen-client.js":
                 body = _LUMEN_CLIENT_JS.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            elself.wfile.write(b"Not found -- try /metrics or /health")
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"Not found -- try /metrics or /health")
         
         def do_POST(self):
             if self.path.startswith("/model"):
