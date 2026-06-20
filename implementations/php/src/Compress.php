@@ -32,6 +32,9 @@ final class Compress
 
     private const MAX_COUNT = 1024;
 
+    /** Maximum nesting depth for containers (arrays and objects). 32 = Python/Rust parity. */
+    private const MAX_DEPTH = 32;
+
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
@@ -138,8 +141,9 @@ final class Compress
     // ── Decoder ─────────────────────────────────────────────────────────
 
     /** @return array{mixed, int} [value, newPos] */
-    private static function decodeValue(string $data, int $pos, int $end): array
+    private static function decodeValue(string $data, int $pos, int $end, int $depth = 0): array
     {
+        if ($depth > self::MAX_DEPTH) return [null, $pos]; // reject deeply nested payloads
         if ($pos >= $end) return [null, $pos];
 
         $tag = ord($data[$pos]);
@@ -181,7 +185,7 @@ final class Compress
                 $pos += $decoded['headerLen'];
                 $arr = [];
                 for ($i = 0; $i < $count; $i++) {
-                    [$val, $pos] = self::decodeValue($data, $pos, $end);
+                    [$val, $pos] = self::decodeValue($data, $pos, $end, $depth + 1);
                     $arr[] = $val;
                 }
                 return [$arr, $pos];
@@ -194,7 +198,7 @@ final class Compress
                 $obj = [];
                 for ($i = 0; $i < $count; $i++) {
                     [$key, $pos] = self::decodeKey($data, $pos, $end);
-                    [$val, $pos] = self::decodeValue($data, $pos, $end);
+                    [$val, $pos] = self::decodeValue($data, $pos, $end, $depth + 1);
                     $obj[$key] = $val;
                 }
                 return [$obj, $pos];

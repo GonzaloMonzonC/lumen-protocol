@@ -428,6 +428,10 @@ def tool_search_files(args: dict) -> dict:
 
     try:
         for fpath in _safe_rglob(resolved, glob_filter):
+            # ReDoS guard: wall-time timeout across all files
+            if time.time() - search_start > _MAX_SEARCH_SECONDS:
+                return {"content": [{"type": "text", "text": f"Search timed out after {_MAX_SEARCH_SECONDS}s"}]}
+
             if not fpath.is_file():
                 continue
             if fpath.stat().st_size > 1_000_000:
@@ -437,6 +441,9 @@ def tool_search_files(args: dict) -> dict:
             try:
                 with open(fpath, "r", encoding="utf-8", errors="replace") as f:
                     for line_no, line in enumerate(f, 1):
+                        # Per-file ReDoS guard: check timeout mid-file
+                        if time.time() - search_start > _MAX_SEARCH_SECONDS:
+                            return {"content": [{"type": "text", "text": f"Search timed out after {_MAX_SEARCH_SECONDS}s (in {fpath.name})"}]}
                         if compiled.search(line):
                             rel = str(fpath.relative_to(resolved))
                             if output_mode == "count":

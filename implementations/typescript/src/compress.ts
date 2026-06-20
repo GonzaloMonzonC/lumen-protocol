@@ -37,6 +37,9 @@ const TAG_STR_RAW = 0xe5;
 const TAG_ARRAY = 0xe6;
 const TAG_OBJECT = 0xe7;
 
+/** Maximum nesting depth for containers (arrays and objects). Prevents stack overflow DoS. */
+const MAX_DEPTH = 32;
+
 // ═══ Public API ═════════════════════════════════════════════════════════════
 
 /**
@@ -195,7 +198,9 @@ function decodeValue(
   data: Uint8Array,
   pos: Int32Array, // mutable position holder
   end: number,
+  depth: number = 0,
 ): unknown {
+  if (depth > MAX_DEPTH) return null; // reject deeply nested payloads
   if (pos[0] >= end) return null;
   const tag = data[pos[0]++];
 
@@ -247,7 +252,7 @@ function decodeValue(
       const count = Math.min(decoded.value, 1024);
       const arr: unknown[] = new Array(count);
       for (let i = 0; i < count; i++) {
-        arr[i] = decodeValue(data, pos, end);
+        arr[i] = decodeValue(data, pos, end, depth + 1);
       }
       return arr;
     }
@@ -260,7 +265,7 @@ function decodeValue(
       const obj: Record<string, unknown> = {};
       for (let i = 0; i < count; i++) {
         const key = decodeKey(data, pos, end);
-        const val = decodeValue(data, pos, end);
+        const val = decodeValue(data, pos, end, depth + 1);
         if (key !== null) obj[key] = val;
       }
       return obj;
