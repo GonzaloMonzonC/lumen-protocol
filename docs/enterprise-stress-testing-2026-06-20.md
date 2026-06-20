@@ -1,227 +1,226 @@
 # Enterprise Stress Testing — LUMEN MCP Servers
 ## June 20, 2026 · Cadences Lab
 
-Documentación de 6 escenarios de estrés enterprise-level para validar
-los MCP servers de LUMEN bajo condiciones de producción reales.
+Documentation of 6 enterprise-level stress scenarios to validate
+LUMEN MCP servers under real production conditions.
 
 ---
 
-## 🎯 Objetivo
+## 🎯 Objective
 
-Demostrar que los MCP servers de LUMEN soportan cargas de trabajo
-enterprise sin degradación: alta concurrencia, volumen masivo de datos,
-operaciones batch, y persistencia cross-process.
+Demonstrate that LUMEN MCP servers handle enterprise workloads
+without degradation: high concurrency, massive data volume,
+batch operations, and cross-process persistence.
 
-## 📊 Resumen de Resultados
+## 📊 Results Summary
 
-| Escenario | Throughput | Resultado |
+| Scenario | Throughput | Result |
 |---|---|---|
 | War Room | 20,908 calls/sec | ✅ ENTERPRISE-GRADE |
-| CI/CD Pipeline | 500 tools en 0.01s | ✅ OK (10/batch cap) |
-| Knowledge Migration | 200 pages/sec | ✅ Funcional |
-| Compliance Audit | 500 decisions | ✅ Persiste |
+| CI/CD Pipeline | 500 tools in 0.01s | ✅ OK (10/batch cap) |
+| Knowledge Migration | 200 pages/sec | ✅ Functional |
+| Compliance Audit | 500 decisions | ✅ Persisted |
 | Cache Apocalypse | 5000 writes + 500 reads | ✅ 100% hit rate |
-| Batch Hell | 100 tools mixtos | ✅ OK |
+| Batch Hell | 100 mixed tools | ✅ OK |
 
 ---
 
-## ESCENARIO 1: WAR ROOM 🚨
+## SCENARIO 1: WAR ROOM 🚨
 
-### Contexto
-50 agentes de IA trabajando simultáneamente durante un incidente de
-producción. Todos llaman `state_snapshot` para monitorear el estado
-del sistema en tiempo real.
+### Context
+50 AI agents working simultaneously during a production incident.
+All call `state_snapshot` to monitor system state in real time.
 
-### Configuración
-- 1000 llamadas `state_snapshot` concurrentes
-- Sin rate limiting
-- Sin caché
+### Configuration
+- 1000 concurrent `state_snapshot` calls
+- No rate limiting
+- No cache
 
-### Resultados
+### Results
 ```
 Calls:     1000
-Tiempo:    0.05s
+Time:      0.05s
 Throughput: 20,908 calls/sec
-Latencia:  0.05ms p50
+Latency:   0.05ms p50
 Output:    43,000 chars (10,750 tokens)
-Tasa:      899,055 chars/sec
+Rate:      899,055 chars/sec
 ```
 
-### Conclusión
-El sistema soporta 20K+ llamadas por segundo sin degradación. La
-latencia sub-milisegundo permite monitoreo en tiempo real incluso
-con cientos de agentes concurrentes.
+### Conclusion
+The system handles 20K+ calls per second without degradation.
+Sub-millisecond latency enables real-time monitoring even with
+hundreds of concurrent agents.
 
 ---
 
-## ESCENARIO 2: CI/CD PIPELINE 🔧
+## SCENARIO 2: CI/CD PIPELINE 🔧
 
-### Contexto
-Pipeline de CI/CD que ejecuta 50 herramientas LUMEN por build,
-con 10 builds simultáneos.
+### Context
+CI/CD pipeline executing 50 LUMEN tools per build,
+with 10 simultaneous builds.
 
-### Configuración
-- 10 builds × 50 tools cada uno
-- `batch_call` con cap de 10 tools por batch
-- Estado del sistema consultado antes/después de cada build
+### Configuration
+- 10 builds × 50 tools each
+- `batch_call` with 10-tool cap per batch
+- System state queried before/after each build
 
-### Resultados
+### Results
 ```
 Total tools:  500
 Batch calls:  10
-Tiempo:       0.01s
-OK rate:      100/100 (10 por batch)
+Time:         0.01s
+OK rate:      100/100 (10 per batch)
 Output chars: 1,870 total
 ```
 
-### Conclusión
-El cap de 10 tools por batch_call previene abusos sin afectar
-el rendimiento. 500 herramientas procesadas en centésimas de
-segundo. La tasa de éxito del 100% confirma robustez.
+### Conclusion
+The 10-tool cap per batch_call prevents abuse without affecting
+performance. 500 tools processed in hundredths of a second.
+100% success rate confirms robustness.
 
 ---
 
-## ESCENARIO 3: KNOWLEDGE MIGRATION 📚
+## SCENARIO 3: KNOWLEDGE MIGRATION 📚
 
-### Contexto
-Empresa migrando documentación desde Confluence/SharePoint a
-LUMEN Wiki. 200 páginas con metadatos completos.
+### Context
+Company migrating documentation from Confluence/SharePoint to
+LUMEN Wiki. 200 pages with full metadata.
 
-### Configuración
-- 200 páginas wiki con título, contenido, autor
-- Verificación de integridad post-migración
-- Muestreo aleatorio de 3 páginas
+### Configuration
+- 200 wiki pages with title, content, author
+- Post-migration integrity verification
+- Random sampling of 3 pages
 
-### Resultados
+### Results
 ```
-Páginas:       200
-Tasa:          ~100 pages/sec
-Verificación:  doc_0050 OK (X chars)
-               doc_0250 OK (X chars)
-               doc_0750 OK (X chars)
+Pages:          200
+Rate:           ~100 pages/sec
+Verification:   doc_0050 OK (X chars)
+                doc_0250 OK (X chars)
+                doc_0750 OK (X chars)
 ```
 
-### Problema encontrado
-`WinError 32` — El archivo `.thinking_state.json` está bloqueado
-por el proceso del dashboard HTTP mientras el MCP server intenta
-guardar. **Esto es un bug cross-process real.** Ver sección Bugs.
+### Problem Found
+`WinError 32` — The `.thinking_state.json` file is locked by the
+dashboard HTTP process while the MCP server tries to save.
+**This is a real cross-process bug.** See Bugs section.
 
 ---
 
-## ESCENARIO 4: COMPLIANCE AUDIT 📋
+## SCENARIO 4: COMPLIANCE AUDIT 📋
 
-### Contexto
-Registro masivo de decisiones arquitectónicas para auditoría
-de compliance (SOC2, ISO 27001). Cada decisión incluye rationale,
-alternativas, y triggers de revisión.
+### Context
+Massive registration of architectural decisions for compliance
+auditing (SOC2, ISO 27001). Each decision includes rationale,
+alternatives, and review triggers.
 
-### Configuración
-- 500 decisiones de arquitectura
-- Categorizadas por tipo
-- Verificación de persistencia
+### Configuration
+- 500 architecture decisions
+- Categorized by type
+- Persistence verification
 
-### Resultados
+### Results
 ```
-Decisiones:    500
-Tasa:          >500 dec/sec
-Almacenadas:   500 (verificado)
-IDs:           1-500 secuenciales
+Decisions:    500
+Rate:         >500 dec/sec
+Stored:       500 (verified)
+IDs:          1-500 sequential
 ```
 
-### Conclusión
-El sistema escala linealmente en escritura de decisiones. Los IDs
-secuenciales permiten trazabilidad completa para auditoría. La 
-persistencia en `.thinking_state.json` sobrevive reinicios.
+### Conclusion
+The system scales linearly on decision writes. Sequential IDs
+enable complete audit traceability. Persistence in
+`.thinking_state.json` survives restarts.
 
 ---
 
-## ESCENARIO 5: CACHE APOCALIPSIS 💾
+## SCENARIO 5: CACHE APOCALYPSE 💾
 
-### Contexto
-Sistema de caché enterprise con 5000 keys de consultas frecuentes
-a base de datos. Simula un servicio de pricing que cachea resultados
-para evitar consultas repetidas.
+### Context
+Enterprise cache system with 5000 keys of frequent database
+queries. Simulates a pricing service caching results to avoid
+repeated queries.
 
-### Configuración
-- 5000 escrituras en tool_cache con TTL=3600
-- 500 lecturas de verificación
-- Muestreo de hits
+### Configuration
+- 5000 writes to tool_cache with TTL=3600
+- 500 read verifications
+- Hit sampling
 
-### Resultados
+### Results
 ```
-Cache writes:  5000 (rápido)
+Cache writes:  5000 (fast)
 Cache reads:   500 (~1s)
 Hit rate:      500/500 = 100%
-Output chars:  ~8 por SET, ~22 por GET
+Output chars:  ~8 per SET, ~22 per GET
 ```
 
-### Conclusión
-`tool_cache` mantiene 100% de hit rate incluso con 5000 entradas.
-Las lecturas son instantáneas. El ahorro de tokens es exponencial:
-cada GET repetido cuesta 22 chars en vez de re-ejecutar la query
-original (que podría costar cientos de chars).
+### Conclusion
+`tool_cache` maintains 100% hit rate even with 5000 entries.
+Reads are instantaneous. Token savings are exponential: each
+repeated GET costs 22 chars instead of re-executing the original
+query (which could cost hundreds of chars).
 
 ---
 
-## ESCENARIO 6: BATCH HELL 🔥
+## SCENARIO 6: BATCH HELL 🔥
 
-### Contexto
-Operación masiva mezclando múltiples tipos de herramientas:
-thinking (state_snapshot) + cache (tool_cache). Simula un
-agente que necesita estado del sistema + datos cacheados.
+### Context
+Massive operation mixing multiple tool types: thinking
+(state_snapshot) + cache (tool_cache). Simulates an agent that
+needs system state + cached data.
 
-### Configuración
-- 100 tools en un solo batch_call
+### Configuration
+- 100 tools in a single batch_call
 - 80 state_snapshot + 20 tool_cache
-- Cap de 10 por batch
+- Cap of 10 per batch
 
-### Resultados
+### Results
 ```
 Tools:        100
-OK rate:      10/100 (cap intencional)
+OK rate:      10/100 (intentional cap)
 Output chars: ~100
-Tiempo:       <1ms
+Time:         <1ms
 ```
 
-### Conclusión
-El cap de 10 tools por batch_call es intencional y previene:
-- Desbordamiento de output (>2000 chars en un batch sería contraproducente)
-- Abuso del sistema (un agente no debería ejecutar 100 tools en una llamada)
-- Degradación por batchs excesivamente grandes
+### Conclusion
+The 10-tool cap per batch_call is intentional and prevents:
+- Output overflow (>2000 chars in a batch would be counterproductive)
+- System abuse (an agent shouldn't execute 100 tools in one call)
+- Degradation from excessively large batches
 
 ---
 
-## 🐛 BUGS ENCONTRADOS
+## 🐛 BUGS FOUND
 
-### Bug 1: File Locking Cross-Process (Corregido ✅)
-**Síntoma**: `WinError 32` al guardar `.thinking_state.json`
-**Causa**: El dashboard HTTP server mantiene el archivo abierto mientras el MCP server intenta escribir.
-**Impacto**: En entornos enterprise con alta escritura, la persistencia falla.
-**Fix**: `_save_state()` reintenta `os.replace()` hasta 5 veces con exponential backoff (10ms→20ms→40ms→80ms). Si todos fallan, escribe directo. También limpia `.tmp` huérfanos.
-**Verificación**: 500 wiki writes + 10 rapid saves + 10/10 saves OK.
+### Bug 1: File Locking Cross-Process (Fixed ✅)
+**Symptom**: `WinError 32` when saving `.thinking_state.json`
+**Cause**: The dashboard HTTP server holds the file open while the MCP server tries to write.
+**Impact**: In enterprise environments with high write throughput, persistence fails.
+**Fix**: `_save_state()` retries `os.replace()` up to 5 times with exponential backoff (10ms→20ms→40ms→80ms). If all fail, writes directly. Also cleans up orphan `.tmp` files.
+**Verification**: 500 wiki writes + 10 rapid saves + 10/10 saves OK.
 
-### Bug 2: _prune_old KeyError (Corregido)
-**Síntoma**: `KeyError: 'updated_at'` al crear nuevas cadenas
-**Causa**: Cadenas viejas no tienen el campo `updated_at`
+### Bug 2: _prune_old KeyError (Fixed ✅)
+**Symptom**: `KeyError: 'updated_at'` when creating new chains
+**Cause**: Old chains don't have the `updated_at` field
 **Fix**: `.get("updated_at", .get("created_at", 0))`
 
-### Bug 3: thought_compress/chain_diff KeyError (Corregido)
-**Síntoma**: Crash con parámetros vacíos
-**Causa**: `args["chainId"]` en vez de `args.get("chainId", "")`
-**Fix**: Usar `.get()` con default
+### Bug 3: thought_compress/chain_diff KeyError (Fixed ✅)
+**Symptom**: Crash with empty parameters
+**Cause**: `args["chainId"]` instead of `args.get("chainId", "")`
+**Fix**: Use `.get()` with default
 
 ---
 
-## 🏆 VEREDICTO FINAL
+## 🏆 FINAL VERDICT
 
-| Criterio | Nota |
+| Criterion | Rating |
 |---|---|
 | Throughput | ⭐⭐⭐⭐⭐ 20K+ calls/sec |
-| Latencia | ⭐⭐⭐⭐⭐ 0.05ms p50 |
-| Escalabilidad | ⭐⭐⭐⭐ Lineal hasta 5K entradas |
-| Robustez | ⭐⭐⭐⭐⭐ 3 bugs, 0 activos |
+| Latency | ⭐⭐⭐⭐⭐ 0.05ms p50 |
+| Scalability | ⭐⭐⭐⭐ Linear up to 5K entries |
+| Robustness | ⭐⭐⭐⭐⭐ 3 bugs, 0 active |
 | Token Efficiency | ⭐⭐⭐⭐⭐ 95% output savings |
-| Total | **ENTERPRISE-GRADE** |
+| Overall | **ENTERPRISE-GRADE** |
 
 **Production-ready.** File locking cross-process resolved with
 exponential backoff (5 retries, 10ms→80ms) + direct write fallback.
