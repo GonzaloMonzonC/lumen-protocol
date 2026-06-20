@@ -912,7 +912,7 @@ def tool_sequential_thinking(args: dict) -> dict:
         summary_lines.append(f"   Last: #{last['number']}: {last['thought'][:100]}")
 
     # Auto-trigger: evaluate thought quality automatically
-    if len(chain["thoughts"]) >= 3 and not new_thought.get("score"):
+    if not new_thought.get("score"):
         try:
             from server import tool_thought_evaluate as _eval
             _ = __import__('server', fromlist=['_sessions', '_DEFAULT_SESSION'])
@@ -2471,8 +2471,35 @@ def tool_state_snapshot(args: dict) -> dict:
     total_calls = sum(s.tool_calls for s in _sessions.values())
     scored = sum(1 for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score"))
     avg_score = round(sum(t.get("score", 0) for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score")) / max(scored, 1), 1)
+    # Proactive: find works that have been active >30min
+    now = time.time()
+    overdue_works = []
+    for s in _sessions.values():
+        for w in s.works:
+            if w["status"] == "in_progress" and w.get("started_at") and (now - w["started_at"]) > 1800:
+                overdue_works.append(w["item"])
+    # Proactive: suggest patterns based on chain keywords
+    active_thoughts = []
+    for s in _sessions.values():
+        for c in s.chains.values():
+            for t in c.get("thoughts", [])[-3:]:
+                active_thoughts.append(t.get("thought", ""))
+    all_text = " ".join(active_thoughts)
+    kw_active = set(all_text.lower().split()[:30]) if all_text else set()
+    suggested_patterns = []
+    if kw_active:
+        for p in _global_patterns:
+            kw_p = set(p.get("description", "").lower().split()[:20])
+            overlap = len(kw_active & kw_p) / max(len(kw_active | kw_p), 1)
+            if overlap > 0.25:
+                suggested_patterns.append(p["pattern_name"][:30])
+    extras = ""
+    if overdue_works:
+        extras += f" ⏰ {len(overdue_works)} works >30min"
+    if suggested_patterns:
+        extras += f" 💡 {len(suggested_patterns)} pattern suggestions"
     return {
-        "content": [{"type": "text", "text": f"⚡ {total_chains}c · {total_thoughts}t · {avg_score}★ · {total_patterns}p · {total_works}w · {total_calls} calls"}]
+        "content": [{"type": "text", "text": f"⚡ {total_chains}c · {total_thoughts}t · {avg_score}★ · {total_patterns}p · {total_works}w · {total_calls} calls{extras}"}]
     }
 
 def tool_thought_compress(args: dict) -> dict:
