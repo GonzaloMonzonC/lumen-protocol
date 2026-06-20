@@ -343,7 +343,9 @@ function pulseUpdate(works){
   const now=Date.now()/1000;
   const fmtTime=ts=>{const s=Math.round(now-ts);return s<60?s+'s':s<3600?Math.floor(s/60)+'m':Math.floor(s/3600)+'h'};
   const fmtDur=d=>d<60?d+'s':(d/60).toFixed(0)+'m';
-  const active=works.filter(w=>w.status!=='done'&&w.status!=='blocked').slice(0,3);
+  // NOW: in_progress works started within last 60 minutes
+  const active=works.filter(w=>w.status==='in_progress'&&w.started_at&&(now-w.started_at)<3600).slice(0,3);
+  // Recent: completed works within 24h, or VERY recent in_progress
   const done=works.filter(w=>w.status==='done').sort((a,b)=>(b.done_at||0)-(a.done_at||0)).slice(0,5);
   const blocked=works.filter(w=>w.status==='blocked').slice(0,3);
   $('pulse-now').innerHTML=active.length?active.map(w=>`<div style="margin-bottom:2px"><span style="color:var(--acc)">▶</span> ${(w.item||'').slice(0,30)} <span style="color:var(--dim)">${fmtDur(w.duration_seconds||0)}</span></div>`).join(''):'<div class="dim">idle</div>';
