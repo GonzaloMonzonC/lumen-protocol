@@ -1,0 +1,699 @@
+[
+  {
+    "path": "acta_revision_1_2026-06-20.md",
+    "size_bytes": 3311,
+    "size_kb": 3.2,
+    "headers": [
+      "Acta de Revisión 1 - Lumen",
+      "Fecha: 2020-06-20",
+      "Resumen de la Primera Iteración de Evaluación",
+      "Pruebas realizadas",
+      "Conclusiones preliminares"
+    ]
+  },
+  {
+    "path": "DICTIONARY.md",
+    "size_bytes": 6595,
+    "size_kb": 6.4,
+    "headers": [
+      "Core MCP/RPC (`0x00-0x0F`)",
+      "Input/Output (`0x10-0x1F`)",
+      "Resources & Tools (`0x20-0x2F`)",
+      "Errors & Status (`0x30-0x3F`)",
+      "LLM / AI (`0x40-0x4F`)"
+    ]
+  },
+  {
+    "path": "DICTIONARY_ES.md",
+    "size_bytes": 7135,
+    "size_kb": 7.0,
+    "headers": [
+      "LUMEN — Diccionario Estático (128 entradas)",
+      "Core MCP/RPC (`0x00–0x0F`)",
+      "Input/Output (`0x10–0x1F`)",
+      "Resources & Tools (`0x20–0x2F`)",
+      "Errors & Status (`0x30–0x3F`)"
+    ]
+  },
+  {
+    "path": "HERMES_INTEGRATION.md",
+    "size_bytes": 12528,
+    "size_kb": 12.2,
+    "headers": [
+      "Hermes Agent + LUMEN Integration",
+      "Overview",
+      "Architecture",
+      "⚡ Plugin Bridge — **Recommended Approach** (June 2026)",
+      "Why Plugin over MCP Config"
+    ]
+  },
+  {
+    "path": "INSTALL.md",
+    "size_bytes": 2952,
+    "size_kb": 2.9,
+    "headers": [
+      "LUMEN + Hermes Agent — Installation Guide",
+      "Quick Install (2 minutes)",
+      "1. Clone the repo",
+      "2. Install LUMEN Python package",
+      "3. Add MCP servers to Hermes config"
+    ]
+  },
+  {
+    "path": "INSTALL_ES.md",
+    "size_bytes": 3135,
+    "size_kb": 3.1,
+    "headers": [
+      "LUMEN + Hermes Agent — Guía de Instalación",
+      "Instalación Rápida (2 minutos)",
+      "1. Clonar el repositorio",
+      "2. Instalar paquete Python de LUMEN",
+      "3. Añadir servidores MCP a la configuración de Hermes"
+    ]
+  },
+  {
+    "path": "PAPER.md",
+    "size_bytes": 26453,
+    "size_kb": 25.8,
+    "headers": [
+      "LUMEN: A Binary Wire Protocol for Efficient Model Context Communication",
+      "1. Introduction",
+      "2. Background and Motivation",
+      "2.1 The Model Context Protocol",
+      "2.2 The Cost of JSON-RPC for AI Workloads"
+    ]
+  },
+  {
+    "path": "PAPER_ES.md",
+    "size_bytes": 30176,
+    "size_kb": 29.5,
+    "headers": [
+      "LUMEN: Un Protocolo Binario de Transmisión para la Comunicación Eficiente con Modelos de Contexto",
+      "1. Introducción",
+      "2. Antecedentes y Motivación",
+      "2.1 El Model Context Protocol",
+      "2.2 El Coste de JSON-RPC para Cargas de IA"
+    ]
+  },
+  {
+    "path": "README.md",
+    "size_bytes": 11654,
+    "size_kb": 11.4,
+    "headers": [
+      "Why?",
+      "Quick Start",
+      "📦 Published packages (no clone needed)",
+      "Or build from source:",
+      "Python"
+    ]
+  },
+  {
+    "path": "README_EXT.md",
+    "size_bytes": 61176,
+    "size_kb": 59.7,
+    "headers": [
+      "LUMEN — Lightweight Universal Model Exchange Network",
+      "🎯 Motivation",
+      "🧬 Protocol Anatomy",
+      "Hyb128 — O(1) hybrid length",
+      "Frame Types"
+    ]
+  },
+  {
+    "path": "RFC_LUMEN.md",
+    "size_bytes": 65796,
+    "size_kb": 64.3,
+    "headers": []
+  },
+  {
+    "path": "SOUL.md",
+    "size_bytes": 6332,
+    "size_kb": 6.2,
+    "headers": [
+      "Hermes Agent Persona — LUMEN Edition",
+      "LUMEN MCP Tools",
+      "Tool selection priority",
+      "Session preset",
+      "Cognitive workflows (loaded from skills)"
+    ]
+  },
+  {
+    "path": "SPEC_DEV.md",
+    "size_bytes": 21061,
+    "size_kb": 20.6,
+    "headers": [
+      "LUMEN — Protocol Specification v1.0-draft",
+      "1. Overview and Philosophy",
+      "1.1 The JSON-RPC problem",
+      "1.2 LUMEN design principles",
+      "2. Transport Abstraction (LTA)"
+    ]
+  },
+  {
+    "path": "docs/BENCHMARKS.md",
+    "size_bytes": 4187,
+    "size_kb": 4.1,
+    "headers": [
+      "LUMEN Benchmarks Consolidados",
+      "🧠 Thinking Server — 32 tools",
+      "Per-Tool Thinking Latency (muestra)",
+      "📁 Filesystem Server — 13 tools",
+      "vs Hermes Built-in"
+    ]
+  },
+  {
+    "path": "docs/COGNITIVE_OS.md",
+    "size_bytes": 9830,
+    "size_kb": 9.6,
+    "headers": [
+      "LUMEN Cognitive OS — Arquitectura Completa",
+      "🧠 Visión General",
+      "⚡ SHM Transport — La Base de Todo",
+      "Cómo funciona",
+      "🗺️ Arquitectura de 47 Tools"
+    ]
+  },
+  {
+    "path": "docs/doc-map-2026-06-20.md",
+    "size_bytes": 4447,
+    "size_kb": 4.3,
+    "headers": [
+      "◆ LUMEN Documentation Map",
+      "June 20, 2026",
+      "Files NOT referenced from README",
+      "Broken Links",
+      "Numbers"
+    ]
+  },
+  {
+    "path": "docs/enterprise-stress-test-2026-06-20-ref.md",
+    "size_bytes": 1951,
+    "size_kb": 1.9,
+    "headers": [
+      "Enterprise Stress Test Results — Token-Efficient Tools (June 20, 2026)",
+      "Throughput (WAR ROOM scenario)",
+      "Token Efficiency Benchmarks",
+      "Information Density (not just raw tokens)",
+      "Bugs Found During Testing"
+    ]
+  },
+  {
+    "path": "docs/enterprise-stress-testing-2026-06-20.md",
+    "size_bytes": 6439,
+    "size_kb": 6.3,
+    "headers": [
+      "Enterprise Stress Testing — LUMEN MCP Servers",
+      "June 20, 2026 · Cadences Lab",
+      "🎯 Objective",
+      "📊 Results Summary",
+      "SCENARIO 1: WAR ROOM 🚨"
+    ]
+  },
+  {
+    "path": "docs/lumen-universal-protocol-strategy.md",
+    "size_bytes": 1760,
+    "size_kb": 1.7,
+    "headers": [
+      "LUMEN Universal Protocol Strategy",
+      "Strategic Decision",
+      "Current Domains Using LUMEN Wire Format",
+      "Competitive Advantage",
+      "Implementation"
+    ]
+  },
+  {
+    "path": "docs/lumen-ws-dashboard.md",
+    "size_bytes": 1933,
+    "size_kb": 1.9,
+    "headers": [
+      "LUMEN WebSocket Transport — Dashboard Protocol Extension",
+      "How It Works",
+      "Measured Performance",
+      "Architecture",
+      "Dashboard Panels (18 total, June 2026)"
+    ]
+  },
+  {
+    "path": "docs/lumen_thinking_usage.md",
+    "size_bytes": 8861,
+    "size_kb": 8.7,
+    "headers": [
+      "Lumen Thinking Tools — Usage Guide",
+      "Updated June 20, 2026 (post-session experience)",
+      "Table of Contents",
+      "Core Philosophy",
+      "The 5 New Token-Efficient Tools"
+    ]
+  },
+  {
+    "path": "docs/token-efficient-tools-2026-06-20.md",
+    "size_bytes": 2739,
+    "size_kb": 2.7,
+    "headers": [
+      "Token-Efficient Tools — LUMEN Cognitive OS",
+      "June 20, 2026",
+      "🔧 Tools",
+      "1. state_snapshot()",
+      "2. thought_compress(chainId, targetThoughts=3)"
+    ]
+  },
+  {
+    "path": "docs/benchmarks/internal/filesystem-lumen-vs-hermes-2026-06-19.md",
+    "size_bytes": 1872,
+    "size_kb": 1.8,
+    "headers": [
+      "LUMEN SHM vs HERMES — 13-Tool Filesystem Benchmark",
+      "Per-Tool Comparison",
+      "Key Insights",
+      "Cost Savings (per 1000 calls)"
+    ]
+  },
+  {
+    "path": "docs/benchmarks/internal/projectos-exploration-2026-06-19.md",
+    "size_bytes": 5894,
+    "size_kb": 5.8,
+    "headers": [
+      "LUMEN SHM — Benchmark: ProjectOS Exploration",
+      "Run 1 (Cold Start — post Hermes restart, SHM servers not spawned)",
+      "Run 2 (Warm Cache — same session, connections persisted)",
+      "Run 1 vs Run 2 — Comparison",
+      "What LUMEN SHM Enabled (vs Hermes Built-in)"
+    ]
+  },
+  {
+    "path": "docs/benchmarks/internal/thinking-deep-benchmark-2026-06-19.md",
+    "size_bytes": 5455,
+    "size_kb": 5.3,
+    "headers": [
+      "LUMEN Thinking Server — Cognitive Deep Benchmark",
+      "Test Configuration",
+      "Phase 1: Chain Building (Custom IDs)",
+      "Chain: `lumen_v2` (6 thoughts)",
+      "Chain: `bench_v2` (4 thoughts)"
+    ]
+  },
+  {
+    "path": "examples/README.md",
+    "size_bytes": 3917,
+    "size_kb": 3.8,
+    "headers": [
+      "◆ Demos",
+      "◆ Quick Start",
+      "Install LUMEN first",
+      "Demo 1 — Cost projection",
+      "Demo 2 — Session dictionary in action"
+    ]
+  },
+  {
+    "path": "examples/agent-loop/README.md",
+    "size_bytes": 2556,
+    "size_kb": 2.5,
+    "headers": [
+      "◆ LUMEN Agent Loop",
+      "Quick Run",
+      "Options",
+      "How It Works",
+      "What You Will See"
+    ]
+  },
+  {
+    "path": "examples/cost-calculator/README.md",
+    "size_bytes": 4096,
+    "size_kb": 4.0,
+    "headers": [
+      "Quick Run",
+      "Options",
+      "Scenarios Simulated",
+      "Expected Output",
+      "Español"
+    ]
+  },
+  {
+    "path": "examples/mcp-dropin/README.md",
+    "size_bytes": 3110,
+    "size_kb": 3.0,
+    "headers": [
+      "◆ LUMEN MCP Drop-In Server",
+      "Quick Run",
+      "Open http://localhost:9090/ in your browser",
+      "Options",
+      "Endpoints"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/PROPOSAL_COGNITIVE_EXOSKELETON.md",
+    "size_bytes": 10816,
+    "size_kb": 10.6,
+    "headers": [
+      "The Cognitive Exoskeleton",
+      "A Proposal for Democratizing AI Capability Through Externalized Cognition",
+      "🧠 0. Preamble: The Mad Scientist's Gambit",
+      "🎯 1. The Core Thesis",
+      "🔬 2. The Evidence"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/README.md",
+    "size_bytes": 8606,
+    "size_kb": 8.4,
+    "headers": [
+      "LUMEN MCP Servers",
+      "Servers",
+      "Benchmark Results (June 2026)",
+      "Cognitive Workflow Skills",
+      "🆕 Cross-Session Cognition — LUMEN Cognitive OS"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/RETROSPECTIVE.md",
+    "size_bytes": 8018,
+    "size_kb": 7.8,
+    "headers": [
+      "Retrospective: Hermes Agent — Before and After LUMEN",
+      "Before LUMEN",
+      "After LUMEN (Session 1 — Infrastructure)",
+      "After LUMEN (Session 2 — Cognition + Testing)",
+      "Bug Hunting Game (real-world test)"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/RETROSPECTIVE_ES.md",
+    "size_bytes": 8339,
+    "size_kb": 8.1,
+    "headers": [
+      "Retrospectiva: Agente Hermes — Antes y Después de LUMEN",
+      "Antes de LUMEN",
+      "Después de LUMEN (Sesión 1 — Infraestructura)",
+      "Después de LUMEN (Sesión 2 — Cognición + Testing)",
+      "Juego de Caza de Bugs (prueba real)"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/TOOLS_GUIDE.md",
+    "size_bytes": 12547,
+    "size_kb": 12.3,
+    "headers": [
+      "LUMEN Tools Guide — When to Use Each Tool",
+      "Reading Files",
+      "`read_file`",
+      "`read_files` 🔥",
+      "`stream_read` 🔥"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/filesystem/README.md",
+    "size_bytes": 1470,
+    "size_kb": 1.4,
+    "headers": [
+      "LUMEN Filesystem MCP Server",
+      "Quick Start",
+      "JSON-RPC wrapper (works with any MCP client)",
+      "LUMEN native (50-70% wire savings, requires LUMEN-aware client)",
+      "Tools"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-cognitive-safety/SKILL.md",
+    "size_bytes": 7870,
+    "size_kb": 7.7,
+    "headers": [
+      "Lumen Cognitive Safety",
+      "Taxonomy: SAFE vs UNSAFE",
+      "✅ SAFE: Perception Expanders",
+      "❌ UNSAFE: Judgment Replacers (DO NOT BUILD)",
+      "⚠️ BORDERLINE: Tools Requiring Extra Care"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-cognitive-state-sync/SKILL.md",
+    "size_bytes": 9951,
+    "size_kb": 9.7,
+    "headers": [
+      "Lumen Cognitive State Sync",
+      "The Vision: Shared Cognitive Infrastructure",
+      "Cognitive State Serialization Format",
+      "MUX Channel: `cognitive-sync` (Channel 0x10)",
+      "Sync Protocol (via MUX)"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-cognitive-workflows/SKILL.md",
+    "size_bytes": 10605,
+    "size_kb": 10.4,
+    "headers": [
+      "Lumen Cognitive Workflows",
+      "Quick Reference: The 7 Cognitive Subsystems",
+      "Workflow 1: Problem → Plan → Execute → Review",
+      "Example: Database Migration",
+      "Phase 1: Decompose with structured reasoning"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-control/SKILL.md",
+    "size_bytes": 20610,
+    "size_kb": 20.1,
+    "headers": [
+      "LUMEN Control Panel",
+      "Comandos rápidos",
+      "Servidores disponibles",
+      "Config completa para Hermes",
+      "~/.hermes/config.yaml"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-mcp-server/SKILL.md",
+    "size_bytes": 3428,
+    "size_kb": 3.3,
+    "headers": [
+      "Building LUMEN MCP Servers",
+      "User's Standards",
+      "Architecture",
+      "Server Template",
+      "Hermes Config"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-mcp-server-pattern/SKILL.md",
+    "size_bytes": 23522,
+    "size_kb": 23.0,
+    "headers": [
+      "LUMEN MCP Server Creation Pattern",
+      "Quick Start",
+      "Pattern A: JSON-RPC + LUMEN wrapper (recommended)",
+      "server.py — ~400 lines",
+      "Pattern B: LUMEN native binary (advanced)"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-server-development/SKILL.md",
+    "size_bytes": 15362,
+    "size_kb": 15.0,
+    "headers": [
+      "LUMEN MCP Server Development",
+      "Two Server Patterns",
+      "Pattern A: JSON-RPC + LUMEN Wrapper (`server.py`)",
+      "Minimal skeleton",
+      "Pattern B: LUMEN Native (`server_native.py`)"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-thinking-hermes-integration/SKILL.md",
+    "size_bytes": 8325,
+    "size_kb": 8.1,
+    "headers": [
+      "Lumen Thinking — Hermes Deep Integration",
+      "Phase 0: Verify Server Connectivity",
+      "~/.hermes/config.yaml",
+      "Phase 1: Auto-Context Preservation Hook",
+      "Hermes Plugin: `lumen-context-anchor`"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/skills/lumen-thinking-server-dev/SKILL.md",
+    "size_bytes": 10091,
+    "size_kb": 9.9,
+    "headers": [
+      "Lumen Thinking Server — Native Development",
+      "Why Native? JSON-RPC Wrapper vs Lumen Native",
+      "Architecture: Native Thinking Server",
+      "Windows-Safe Frame Reading",
+      "✅ Windows-safe LUMEN frame reader"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/thinking/MEMORY_COMPARISON.md",
+    "size_bytes": 3383,
+    "size_kb": 3.3,
+    "headers": [
+      "LUMEN Thinking vs Hermes Memory — The Complete Picture",
+      "Hermes Memory (native persistence)",
+      "LUMEN Thinking (reasoning persistence)",
+      "They Complement Each Other",
+      "Practical Example: Database Migration"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/thinking/README.md",
+    "size_bytes": 6280,
+    "size_kb": 6.1,
+    "headers": [
+      "LUMEN Sequential Thinking Server",
+      "Why this matters",
+      "Tools (32 total)",
+      "🧠 Reasoning Chain Engine (7)",
+      "🔍 Assumption Tracker (3)"
+    ]
+  },
+  {
+    "path": "implementations/mcp-servers/web/README.md",
+    "size_bytes": 1401,
+    "size_kb": 1.4,
+    "headers": [
+      "LUMEN Web Search + Extract Server",
+      "Why this over Hermes built-in?",
+      "Tools",
+      "Quick Start",
+      "Hermes Config"
+    ]
+  },
+  {
+    "path": "implementations/python/README.md",
+    "size_bytes": 3318,
+    "size_kb": 3.2,
+    "headers": [
+      "LUMEN — Python binding",
+      "Architecture",
+      "Status",
+      "Quick start",
+      "Standalone compress/decompress"
+    ]
+  },
+  {
+    "path": "implementations/python/README_ES.md",
+    "size_bytes": 3334,
+    "size_kb": 3.3,
+    "headers": [
+      "LUMEN — Python binding",
+      "Architecture",
+      "Status",
+      "Quick start",
+      "Standalone compress/decompress"
+    ]
+  },
+  {
+    "path": "implementations/python/WINDOWS_FIXES.md",
+    "size_bytes": 2097,
+    "size_kb": 2.0,
+    "headers": [
+      "Windows Compatibility Fixes",
+      "Fix 1: `stdin.flush()` → `_flush_stdin()` helper",
+      "Fix 2: `close()` deadlock",
+      "Fix 3: `env` construction with `sys.executable`",
+      "Fix 4: `stdout.read(N)` → `stdout.readline()`"
+    ]
+  },
+  {
+    "path": "implementations/python/.pytest_cache/README.md",
+    "size_bytes": 310,
+    "size_kb": 0.3,
+    "headers": [
+      "pytest cache directory #"
+    ]
+  },
+  {
+    "path": "implementations/typescript/README.md",
+    "size_bytes": 7915,
+    "size_kb": 7.7,
+    "headers": [
+      "@lumen/mcp-transport",
+      "Architecture",
+      "Protocol Negotiation (Handshake)",
+      "Usage",
+      "API"
+    ]
+  },
+  {
+    "path": "implementations/typescript/README_ES.md",
+    "size_bytes": 7915,
+    "size_kb": 7.7,
+    "headers": [
+      "@lumen/mcp-transport",
+      "Architecture",
+      "Protocol Negotiation (Handshake)",
+      "Usage",
+      "API"
+    ]
+  },
+  {
+    "path": "temp/plan-mcp.md",
+    "size_bytes": 35551,
+    "size_kb": 34.7,
+    "headers": [
+      "Plan de mejoras para `implementations/mcp-servers`",
+      "Resumen ejecutivo",
+      "Estado observado",
+      "Verificaciones ejecutadas",
+      "Prioridades"
+    ]
+  },
+  {
+    "path": "temp/plan-mejoras-2.md",
+    "size_bytes": 52365,
+    "size_kb": 51.1,
+    "headers": [
+      "Plan de mejoras exhaustivo para LUMEN Protocol",
+      "Resumen ejecutivo",
+      "Estado observado de verificaciones",
+      "Prioridades",
+      "P0 - Bloqueante"
+    ]
+  },
+  {
+    "path": "temp/plan-mejoras.md",
+    "size_bytes": 31163,
+    "size_kb": 30.4,
+    "headers": [
+      "Plan de mejoras de LUMEN — informe exhaustivo",
+      "0. Resumen ejecutivo y orden de ataque",
+      "1. Seguridad (lo más urgente)",
+      "1.1 🔴 Reutilización de (clave, nonce) en ChaCha20-Poly1305 — Rust y TS",
+      "1.2 🟠 Detección de replay frágil"
+    ]
+  },
+  {
+    "path": "temp/review_opus68.md",
+    "size_bytes": 12094,
+    "size_kb": 11.8,
+    "headers": [
+      "Revisión del proyecto LUMEN",
+      "1. Veredicto",
+      "2. Metodología — qué se ejecutó",
+      "3. Lo que está genuinamente bien",
+      "4. Problemas serios (verificados)"
+    ]
+  },
+  {
+    "path": "temp/VULNERABILITIES.md",
+    "size_bytes": 10089,
+    "size_kb": 9.9,
+    "headers": [
+      "Informe de vulnerabilidades — `lumen-protocol`",
+      "Resumen de severidad",
+      "🔴 Críticas",
+      "1. Claves públicas X25519 del peer nunca se validan en el handshake real",
+      "2. El caveat de expiración de los Macaroons no se verifica nunca contra el tiempo real"
+    ]
+  },
+  {
+    "path": "tests/benchmarks/tools_benchmark_report.md",
+    "size_bytes": 5946,
+    "size_kb": 5.8,
+    "headers": [
+      "🔬 LUMEN Tools Benchmark Report",
+      "📊 Wire Compression — All 22 tool payloads",
+      "By Category",
+      "⏱️ Roundtrip Latency (compress → decompress)",
+      "✅ Correctness Verification"
+    ]
+  }
+]
