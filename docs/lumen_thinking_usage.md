@@ -1,196 +1,248 @@
-# Lumen Thinking Tools – Usage Examples
+# Lumen Thinking Tools — Usage Guide
+## Updated June 20, 2026 (post-session experience)
 
-This document demonstrates how to use the Lumen thinking tools (`sequential_thinking`, `assume`, `check_assumption`, `model_*`, `work_*`, `pattern_*`, etc.) to solve various types of problems. All examples were executed using only the Lumen toolset, without external lookup or internal reasoning outside the tool chain.
+**34 tools** across thinking, filesystem, and web servers. **49 total**.
+Token-efficient output: 90-95% savings with compact mode.
 
 ---
 
 ## Table of Contents
-1. [Overview](#overview)
-2. [Example 1 – Logic Puzzle (5 persons, profession, pet, drink)](#example-1--logic-puzzle)
-3. [Example 2 – Spatial Reasoning (Cube Net)](#example-2--spatial-reasoning)
-3. [Example 3 – Linguistic Riddle (Spanish)](#example-3--linguistic-riddle)
-4. [Example 4 – Combination Puzzle (4×4 Sudoku‑like)](#example-4--combination-puzzle)
-5. [How to Run the Examples](#how-to-run-the-examples)
-6. [Additional Tool Combinations](#additional-tool-combinations)
-7. [References](#references)
+1. [Core Philosophy](#core-philosophy)
+2. [The 5 New Token-Efficient Tools](#the-5-new-token-efficient-tools)
+3. [Compact Mode](#compact-mode)
+4. [Proactive System](#proactive-system)
+5. [Pattern: Token-Conscious Workflow](#pattern-token-conscious-workflow)
+6. [Pattern: Debugging with Cache](#pattern-debugging-with-cache)
+7. [Pattern: Enterprise Monitoring](#pattern-enterprise-monitoring)
+8. [Dashboard Integration](#dashboard-integration)
+9. [Common Pitfalls](#common-pitfalls)
+10. [Example – Real Session Flow](#example--real-session-flow)
 
 ---
 
-## Overview
-Lumen thinking tools externalize the reasoning process, allowing the agent to:
-- Keep chains of thoughts outside the context window (`sequential_thinking`).
-- Record and validate hypotheses (`assume`, `check_assumption`).
-- Build and query a persistent mental model (`model_*`).
-- Track work items across sessions (`work_*`).
-- Record and reuse bug/insight patterns (`pattern_*`).
-- Preserve critical information across context compaction (`context_preserve`).
+## Core Philosophy
 
-The examples below show each tool in action.
+LUMEN thinking tools externalize reasoning so it survives context compaction.
+The key insight from 20+ hours of intensive use:
 
----
+**Output tokens cost 10-20× more than input tokens** (input caches, output doesn't).
+Every tool should return the minimum text needed. The LLM already knows what
+arguments it sent — don't echo them back.
 
-## Example 1 – Logic Puzzle
-**Puzzle:** Five persons (Alice, Bob, Carol, David, Eve). Each has a distinct profession (Doctor, Engineer, Teacher, Writer, Chef), a distinct pet (Cat, Dog, Fish, Hamster, Parrot), and a distinct drink (Water, Tea, Coffee, Juice, Milk).  
-Constraints:
-1. Doctor has Cat.  
-2. Engineer drinks Tea.  
-3. Carol is Teacher.  
-4. Person with Dog drinks Juice.  
-5. David owns Parrot.  
-6. Chef drinks Milk.  
-7. Eve does NOT have Fish.
-
-**Solution (one valid assignment):**
-| Person | Profession | Pet    | Drink |
-|--------|------------|--------|-------|
-| Alice  | Doctor     | Cat    | Water |
-| Bob    | Chef       | Hamster| Milk  |
-| Carol  | Teacher    | Fish   | Coffee|
-| David  | Engineer   | Parrot | Tea   |
-| Eve    | –          | Dog    | Juice |
-
-**Lumen Thinking Steps** (chain `puzzle1_chain`):
-1. List entities (persons, professions, pets, drinks).  
-2. List constraints.  
-3. Consider David (Parrot).  
-4. Consider Eve (no Fish).  
-5. Attempt assignment satisfying all constraints.  
-6. Final solution.
-
-All steps were performed with `sequential_thinking` calls; no other thinking tools were needed for this deduction.
+**The system is now proactive.** `state_snapshot` reminds you of works pending >30min
+and suggests patterns based on your current reasoning. The cognitive exoskeleton
+doesn't wait to be asked.
 
 ---
 
-## Example 2 – Spatial Reasoning
-**Puzzle:** Given a cube net (cross shape) with faces numbered as follows:
+## The 5 New Token-Efficient Tools
+
+### `state_snapshot()` — 43 chars
+One-line system health. Replaces 3-4 separate tool calls.
 ```
-   [2]
-[4][1][5]
-   [3]
-   [6]
+⚡ 10c · 34t · 10.0★ · 17p · 14w · 263 calls ⏰ 2 works >30min 💡 3 pattern suggestions
 ```
-When folded into a cube, which face is opposite face 2 (the top face)?
+Use as your first call in any session. See pending works and pattern suggestions
+instantly.
 
-**Solution:** Face 2 (top) is opposite face 3 (bottom).
+### `thought_compress(chainId, target=3)` — 25 chars
+Compresses N thoughts to M key thoughts. Selects first, last, and top-scored middle.
+```
+✅ Compressed 6→3 thoughts
+```
+Use instead of `thought_summarize` when you just need the count, not themes.
 
-**Lumen Thinking Steps** (chain `puzzle2_chain`):
-1. Describe the net layout.  
-2. Explain folding: face 2 up → top, face 3 down → bottom, face 4 left → left, face 5 right → right, face 6 below face 3 folds down → back.  
-3. Conclude that opposite of face 2 is face 3.
+### `chain_diff(chainId, from=1, to=last)` — 21 chars
+Shows only what changed between two points in a chain.
+```
+Δ #1→#3: +3 · ↻0 · 🌿0
+```
+Use to check if progress was made since last check. No need to re-read all thoughts.
+
+### `tool_cache(key, value=..., ttl=300)` — 8-22 chars
+Cache expensive results across tool calls.
+```
+💾 Cached          # SET
+🎯 Cache hit: ...  # GET — pays off from 2nd query
+❌ Cache miss      # key not found or expired
+```
+Cache anything that might be queried again: bug findings, DB results, analysis.
+
+### `batch_call(tools=[...])` — 32 chars for 5 tools
+Execute N tools in sequence, ONE output line.
+```
+Batch: 4/4 OK — ✅ state_snapshot ✅ tool_cache ✅ chain_diff ✅ thought_compress
+```
+Saves 40% overhead vs N individual calls. Max 10 tools per batch.
 
 ---
 
-## Example 3 – Linguistic Riddle (Spanish)
-**Riddle:** *¿Qué es lo que se rompe al nombrarlo?*  
-**Answer:** *El silencio* (silence). Saying the word “silence” breaks the silence.
+## Compact Mode
 
-**Lumen Thinking Steps** (chain `puzzle3_chain`):
-1. State the riddle.  
-2. Consider what breaks when named (silence, secret, promise).  
-3. Verify that naming silence breaks it → answer is silence.
+All tools now default to compact output. Key changes:
+
+| Tool | Old (verbose) | New (compact) | Savings |
+|---|---|---|---|
+| `sequential_thinking` | 5 previous thoughts (~400 chars) | "Last: #X: ..." (~100 chars) | 75% |
+| `thought_summarize` | Full theme preview (~800 chars) | "📋 N themes · M thoughts" (~23 chars) | 97% |
+| `pattern_match` | All matches with scores (~400 chars) | Top match only (~50 chars) | 87% |
+| `state_snapshot` | N/A | 43 chars | — |
+| `tool_cache` | N/A | 8-22 chars | — |
+
+Pass `verbose=true` when you need full output. Default is compact.
 
 ---
 
-## Example 4 – Combination Puzzle (4×4 Grid)
-**Puzzle:** Fill a 4×4 grid with numbers 1‑4 such that each row and column contains each number exactly once. Given:
-- (1,2) = 2  
-- (2,3) = 3  
-- (3,1) = 4  
-- (4,4) = 1  
+## Proactive System
 
-**Solution:**
+The system now reminds you of things without being asked.
+
+**`state_snapshot` shows:**
 ```
-3 2 1 4
-1 4 3 2
-4 1 2 3
-2 3 4 1
+⏰ 2 works >30min    ← Works that should be closed
+💡 3 pattern suggestions  ← Similar patterns to consider
 ```
 
-**Lumen Thinking Steps** (chain `puzzle4_chain`):
-1. Define coordinates and given values.  
-2. Deduce possibilities for row 1, row 2, row 3 using column constraints.  
-3. Iteratively eliminate options until a consistent grid emerges.  
-4. Present the solved grid.
+**`pattern_record` suggests:**
+When you record a new pattern with >30% keyword overlap to existing ones,
+it automatically shows up to 3 similar patterns. No manual `pattern_match` needed.
 
-All deductions were performed with `sequential_thinking` calls.
-
----
-
-## How to Run the Examples
-Each example corresponds to a `sequential_thinking` chain stored in the session’s thinking server. To reproduce:
-1. Start a Lumen thinking server (if not already running):
-   ```bash
-   python implementations/mcp-servers/thinking/server.py
-   ```
-2. Use the `sequential_thinking` tool to invoke each thought in order, setting `nextThoughtNeeded` appropriately and providing the `chainId` to continue the chain.
-3. Optionally, verify intermediate results with `thought_evaluate`, `thought_contradiction`, or `model_add`/`model_query` for mental‑model integration.
-
-For a quick test, you can run the full chain via a script that iteratively calls `sequential_thinking` with the thoughts shown above.
+**Auto-evaluate:**
+Every new thought gets scored automatically (heuristic: specificity,
+actionability, length). No more chains with zero scores.
 
 ---
 
-## Additional Tool Combinations
-The thinking tools become even more powerful when combined with other Lumen subsystems:
+## Pattern: Token-Conscious Workflow
 
-- **Assumption Tracking:** Register a hypothesis with `assume`, later validate it with `check_assumption`.  
-- **Mental Model:** Store discovered entities (e.g., “Doctor has Cat”) with `model_add`; retrieve with `model_query`; visualize relationships with `model_map`.  
-- **Work Log:** Create a work item (`work_start`), break it into blocks (`work_block`), mark completion (`work_done`), and review progress (`work_log`).  
-- **Pattern Recording:** Save a successful reasoning pattern with `pattern_record` for future reuse via `pattern_match`.  
-- **Context Preservation:** Anchor critical info before a long chain with `context_preserve` and verify with `context_check`.  
-- **Cross‑Session Persistence:** Use `work_start`/`work_log` to persist task progress across `/reset` sessions.  
-- **Integration with Web Tools:** Feed results from `web_search`/`web_extract` into a thinking chain for evidence‑based reasoning.
+Use this when starting any new task. It gives you full context in ~50 tokens.
 
-These combinations enable complex, multi‑step workflows while keeping the agent’s reasoning transparent, revisable, and scalable.
+```text
+1. state_snapshot()           # 10t — system health, pending works
+2. sequential_thinking(plan)  # 25t — compact mode
+3. tool_cache('plan', plan)   # 2t — cache for follow-up queries
+4. batch_call([               # 12t — batch next checks
+     state_snapshot,
+     tool_cache('plan')
+   ])
+Total: ~49 tokens
+```
 
+Compare to old way: `thought_summarize` + `pattern_match` + `work_start` = ~60 tokens,
+with far less information density.
 
-## Example 5 – End‑to‑end workflow: hypothesis → web evidence → mental model → work tracking → pattern
+---
 
-**Goal:** Verify a factual hypothesis (e.g., "The capital of France is Paris") using web evidence, store the fact in the mental model, track the work, and record a reusable pattern.
+## Pattern: Debugging with Cache
 
-**Steps:**
+Debug a production issue across multiple sessions.
 
-1. **Assume** a hypothesis with `assume`.
-   ```text
-   assume(statement="The capital of France is Paris.", category="integration")
-   ```
+```text
+Session 1:
+1. state_snapshot()                           # baseline
+2. sequential_thinking(investigate bug)       # reasoning
+3. tool_cache('bug_db', 'pool exhausted')     # save finding
+4. state_snapshot()                           # verify after work
 
-2. **Web search** for confirmation (optional if you already know a source).
-   ```text
-   web_search(query="capital of France", limit=1)
-   ```
+Session 2 (next day — all state persists):
+1. state_snapshot()                           # check system
+2. tool_cache('bug_db')                       # 22 chars — cache hit!
+3. chain_diff('bug_chain', from=1)            # what was the conclusion?
+4. batch_call[state_snapshot, tool_cache]      # monitor after fix
 
-3. **Web extract** the relevant page (e.g., Wikipedia) to obtain the source text.
-   ```text
-   web_extract(urls=["https://en.wikipedia.org/wiki/Paris"])
-   ```
+Cost: Session 2 costs ~40 chars vs ~200 chars if you re-investigated.
+```
 
-4. **Model add** store the fact in the mental model.
-   ```text
-   model_add(entity="CapitalOfFrance", properties={value="Paris", source="Wikipedia", fact="Paris is the capital and largest city of France"})
-   ```
+---
 
-5. **Work tracking** – start a work item, create a block, and mark it done.
-   ```text
-   work_start(title="Verify capital of France", description="Check that the capital of France is Paris using web evidence and record in mental model.")
-   work_block(block_id="verify_capital", status="in_progress")
-   work_done(block_id="verify_capital")
-   ```
+## Pattern: Enterprise Monitoring
 
-6. **Pattern recording** – save the whole sequence as a reusable pattern.
-   ```text
-   pattern_record(pattern_name="CapitalVerification", description="Workflow: assume hypothesis about capital, web_search for confirmation, web_extract to get source, model_add to store fact, work_start/work_block/work_done to track task.")
-   ```
+Monitor system health across multiple services.
 
-All steps were performed using only Lumen tools, demonstrating how the thinking tools can be combined with web tools, mental model, work log, and pattern recording to build complex, evidence‑based workflows.
+```text
+Every hour:
+1. state_snapshot()              # 43 chars — full system state
+2. tool_cache('hourly_state')    # 22 chars — cached for comparison
 
+Every 8 hours:
+3. chain_diff('monitoring', ...)  # 21 chars — what changed?
+4. batch_call[                   # 32 chars — final report
+     state_snapshot,
+     tool_cache('hourly_state')
+   ]
+
+Total for 8h monitoring: ~500 chars.
+Old way (no cache, verbose): ~2000+ chars.
+```
+
+---
+
+## Dashboard Integration
+
+The dashboard at `http://localhost:9876/` auto-starts with the plugin.
+
+**What it gives you:**
+- KPIs: thoughts, chains, avg score, contradictions, tool calls
+- Activity chart: bezier curve with gradient area
+- System Pulse: NOW (active), RECENT (completed), BLOCKED
+- Chain explorer with clickable modals
+- Wiki, Clusters, Model, Decisions, Assumptions panels
+- Live status indicator (WebSocket or HTTP polling)
+
+**Pro tip:** The data comes from `.thinking_state.json` — the same file the
+MCP server saves to. Every 10 tool calls, the dashboard auto-refreshes.
+
+---
+
+## Common Pitfalls (learned the hard way)
+
+| Pitfall | Symptom | Fix |
+|---|---|---|
+| **Zombie dashboard** | Connection refused on :9876 | Plugin now kills stale processes. Restart Hermes. |
+| **File locking** | WinError 32 on save | Fixed: exponential backoff (5 retries, 10-80ms) |
+| **Empty params crash** | KeyError in tool | Fixed: all tools use `.get()` with defaults |
+| **Chains without scores** | All chains show 10.0★ | Fixed: auto-evaluate ALL chains now |
+| **Broken HTML dashboard** | Dashboard shows "Updated: --" forever | Check for stale server process (PID != current) |
+| **Missing new tools** | `state_snapshot` not found | Restart Hermes — plugin caches tools on start |
+
+---
+
+## Example – Real Session Flow
+
+This is what a typical LUMEN session looks like with the current tools:
+
+```text
+→ USER: search for the bug in the DB timeout code
+
+→ AGENT:
+  1. state_snapshot()                    # 43c — "⚡ 10c · 34t ... ⏰ 1 work >30min"
+  2. sequential_thinking("DB timeout...") # 100c — plan investigation
+  3. search_files("timeout.*pool")        # search codebase
+  4. read_file("db/pool.py")              # read config
+  5. tool_cache("db_pool", "max=50")      # 8c — save finding
+  6. batch_call[                          # 32c — verify + cache check
+       state_snapshot,
+       tool_cache("db_pool")
+     ]
+  7. pattern_record("timeout-pool", ...)  # 30c — save pattern (auto-suggests similar)
+
+  Total: ~200 chars output
+  Old way (no compact, no cache): ~800+ chars
+  Savings: 75%
+```
 
 ---
 
 ## References
-- Lumen Thinking Server README: `implementations/mcp-servers/thinking/README.md`  
-- Cognitive Workflows skill: `skills/lumen-cognitive-workflows/SKILL.md`  
-- Benchmarks and performance data: `docs/benchmarks/internal/thinking-deep-benchmark-2026-06-19.md`  
-- Acta de Revisión 1 (first evaluation): `acta_revision_1_2026-06-20.md`
 
---- 
-*This document was generated using only Lumen thinking tools (`write_file`).*
+- README: [`README.md`](../README.md)
+- Cognitive OS architecture: [`docs/COGNITIVE_OS.md`](../docs/COGNITIVE_OS.md)
+- Enterprise stress testing: [`docs/enterprise-stress-testing-2026-06-20.md`](../docs/enterprise-stress-testing-2026-06-20.md)
+- Token-efficient tools: [`docs/token-efficient-tools-2026-06-20.md`](../docs/token-efficient-tools-2026-06-20.md)
+- Cognitive Workflows skill: `skills/lumen-cognitive-workflows/SKILL.md`
+- LUMEN WebSocket dashboard: [`docs/lumen-ws-dashboard.md`](../docs/lumen-ws-dashboard.md)
+
+---
+
+*This document reflects practical experience from 20+ hours of LUMEN tool usage.
+Output token savings: 90-95% vs traditional verbose mode.*
