@@ -2290,6 +2290,25 @@ def tool_pattern_record(args: dict) -> dict:
     _global_patterns.append(dict(pattern))
     if len(_global_patterns) > 500:
         _global_patterns[:] = _global_patterns[-500:]
+    
+    # Proactive: suggest similar patterns
+    suggestions = []
+    desc = args.get("description", "")
+    if desc:
+        kw_new = set(desc.lower().split()[:20])
+        for ex in _global_patterns:
+            if ex.get("id") != pid and ex.get("description"):
+                kw_ex = set(ex["description"].lower().split()[:20])
+                overlap = len(kw_new & kw_ex) / max(len(kw_new | kw_ex), 1)
+                if overlap > 0.3:
+                    suggestions.append(f"    📌 #{ex['id']}: {ex['pattern_name']}")
+    if suggestions:
+        return {"content": [{"type": "text", "text": (
+            f"📌 Pattern #{pid} recorded: '{args['pattern_name']}'\n"
+            f"   Category: {pattern['category']}\n"
+            f"   {len(suggestions)} similar patterns found:\n" + "\n".join(suggestions[:3])
+        )}]}
+
     return {"content": [{"type": "text", "text": (
         f"📌 Pattern #{pid} recorded: '{args['pattern_name']}'\n"
         f"   Category: {pattern['category']}\n"
