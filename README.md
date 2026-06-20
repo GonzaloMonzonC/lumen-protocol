@@ -17,7 +17,7 @@
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 44 tools — Level 2 SHM zero-copy transport — works with Hermes</strong>
+  <strong>✅ 49 tools — Level 2 SHM zero-copy transport — works with Hermes</strong>
 </p>
 
 ---
@@ -85,10 +85,10 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Server | JSON-RPC | LUMEN | Savings |
 |--------|----------|-------|---------|
 | Filesystem (13 tools) | 100% | 81% | **19% smaller** |
-| Thinking (29 tools) | 100% | 67% | **33% smaller** |
+| Thinking (34 tools) | 100% | 67% | **33% smaller** |
 | Web (2 tools) | 100% | 73% | **27% smaller** |
 
-> **Benchmarked**: 44 tools, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
+> **Benchmarked**: 49 tools, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
 
 ---
 
@@ -128,9 +128,9 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 |--------|-------|-------------|---------------|
 | **[Filesystem](implementations/mcp-servers/filesystem/)** | **13** 🔥 (read, write, search, stream, stats, info, du, dedup...) | 10-38% | Plugin `lumen-shm-bridge` |
 | **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 18-36% | Plugin `lumen-shm-bridge` |
-| **[Thinking](implementations/mcp-servers/thinking/)** | **29** 🔥 (chains, cross-chain, model, patterns, decisions, sessions...) | 11-59% | Plugin `lumen-shm-bridge` |
+| **[Thinking](implementations/mcp-servers/thinking/)** | **34** 🔥 (chains, compact, cross-chain, model, patterns, decisions, sessions...) | 11-59% | Plugin `lumen-shm-bridge` |
 
-> **44 tools, 3 servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
+> **49 tools, 3 servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
 ---
 
@@ -173,9 +173,9 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **44 tools** across filesystem (**13**), web (2), thinking (**29**) |
+| MCP servers | ✅ | **49 tools** across filesystem (**13**), web (2), thinking (**34**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=50M, sub-ms latency |
-| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 44 tools, transparent override of built-ins |
+| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 49 tools, transparent override of built-ins |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
@@ -191,7 +191,13 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 ### 🚧 Planned / Under Development
 
-*Nothing pending — all planned features are implemented. See RFC_LUMEN.md §Status.*
+| Feature | Status | Details |
+|---------|--------|---------|
+| LUMEN WebSocket dashboard | ✅ Deployed | Real-time dashboard on :9877, 80% compression |
+| Token-efficient tools | ✅ Deployed | state_snapshot, thought_compress (90% output savings) |
+| Proactive cognitive system | ✅ Deployed | Auto-evaluate, pattern suggestions, work reminders |
+| Multi-machine mesh (Phase E) | 🚧 Planned | Distributed LUMEN-over-WebSocket across Cloudflare |
+| Universal protocol docs | 🚧 Planned | Publish as open standard, JS + Python libraries |
 
 ### 📐 Known Spec/Code Mismatches — RESOLVED
 
@@ -214,10 +220,16 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | Doc | Content |
 |-----|---------|
 | **[README_EXT.md](README_EXT.md)** | Protocol spec, all benchmarks, architecture deep-dive (EN) |
-| **[README_EXT_ES.md](README_EXT_ES.md)** | Same, in Spanish |
 | **[RFC_LUMEN.md](RFC_LUMEN.md)** | Formal IETF-style protocol RFC |
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |
 | **[HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)** | Hermes Agent setup guide |
+| **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 47-tool reference |
+| **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** | Consolidated benchmarks (3,407 calls/sec) |
+| **[docs/enterprise-stress-testing.md](docs/enterprise-stress-testing.md)** | 6 enterprise scenarios, 20K calls/sec |
+| **[docs/token-efficient-tools.md](docs/token-efficient-tools.md)** | 5 token-efficient tools (90% output savings) |
+| **[docs/lumen-universal-protocol-strategy.md](docs/lumen-universal-protocol-strategy.md)** | LUMEN as universal protocol infrastructure |
+| **[docs/lumen-ws-dashboard.md](docs/lumen-ws-dashboard.md)** | WebSocket dashboard with LUMEN wire format |
+| **[implementations/hermes-plugins/](implementations/hermes-plugins/)** | Plugin source (lumen-shm-bridge) |
 | **[examples/](examples/)** | Runnable demos with bilingual READMEs |
 | **[implementations/mcp-servers/](implementations/mcp-servers/)** | MCP server implementations |
 
