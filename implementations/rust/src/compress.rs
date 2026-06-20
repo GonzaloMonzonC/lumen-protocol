@@ -253,7 +253,15 @@ fn decode_i64_leb128(data: &[u8], pos: &mut usize) -> Option<i64> {
 
 // ── Decoder ─────────────────────────────────────────────────────────────────
 
-fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Option<Value> {
+/// Maximum nesting depth for containers (arrays and objects).
+/// Prevents stack overflow DoS from deeply nested payloads.
+const MAX_DEPTH: usize = 32;
+
+/// Internal decode with depth tracking for DoS protection.
+fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict>, depth: usize) -> Option<Value> {
+    if depth > MAX_DEPTH {
+        return None; // reject excessively nested payloads
+    }
     if *pos >= data.len() {
         return None;
     }
@@ -315,7 +323,7 @@ fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> 
             }
             let mut arr = Vec::with_capacity(count);
             for _ in 0..count {
-                arr.push(decode_value(data, pos, session)?);
+                arr.push(decode_value_inner(data, pos, session, depth + 1)?);
             }
             Some(Value::Array(arr))
         }
@@ -331,7 +339,7 @@ fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> 
             let mut map = serde_json::Map::with_capacity(count);
             for _ in 0..len.value {
                 let key = decode_key(data, pos, session)?;
-                let val = decode_value(data, pos, session)?;
+                let val = decode_value_inner(data, pos, session, depth + 1)?;
                 map.insert(key, val);
             }
             Some(Value::Object(map))
@@ -342,6 +350,10 @@ fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> 
             None
         }
     }
+}
+
+fn decode_value(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Option<Value> {
+    decode_value_inner(data, pos, session, 0)
 }
 
 fn decode_key(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Option<String> {
