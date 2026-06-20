@@ -175,16 +175,28 @@ function drawChart(timeline){
     let label=hAgo+'h';if(hAgo>=24)label=Math.floor(hAgo/24)+'d';ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(label,x-8,H-10)}
   
   // Gradient bars
-  const barW=Math.max(3,plotW/bars-3);
-  for(let i=0;i<bars;i++){const x=padX+(plotW/bars)*i,val=buckets[i];if(!val)continue;const h=(val/maxV)*plotH;
-    const y=padY+plotH-h,grad=ctx.createLinearGradient(x,y,x,padY+plotH);
-    grad.addColorStop(0,'rgba(34,211,238,.55)');grad.addColorStop(.5,'rgba(34,211,238,.25)');grad.addColorStop(1,'rgba(34,211,238,.03)');
-    ctx.fillStyle=grad;ctx.beginPath();roundRect(ctx,x+1,y,barW,h,2);ctx.fill()}
+    // Smooth area + line chart
+  const points=[];for(let i=0;i<bars;i++){const v=buckets[i]||0;points.push({x:padX+(plotW/(bars-1||1))*i,y:padY+plotH-(v/maxV)*plotH})}
+  
+  // Area fill with gradient
+  const grad=ctx.createLinearGradient(0,padY,0,padY+plotH);
+  grad.addColorStop(0,'rgba(34,211,238,.15)');grad.addColorStop(.5,'rgba(34,211,238,.04)');grad.addColorStop(1,'rgba(34,211,238,0)');
+  ctx.beginPath();ctx.moveTo(points[0].x,padY+plotH);
+  for(let i=0;i<points.length;i++)ctx.lineTo(points[i].x,points[i].y);
+  ctx.lineTo(points[points.length-1].x,padY+plotH);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+  
+  // Smooth bezier line
+  ctx.beginPath();ctx.strokeStyle='#22d3ee';ctx.lineWidth=2;ctx.shadowColor='#22d3ee';ctx.shadowBlur=6;
+  ctx.moveTo(points[0].x,points[0].y);
+  for(let i=1;i<points.length;i++){const cpx=(points[i-1].x+points[i].x)/2;ctx.bezierCurveTo(cpx,points[i-1].y,cpx,points[i].y,points[i].x,points[i].y)}
+  ctx.stroke();ctx.shadowBlur=0;
+  
+  // Dots on peaks
+  for(let i=0;i<points.length;i++){if(buckets[i]>0&&(i===0||buckets[i]>=buckets[i-1]||i===bars-1||buckets[i]>=buckets[i+1])){ctx.beginPath();ctx.arc(points[i].x,points[i].y,3,0,Math.PI*2);ctx.fillStyle='#22d3ee';ctx.fill()}}
   
   // Cumulative line
-  let cum=0;ctx.beginPath();ctx.strokeStyle='#a855f7';ctx.lineWidth=1.5;ctx.shadowColor='#a855f7';ctx.shadowBlur=4;
-  for(let i=0;i<bars;i++){cum+=buckets[i];const x=padX+(plotW/bars)*i+barW/2,y=padY+plotH-(cum/Math.max(cum,1))*plotH;
-    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke();ctx.shadowBlur=0;
+  let cum=0;ctx.beginPath();ctx.strokeStyle='rgba(168,85,247,.6)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+  for(let i=0;i<bars;i++){cum+=buckets[i];const x=padX+(plotW/(bars-1||1))*i,y=padY+plotH-(cum/Math.max(cum,1))*plotH;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke();ctx.setLineDash([]);
   
   // Stats
   $('chart-stats').innerHTML=`<span>🟢 ${totalCalls} calls</span><span>📈 Peak: ${maxV} at ${bars-1-peakH}h ago</span><span>📊 ${bars}h window</span>`;
