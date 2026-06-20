@@ -172,9 +172,29 @@ def _save_state() -> None:
             "saved_at": time.time(),
         }
         tmp = str(_STATE_FILE) + ".tmp"
+        # Clean up stale tmp file if it exists
+        if os.path.exists(tmp):
+            try: os.remove(tmp)
+            except OSError: pass
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2, default=str)
-        os.replace(tmp, str(_STATE_FILE))
+        # Retry atomic replace on Windows file locking (dashboard may have file open)
+        for attempt in range(5):
+            try:
+                os.replace(tmp, str(_STATE_FILE))
+                break
+            except (OSError, PermissionError) as e:
+                if attempt < 4:
+                    time.sleep(0.01 * (2 ** attempt))  # exponential backoff
+                else:
+                    # Last resort: write directly
+                    try:
+                        with open(str(_STATE_FILE), "w", encoding="utf-8") as f:
+                            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+                        try: os.remove(tmp)
+                        except OSError: pass
+                    except Exception:
+                        _safe_print(f"[lumen-thinking] Failed to save state after 5 attempts: {e}")
     except Exception as e:
         _safe_print(f"[lumen-thinking] Failed to save state: {e}")
 
