@@ -976,7 +976,7 @@ def tool_thought_similarity(args: dict) -> dict:
             "recorded_at": time.time(),
         })
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_thought_contradiction(args: dict) -> dict:
@@ -1035,7 +1035,7 @@ def tool_thought_contradiction(args: dict) -> dict:
         lines.append(f"      \"{c['thought'][:100]}...\"")
         lines.append(f"      (similarity: {c['similarity']:.0%})")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_thought_summarize(args: dict) -> dict:
@@ -1124,7 +1124,7 @@ def tool_thought_summarize(args: dict) -> dict:
         })
     session.chains[chain_id]["clusters"] = cluster_data
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_thought_to_plan(args: dict) -> dict:
@@ -1235,7 +1235,7 @@ def tool_thought_evaluate(args: dict) -> dict:
     # Store score on thought object for dashboard stats
     target["score"] = overall
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_thought_bridge(args: dict) -> dict:
@@ -1305,7 +1305,7 @@ def tool_thought_bridge(args: dict) -> dict:
             "recorded_at": time.time(),
         })
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1354,7 +1354,7 @@ def tool_assume(args: dict) -> dict:
         if len(unverified) > 3:
             lines.append(f"      ... and {len(unverified)-3} more. Use list_assumptions() to see all.")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_list_assumptions(args: dict) -> dict:
@@ -1387,7 +1387,7 @@ def tool_list_assumptions(args: dict) -> dict:
         if a.get("evidence"):
             lines.append(f"      Evidence: {a['evidence'][:100]}")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_check_assumption(args: dict) -> dict:
@@ -1428,7 +1428,7 @@ def tool_check_assumption(args: dict) -> dict:
         elif pct > 80:
             lines.append(f"   💡 Your assumptions are usually right — but don't get overconfident.")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1491,7 +1491,7 @@ def tool_model_add(args: dict) -> dict:
     if connected:
         lines.append(f"   🔗 Connected: {len(connected)} file(s)")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_model_query(args: dict) -> dict:
@@ -1566,7 +1566,7 @@ def tool_model_query(args: dict) -> dict:
         lines.append(f"❓ Unknown query: '{query}'")
         lines.append("Try: 'deps of <path>', 'dependents of <path>', 'role=<name>', 'impact of <path>', 'all'")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_model_stats(args: dict) -> dict:
@@ -1600,7 +1600,7 @@ def tool_model_stats(args: dict) -> dict:
         n = session.model[path]
         lines.append(f"   {path} [{n.get('role','?')}] — {conn} connections")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_model_map(args: dict) -> dict:
@@ -1643,7 +1643,7 @@ def tool_model_map(args: dict) -> dict:
 
     lines.append(f"\n📊 {len(session.model)} files mapped across {len(dirs)} directories")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_model_remove(args: dict) -> dict:
@@ -1668,7 +1668,7 @@ def tool_model_remove(args: dict) -> dict:
             lines.append(f"      {a} — check if still valid")
     lines.append(f"   Model now has {len(session.model)} file(s)")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_model_scan(args: dict) -> dict:
@@ -1789,7 +1789,7 @@ def tool_model_scan(args: dict) -> dict:
         f"",
         f"   Use model_map() to visualize or model_query() to explore.",
     ]
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1834,7 +1834,7 @@ def tool_context_preserve(args: dict) -> dict:
     if total > 30:
         lines.append(f"   🚨 List is very large ({total} items). High risk of losing information.")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_context_check(args: dict) -> dict:
@@ -1884,7 +1884,7 @@ def tool_context_check(args: dict) -> dict:
         if shown >= 10:
             break
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1950,7 +1950,7 @@ def tool_work_start(args: dict) -> dict:
         f"   Category: {category}",
         f"   You have {in_progress} active work item(s)",
     ]
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_work_block(args: dict) -> dict:
@@ -1985,7 +1985,7 @@ def tool_work_done(args: dict) -> dict:
             lines = [f"✅ Work #{wid} completed: {w['item']}"]
             if result:
                 lines.append(f"   Result: {result}")
-            return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+            return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
     return {"content": [{"type": "text", "text": f"Error: Work #{wid} not found."}]}
 
@@ -2021,7 +2021,7 @@ def tool_work_log(args: dict) -> dict:
         if w["status"] == "done" and w.get("result"):
             lines.append(f"      Result: {w['result'][:80]}")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2059,7 +2059,7 @@ def tool_context_estimate(args: dict) -> dict:
                    "      • Use context_preserve for must-keep information",
                    "      • Use thought_summarize to condense chains",
                    "      • Avoid large read_files — use search_with_context instead"]
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2125,7 +2125,7 @@ def tool_session_list(args: dict) -> dict:
         lines.append(line)
     if collisions:
         lines.append(f"\n   ⚡ {len(collisions)} file(s) with multi-session activity — check /collisions for details")
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
     uptime = time.time() - _session_start
     tool_estimate = _tool_calls * 500  # Rough: 500 tokens per tool call
     content_estimate = _estimated_chars // 4  # Rough: 4 chars per token
@@ -2162,7 +2162,7 @@ def tool_session_list(args: dict) -> dict:
         lines.append(f"      • Use thought_summarize to condense chains")
         lines.append(f"      • Avoid large read_files — use search_with_context instead")
 
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2222,7 +2222,7 @@ def tool_agent_inbox(args: dict) -> dict:
         ago_str = f"{ago}s ago" if ago < 60 else f"{ago//60}m ago" if ago < 3600 else f"{ago//3600}h ago"
         lines.append(f"   📨 [{ago_str}] {m['from_session']}: {m['content'][:200]}")
         m["read"] = True  # mark as read
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 def tool_collision_check(args: dict) -> dict:
@@ -2242,7 +2242,7 @@ def tool_collision_check(args: dict) -> dict:
         fname = fpath.split("/")[-1] if "/" in fpath else fpath
         lines.append(f"   🔴 {fname}: {', '.join(sids)}")
     lines.append(f"\n💡 Use agent_message to coordinate with the other session(s).")
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2319,7 +2319,7 @@ def tool_pattern_match(args: dict) -> dict:
         if p['fix_strategy']: lines.append(f"   Fix: {p['fix_strategy'][:120]}")
         if p.get('tags'): lines.append(f"   Tags: {', '.join(p['tags'])}")
         p['match_count'] = p.get('match_count', 0) + 1  # only matched patterns
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2368,7 +2368,7 @@ def tool_decision_list(args: dict) -> dict:
         lines.append(f"\n   #{d['id']} {d['decision'][:100]} [{d['category']}]")
         lines.append(f"   Why: {d['rationale'][:120]}")
         if d.get('revisit_trigger'): lines.append(f"   🔄 Revisit if: {d['revisit_trigger'][:100]}")
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2416,7 +2416,7 @@ def tool_wiki_list(args: dict) -> dict:
     lines = [f"Wiki ({len(session.wiki)} pages):"]
     for title, w in sorted(session.wiki.items(), key=lambda x: x[1]["updated_at"], reverse=True):
         lines.append(f"  {title} — {len(w['content'])} chars, {w['author']} ({time.strftime('%m/%d %H:%M', time.localtime(w['updated_at']))})")
-    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+    return {"content": [{"type": "text", "text": f"📋 {len(clusters)} themes · {len(thoughts)} thoughts"}]}
 
 
 # ═══════════════════════════════════════════════════════════════════════
