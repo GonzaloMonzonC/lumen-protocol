@@ -207,6 +207,82 @@ function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x
 
 
 
+// Called by lumen-client.js when LUMEN WebSocket delivers data
+window.renderData = function(data) {
+  try {
+    const t = data.totals || {}, sc = data.scores || {};
+    document.getElementById('status-dot').className = 'dot live';
+    document.getElementById('status-label').textContent = 'Live·LUMEN';
+    document.getElementById('status-label').className = 'status-text green';
+    document.getElementById('server-name').textContent = data.server || 'LUMEN';
+    document.getElementById('server-version').textContent = 'v' + (data.version || '0.1');
+    const sd = data.sessions_detail || {};
+    const models = [...new Set(Object.values(sd).map(function(s) { return s.model || 'unknown' }))];
+    document.getElementById('model-name').textContent = models.length ? '🤖 ' + models.join(', ') : '';
+    document.getElementById('kpi-thoughts').textContent = t.thoughts || 0;
+    document.getElementById('kpi-thoughts-sub').textContent = (t.chains || 0) + ' chains';
+    document.getElementById('kpi-score').textContent = sc.avg || '--';
+    document.getElementById('kpi-score-sub').textContent = (sc.total_rated || 0) + '/' + (t.thoughts || 0) + ' rated';
+    document.getElementById('kpi-contra').textContent = (data.contradictions || {}).found || 0;
+    document.getElementById('kpi-contra-sub').textContent = (data.contradictions || {}).found ? '⚠️ ' : '✅ ';
+    document.getElementById('kpi-calls').textContent = t.tool_calls || 0;
+    document.getElementById('kpi-calls-sub').textContent = Math.round(data.uptime_seconds || 0) + 's uptime';
+    window._lastClusters = data.clusters || [];
+    
+    // Update summary counters
+    var chains = data.chains || [];
+    var plans = data.plans || [];
+    var clusters = data.clusters || [];
+    document.getElementById('summary-reasoning').textContent = chains.length + 'c · ' + plans.length + 'p · ' + clusters.length + 'cl';
+    document.getElementById('footer').textContent = 'Metrics: /metrics  |  ' + new Date().toLocaleTimeString();
+    
+    // Update chart if data changed
+    var newTL = JSON.stringify(data.timeline || []);
+    if (newTL !== lastTimelineStr) { drawChart(data.timeline || []); lastTimelineStr = newTL; }
+    var newW = JSON.stringify(data.works || []);
+    if (newW !== lastWorksStr) { pulseUpdate(data.works || []); lastWorksStr = newW; }
+    buildHeatmap(data.chains || []);
+  } catch(e) {}
+};
+
+async function refresh(){async function refresh(){// Called by lumen-client.js when LUMEN WebSocket delivers data
+window.renderData = function(data) {
+  try {
+    const t = data.totals || {}, sc = data.scores || {};
+    document.getElementById('status-dot').className = 'dot live';
+    document.getElementById('status-label').textContent = 'Live·LUMEN';
+    document.getElementById('status-label').className = 'status-text green';
+    document.getElementById('server-name').textContent = data.server || 'LUMEN';
+    document.getElementById('server-version').textContent = 'v' + (data.version || '0.1');
+    const sd = data.sessions_detail || {};
+    const models = [...new Set(Object.values(sd).map(function(s) { return s.model || 'unknown' }))];
+    document.getElementById('model-name').textContent = models.length ? '🤖 ' + models.join(', ') : '';
+    document.getElementById('kpi-thoughts').textContent = t.thoughts || 0;
+    document.getElementById('kpi-thoughts-sub').textContent = (t.chains || 0) + ' chains';
+    document.getElementById('kpi-score').textContent = sc.avg || '--';
+    document.getElementById('kpi-score-sub').textContent = (sc.total_rated || 0) + '/' + (t.thoughts || 0) + ' rated';
+    document.getElementById('kpi-contra').textContent = (data.contradictions || {}).found || 0;
+    document.getElementById('kpi-contra-sub').textContent = (data.contradictions || {}).found ? '⚠️ ' : '✅ ';
+    document.getElementById('kpi-calls').textContent = t.tool_calls || 0;
+    document.getElementById('kpi-calls-sub').textContent = Math.round(data.uptime_seconds || 0) + 's uptime';
+    window._lastClusters = data.clusters || [];
+    
+    // Update summary counters
+    var chains = data.chains || [];
+    var plans = data.plans || [];
+    var clusters = data.clusters || [];
+    document.getElementById('summary-reasoning').textContent = chains.length + 'c · ' + plans.length + 'p · ' + clusters.length + 'cl';
+    document.getElementById('footer').textContent = 'Metrics: /metrics  |  ' + new Date().toLocaleTimeString();
+    
+    // Update chart if data changed
+    var newTL = JSON.stringify(data.timeline || []);
+    if (newTL !== lastTimelineStr) { drawChart(data.timeline || []); lastTimelineStr = newTL; }
+    var newW = JSON.stringify(data.works || []);
+    if (newW !== lastWorksStr) { pulseUpdate(data.works || []); lastWorksStr = newW; }
+    buildHeatmap(data.chains || []);
+  } catch(e) {}
+};
+
 async function refresh(){async function refresh(){
   try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();renderData(d)}
   catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline';$('footer').textContent='Error: '+e.message}
