@@ -142,6 +142,48 @@ The thinking tools become even more powerful when combined with other Lumen subs
 
 These combinations enable complex, multi‑step workflows while keeping the agent’s reasoning transparent, revisable, and scalable.
 
+
+## Example 5 – End‑to‑end workflow: hypothesis → web evidence → mental model → work tracking → pattern
+
+**Goal:** Verify a factual hypothesis (e.g., "The capital of France is Paris") using web evidence, store the fact in the mental model, track the work, and record a reusable pattern.
+
+**Steps:**
+
+1. **Assume** a hypothesis with `assume`.
+   ```text
+   assume(statement="The capital of France is Paris.", category="integration")
+   ```
+
+2. **Web search** for confirmation (optional if you already know a source).
+   ```text
+   web_search(query="capital of France", limit=1)
+   ```
+
+3. **Web extract** the relevant page (e.g., Wikipedia) to obtain the source text.
+   ```text
+   web_extract(urls=["https://en.wikipedia.org/wiki/Paris"])
+   ```
+
+4. **Model add** store the fact in the mental model.
+   ```text
+   model_add(entity="CapitalOfFrance", properties={value="Paris", source="Wikipedia", fact="Paris is the capital and largest city of France"})
+   ```
+
+5. **Work tracking** – start a work item, create a block, and mark it done.
+   ```text
+   work_start(title="Verify capital of France", description="Check that the capital of France is Paris using web evidence and record in mental model.")
+   work_block(block_id="verify_capital", status="in_progress")
+   work_done(block_id="verify_capital")
+   ```
+
+6. **Pattern recording** – save the whole sequence as a reusable pattern.
+   ```text
+   pattern_record(pattern_name="CapitalVerification", description="Workflow: assume hypothesis about capital, web_search for confirmation, web_extract to get source, model_add to store fact, work_start/work_block/work_done to track task.")
+   ```
+
+All steps were performed using only Lumen tools, demonstrating how the thinking tools can be combined with web tools, mental model, work log, and pattern recording to build complex, evidence‑based workflows.
+
+
 ---
 
 ## References
