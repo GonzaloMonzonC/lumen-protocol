@@ -912,9 +912,9 @@ def tool_sequential_thinking(args: dict) -> dict:
         summary_lines.append(f"   Last: #{last['number']}: {last['thought'][:100]}")
 
     # Auto-trigger: evaluate thought quality automatically
-    if not new_thought.get("score"):
+    if not thought_obj.get("score"):
         try:
-            thought_text = new_thought["thought"]
+            thought_text = thought_obj["thought"]
             specificity = min(len(thought_text) / 200, 1.0)
             has_action = any(w in thought_text.lower() for w in
                 ["hacer", "crear", "ejecutar", "analizar", "implementar",
@@ -923,7 +923,7 @@ def tool_sequential_thinking(args: dict) -> dict:
                  "auditar", "verificar", "comparar", "identificar", "resolver"])
             has_numbers = bool(__import__('re').search(r'\d+', thought_text))
             score = round((specificity*10 + (10.0 if has_action else 3.0) + (10.0 if has_numbers else 5.0))/3, 1)
-            new_thought["score"] = score
+            thought_obj["score"] = score
             summary_lines.append(f"   🤖 Auto-scored: {score}/10")
         except:
             pass  # Never let auto-eval break the main flow
