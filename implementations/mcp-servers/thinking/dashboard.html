@@ -208,6 +208,7 @@ function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x
 
 
 
+var _lumenWs=null;  // LUMEN WebSocket client (loaded from lumen-client.js)
 async function refresh(){
   // HTTP fallback — only used if LUMEN WebSocket is unavailable
   if(_lumenWs&&_lumenWs.readyState===WebSocket.OPEN)return;
