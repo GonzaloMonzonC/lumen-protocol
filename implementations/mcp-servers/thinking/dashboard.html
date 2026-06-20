@@ -209,6 +209,88 @@ function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x
 
 
 var _lumenWs=null;  // LUMEN WebSocket client (loaded from lumen-client.js)
+window.renderData = function renderData(d) {
+  if(!d||!d.totals)return;
+  const t=d.totals||{},sc=d.scores||{},ct=d.contradictions||{};
+  // Update KPIs
+  const kpiMap={thoughts:t.thoughts||0,chains:t.chains||0,score:sc.avg||'--',contra:ct.found||0,calls:t.tool_calls||0};
+  document.querySelectorAll('.kpi').forEach(el=>{
+    const label=el.querySelector('.kpi-label')?.textContent?.toLowerCase();
+    if(label==='thoughts'&&kpiMap.thoughts!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.thoughts;
+    if(label==='chains'&&kpiMap.chains!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.chains+' chains';
+    if(label==='avg score'&&kpiMap.score)el.querySelector('.kpi-value').textContent=kpiMap.score;
+    if(label==='contradictions'&&kpiMap.contra!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.contra;
+    if(label==='tool calls'&&kpiMap.calls!==undefined)el.querySelector('.kpi-value').textContent=kpiMap.calls;
+  });
+  // Status dot
+  const sd=document.getElementById('status-dot');const sl=document.getElementById('status-label');
+  if(sd)sd.className='dot on';if(sl){sl.className='status-text green';sl.textContent='Live'}
+  // Chains
+  const chains=d.chains||[];
+  const cl=document.getElementById('chains-list');
+  if(cl)cl.innerHTML=chains.map(c=>'<div class="chain-row" style="cursor:pointer" onclick="showChain(\''+c.chain_id+'\')"><span class="tag '+((c.thoughts||0)>5?'cyan':'mono')+'">'+(c.thoughts||0)+'t</span><span class="dim mono" style="flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+c.chain_id.slice(0,25)+'</span>'+(c.score_avg?'<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">'+c.score_avg.toFixed(1)+'★</span>':'')+'</div>').join('')||'<div class="dim">No chains</div>';
+  // Plans
+  const plans=d.plans||[];
+  const pl=document.getElementById('plans-list');
+  if(pl)pl.innerHTML=plans.map(p=>'<div class="chain-row" style="cursor:pointer" onclick="showPlan(\''+p.chain_id+'\')"><span class="tag purple">'+((p.steps||0)+' steps')+'</span><span class="dim mono" style="flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.chain_id.slice(0,18)+'</span></div>').join('')||'<div class="dim">No plans</div>';
+  // Works
+  const works=d.works||[];
+  const wl=document.getElementById('works-list');
+  if(wl)wl.innerHTML=works.map(w=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(w.status==='done'?'\u2713':w.status==='in_progress'?'\u2699':'\u{1F6AB}')+'</span><span style="font-size:11px;flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(w.item||'').slice(0,35)+'</span><span class="dim" style="font-size:10px">'+(w.duration?((w.duration/60).toFixed(1))+'m':'')+'</span></div>').join('')||'<div class="dim">No work tracked</div>';
+  // Wiki
+  const wiki=d.wiki||[];
+  const wi=document.getElementById('wiki-list');
+  if(wi)wi.innerHTML=wiki.map(w=>'<div class="chain-row" style="cursor:pointer" onclick="showWiki(\''+w.title+'\')"><span class="tag cyan mono">'+w.title.slice(0,30)+'</span><span class="dim" style="margin-left:8px">'+(w.chars||0)+' chars</span></div>').join('')||'<div class="dim">No wiki pages</div>';
+  // Clusters
+  window._lastClusters=d.clusters||[];
+  const clusters=d.clusters||[];
+  const cm=document.getElementById('clusters-list');
+  if(cm)cm.innerHTML=clusters.slice(0,10).map(cl=>'<div class="chain-row" style="cursor:pointer" onclick="showCluster(\''+cl.chain_id+'\')"><span class="mono" style="font-size:10px;color:var(--purp)">Theme '+(cl.theme||cl.count||'?')+':</span><span class="dim" style="font-size:10px;flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cl.label||'').slice(0,40)+'</span><span class="dim" style="font-size:9px">'+(cl.count||0)+'t</span></div>').join('')||'<div class="dim">No clusters</div>';
+  // Heatmap
+  if(typeof buildHeatmap==='function')buildHeatmap(d.chains||[]);
+  // Pulse
+  if(typeof pulseUpdate==='function')pulseUpdate(works);
+  // Breakdown
+  const bd=document.getElementById('brk-total');if(bd)bd.textContent=t.thoughts||0;
+  const bc=document.getElementById('brk-chains');if(bc)bc.textContent=t.chains||0;
+  const ba=document.getElementById('brk-avg');if(ba)ba.textContent=t.chains&&t.thoughts?(t.thoughts/t.chains).toFixed(1):'--';
+  const bb=document.getElementById('brk-branches');if(bb)bb.textContent=t.branches||0;
+  const br=document.getElementById('brk-revisions');if(br)br.textContent=t.revisions||0;
+  const brr=document.getElementById('brk-rated');if(brr)brr.textContent=sc.total_rated||0;
+  // Memory
+  const mt=document.getElementById('mem-total');if(mt)mt.textContent=t.thoughts||0;
+  const mc=document.getElementById('mem-chains');if(mc)mc.textContent=t.chains||0;
+  const ms=document.getElementById('mem-sessions');if(ms)ms.textContent=d.sessions||0;
+  // Collisions, Claims, Bridges, Preserved
+  const col=document.getElementById('collisions-list');if(col)col.innerHTML=(d.collisions||[]).length?(d.collisions||[]).map(x=>'<div>'+x+'</div>').join(''):'<div class="dim" style="font-size:11px">No collisions</div>';
+  ['claims-list','bridges-list','preserved-list'].forEach(id=>{const el=document.getElementById(id);if(el&&el.innerHTML.includes('Loading'))el.innerHTML='<div class="dim" style="font-size:11px">No data</div>'});
+  // Sessions
+  const sDetail=d.sessions_detail||{};
+  const sList=Object.entries(sDetail).slice(0,10);
+  const se=document.getElementById('sessions-list');
+  if(se)se.innerHTML=sList.map(([sid,ss])=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+sid.slice(0,12)+'</span><span class="dim" style="margin-left:8px;font-size:10px">'+(ss.chains||0)+'c · '+(ss.patterns||0)+'p · '+(ss.tool_calls||0)+' calls</span></div>').join('')||'<div class="dim">No sessions</div>';
+  // Model
+  const model=d.model||{};
+  const mo=document.getElementById('model-list');
+  if(mo)mo.innerHTML=Object.entries(model).slice(0,15).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||[]).length+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
+  // Decisions
+  const decisions=d.decisions||[];
+  const de=document.getElementById('decisions-list');
+  if(de)de.innerHTML=decisions.slice(0,5).map(dc=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--cyan)">#'+dc.id+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(dc.decision||'').slice(0,60)+'</span></div>').join('')||'<div class="dim">Loading</div>';
+  // Assumptions
+  const assumptions=d.assumptions||[];
+  const as=document.getElementById('assumptions-list');
+  if(as)as.innerHTML=assumptions.slice(0,5).map(a=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(a.status==='\u2714'?'\u2705':'\u274C')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#'+a.id+' '+(a.statement||'').slice(0,40)+'</span></div>').join('')||'<div class="dim">Loading</div>';
+  // Presence
+  const presence=d.presence||{};
+  const pr=document.getElementById('presence-list');
+  if(pr)pr.innerHTML=Object.entries(presence).slice(0,8).map(([sid,p])=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(p.online?'\u25CF':'\u25CB')+'</span><span style="font-size:10px;flex:1;margin:0 4px">'+sid.slice(0,20)+'</span><span class="dim" style="font-size:9px">PID '+p.pid+'</span></div>').join('')||'<div class="dim" style="font-size:11px">No presence data</div>';
+  // Footer
+  const ft=document.getElementById('footer');
+  if(ft)ft.textContent='Metrics: /metrics | Live via LUMEN';
+  // Chart (async/delayed)
+  if(typeof drawChart==='function'&&d.timeline)setTimeout(()=>drawChart(d.timeline),50);
+};
 async function refresh(){
   // HTTP fallback — only used if LUMEN WebSocket is unavailable
   if(_lumenWs&&_lumenWs.readyState===WebSocket.OPEN)return;
