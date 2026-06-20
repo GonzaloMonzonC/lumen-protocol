@@ -263,7 +263,7 @@ def _prune_old(session: Session, n: int = 10) -> None:
     named_count = len(named)
     if named_count >= n:
         # Too many named chains — keep newest N named, drop all auto
-        keep_named = dict(sorted(named.items(), key=lambda kv: kv[1]["updated_at"], reverse=True)[:n])
+        keep_named = dict(sorted(named.items(), key=lambda kv: kv[1].get("updated_at", kv[1].get("created_at", 0)), reverse=True)[:n])
         session.chains = keep_named
     else:
         # Keep all named + fill remaining slots with newest auto
@@ -2440,7 +2440,9 @@ def tool_thought_compress(args: dict) -> dict:
     """Compress a reasoning chain to N key thoughts using TF-IDF similarity.
     Returns only the compressed thoughts, not the full chain history."""
     session = _get_session(args.get("session_id"))
-    chain_id = args["chainId"]
+    chain_id = args.get("chainId", "")
+    if not chain_id:
+        return {"content": [{"type": "text", "text": "❌ Need chainId"}]}
     target = min(args.get("targetThoughts", 3), 10)
     chain = session.chains.get(chain_id)
     if not chain:
@@ -2461,7 +2463,9 @@ def tool_thought_compress(args: dict) -> dict:
 def tool_chain_diff(args: dict) -> dict:
     """Show only what changed between two points in a reasoning chain."""
     session = _get_session(args.get("session_id"))
-    chain_id = args["chainId"]
+    chain_id = args.get("chainId", "")
+    if not chain_id:
+        return {"content": [{"type": "text", "text": "❌ Need chainId"}]}
     from_num = args.get("from", 1)
     to_num = args.get("to")
     chain = session.chains.get(chain_id)
