@@ -225,8 +225,8 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | **[HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)** | Hermes Agent setup guide |
 | **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 47-tool reference |
 | **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** | Consolidated benchmarks (3,407 calls/sec) |
-| **[docs/enterprise-stress-testing.md](docs/enterprise-stress-testing.md)** | 6 enterprise scenarios, 20K calls/sec |
-| **[docs/token-efficient-tools.md](docs/token-efficient-tools.md)** | 5 token-efficient tools (90% output savings) |
+| **[docs/enterprise-stress-testing-2026-06-20.md](docs/enterprise-stress-testing-2026-06-20.md)** | 6 enterprise scenarios, 20K calls/sec |
+| **[docs/token-efficient-tools-2026-06-20.md](docs/token-efficient-tools-2026-06-20.md)** | 5 token-efficient tools (90% output savings) |
 | **[docs/lumen-universal-protocol-strategy.md](docs/lumen-universal-protocol-strategy.md)** | LUMEN as universal protocol infrastructure |
 | **[docs/lumen-ws-dashboard.md](docs/lumen-ws-dashboard.md)** | WebSocket dashboard with LUMEN wire format |
 | **[implementations/hermes-plugins/](implementations/hermes-plugins/)** | Plugin source (lumen-shm-bridge) |
