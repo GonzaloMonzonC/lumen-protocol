@@ -43,7 +43,8 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
 .modal h3{font-size:13px}.modal-close{float:right;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px 8px}
 .section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
 .section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
-</style></head>
+</style><script src="lumen-client.js"></script>
+</head>
 <body>
 
 <div class="bar">
@@ -206,67 +207,7 @@ function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x
 
 
 
-// ═══ LUMEN WebSocket client (real-time, compressed) ═══
-let _lumenWs=null,_lumenReconnect=null;
-function connectLumen(){
-  try{
-    const ws=new WebSocket('ws://127.0.0.1:9877');
-    ws.binaryType='arraybuffer';
-    ws.onopen=()=>{$('status-label').textContent='Live·LUMEN';$('status-label').className='status-text green'};
-    ws.onmessage=(e)=>{
-      const data=new Uint8Array(e.data);
-      if(data[0]===76&&data[1]===85&&data[2]===77&&data[3]===1){ // LUM\x01
-        const flags=data[4];const len=new DataView(e.data).getUint32(5,true);
-        let payload=new Uint8Array(e.data,9,len);
-        if(flags&1){ // zlib compressed
-          const ds=new DecompressionStream('deflate');
-          const writer=ds.writable.getWriter();writer.write(payload);writer.close();
-          ds.readable.getReader().read().then(r=>{
-            const json=new TextDecoder().decode(r.value);
-            try{renderData(JSON.parse(json))}catch(ex){}
-          });
-        }else{const json=new TextDecoder().decode(payload);try{renderData(JSON.parse(json))}catch(ex){}}
-      }
-    };
-    ws.onclose=()=>{_lumenWs=null;clearTimeout(_lumenReconnect);_lumenReconnect=setTimeout(connectLumen,5000)};
-    _lumenWs=ws;
-  }catch(e){_lumenWs=null}
-}
-connectLumen();
-
-// Shared render function (called by LUMEN WS or HTTP fallback)
-function renderData(d){
-  const t=d.totals||{},sc=d.scores||{};
-  $('status-dot').className='dot live';$('server-name').textContent=d.server||'LUMEN';$('server-version').textContent='v'+(d.version||'0.1');
-  const sd=d.sessions_detail||{};const models=[...new Set(Object.values(sd).map(s=>s.model||'unknown'))];$('model-name').textContent=models.length?'🤖 '+models.join(', '):'';
-  $('kpi-thoughts').textContent=t.thoughts??0;$('kpi-thoughts-sub').textContent=(t.chains??0)+' chains';
-  $('kpi-score').textContent=sc.avg??'--';$('kpi-score-sub').textContent=(sc.total_rated||0)+'/'+(t.thoughts||0)+' rated';
-  $('kpi-contra').textContent=(d.contradictions||{found:0}).found;$('kpi-contra-sub').textContent=((d.contradictions||{}).found?'⚠️ ':'✅ ');
-  $('kpi-calls').textContent=t.tool_calls??0;$('kpi-calls-sub').textContent=Math.round(d.uptime_seconds||0)+'s uptime';
-  window._lastClusters=d.clusters||[];
-  const chains=d.chains||[];$('chains-list').innerHTML=chains.length?chains.map(c=>`<div class="card" style="cursor:pointer" onclick="showChain('${c.chain_id}')"><div style="display:flex;justify-content:space-between"><span class="tag cyan mono">${c.chain_id.slice(0,22)}</span>${c.score_avg?`<span class="yellow mono">${c.score_avg}★</span>`:''}</div><div class="dim mono" style="margin-top:2px">${c.thoughts}t</div>${c.score_avg?`<div class="score-bar" style="width:${Math.min(100,c.score_avg*10)}%"></div>`:''}</div>`).join(''):'<div class="dim" style="font-size:10px">No chains</div>';
-  $('plans-list').innerHTML=(d.plans||[]).length?d.plans.map(p=>`<div class="card" style="cursor:pointer" onclick="showPlan('${p.chain_id}')"><span class="tag cyan mono">${p.chain_id.slice(0,25)}</span> <span class="dim">${p.steps} steps</span></div>`).join(''):'<div class="dim" style="font-size:10px">No plans</div>';
-  $('clusters-list').innerHTML=(d.clusters||[]).length?d.clusters.map(c=>`<div class="card" style="cursor:pointer" onclick="showCluster('${c.chain_id}')"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${c.label}</span> <span class="dim">${c.count}t · ${c.chain_id.slice(0,15)}</span></div>`).join(''):'<div class="dim" style="font-size:10px">No clusters</div>';
-  $('wiki-list').innerHTML=(d.wiki||[]).length?d.wiki.map(w=>`<div class="card" style="cursor:pointer" onclick="showWiki('${w.title.replace(/'/g,"\'")}')"><span class="tag cyan mono">${w.title.slice(0,25)}</span> <span class="dim">${w.author}</span></div>`).join(''):'<div class="dim" style="font-size:10px">No wiki</div>';
-  $('works-list').innerHTML=(d.works||[]).length?d.works.map(w=>{const icon=w.status==='done'?'✅':w.status==='blocked'?'🚫':'🔧';const dur=w.duration_seconds?` · ${w.duration_seconds<60?w.duration_seconds+'s':(w.duration_seconds/60).toFixed(0)+'m'}`:'';return`<div class="card"><span class="tag mono" style="background:${w.status==='done'?'rgba(74,222,128,.1)':w.status==='blocked'?'rgba(248,113,113,.1)':'rgba(34,211,238,.1)'};color:${w.status==='done'?'var(--green)':w.status==='blocked'?'var(--red)':'var(--acc)'}">${icon} #${w.id}</span> <span class="dim">${w.item?.slice(0,50)}${dur}</span></div>`}).join(''):'<div class="dim" style="font-size:10px">No work</div>';
-  fetch('/collisions').then(r=>r.json()).then(d=>{const cs=d.collisions||[];$('collisions-list').innerHTML=cs.length?cs.map(c=>`<div class="card"><span class="tag" style="background:rgba(248,113,113,.15);color:var(--red)">⚠️ ${c.path?.split('/').pop()}</span></div>`).join(''):''});
-  $('model-list').innerHTML=(d.model||[]).length?d.model.map(m=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.1);color:var(--purp)">${m.role}</span> <span class="dim mono">${m.entity.slice(0,40)}</span></div>`).join(''):'<div class="dim" style="font-size:10px">No model</div>';
-  $('decisions-list').innerHTML=(d.decisions||[]).length?d.decisions.map(dc=>`<div class="card"><span class="tag cyan mono">#${dc.id}</span> <span class="dim">${dc.decision.slice(0,80)}</span></div>`).join(''):'<div class="dim" style="font-size:10px">No decisions</div>';
-  $('assumptions-list').innerHTML=(d.assumptions||[]).length?d.assumptions.map(a=>`<div class="card"><span class="tag mono" style="background:${a.status==='confirmed'?'rgba(74,222,128,.1)':a.status==='refuted'?'rgba(248,113,113,.1)':'rgba(250,204,21,.1)'};color:${a.status==='confirmed'?'var(--green)':a.status==='refuted'?'var(--red)':'var(--yellow)'}">${a.status==='confirmed'?'✅':a.status==='refuted'?'❌':'⏳'} #${a.id}</span> <span class="dim">${a.statement?.slice(0,70)}</span></div>`).join(''):'<div class="dim" style="font-size:10px">No assumptions</div>';
-  const sessions=Object.entries(d.sessions_detail||{}).map(([id,s])=>({id,...s}));$('sessions-list').innerHTML=sessions.length?sessions.map(s=>`<div class="card"><span class="tag cyan mono">${s.id}</span> <span class="dim">${s.chains}c · ${s.tool_calls} calls</span></div>`).join(''):'<div class="dim" style="font-size:10px">No sessions</div>';
-  const nnow=Date.now()/1000;$('presence-list').innerHTML=(d.presence&&Object.keys(d.presence).length)?Object.entries(d.presence).map(([id,p])=>{const ago=Math.round(nnow-p.last_seen);const active=ago<300;return`<div class="card"><span class="tag mono" style="background:${active?'rgba(74,222,128,.1)':'rgba(255,255,255,.03)'};color:${active?'var(--green)':'var(--dim)'}">${active?'●':'○'} ${id}</span> <span class="dim">${p.tool_calls} calls · ${ago}s</span></div>`}).join(''):'<div class="dim" style="font-size:10px">No presence</div>';
-  $('bridges-list').innerHTML=(d.bridges||[]).length?d.bridges.map(b=>`<div class="card"><span class="tag mono" style="background:rgba(168,85,247,.1);color:var(--purp)">${Math.round(b.score*100)}%</span> <span class="dim">${b.query?.slice(0,30)}</span></div>`).join(''):'';
-  const newTL=JSON.stringify(d.timeline||[]);const newW=JSON.stringify(d.works||[]);
-  if(newTL!==lastTimelineStr){drawChart(d.timeline||[]);lastTimelineStr=newTL}
-  if(newW!==lastWorksStr){pulseUpdate(d.works||[]);lastWorksStr=newW}
-  buildHeatmap(d.chains||[]);
-  $('summary-reasoning').textContent=`${chains.length}c · ${(d.plans||[]).length}p · ${(d.clusters||[]).length}cl`;
-  $('footer').textContent=`Metrics: /metrics  |  ${new Date().toLocaleTimeString()}`;
-}
-
 async function refresh(){async function refresh(){
-  // HTTP fallback — only used if LUMEN WebSocket is unavailable
-  if(_lumenWs&&_lumenWs.readyState===WebSocket.OPEN)return;
   try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();renderData(d)}
   catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline';$('footer').textContent='Error: '+e.message}
   setTimeout(refresh,10000)}
