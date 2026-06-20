@@ -128,6 +128,7 @@ _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []
+_lumen_ws = None  # LUMEN WebSocket server instance
 _session_presence: dict = {}
 _file_touches: list[dict] = []  # [{session_id, path, timestamp}]
 _file_claims: dict = {}  # {filepath: {owner, expires_at, status, requests[]}}  # session_id → {pid, last_seen, tool_calls}
