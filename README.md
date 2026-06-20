@@ -232,6 +232,9 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | **[implementations/hermes-plugins/](implementations/hermes-plugins/)** | Plugin source (lumen-shm-bridge) |
 | **[examples/](examples/)** | Runnable demos with bilingual READMEs |
 | **[implementations/mcp-servers/](implementations/mcp-servers/)** | MCP server implementations |
+| **[implementations/mcp-servers/TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md)** | 49-tool reference with schemas |
+| **[docs/lumen_thinking_usage.md](docs/lumen_thinking_usage.md)** | Thinking server usage guide |
+| **[acta_revision_1_2026-06-20.md](acta_revision_1_2026-06-20.md)** | Cognitive OS review acta (ES) |
 
 ---
 
