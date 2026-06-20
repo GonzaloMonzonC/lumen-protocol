@@ -220,9 +220,9 @@ El cap de 10 tools por batch_call es intencional y previene:
 | Latencia | ⭐⭐⭐⭐⭐ 0.05ms p50 |
 | Escalabilidad | ⭐⭐⭐⭐ Lineal hasta 5K entradas |
 | Robustez | ⭐⭐⭐⭐⭐ 3 bugs, 0 activos |
-| Token Efficiency | ⭐⭐⭐⭐⭐ 95% ahorro output |
+| Token Efficiency | ⭐⭐⭐⭐⭐ 95% output savings |
 | Total | **ENTERPRISE-GRADE** |
 
-**Listo para producción.** File locking cross-process resuelto con
-exponential backoff (5 reintentos, 10ms→80ms) + fallback a escritura directa.
-Verificado: 500 wiki writes + 10 rapid saves sin errores.
+**Production-ready.** File locking cross-process resolved with
+exponential backoff (5 retries, 10ms→80ms) + direct write fallback.
+Verified: 500 wiki writes + 10 rapid saves with zero errors.
