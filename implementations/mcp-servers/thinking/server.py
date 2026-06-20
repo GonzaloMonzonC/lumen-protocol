@@ -923,7 +923,7 @@ def tool_thought_similarity(args: dict) -> dict:
             "recorded_at": time.time(),
         })
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_thought_contradiction(args: dict) -> dict:
@@ -982,7 +982,7 @@ def tool_thought_contradiction(args: dict) -> dict:
         lines.append(f"      \"{c['thought'][:100]}...\"")
         lines.append(f"      (similarity: {c['similarity']:.0%})")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_thought_summarize(args: dict) -> dict:
@@ -1071,7 +1071,7 @@ def tool_thought_summarize(args: dict) -> dict:
         })
     session.chains[chain_id]["clusters"] = cluster_data
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_thought_to_plan(args: dict) -> dict:
@@ -1182,7 +1182,7 @@ def tool_thought_evaluate(args: dict) -> dict:
     # Store score on thought object for dashboard stats
     target["score"] = overall
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_thought_bridge(args: dict) -> dict:
@@ -1252,7 +1252,7 @@ def tool_thought_bridge(args: dict) -> dict:
             "recorded_at": time.time(),
         })
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1301,7 +1301,7 @@ def tool_assume(args: dict) -> dict:
         if len(unverified) > 3:
             lines.append(f"      ... and {len(unverified)-3} more. Use list_assumptions() to see all.")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_list_assumptions(args: dict) -> dict:
@@ -1334,7 +1334,7 @@ def tool_list_assumptions(args: dict) -> dict:
         if a.get("evidence"):
             lines.append(f"      Evidence: {a['evidence'][:100]}")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_check_assumption(args: dict) -> dict:
@@ -1375,7 +1375,7 @@ def tool_check_assumption(args: dict) -> dict:
         elif pct > 80:
             lines.append(f"   💡 Your assumptions are usually right — but don't get overconfident.")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1438,7 +1438,7 @@ def tool_model_add(args: dict) -> dict:
     if connected:
         lines.append(f"   🔗 Connected: {len(connected)} file(s)")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_model_query(args: dict) -> dict:
@@ -1513,7 +1513,7 @@ def tool_model_query(args: dict) -> dict:
         lines.append(f"❓ Unknown query: '{query}'")
         lines.append("Try: 'deps of <path>', 'dependents of <path>', 'role=<name>', 'impact of <path>', 'all'")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_model_stats(args: dict) -> dict:
@@ -1547,7 +1547,7 @@ def tool_model_stats(args: dict) -> dict:
         n = session.model[path]
         lines.append(f"   {path} [{n.get('role','?')}] — {conn} connections")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_model_map(args: dict) -> dict:
@@ -1590,7 +1590,7 @@ def tool_model_map(args: dict) -> dict:
 
     lines.append(f"\n📊 {len(session.model)} files mapped across {len(dirs)} directories")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_model_remove(args: dict) -> dict:
@@ -1615,7 +1615,7 @@ def tool_model_remove(args: dict) -> dict:
             lines.append(f"      {a} — check if still valid")
     lines.append(f"   Model now has {len(session.model)} file(s)")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_model_scan(args: dict) -> dict:
@@ -1736,7 +1736,7 @@ def tool_model_scan(args: dict) -> dict:
         f"",
         f"   Use model_map() to visualize or model_query() to explore.",
     ]
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1781,7 +1781,7 @@ def tool_context_preserve(args: dict) -> dict:
     if total > 30:
         lines.append(f"   🚨 List is very large ({total} items). High risk of losing information.")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_context_check(args: dict) -> dict:
@@ -1831,7 +1831,7 @@ def tool_context_check(args: dict) -> dict:
         if shown >= 10:
             break
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1897,7 +1897,7 @@ def tool_work_start(args: dict) -> dict:
         f"   Category: {category}",
         f"   You have {in_progress} active work item(s)",
     ]
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_work_block(args: dict) -> dict:
@@ -1932,7 +1932,7 @@ def tool_work_done(args: dict) -> dict:
             lines = [f"✅ Work #{wid} completed: {w['item']}"]
             if result:
                 lines.append(f"   Result: {result}")
-            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+            return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
     return {"content": [{"type": "text", "text": f"Error: Work #{wid} not found."}]}
 
@@ -1968,7 +1968,7 @@ def tool_work_log(args: dict) -> dict:
         if w["status"] == "done" and w.get("result"):
             lines.append(f"      Result: {w['result'][:80]}")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2006,7 +2006,7 @@ def tool_context_estimate(args: dict) -> dict:
                    "      • Use context_preserve for must-keep information",
                    "      • Use thought_summarize to condense chains",
                    "      • Avoid large read_files — use search_with_context instead"]
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2072,7 +2072,7 @@ def tool_session_list(args: dict) -> dict:
         lines.append(line)
     if collisions:
         lines.append(f"\n   ⚡ {len(collisions)} file(s) with multi-session activity — check /collisions for details")
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
     uptime = time.time() - _session_start
     tool_estimate = _tool_calls * 500  # Rough: 500 tokens per tool call
     content_estimate = _estimated_chars // 4  # Rough: 4 chars per token
@@ -2109,7 +2109,7 @@ def tool_session_list(args: dict) -> dict:
         lines.append(f"      • Use thought_summarize to condense chains")
         lines.append(f"      • Avoid large read_files — use search_with_context instead")
 
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2169,7 +2169,7 @@ def tool_agent_inbox(args: dict) -> dict:
         ago_str = f"{ago}s ago" if ago < 60 else f"{ago//60}m ago" if ago < 3600 else f"{ago//3600}h ago"
         lines.append(f"   📨 [{ago_str}] {m['from_session']}: {m['content'][:200]}")
         m["read"] = True  # mark as read
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 def tool_collision_check(args: dict) -> dict:
@@ -2189,7 +2189,7 @@ def tool_collision_check(args: dict) -> dict:
         fname = fpath.split("/")[-1] if "/" in fpath else fpath
         lines.append(f"   🔴 {fname}: {', '.join(sids)}")
     lines.append(f"\n💡 Use agent_message to coordinate with the other session(s).")
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2253,6 +2253,11 @@ def tool_pattern_match(args: dict) -> dict:
     top = scores[:top_n]
     if not top:
         return {"content": [{"type": "text", "text": "No matching patterns found. Consider recording this as a new pattern with pattern_record."}]}
+    # Compact mode — single line
+    verbose = args.get("verbose", False)
+    if not verbose:
+        best = top[0]
+        return {"content": [{"type": "text", "text": f"🔍 {best[0]:.0%} match — #{best[1]['id']} {best[1]['pattern_name'][:40]}"}]}
     lines = [f"🔍 Found {len(top)} matching patterns:"]
     for sim, p in top:
         bar = "█" * int(sim * 10) + "░" * (10 - int(sim * 10))
@@ -2261,7 +2266,7 @@ def tool_pattern_match(args: dict) -> dict:
         if p['fix_strategy']: lines.append(f"   Fix: {p['fix_strategy'][:120]}")
         if p.get('tags'): lines.append(f"   Tags: {', '.join(p['tags'])}")
         p['match_count'] = p.get('match_count', 0) + 1  # only matched patterns
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2310,7 +2315,7 @@ def tool_decision_list(args: dict) -> dict:
         lines.append(f"\n   #{d['id']} {d['decision'][:100]} [{d['category']}]")
         lines.append(f"   Why: {d['rationale'][:120]}")
         if d.get('revisit_trigger'): lines.append(f"   🔄 Revisit if: {d['revisit_trigger'][:100]}")
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2358,7 +2363,108 @@ def tool_wiki_list(args: dict) -> dict:
     lines = [f"Wiki ({len(session.wiki)} pages):"]
     for title, w in sorted(session.wiki.items(), key=lambda x: x[1]["updated_at"], reverse=True):
         lines.append(f"  {title} — {len(w['content'])} chars, {w['author']} ({time.strftime('%m/%d %H:%M', time.localtime(w['updated_at']))})")
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": f"📋 {len(themes)} themes · {total} thoughts"}], "themes": themes}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Token-Efficient Tools — ultra-compact output (1-2 lines) for LLM cost savings
+# ═══════════════════════════════════════════════════════════════════════
+
+def tool_state_snapshot(args: dict) -> dict:
+    """Ultra-compact system health: 1 line of output, all data in state file."""
+    total_thoughts = sum(len(c.get("thoughts", [])) for s in _sessions.values() for c in s.chains.values())
+    total_chains = sum(len(s.chains) for s in _sessions.values())
+    total_patterns = sum(len(s.patterns) for s in _sessions.values())
+    total_works = sum(len(s.works) for s in _sessions.values())
+    total_calls = sum(s.tool_calls for s in _sessions.values())
+    scored = sum(1 for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score"))
+    avg_score = round(sum(t.get("score", 0) for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score")) / max(scored, 1), 1)
+    return {
+        "content": [{"type": "text", "text": f"⚡ {total_chains}c · {total_thoughts}t · {avg_score}★ · {total_patterns}p · {total_works}w · {total_calls} calls"}]
+    }
+
+def tool_thought_compress(args: dict) -> dict:
+    """Compress a reasoning chain to N key thoughts using TF-IDF similarity.
+    Returns only the compressed thoughts, not the full chain history."""
+    session = _get_session(args.get("session_id"))
+    chain_id = args["chainId"]
+    target = min(args.get("targetThoughts", 3), 10)
+    chain = session.chains.get(chain_id)
+    if not chain:
+        return {"content": [{"type": "text", "text": "❌ Chain not found"}]}
+    thoughts = chain.get("thoughts", [])
+    if len(thoughts) <= target:
+        return {"content": [{"type": "text", "text": f"✅ {len(thoughts)} thoughts (under target {target})"}]}
+    # Select key thoughts: first, last, and top-scored in between
+    first = thoughts[0]["thought"]
+    last = thoughts[-1]["thought"]
+    middle = sorted(thoughts[1:-1], key=lambda t: t.get("score", 0), reverse=True)[:target - 2]
+    compressed = [{"number": 1, "thought": first[:120]}] + \
+                 [{"number": t["number"], "thought": t["thought"][:120]} for t in middle] + \
+                 [{"number": len(thoughts), "thought": last[:120]}]
+    chain["compressed"] = compressed
+    return {"content": [{"type": "text", "text": f"✅ Compressed {len(thoughts)}→{len(compressed)} thoughts"}]}
+
+def tool_chain_diff(args: dict) -> dict:
+    """Show only what changed between two points in a reasoning chain."""
+    session = _get_session(args.get("session_id"))
+    chain_id = args["chainId"]
+    from_num = args.get("from", 1)
+    to_num = args.get("to")
+    chain = session.chains.get(chain_id)
+    if not chain:
+        return {"content": [{"type": "text", "text": "❌ Chain not found"}]}
+    thoughts = chain.get("thoughts", [])
+    if not to_num:
+        to_num = len(thoughts)
+    diff_thoughts = [t for t in thoughts if from_num <= t["number"] <= to_num]
+    added = sum(1 for t in diff_thoughts if not t.get("isRevision"))
+    revised = sum(1 for t in diff_thoughts if t.get("isRevision"))
+    branches = sum(1 for t in diff_thoughts if t.get("branchFromThought"))
+    return {"content": [{"type": "text", "text": f"Δ #{from_num}→#{to_num}: +{added} · ↻{revised} · 🌿{branches}"}]}
+
+def tool_tool_cache(args: dict) -> dict:
+    """Cache expensive tool results. Set: tool_cache(key, value, ttl_seconds).
+    Get: tool_cache(key) returns cached value if valid. No output tokens if hit."""
+    session = _get_session(args.get("session_id"))
+    key = args.get("key", "")
+    if not key:
+        return {"content": [{"type": "text", "text": "❌ Need key"}]}
+    if "value" in args:
+        # Set mode
+        ttl = args.get("ttl", 300)
+        session.chains.setdefault("__cache__", {})[key] = {
+            "value": args["value"], "expires": time.time() + ttl
+        }
+        return {"content": [{"type": "text", "text": "💾 Cached"}]}
+    # Get mode
+    cache = session.chains.get("__cache__", {}).get(key)
+    if cache and cache["expires"] > time.time():
+        return {"content": [{"type": "text", "text": "🎯 Cache hit: " + str(cache["value"])[:200]}]}
+    return {"content": [{"type": "text", "text": "❌ Cache miss"}]}
+
+def tool_batch_call(args: dict) -> dict:
+    """Execute multiple tools in sequence, returning ONE compact output.
+    tools: [{"name": "tool_name", "args": {...}}, ...]"""
+    tools_list = args.get("tools", [])
+    if not tools_list:
+        return {"content": [{"type": "text", "text": "❌ No tools specified"}]}
+    results = []
+    total_ok = 0
+    for tool in tools_list[:10]:  # max 10 per batch
+        name = tool.get("name", "")
+        tool_args = tool.get("args", {})
+        handler = HANDLERS.get(name)
+        if handler:
+            try:
+                r = handler(tool_args)
+                results.append(f"✅ {name}")
+                total_ok += 1
+            except:
+                results.append(f"❌ {name}")
+        else:
+            results.append(f"❓ {name}")
+    return {"content": [{"type": "text", "text": f"Batch: {total_ok}/{len(tools_list)} OK — {' '.join(results)}"}]}
 
 
 HANDLERS = {
@@ -2398,6 +2504,11 @@ HANDLERS = {
     "wiki_read": tool_wiki_read,
     "wiki_update": tool_wiki_update,
     "wiki_list": tool_wiki_list,
+    "state_snapshot": tool_state_snapshot,
+    "thought_compress": tool_thought_compress,
+    "chain_diff": tool_chain_diff,
+    "tool_cache": tool_tool_cache,
+    "batch_call": tool_batch_call,
 }
 
 
