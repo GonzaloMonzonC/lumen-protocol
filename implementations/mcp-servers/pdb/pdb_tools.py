@@ -235,8 +235,9 @@ def _execute(sql: str, params: list = None) -> list:
 # Tool implementations
 # ---------------------------------------------------------------------------
 
-def tool_set(ns: str, subs: list, value) -> dict:
+def tool_set(args: dict) -> dict:
     """SET ^ns(sub1,sub2,...)=value"""
+    ns = args["ns"]; subs = args["subs"]; value = args["value"]
     try:
         key = encode_subkey(subs)
         c = _get_conn()
@@ -249,8 +250,9 @@ def tool_set(ns: str, subs: list, value) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_get(ns: str, subs: list, default=None) -> dict:
+def tool_get(args: dict) -> dict:
     """$GET(^ns(subs))"""
+    ns = args["ns"]; subs = args["subs"]; default = args.get("default")
     try:
         key = encode_subkey(subs)
         c = _get_conn()
@@ -263,7 +265,8 @@ def tool_get(ns: str, subs: list, default=None) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_order(ns: str, subs: list, direction: int = 1) -> dict:
+def tool_order(args: dict) -> dict:
+    ns = args["ns"]; subs = args["subs"]; direction = args.get("direction", 1)
     """$ORDER(^ns(subs), direction) — find next/prev subscript at last level."""
     try:
         if len(subs) < 1:
@@ -330,7 +333,8 @@ def tool_order(ns: str, subs: list, direction: int = 1) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_data(ns: str, subs: list) -> dict:
+def tool_data(args: dict) -> dict:
+    ns = args["ns"]; subs = args["subs"]
     r"""$DATA(^ns(subs)) — check existence and structure.
     
     Returns:
@@ -412,7 +416,8 @@ def tool_data(ns: str, subs: list) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_kill(ns: str, subs: list) -> dict:
+def tool_kill(args: dict) -> dict:
+    ns = args["ns"]; subs = args["subs"]
     """KILL ^ns(subs) — delete node and all children."""
     try:
         key = encode_subkey(subs)
@@ -429,7 +434,8 @@ def tool_kill(ns: str, subs: list) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_incr(ns: str, subs: list, increment: float = 1.0) -> dict:
+def tool_incr(args: dict) -> dict:
+    ns = args["ns"]; subs = args["subs"]; increment = args.get("increment", 1.0)
     """$INCREMENT(^ns(subs), increment) — atomic increment. Returns new value."""
     try:
         key = encode_subkey(subs)
@@ -456,8 +462,8 @@ def tool_incr(ns: str, subs: list, increment: float = 1.0) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_merge(target_ns: str, target_subs: list,
-               source_ns: str, source_subs: list) -> dict:
+def tool_merge(args: dict) -> dict:
+    target_ns = args["target_ns"]; target_subs = args["target_subs"]; source_ns = args["source_ns"]; source_subs = args["source_subs"]
     """MERGE ^target_ns(target_subs) = ^source_ns(source_subs)"""
     try:
         src_key = encode_subkey(source_subs)
@@ -500,7 +506,8 @@ def tool_merge(target_ns: str, target_subs: list,
 # SQL tools
 # ---------------------------------------------------------------------------
 
-def tool_query(sql: str, params: list = None, limit: int = 100) -> dict:
+def tool_query(args: dict) -> dict:
+    sql = args["sql"]; params = args.get("params"); limit = args.get("limit", 100)
     """Execute a read-only SQL query."""
     try:
         sql_upper = sql.strip().upper()
