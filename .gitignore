@@ -61,5 +61,8 @@ temp/
 *.db-wal
 *.db-journal
 
+# Benchmark output (regenerate locally)
+pdb/benchmark_*.json
+
 # Internal benchmarks (experimental, not for repo)
 docs/benchmarks/internal/
