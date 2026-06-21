@@ -1,4 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUMEN Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -79,7 +80,7 @@ function renderWebSnapshots() {
   _webSnapshots.forEach(s=>{
     const ts = s.created_at ? Math.floor((Date.now()/1000 - s.created_at)/60) : '?';
     const age = ts < 1 ? 'now' : ts < 60 ? ts+'m ago' : Math.floor(ts/60)+'h ago';
-    const taskLink = s.task_id ? '<span style="color:var(--purp);font-size:9px;cursor:pointer" onclick="alert('Task: '+s.task_id+'')">→ '+s.task_id+'</span>' : '';
+    const taskLink = s.task_id ? '<span style="color:var(--purp);font-size:9px;cursor:pointer">\u2192 '+s.task_id+'</span>' : '';
     h += '<div style="background:rgba(20,20,35,.5);border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;cursor:pointer" onclick="showSnapshotDetail(\''+s.id+'\')">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(s.title||'untitled')+'</span>' +
