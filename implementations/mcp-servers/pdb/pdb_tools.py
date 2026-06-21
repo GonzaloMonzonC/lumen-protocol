@@ -526,7 +526,7 @@ def tool_query(args: dict) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_schema() -> dict:
+def tool_schema(args: dict = None) -> dict:
     """Describe the database: namespaces, sizes, sample paths."""
     try:
         c = _get_conn()
@@ -558,9 +558,13 @@ def tool_schema() -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_backup(path: str = None) -> dict:
+def tool_backup(args: dict = None) -> dict:
     """Create backup or return DB stats."""
     try:
+        if isinstance(args, dict):
+            path = args.get("path")
+        else:
+            path = args  # backwards compat with positional args
         if path:
             import shutil
             src = _get_db_path()
