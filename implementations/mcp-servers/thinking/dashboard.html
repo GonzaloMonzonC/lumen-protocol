@@ -361,10 +361,12 @@ window.renderData = function renderData(d) {
   const model=d.model||{};
   const mo=document.getElementById('model-list');
   if(mo)mo.innerHTML=Object.entries(model).slice(0,15).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
-  // Decisions
-  const decisions=d.decisions||[];
-  const de=document.getElementById('decisions-list');
-  if(de)de.innerHTML=decisions.slice(0,20).map(dc=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--cyan)">#'+dc.id+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(dc.decision||'').slice(0,60)+'</span></div>').join('')||'<div class="dim">Loading</div>';
+  // Decisions — fetch from /decisions endpoint
+  fetch('/decisions').then(r=>r.json()).then(dd=>{
+    const de=document.getElementById('decisions-list');
+    const decisions=dd.decisions||[];
+    if(de)de.innerHTML=decisions.slice(0,20).map(dc=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--cyan)">#'+dc.id+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(dc.decision||'').slice(0,60)+'</span></div>').join('')||'<div class="dim">No decisions</div>';
+  }).catch(()=>{const de=document.getElementById('decisions-list');if(de)de.innerHTML='<div class="dim">Error loading</div>'});
   // Assumptions
   const assumptions=d.assumptions||[];
   const as=document.getElementById('assumptions-list');
