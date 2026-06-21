@@ -1,0 +1,115 @@
+{
+  "benchmark": "PDBM-Lumen Full (15 tools including FASE1)",
+  "date": "2026-06-21 21:48",
+  "results": [
+    {
+      "name": "pdb_set (single)",
+      "n": 5000,
+      "total_ms": 208.8815999450162,
+      "avg_us": 41.77631998900324,
+      "rate_per_sec": 23937.005467768093
+    },
+    {
+      "name": "pdb_get (exact)",
+      "n": 5000,
+      "total_ms": 145.95829998143017,
+      "avg_us": 29.191659996286035,
+      "rate_per_sec": 34256.35952622177
+    },
+    {
+      "name": "pdb_order (first)",
+      "n": 5000,
+      "total_ms": 213.9014001004398,
+      "avg_us": 42.78028002008796,
+      "rate_per_sec": 23375.2560649542
+    },
+    {
+      "name": "pdb_data (exists)",
+      "n": 5000,
+      "total_ms": 237.76240006554872,
+      "avg_us": 47.552480013109744,
+      "rate_per_sec": 21029.39740943711
+    },
+    {
+      "name": "pdb_incr (atomic)",
+      "n": 5000,
+      "total_ms": 585.2156999753788,
+      "avg_us": 117.04313999507576,
+      "rate_per_sec": 8543.858273471405
+    },
+    {
+      "name": "pdb_kill (subtree)",
+      "n": 5000,
+      "total_ms": 160.10740003548563,
+      "avg_us": 32.021480007097125,
+      "rate_per_sec": 31229.03750165088
+    },
+    {
+      "name": "pdb_scratch_set",
+      "n": 5000,
+      "total_ms": 169.1702000098303,
+      "avg_us": 33.83404000196606,
+      "rate_per_sec": 29556.032916609754
+    },
+    {
+      "name": "pdb_scratch_get",
+      "n": 5000,
+      "total_ms": 144.64369998313487,
+      "avg_us": 28.928739996626973,
+      "rate_per_sec": 34567.699807063764
+    },
+    {
+      "name": "pdb_scratch_del",
+      "n": 5000,
+      "total_ms": 195.75519999489188,
+      "avg_us": 39.151039998978376,
+      "rate_per_sec": 25542.10565098895
+    },
+    {
+      "name": "pdb_batch_set(10)",
+      "n": 500,
+      "total_ms": 83.9876999380067,
+      "avg_us": 167.9753998760134,
+      "rate_per_sec": 59532.52683060279
+    },
+    {
+      "name": "pdb_batch_set(100)",
+      "n": 50,
+      "total_ms": 64.74589998833835,
+      "avg_us": 1294.917999766767,
+      "rate_per_sec": 77224.96715468579
+    },
+    {
+      "name": "batch_vs_individual_1000",
+      "n": 1000,
+      "batch_ms": 16.82510005775839,
+      "individual_ms": 88.96389999426901,
+      "speedup": 5.287570337701854
+    },
+    {
+      "name": "fts_search_simple",
+      "n": 100,
+      "total_ms": 2535.5460999999195,
+      "avg_ms_per_query": 25.355460999999195
+    },
+    {
+      "name": "fts_search_more",
+      "n": 100,
+      "total_ms": 2673.410000046715,
+      "avg_ms_per_query": 26.73410000046715
+    },
+    {
+      "name": "fts_search_ns_filter",
+      "n": 100,
+      "total_ms": 2699.3808000115678,
+      "avg_ms_per_query": 26.993808000115678
+    },
+    {
+      "name": "pdb_schema",
+      "n": 1000,
+      "total_ms": 1220.291499979794,
+      "avg_us": 1220.291499979794,
+      "rate_per_sec": 819.4763300543832
+    }
+  ]
+}
