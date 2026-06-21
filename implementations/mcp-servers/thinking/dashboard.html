@@ -328,7 +328,7 @@ window.renderData = function renderData(d) {
   window._lastClusters=d.clusters||[];
   const clusters=d.clusters||[];
   const cm=document.getElementById('clusters-list');
-  if(cm)cm.innerHTML=clusters.slice(0,10).map(cl=>'<div class="chain-row" style="cursor:pointer" onclick="showCluster(\''+cl.chain_id+'\')"><span class="mono" style="font-size:10px;color:var(--purp)">'+(cl.label||'Theme '+(cl.theme||cl.count||'?')).slice(0,35)+':</span><span class="dim" style="font-size:10px;flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cl.thoughts||cl.count||0)+'t</span></div>').join('')||'<div class="dim">No clusters</div>';
+  if(cm)cm.innerHTML=clusters.slice(0,10).map(cl=>'<div class="chain-row" style="cursor:pointer" onclick="showCluster(\''+cl.chain_id+'\')"><span class="mono" style="font-size:10px;color:var(--purp)">'+(cl.label||'Theme '+(cl.theme||cl.count||'?')).slice(0,40)+'</span><span class="dim" style="font-size:10px;flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cl.thoughts||cl.count||0)+'t</span></div>').join('')||'<div class="dim">No clusters</div>';
   // Heatmap
   if(typeof buildHeatmap==='function')buildHeatmap(d.chains||[]);
   // Pulse
@@ -347,7 +347,7 @@ window.renderData = function renderData(d) {
   // Collisions, Claims, Bridges, Preserved
   const col=document.getElementById('collisions-list');if(col)col.innerHTML=(d.collisions||[]).length?(d.collisions||[]).map(x=>'<div>'+x+'</div>').join(''):'<div class="dim" style="font-size:11px">No collisions</div>';
   // Bridges
-  const bl=document.getElementById('bridges-list');if(bl){const bd=d.bridges||[];bl.innerHTML=bd.length?bd.map(b=>'<div class="chain-row"><span class="mono" style="font-size:9px;color:var(--purp)">'+(b.score||0).toFixed(2)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(b.chain_a||'').slice(0,15)+' ↔ '+(b.chain_b||'').slice(0,15)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No bridges</div>';}
+  const bl=document.getElementById('bridges-list');if(bl){const bd=d.bridges||[];bl.innerHTML=bd.length?bd.map(b=>'<div class="chain-row"><span class="mono" style="font-size:9px;color:var(--purp)">'+(b.score||0).toFixed(2)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(b.chain_id||'').slice(0,18)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No bridges</div>';}
   // Preserved
   const pr=document.getElementById('preserved-list');if(pr){const pd=d.preserved||[];pr.innerHTML=pd.length?pd.map(p=>'<div class="chain-row"><span class="tag cyan" style="font-size:8px">'+(p.priority||'low')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.label||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';}
   // Claims
