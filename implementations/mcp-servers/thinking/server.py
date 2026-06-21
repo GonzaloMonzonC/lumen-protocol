@@ -3155,8 +3155,10 @@ def tool_cognitive_integrity(args: dict) -> dict:
     
     # Stale decisions (older than 90 days, no revisit)
     now = time.time()
-    _decisions_list = list(globals().get("_decisions", []))
-    stale = [d for d in _decisions_list[-50:] if d.get("revisit_trigger") and now - d.get("timestamp", now) > 7776000]
+    session_decisions_list = []
+    for s in _sessions.values():
+        session_decisions_list.extend(getattr(s, 'decisions', []))
+    stale = [d for d in session_decisions_list[-50:] if d.get("revisit_trigger") and now - d.get("timestamp", now) > 7776000]
     if stale:
         warnings += 1
         checks.append(f"  {len(stale)} decisions overdue for revisit")
@@ -3168,7 +3170,8 @@ def tool_cognitive_integrity(args: dict) -> dict:
         checks.append(f"  {len(low_match)} patterns never matched (may be obsolete)")
     
     # No data at all
-    total = len(_tasks) + len(_qa_pairs) + len(list(globals().get("_decisions", []))) + len(_web_snapshots)
+    session_decisions = sum(len(s.decisions) for s in list(_sessions.values()))
+    total = len(_tasks) + len(_qa_pairs) + session_decisions + len(_web_snapshots)
     if total == 0:
         return {"content": [{"type": "text", "text": "\u2705 Cognitive system is empty but healthy. Start adding data!"}]}
     
@@ -3176,7 +3179,7 @@ def tool_cognitive_integrity(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"\u2705 Cognitive integrity OK. {total} artifacts, no warnings."}]}
     
     lines = [f"\u26a0\ufe0f Cognitive Integrity: {warnings} warning(s)\n"]
-    lines.append(f"  Total artifacts: {len(_tasks)} tasks + {len(_qa_pairs)} Q&A + {len(list(globals().get('_decisions', [])))} decisions + {len(_global_patterns)} patterns + {len(_web_snapshots)} snapshots")
+    lines.append(f"  Total artifacts: {len(_tasks)} tasks + {len(_qa_pairs)} Q&A + {session_decisions} decisions + {len(_global_patterns)} patterns + {len(_web_snapshots)} snapshots")
     lines.extend(checks)
     lines.append(f"\n  Health score: {max(0, 100 - warnings * 15)}/100")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
