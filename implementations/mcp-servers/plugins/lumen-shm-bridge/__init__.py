@@ -1673,18 +1673,64 @@ def _handle_find_duplicates(*args, **kwargs) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PDBM-Lumen handlers (SHM transport)
+# PDBM-Lumen handlers (SHM transport with stdio fallback)
 # ═══════════════════════════════════════════════════════════════════════════
 
+_PDB_SERVER_PROC = None  # stdio fallback process
+_PDB_SERVER_LOCK = threading.Lock()
+_PDB_REQUEST_ID = 0
+
+def _ensure_pdb_server():
+    """Get PDB connection — try SHM first, fall back to stdio JSON-RPC."""
+    global _PDB_SERVER_PROC, _PDB_REQUEST_ID
+    try:
+        # Try SHM first
+        return _get_connection("pdb")
+    except Exception as shm_err:
+        # Fallback: stdio JSON-RPC
+        with _PDB_SERVER_LOCK:
+            if _PDB_SERVER_PROC is None or _PDB_SERVER_PROC.poll() is not None:
+                import subprocess as _sp
+                _PDB_SERVER_PROC = _sp.Popen(
+                    [_HERMES_VENV_PYTHON, "-u", _PDB_SHM],
+                    stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
+                    text=True, bufsize=1,
+                )
+                # Init handshake
+                _pdb_stdio_call({"method": "initialize", "params": {}})
+        return _PDB_SERVER_PROC
+
+def _pdb_stdio_call(msg: dict) -> dict:
+    """Send JSON-RPC to PDB stdio server, return result."""
+    global _PDB_SERVER_PROC, _PDB_REQUEST_ID
+    _PDB_REQUEST_ID += 1
+    payload = json.dumps({"jsonrpc": "2.0", "id": _PDB_REQUEST_ID, **msg})
+    with _PDB_SERVER_LOCK:
+        _PDB_SERVER_PROC.stdin.write(payload + "\n")
+        _PDB_SERVER_PROC.stdin.flush()
+        line = _PDB_SERVER_PROC.stdout.readline()
+    if not line:
+        raise ConnectionError("PDB server (stdio fallback) closed")
+    resp = json.loads(line.strip())
+    if "error" in resp:
+        raise RuntimeError(f"PDB error: {resp['error']}")
+    return resp.get("result", {})
+
 def _call_pdb(tool_name: str, params: dict) -> str:
-    """Generic PDB tool call via SHM."""
-    conn = _get_connection("pdb")
-    result = conn.call_tool(tool_name, params)
+    """Call PDB tool — via SHM if available, else stdio JSON-RPC."""
+    try:
+        conn = _get_connection("pdb")
+        result = conn.call_tool(tool_name, params)
+    except Exception:
+        result = _pdb_stdio_call({
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": params},
+        })
+    # Handle both MCP-wrapped and raw results
     content = result.get("content", [])
-    return json.dumps(
-        json.loads(content[0]["text"]) if content and content[0].get("type") == "text" else result,
-        ensure_ascii=False
-    )
+    if content and content[0].get("type") == "text":
+        return content[0]["text"]
+    return json.dumps(result, ensure_ascii=False)
 
 def _handle_pdb_set(*args, **kwargs) -> str:
     p = args[0] if args else kwargs; return _call_pdb("pdb_set", {"ns": p["ns"], "subs": p["subs"], "value": p["value"]})
