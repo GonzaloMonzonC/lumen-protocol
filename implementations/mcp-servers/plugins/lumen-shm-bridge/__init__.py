@@ -1436,7 +1436,37 @@ def register(ctx) -> None:
             handler=handler,
         )
 
-    print(f"[lumen-shm-bridge] Registered 54 tools (fs: 13, thinking: 29, web: 2, pdb: 10)")
+    _PDB_HANDLER_CACHE: dict[str, Any] = {}
+    # Add new FASE 1 tools
+    new_pdb_tools = [
+        ("pdb_batch_set", "Atomic batch insert. Multiple records in one transaction.",
+         {"items": {"type": "array", "items": {"type": "object",
+           "properties": {"ns": {"type":"string"}, "subs": {"type":"array","items":{"oneOf":[{"type":"string"},{"type":"number"}]}},
+            "value": {"description":"Value to store"}},
+           "required":["ns","subs","value"]},
+          "description":"Array of records to insert"}},
+         ["items"]),
+        ("pdb_scratch_set", "Set scratchpad value (LLM working memory).",
+         {"key": {"type":"string"}, "value": {"description":"Value to store"}}, ["key","value"]),
+        ("pdb_scratch_get", "Get scratchpad value by key.",
+         {"key": {"type":"string"}}, ["key"]),
+        ("pdb_scratch_del", "Delete scratchpad key.",
+         {"key": {"type":"string"}}, ["key"]),
+        ("pdb_fts_search", "Full-text search across stored values (SQLite FTS5).",
+         {"query": {"type":"string","description":"FTS5 query (AND, OR, NOT, phrases)"},
+          "limit": {"type":"integer","default":10},
+          "ns": {"type":"string","description":"Optional namespace filter"}},
+         ["query"]),
+    ]
+    for name, desc, props, req in new_pdb_tools:
+        ctx.register_tool(
+            name=name, toolset="lumen-pdb",
+            schema={"name": name, "description": desc,
+                    "parameters": {"type": "object", "properties": props, "required": req}},
+            handler=lambda *a, _n=name, **kw: _call_pdb(_n, a[0] if a else kw),
+        )
+
+    print(f"[lumen-shm-bridge] Registered 59 tools (fs: 13, thinking: 29, web: 2, pdb: 15)")
 
 # DEBUG PATCH
 import traceback as _tb
