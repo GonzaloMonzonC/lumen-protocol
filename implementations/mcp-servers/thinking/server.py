@@ -225,6 +225,7 @@ def _load_state() -> bool:
             _call_timeline[:] = state["timeline"]
         global _agent_messages, _global_patterns
         global _niches, _tasks, _next_niche_id, _next_task_id
+        global _web_snapshots, _last_state_mtime
         _agent_messages = state.get("agent_messages", [])
         _niches = state.get("niches", {})
         _tasks = state.get("tasks", {})
@@ -3000,12 +3001,11 @@ def tool_web_snapshot(args: dict) -> dict:
     return {"content": [{"type": "text", "text": f"✅ Snapshot saved: {sid}\n{result.get('title','')[:100]}\n{result.get('content','')[:200]}"}]}
 
 def tool_web_snapshots_list(args: dict) -> dict:
-                print("DEBUG WS count: " + str(len(_web_snapshots)), file=sys.stderr)
     snaps = list(_web_snapshots.values())
     tid = args.get("task_id","").strip()
     if tid: snaps = [s for s in snaps if s.get("task_id")==tid]
     snaps.sort(key=lambda s: s.get("created_at",0), reverse=True)
-    if not snaps: return {"content":[{"type":"text","text":"No snapshots"}]}
+    if not snaps: return {"content":[{"type":"text","text":"No snapshots"}],"format":"text"}
     lines = ["📸 Web Snapshots:"]
     for s in snaps[:20]:
         t = s.get("title","")[:60]
