@@ -60,7 +60,8 @@ _LUMEN_SRC = os.path.join(_REPO_ROOT, "implementations", "python", "src")
 _THINKING_SHM = os.path.join(_MCP_SERVERS, "thinking", "server_shm.py")
 _FILESYSTEM_SHM = os.path.join(_MCP_SERVERS, "filesystem", "server_shm.py")
 _WEB_SHM = os.path.join(_MCP_SERVERS, "web", "server_shm.py")
-_PDB_SHM = os.path.join(_MCP_SERVERS, "pdb", "server_shm.py")
+
+# PDB usa stdio (SHM es 20x mas lento para μs-scale KV ops)
 _PDB_STDIO = os.path.join(_MCP_SERVERS, "pdb", "server.py")
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -246,7 +247,6 @@ SERVER_CONFIGS = {
     "filesystem": (_FILESYSTEM_SHM, 8 * 1024 * 1024),   # 8 MiB for large files
     "thinking":   (_THINKING_SHM,   2 * 1024 * 1024),   # 2 MiB
     "web":        (_WEB_SHM,          512 * 1024),       # 512 KiB
-    "pdb":        (_PDB_SHM,          512 * 1024),       # 512 KiB (tool payloads are small)
 }
 
 
