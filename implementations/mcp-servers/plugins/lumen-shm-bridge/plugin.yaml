@@ -1,0 +1,5 @@
+name: lumen-shm-bridge
+version: 1.0.0
+description: "LUMEN Level 2 zero-copy MCP bridge — overrides built-in file/web tools with shared memory (mmap) transport. 55-80% wire compression, zero kernel copies."
+author: Cadences Lab (Gonzalo Monzón)
+kind: standalone
