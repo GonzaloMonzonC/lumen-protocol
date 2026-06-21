@@ -1674,61 +1674,47 @@ def _handle_find_duplicates(*args, **kwargs) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PDBM-Lumen handlers (SHM first, stdio fallback)
+# PDBM-Lumen handlers (stdio JSON-RPC — SHM no aporta en μs-scale ops)
 # ═══════════════════════════════════════════════════════════════════════════
 
-_PDB_STDIO_PROC = None
-_PDB_STDIO_LOCK = threading.RLock()
-_PDB_STDIO_REQ_ID = 0
+_PDB_PROC = None
+_PDB_LOCK = threading.RLock()
+_PDB_REQ_ID = 0
 
-def _pdb_shm_or_stdio(tool_name: str, params: dict) -> dict:
-    """Try SHM first, fall back to stdio JSON-RPC."""
-    try:
-        conn = _get_connection("pdb")
-        return conn.call_tool(tool_name, params)
-    except Exception as shm_err:
-        # Fallback: stdio JSON-RPC
-        global _PDB_STDIO_PROC, _PDB_STDIO_REQ_ID
-        with _PDB_STDIO_LOCK:
-            if _PDB_STDIO_PROC is None or _PDB_STDIO_PROC.poll() is not None:
-                import subprocess as _sp
-                _PDB_STDIO_PROC = _sp.Popen(
-                    [_HERMES_VENV_PYTHON, "-u", _PDB_STDIO],
-                    stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
-                    text=True, bufsize=1,
-                )
-                _PDB_STDIO_REQ_ID = 0
-                _pdb_stdio_rpc({"method": "initialize", "params": {}})
-            _PDB_STDIO_REQ_ID += 1
-            payload = json.dumps({"jsonrpc": "2.0", "id": _PDB_STDIO_REQ_ID,
-                                  "method": "tools/call", "params": {"name": tool_name, "arguments": params}})
-            _PDB_STDIO_PROC.stdin.write(payload + "\n")
-            _PDB_STDIO_PROC.stdin.flush()
-            line = _PDB_STDIO_PROC.stdout.readline()
-        if not line:
-            raise ConnectionError("PDB stdio closed")
-        resp = json.loads(line.strip())
-        if "error" in resp:
-            raise RuntimeError(f"PDB error: {resp['error']}")
-        return resp.get("result", {})
+def _pdb_ensure():
+    global _PDB_PROC
+    with _PDB_LOCK:
+        if _PDB_PROC is None or _PDB_PROC.poll() is not None:
+            import subprocess as _sp
+            _PDB_PROC = _sp.Popen(
+                [_HERMES_VENV_PYTHON, "-u", _PDB_STDIO],
+                stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
+                text=True, bufsize=1,
+            )
+            _pdb_rpc({"method": "initialize", "params": {}})
+    return _PDB_PROC
 
-
-def _pdb_stdio_rpc(msg):
-    global _PDB_STDIO_REQ_ID
-    _PDB_STDIO_REQ_ID += 1
-    payload = json.dumps({"jsonrpc": "2.0", "id": _PDB_STDIO_REQ_ID, **msg})
-    _PDB_STDIO_PROC.stdin.write(payload + "\n")
-    _PDB_STDIO_PROC.stdin.flush()
-    line = _PDB_STDIO_PROC.stdout.readline()
+def _pdb_rpc(msg: dict) -> dict:
+    global _PDB_REQ_ID
+    _PDB_REQ_ID += 1
+    payload = json.dumps({"jsonrpc": "2.0", "id": _PDB_REQ_ID, **msg})
+    with _PDB_LOCK:
+        _PDB_PROC.stdin.write(payload + "\n")
+        _PDB_PROC.stdin.flush()
+        line = _PDB_PROC.stdout.readline()
+    if not line:
+        raise ConnectionError("PDB server closed")
     resp = json.loads(line.strip())
     if "error" in resp:
         raise RuntimeError(f"PDB error: {resp['error']}")
     return resp.get("result", {})
 
-
 def _call_pdb(tool_name: str, params: dict) -> str:
-    """Call PDB tool via SHM (preferred) or stdio (fallback)."""
-    result = _pdb_shm_or_stdio(tool_name, params)
+    _pdb_ensure()
+    result = _pdb_rpc({
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": params},
+    })
     content = result.get("content", [])
     if content and content[0].get("type") == "text":
         return content[0]["text"]
