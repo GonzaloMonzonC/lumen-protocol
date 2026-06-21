@@ -3093,7 +3093,14 @@ def tool_unified_search(args: dict) -> dict:
     
     # Search tasks
     for tid, t in list(_tasks.items()):
-        if query in t.get("title","").lower() or query in t.get("desc","").lower():
+        qmatch = query in t.get("title","").lower() or query in t.get("desc","").lower()
+        if not qmatch:
+            for tag in t.get("tags", []):
+                if query in tag.lower(): qmatch = True; break
+        if not qmatch:
+            nname = _niches.get(t["niche_id"], {}).get("name", "").lower()
+            if query in nname: qmatch = True
+        if qmatch:
             results.append({"type":"task","id":tid,"title":t["title"][:80],"preview":t.get("desc","")[:100],"niche":_niches.get(t["niche_id"],{}).get("name","?")})
     
     # Search patterns (global)
