@@ -69,6 +69,21 @@ the transport overhead is negligible at this call rate. SHM + LUMEN will help wh
 operations are in the NANOSECOND range or when wire size matters (e.g., large responses
 from pdb_query, or many parallel calls).
 
+## SHM Comparison
+
+We tested SHM (Level 2 zero-copy via `server_shm.py`) but it's **not the right transport for PDB**:
+
+| Operation | SQLite direct (pdb_tools) | SHM roundtrip | Ratio |
+|-----------|------------------------:|--------------:|:----:|
+| SET | 30.8 μs | 711 μs | **23×** |
+| GET | 15.5 μs | 677 μs | **44×** |
+| $DATA | 33.9 μs | 687 μs | **20×** |
+| $INCREMENT | 96.0 μs | 744 μs | **8×** |
+
+**Why SHM is slower**: Each SHM call does compress_value + build_frame + ring_buffer_write + ring_buffer_spin + parse_frame + decompress_value. For μs-scale SQLite operations, this overhead dominates.
+
+**Decision**: PDB uses stdio JSON-RPC (`server.py`). SHM is reserved for filesystem, thinking, and web servers where payloads are large enough to amortize the overhead.
+
 ## Run it yourself
 
 ```bash
