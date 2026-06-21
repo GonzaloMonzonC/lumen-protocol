@@ -9,7 +9,7 @@ LLMs think inside their context window. Context gets compressed → thoughts get
 Sequential Thinking keeps thoughts external — they survive compression, can be revised,
 branched, clustered, and bridged across sessions.
 
-## Tools (32 total)
+## Tools (58+ total — 37 exposed as MCP tools + internal handlers)
 
 ### 🧠 Reasoning Chain Engine (7)
 | Tool | Description | Wire Savings |
@@ -72,12 +72,67 @@ branched, clustered, and bridged across sessions.
 | `decision_log` | Record architecture decision with alternatives + revisit trigger. |
 | `decision_list` | List decisions by category. |
 
-### 📬 Cross-Session Communication (3) 🆕
+### 📬 Cross-Session Communication (3)
 | Tool | Description |
 |------|-------------|
 | `agent_message` | Send message to another agent session. Enables coordination. |
 | `agent_inbox` | Read messages sent to this session. |
 | `collision_check` | Detect files touched by multiple sessions (5-min window). |
+
+### ⚡ Token-Efficient Tools (4) 🆕
+| Tool | Description |
+|------|-------------|
+| `tool_cache` | Cache expensive results with TTL. GET/SET pattern. |
+| `batch_call` | Execute multiple tools in sequence, return ONE compact output line. |
+| `chain_diff` | Show only what changed between two points in a reasoning chain. |
+| `thought_compress` | Compress a reasoning chain to N key thoughts (default 3). |
+| `state_snapshot` | Ultra-compact system health snapshot (1 line). |
+
+### 📋 Kanban / Niche / Task Board (11) 🆕
+| Tool | Description |
+|------|-------------|
+| `kanban_stats` | Show kanban statistics per niche. |
+| `niche_create` | Create a new cognitive niche (project/area) with color. |
+| `niche_list` | List all cognitive niches. |
+| `niche_update` | Update niche properties (name, desc, color, archive). |
+| `task_create` | Create a new task in a niche with priority/tags/assignee. |
+| `task_move` | Move a task between columns or edit fields. |
+| `task_list` | List tasks with filtering by niche/status/tag/search. |
+| `task_delete` | Delete a task permanently. |
+| `task_link` | Link a task to cognitive objects (chain, pattern, wiki). |
+| `task_link_url` | Link a URL to a task. |
+| `task_search` | Search tasks across niches by title, description, tags. |
+
+### ❓ Q&A Cognitive Artifacts (3) 🆕
+| Tool | Description |
+|------|-------------|
+| `qa_ask` | Ask a question and store as cognitive artifact. |
+| `qa_list` | List stored Q&A pairs by tags. |
+| `qa_link` | Link a Q&A pair to a kanban task or reasoning chain. |
+
+### 🌐 Web Snapshot (2) 🆕
+| Tool | Description |
+|------|-------------|
+| `web_snapshot` | Extract web page and save as cognitive snapshot (word_count). |
+| `web_snapshots_list` | List saved web snapshots. |
+
+### 🧠 Unified Search (1) 🆕
+| Tool | Description |
+|------|-------------|
+| `unified_search` | Search across ALL cognitive subsystems simultaneously (chains, patterns, decisions, wiki, snapshots, Q&A, model). |
+
+### 🩺 Cognitive Integrity (1) 🆕
+| Tool | Description |
+|------|-------------|
+| `cognitive_integrity` | Check cognitive system health: unlinked tasks, unanswered Q&A, stale decisions. Health score 0-100. |
+
+### 📚 Wiki (4) 🆕
+| Tool | Description |
+|------|-------------|
+| `wiki_create` | Create a wiki page with markdown content. |
+| `wiki_list` | List all wiki pages with metadata. |
+| `wiki_read` | Read a wiki page by title. |
+| `wiki_update` | Update wiki page content.
 
 ## Quick Start
 
