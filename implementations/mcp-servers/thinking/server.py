@@ -3288,6 +3288,25 @@ def _start_dashboard(port: int = 9876) -> None:
     Exposes /metrics (JSON) for consumption by skynet lumen-dash or any monitoring tool.
     Runs on localhost only — no external access.
     """
+
+    # ── Port cleanup: kill zombies before binding ──
+    try:
+        import socket as _sc
+        s = _sc.socket(_sc.AF_INET, _sc.SOCK_STREAM)
+        s.settimeout(2)
+        try:
+            s.bind(("127.0.0.1", port))
+            s.close()
+        except OSError:
+            s.close()
+            import subprocess as _sp
+            _sp.run(["powershell","-Command",
+                f"Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue |"
+                f"ForEach-Object {{ try {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }} catch {{}} }}"],
+                capture_output=True, timeout=10)
+            time.sleep(1)
+    except Exception:
+        pass
     import threading, http.server as _http
     
     global _lumen_ws
@@ -3596,27 +3615,12 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.end_headers()
                 self.wfile.write(body)
             elif self.path == "/web-snapshots":
-                # Reload state from file if another process updated it
-                if _STATE_FILE.exists():
-                    try:
-                        _fm = _STATE_FILE.stat().st_mtime
-                        _g = globals()
-                        if _fm > _g.get('_last_state_mtime', 0.0):
-                            with open(_STATE_FILE, "r", encoding="utf-8") as _sf:
-                                _st = json.load(_sf)
-                            _g['_niches'] = _st.get("niches", {})
-                            _g['_tasks'] = _st.get("tasks", {})
-                            _g['_web_snapshots'] = _st.get("web_snapshots", {})
-                            _g['_last_state_mtime'] = _fm
-                    except Exception:
-                        pass
                 from urllib.parse import urlparse, parse_qs
                 qs = parse_qs(urlparse(self.path).query)
                 tid = qs.get("task_id", [None])[0]
-                snaps = list(_web_snapshots.values())
+                snaps = list(globals().get("_web_snapshots", {}).values())
                 if tid: snaps = [s for s in snaps if s.get("task_id") == tid]
                 snaps.sort(key=lambda s: s.get("created_at", 0), reverse=True)
-                # Strip full content for bandwidth, keep preview
                 out = []
                 for s in snaps:
                     out.append({"id":s["id"],"url":s.get("url",""),"title":s.get("title",""),
