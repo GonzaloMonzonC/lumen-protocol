@@ -64,7 +64,7 @@ def process_message(msg: dict) -> dict | None:
         handler = HANDLERS.get(name)
         if handler:
             try:
-                result = handler(**args)
+                result = handler(args)
                 return {
                     "jsonrpc": "2.0", "id": req_id,
                     "result": {"content": [
