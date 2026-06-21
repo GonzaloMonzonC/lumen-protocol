@@ -3176,7 +3176,7 @@ def tool_cognitive_integrity(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"\u2705 Cognitive integrity OK. {total} artifacts, no warnings."}]}
     
     lines = [f"\u26a0\ufe0f Cognitive Integrity: {warnings} warning(s)\n"]
-    lines.append(f"  Total artifacts: {len(_tasks)} tasks + {len(_qa_pairs)} Q&A + {len(_decisions)} decisions + {len(_patterns)} patterns + {len(_web_snapshots)} snapshots")
+    lines.append(f"  Total artifacts: {len(_tasks)} tasks + {len(_qa_pairs)} Q&A + {len(list(globals().get('_decisions', [])))} decisions + {len(_global_patterns)} patterns + {len(_web_snapshots)} snapshots")
     lines.extend(checks)
     lines.append(f"\n  Health score: {max(0, 100 - warnings * 15)}/100")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
