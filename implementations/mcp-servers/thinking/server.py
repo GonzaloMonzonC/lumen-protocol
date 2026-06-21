@@ -32,6 +32,7 @@ import os
 import re
 import math
 import time
+from web_helpers import extract_page
 from collections import defaultdict, Counter
 from pathlib import Path
 from typing import Any
@@ -133,7 +134,8 @@ _session_presence: dict = {}
 _file_touches: list[dict] = []  # [{session_id, path, timestamp}]
 _file_claims: dict = {}  # {filepath: {owner, expires_at, status, requests[]}}  # session_id → {pid, last_seen, tool_calls}
 _agent_messages: list[dict] = []  # [{from_session, to_session, content, timestamp}]
-_global_patterns: list[dict] = []  # patterns shared across all sessions
+_global_patterns: list[dict] = []
+_web_snapshots: dict[str, dict] = {}  # patterns shared across all sessions
 
 _niches: dict[str, dict] = {}  # niche_id -> niche data
 _tasks: dict[str, dict] = {}   # task_id -> task data
@@ -172,7 +174,8 @@ def _save_state() -> None:
             "file_touches": _file_touches[-200:],
             "file_claims": _file_claims,
             "agent_messages": _agent_messages[-100:],  # last 100 messages
-            "global_patterns": _global_patterns[-300:],  # last 300 global patterns
+            "global_patterns": _global_patterns[-300:],
+            "web_snapshots": {k:v for k,v in _web_snapshots.items()},  # last 300 global patterns
             "niches": {nid: n for nid, n in _niches.items()},
             "tasks": {tid: t for tid, t in _tasks.items()},
             "next_niche_id": _next_niche_id,
@@ -228,6 +231,7 @@ def _load_state() -> bool:
         _next_niche_id = state.get("next_niche_id", 1)
         _next_task_id = state.get("next_task_id", 1)
         _global_patterns = state.get("global_patterns", [])
+        _web_snapshots = state.get("web_snapshots", {})
         _loaded_from_disk = True
         global _file_claims
         _file_claims = state.get("file_claims", {})
@@ -2978,6 +2982,46 @@ def tool_task_search(args: dict) -> dict:
     
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
+
+
+def tool_web_snapshot(args: dict) -> dict:
+    global _web_snapshots
+    url = args.get("url", "").strip()
+    if not url: return {"content": [{"type": "text", "text": "URL required"}]}
+    if not url.startswith(("http://","https://")): url = "https://" + url
+    mc = min(args.get("max_chars", 10000), 30000)
+    tid = args.get("task_id", "").strip()
+    result = extract_page(url, mc)
+    if "error" in result: return {"content": [{"type": "text", "text": "Error: " + result["error"]}]}
+    sid = "snap_" + str(int(time.time()))
+    _web_snapshots[sid] = {"id":sid,"url":url,"title":result.get("title","")[:200],"content":result.get("content",""),"word_count":result.get("word_count",0),"task_id":tid or None,"created_at":time.time()}
+    if tid and tid in _tasks: _tasks[tid].setdefault("references",{}).setdefault("urls",[]).append(url)
+    _save_state()
+    return {"content": [{"type": "text", "text": f"✅ Snapshot saved: {sid}\n{result.get('title','')[:100]}\n{result.get('content','')[:200]}"}]}
+
+def tool_web_snapshots_list(args: dict) -> dict:
+    snaps = list(_web_snapshots.values())
+    tid = args.get("task_id","").strip()
+    if tid: snaps = [s for s in snaps if s.get("task_id")==tid]
+    snaps.sort(key=lambda s: s.get("created_at",0), reverse=True)
+    if not snaps: return {"content":[{"type":"text","text":"No snapshots"}]}
+    lines = ["📸 Web Snapshots:"]
+    for s in snaps[:20]:
+        t = s.get("title","")[:60]
+        link = f" [task:{s['task_id']}]" if s.get("task_id") else ""
+        lines.append(f"  #{s['id']} {t}{link}")
+    return {"content":[{"type":"text","text":"\n".join(lines)}]}
+
+def tool_task_link_url(args: dict) -> dict:
+    tid = args.get("task_id","").strip()
+    url = args.get("url","").strip()
+    if not tid or not url: return {"content":[{"type":"text","text":"task_id and url required"}]}
+    if tid not in _tasks: return {"content":[{"type":"text","text":"Task not found: "+tid}]}
+    _tasks[tid].setdefault("references",{}).setdefault("urls",[]).append(url)
+    _save_state()
+    return {"content":[{"type":"text","text":f"🔗 URL linked to {tid}: {url}"}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -3026,6 +3070,9 @@ HANDLERS = {
     "task_move": tool_task_move,
     "task_link": tool_task_link,
     "task_list": tool_task_list,
+    "web_snapshot": tool_web_snapshot,
+    "web_snapshots_list": tool_web_snapshots_list,
+    "task_link_url": tool_task_link_url,
      "niche_update": tool_niche_update,
      "task_delete": tool_task_delete,
      "kanban_stats": tool_kanban_stats,
