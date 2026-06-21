@@ -1719,7 +1719,7 @@ def _pdb_ensure():
             _PDB_PROC = _sp.Popen(
                 [_HERMES_VENV_PYTHON, "-u", _PDB_STDIO],
                 stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
-                text=True, bufsize=1,
+                text=True, encoding='utf-8', bufsize=1,
             )
             _pdb_rpc({"method": "initialize", "params": {}})
     return _PDB_PROC
