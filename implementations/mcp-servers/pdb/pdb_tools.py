@@ -299,36 +299,40 @@ def tool_order(args: dict) -> dict:
                 order = "DESC"
         
         c = _get_conn()
-        rows = c.execute(
-            f"SELECT subkey FROM _globals WHERE ns=? AND subkey {op} ? "
-            f"ORDER BY subkey {order} LIMIT 50",
-            [ns, search_key]
-        ).fetchall()
-        
-        for row in rows:
-            sk = row["subkey"]
-            lvls = count_levels(sk)
-            if lvls < target_level + 1:
-                continue  # not deep enough
-            
-            sub_val = extract_level(sk, target_level)
-            
-            # If current is a real value and this is the same subscript, skip
-            # (it's a child of the current position, not a sibling)
-            if current != "" and current is not None:
-                ctype = type(current)
-                if ctype == float and isinstance(sub_val, (int, float)):
-                    if abs(float(current) - float(sub_val)) < 1e-10:
-                        continue
-                elif current == sub_val:
+        # Paginate: scan until sibling found at target level (fix LIMIT 50 bug)
+        offset = 0
+        page_size = 200
+        found_val = None
+        while True:
+            rows = c.execute(
+                f"SELECT subkey FROM _globals WHERE ns=? AND subkey {op} ? "
+                f"ORDER BY subkey {order} LIMIT ? OFFSET ?",
+                [ns, search_key, page_size, offset]
+            ).fetchall()
+            if not rows:
+                break
+            for row in rows:
+                sk = row["subkey"]
+                lvls = count_levels(sk)
+                if lvls < target_level + 1:
                     continue
-            
-            # Verify this key is actually under our parent
-            if parent_key and not sk.startswith(parent_key):
-                continue
-            
-            return {"success": True, "value": sub_val}
-        
+                sub_val = extract_level(sk, target_level)
+                if current != "" and current is not None:
+                    ctype = type(current)
+                    if ctype == float and isinstance(sub_val, (int, float)):
+                        if abs(float(current) - float(sub_val)) < 1e-10:
+                            continue
+                    elif current == sub_val:
+                        continue
+                if parent_key and not sk.startswith(parent_key):
+                    continue
+                found_val = sub_val
+                break
+            if found_val is not None:
+                break
+            offset += page_size
+        if found_val is not None:
+            return {"success": True, "value": found_val}
         return {"success": True, "value": None}
     except Exception as e:
         return {"success": False, "error": str(e)}
