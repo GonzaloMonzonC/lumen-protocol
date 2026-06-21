@@ -136,6 +136,7 @@ _file_claims: dict = {}  # {filepath: {owner, expires_at, status, requests[]}}  
 _agent_messages: list[dict] = []  # [{from_session, to_session, content, timestamp}]
 _global_patterns: list[dict] = []
 _web_snapshots: dict[str, dict] = {}  # patterns shared across all sessions
+_qa_pairs: dict[str, dict] = {}  # Q&A scratchpad: {qa_id: {question, answer, context, tags, created_at, task_id}}
 
 _niches: dict[str, dict] = {}  # niche_id -> niche data
 _tasks: dict[str, dict] = {}   # task_id -> task data
@@ -175,7 +176,8 @@ def _save_state() -> None:
             "file_claims": _file_claims,
             "agent_messages": _agent_messages[-100:],  # last 100 messages
             "global_patterns": _global_patterns[-300:],
-            "web_snapshots": {k:v for k,v in _web_snapshots.items()},  # last 300 global patterns
+            "web_snapshots": {k:v for k,v in _web_snapshots.items()},
+            "qa_pairs": {k:v for k,v in _qa_pairs.items()},
             "niches": {nid: n for nid, n in _niches.items()},
             "tasks": {tid: t for tid, t in _tasks.items()},
             "next_niche_id": _next_niche_id,
@@ -226,6 +228,7 @@ def _load_state() -> bool:
         global _agent_messages, _global_patterns
         global _niches, _tasks, _next_niche_id, _next_task_id
         global _web_snapshots, _last_state_mtime
+        global _qa_pairs
         _agent_messages = state.get("agent_messages", [])
         _niches = state.get("niches", {})
         _tasks = state.get("tasks", {})
@@ -233,6 +236,7 @@ def _load_state() -> bool:
         _next_task_id = state.get("next_task_id", 1)
         _global_patterns = state.get("global_patterns", [])
         _web_snapshots = state.get("web_snapshots", {})
+        _qa_pairs = state.get("qa_pairs", {})
         _loaded_from_disk = True
         global _file_claims
         _file_claims = state.get("file_claims", {})
@@ -3023,6 +3027,60 @@ def tool_task_link_url(args: dict) -> dict:
     return {"content":[{"type":"text","text":f"🔗 URL linked to {tid}: {url}"}]}
 
 
+
+
+def tool_qa_ask(args: dict) -> dict:
+    """Ask a question and store Q&A pair as cognitive artifact. [LUMEN SHM]"""
+    global _qa_pairs
+    question = args.get("question", "").strip()
+    if not question: return {"content": [{"type": "text", "text": "Question required"}]}
+    answer = args.get("answer", "").strip() or "(pending LLM response)"
+    context = args.get("context", "").strip() or ""
+    tags = args.get("tags", [])
+    qa_id = "qa_" + str(int(time.time()))
+    _qa_pairs[qa_id] = {
+        "id": qa_id, "question": question, "answer": answer,
+        "context": context, "tags": tags or [],
+        "task_id": None, "chain_id": None,
+        "created_at": time.time(), "updated_at": time.time()
+    }
+    _save_state()
+    return {"content": [{"type": "text", "text": f"Q&A saved: {qa_id}\nQ: {question[:100]}\nA: {answer[:200]}"}]}
+
+def tool_qa_list(args: dict) -> dict:
+    """List stored Q&A pairs. [LUMEN SHM]"""
+    tags = args.get("tags", [])
+    if isinstance(tags, str): tags = [tags]
+    limit = min(args.get("limit", 20), 50)
+    pairs = list(_qa_pairs.values())
+    if tags: pairs = [p for p in pairs if any(t in p.get("tags", []) for t in tags)]
+    pairs.sort(key=lambda p: p.get("created_at", 0), reverse=True)
+    if not pairs: return {"content": [{"type": "text", "text": "No Q&A pairs found."}]}
+    lines = [f"Q&A Scratchpad ({len(pairs)} shown, {len(_qa_pairs)} total):"]
+    for p in pairs[:limit]:
+        linked = f" [task:{p['task_id']}]" if p.get("task_id") else ""
+        linked += f" [chain:{p['chain_id'][:12]}]" if p.get("chain_id") else ""
+        lines.append(f"  #{p['id']} {p['question'][:60]}{linked}")
+        lines.append(f"      Answer: {p['answer'][:80]}")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+def tool_qa_link(args: dict) -> dict:
+    """Link a Q&A pair to a kanban task or chain. [LUMEN SHM]"""
+    qa_id = args.get("qa_id", "").strip()
+    task_id = args.get("task_id", "").strip()
+    chain_id = args.get("chain_id", "").strip()
+    if not qa_id or qa_id not in _qa_pairs:
+        return {"content": [{"type": "text", "text": f"Q&A not found: {qa_id}"}]}
+    if task_id and task_id in _tasks:
+        _qa_pairs[qa_id]["task_id"] = task_id
+        _tasks[task_id].setdefault("references", {}).setdefault("qa", []).append(qa_id)
+    if chain_id:
+        _qa_pairs[qa_id]["chain_id"] = chain_id
+    _qa_pairs[qa_id]["updated_at"] = time.time()
+    _save_state()
+    return {"content": [{"type": "text", "text": f"Q&A {qa_id} linked to task:{task_id} chain:{chain_id[:16]}"}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -3074,6 +3132,9 @@ HANDLERS = {
     "web_snapshot": tool_web_snapshot,
     "web_snapshots_list": tool_web_snapshots_list,
     "task_link_url": tool_task_link_url,
+    "qa_ask": tool_qa_ask,
+    "qa_list": tool_qa_list,
+    "qa_link": tool_qa_link,
      "niche_update": tool_niche_update,
      "task_delete": tool_task_delete,
      "kanban_stats": tool_kanban_stats,
