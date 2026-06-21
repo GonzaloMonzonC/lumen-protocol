@@ -3155,19 +3155,20 @@ def tool_cognitive_integrity(args: dict) -> dict:
     
     # Stale decisions (older than 90 days, no revisit)
     now = time.time()
-    stale = [d for d in _decisions[-50:] if d.get("revisit_trigger") and now - d.get("timestamp", now) > 7776000]
+    _decisions_list = list(globals().get("_decisions", []))
+    stale = [d for d in _decisions_list[-50:] if d.get("revisit_trigger") and now - d.get("timestamp", now) > 7776000]
     if stale:
         warnings += 1
         checks.append(f"  {len(stale)} decisions overdue for revisit")
     
     # Patterns never matched
-    patterns = getattr(_sessions.get("default", None), "patterns", []) if hasattr(_sessions.get("default", None), "patterns") else []
+    patterns = list(globals().get("_global_patterns", []))
     low_match = [p for p in patterns if p.get("match_count", 0) == 0]
     if low_match:
         checks.append(f"  {len(low_match)} patterns never matched (may be obsolete)")
     
     # No data at all
-    total = len(_tasks) + len(_qa_pairs) + len(_decisions) + len(_web_snapshots)
+    total = len(_tasks) + len(_qa_pairs) + len(list(globals().get("_decisions", []))) + len(_web_snapshots)
     if total == 0:
         return {"content": [{"type": "text", "text": "\u2705 Cognitive system is empty but healthy. Start adding data!"}]}
     
