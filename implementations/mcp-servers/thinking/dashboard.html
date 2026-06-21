@@ -54,6 +54,8 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
 let _webSnapshots = [];
 let _webSnapshotTimer = null;
 
+</script>
+<script>
 function loadWebSnapshots() {
   fetch('/web-snapshots')
     .then(r=>r.json())
