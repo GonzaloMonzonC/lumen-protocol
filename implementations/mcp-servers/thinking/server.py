@@ -3356,6 +3356,21 @@ def _start_dashboard(port: int = 9876) -> None:
                 _reload_state_if_changed()
                 _reload_state_if_changed()
             elif self.path == "/kanban" or self.path.startswith("/kanban?"):
+                # Reload state from file if another process updated it
+                global _niches, _tasks, _next_niche_id, _next_task_id, _last_state_mtime
+                if _STATE_FILE.exists():
+                    try:
+                        _fm = _STATE_FILE.stat().st_mtime
+                        if _fm > _last_state_mtime:
+                            with open(_STATE_FILE, "r", encoding="utf-8") as _sf:
+                                _st = json.load(_sf)
+                            _niches = _st.get("niches", {})
+                            _tasks = _st.get("tasks", {})
+                            _next_niche_id = _st.get("next_niche_id", 1)
+                            _next_task_id = _st.get("next_task_id", 1)
+                            _last_state_mtime = _fm
+                    except Exception:
+                        pass
                 from urllib.parse import urlparse, parse_qs
                 qs = parse_qs(urlparse(self.path).query)
                 niche_id = qs.get("niche_id", [None])[0]
