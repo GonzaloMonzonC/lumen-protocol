@@ -585,6 +585,78 @@ def tool_backup(path: str = None) -> dict:
 # Tool registry
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# FASE 1: High-level tools for LLM productivity
+# ---------------------------------------------------------------------------
+
+def tool_batch_set(args: dict) -> dict:
+    """Atomic batch insert: multiple records in one transaction."""
+    items = args["items"]
+    if not items:
+        return {"success": True, "count": 0}
+    c = _get_conn()
+    try:
+        for item in items:
+            key = encode_subkey(item["subs"])
+            c.execute(
+                "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                [item["ns"], key, _encode_value(item["value"])]
+            )
+        c.commit()
+        return {"success": True, "count": len(items)}
+    except Exception as e:
+        c.rollback()
+        return {"success": False, "error": str(e)}
+
+def tool_scratch_set(args: dict) -> dict:
+    """Set a scratchpad value (temporary working memory for the LLM).
+    Stored under ^SCRATCH(key). Survives context compressions."""
+    return tool_set({"ns": "SCRATCH", "subs": [args["key"]], "value": args["value"]})
+
+def tool_scratch_get(args: dict) -> dict:
+    """Get a scratchpad value by key."""
+    return tool_get({"ns": "SCRATCH", "subs": [args["key"]]})
+
+def tool_scratch_del(args: dict) -> dict:
+    """Delete a scratchpad key entirely."""
+    return tool_kill({"ns": "SCRATCH", "subs": [args["key"]]})
+
+def tool_fts_search(args: dict) -> dict:
+    """Full-text search across all stored values using SQLite FTS5.
+    Automatically builds/updates index on each call. Results ranked by relevance."""
+    query = args["query"]
+    limit = args.get("limit", 10)
+    ns_filter = args.get("ns")
+    c = _get_conn()
+    try:
+        # Create FTS5 table on first call (no content= sync — handles WITHOUT ROWID tables)
+        c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS _fts USING fts5(
+            ns, value, tokenize='unicode61'
+        )""")
+        # Rebuild index: delete stale, insert current
+        c.execute("DELETE FROM _fts")
+        c.execute("INSERT INTO _fts(ns, value) SELECT ns, value FROM _globals WHERE value IS NOT NULL")
+        c.commit()
+        # Search
+        if ns_filter:
+            sql = "SELECT rank, rowid, ns, value FROM _fts WHERE _fts MATCH ? AND ns=? ORDER BY rank LIMIT ?"
+            params = [query, ns_filter, limit]
+        else:
+            sql = "SELECT rank, rowid, ns, value FROM _fts WHERE _fts MATCH ? ORDER BY rank LIMIT ?"
+            params = [query, limit]
+        rows = c.execute(sql, params).fetchall()
+        results = []
+        for r in rows:
+            results.append({
+                "rank": round(r["rank"], 2),
+                "ns": r["ns"],
+                "value": _decode_value(r["value"]),
+            })
+        return {"success": True, "results": results, "count": len(results)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 TOOLS = [
     {
         "name": "pdb_set",
@@ -706,6 +778,77 @@ TOOLS = [
             }
         }
     },
+    {
+        "name": "pdb_batch_set",
+        "description": "Atomic batch insert. Insert multiple records in a single transaction. Much faster than calling pdb_set repeatedly.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "ns": {"type": "string"},
+                            "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+                            "value": {"description": "Value to store (any JSON type)"}
+                        },
+                        "required": ["ns", "subs", "value"]
+                    },
+                    "description": "Array of records to insert"
+                }
+            },
+            "required": ["items"]
+        }
+    },
+    {
+        "name": "pdb_scratch_set",
+        "description": "Set a scratchpad value. Temporary working memory for the LLM that survives context compressions. Use for intermediate results, state, or any data you need across turns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Scratchpad key"},
+                "value": {"description": "Value to store (any JSON type)"}
+            },
+            "required": ["key", "value"]
+        }
+    },
+    {
+        "name": "pdb_scratch_get",
+        "description": "Get a scratchpad value by key. Returns null if key doesn't exist.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Scratchpad key"}
+            },
+            "required": ["key"]
+        }
+    },
+    {
+        "name": "pdb_scratch_del",
+        "description": "Delete a scratchpad key entirely.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "Scratchpad key to delete"}
+            },
+            "required": ["key"]
+        }
+    },
+    {
+        "name": "pdb_fts_search",
+        "description": "Full-text search across all stored values using SQLite FTS5. Automatically indexes new content. Results ranked by relevance. Use for searching documents, descriptions, logs, or any text content stored in PDB.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "FTS5 query (supports AND, OR, NOT, phrases, prefixes)"},
+                "limit": {"type": "integer", "default": 10, "description": "Max results"},
+                "ns": {"type": "string", "description": "Optional namespace filter (e.g. 'TRAVEL' to only search travel data)"}
+            },
+            "required": ["query"]
+        }
+    },
+
 ]
 
 HANDLERS = {
@@ -719,4 +862,9 @@ HANDLERS = {
     "pdb_query": tool_query,
     "pdb_schema": tool_schema,
     "pdb_backup": tool_backup,
+    "pdb_batch_set": tool_batch_set,
+    "pdb_scratch_set": tool_scratch_set,
+    "pdb_scratch_get": tool_scratch_get,
+    "pdb_scratch_del": tool_scratch_del,
+    "pdb_fts_search": tool_fts_search,
 }
