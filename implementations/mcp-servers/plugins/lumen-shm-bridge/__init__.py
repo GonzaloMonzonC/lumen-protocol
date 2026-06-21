@@ -1724,8 +1724,10 @@ def _call_pdb(tool_name: str, params: dict) -> str:
 def _handle_pdb_set(*args, **kwargs) -> str:
     p = args[0] if args else kwargs; return _call_pdb("pdb_set", {"ns": p["ns"], "subs": p["subs"], "value": p["value"]})
 def _handle_pdb_get(*args, **kwargs) -> str:
-    p = args[0] if args else kwargs; kw = {"ns": p["ns"], "subs": p["subs"]}
-    if "default" in p: kw["default"] = p["default"]; return _call_pdb("pdb_get", kw)
+    p = args[0] if args else kwargs
+    kw = {"ns": p["ns"], "subs": p["subs"]}
+    if "default" in p: kw["default"] = p["default"]
+    return _call_pdb("pdb_get", kw)
 def _handle_pdb_order(*args, **kwargs) -> str:
     p = args[0] if args else kwargs; return _call_pdb("pdb_order", {"ns": p["ns"], "subs": p["subs"], "direction": p.get("direction", 1)})
 def _handle_pdb_data(*args, **kwargs) -> str:
@@ -1743,6 +1745,8 @@ def _handle_pdb_query(*args, **kwargs) -> str:
 def _handle_pdb_schema(*args, **kwargs) -> str:
     return _call_pdb("pdb_schema", {})
 def _handle_pdb_backup(*args, **kwargs) -> str:
-    p = args[0] if args else kwargs; kw = {}
-    if "path" in p: kw["path"] = p["path"]; return _call_pdb("pdb_backup", kw)
+    p = args[0] if args else kwargs
+    kw = {}
+    if "path" in p: kw["path"] = p["path"]
+    return _call_pdb("pdb_backup", kw)
 
