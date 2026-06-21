@@ -2623,6 +2623,7 @@ def tool_niche_create(args: dict) -> dict:
         "updated_at": time.time(),
     }
     _niches[niche_id] = niche
+    _save_state()
     return {"content": [{"type": "text", "text": f"✅ Niche created: {name} (ID: {niche_id})"}]}
 
 def tool_niche_list(args: dict) -> dict:
@@ -2657,6 +2658,7 @@ def tool_niche_update(args: dict) -> dict:
     if "archived" in args and args["archived"] is not None:
         niche["archived"] = bool(args["archived"])
     niche["updated_at"] = time.time()
+    _save_state()
     status = "📦 Archived" if niche.get("archived") else "📂 Active"
     return {"content": [{"type": "text", "text": f"✅ Niche updated: {niche['name']} ({status})"}]}
 
@@ -2707,6 +2709,7 @@ def tool_task_create(args: dict) -> dict:
         "done_at": None
     }
     _tasks[task_id] = task
+    _save_state()
     return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {task_id}) in niche {_niches[niche_id]['name']}"}]}
 
 def tool_task_move(args: dict) -> dict:
@@ -2748,6 +2751,7 @@ def tool_task_move(args: dict) -> dict:
         else:
             task["done_at"] = None
     task["updated_at"] = time.time()
+    _save_state()
     return {"content": [{"type": "text", "text": f"✅ Task moved: {task['title']} → {task['status']}"}]}
 
 def tool_task_link(args: dict) -> dict:
@@ -2851,6 +2855,7 @@ def tool_task_delete(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"❌ Task not found: {task_id}"}]}
     title = _tasks[task_id]["title"]
     del _tasks[task_id]
+    _save_state()
     return {"content": [{"type": "text", "text": f"🗑️ Task deleted: {title} ({task_id})"}]}
 
 
