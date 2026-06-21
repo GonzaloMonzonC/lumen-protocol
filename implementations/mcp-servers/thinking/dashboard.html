@@ -88,6 +88,18 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
   </div>
 </div>
 
+
+<div class="glass"><h3 class="section-toggle" onclick="toggleSection('kanban-content')"><span class="arrow">▼</span> 📋 Kanban <span class="summ" id="summary-kanban"></span></h3>
+<div class="collapsible" id="kanban-content" style="max-height:3000px">
+<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+  <span style="font-size:11px;font-weight:600">Niche:</span>
+  <select id="kanban-niche" style="background:var(--slate800);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-family:inherit" onchange="loadKanban()"></select>
+  <button class="btn btn-acc" onclick="showNewTaskForm()" style="margin-left:auto;padding:6px 12px;font-size:10px">+ New Task</button>
+</div>
+<div id="kanban-board" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:200px">
+  <div style="flex:1;text-align:center;padding:40px;color:var(--dim);font-size:11px">Select a niche to show the board</div>
+</div>
+</div></div>
 <div class="glass"><h3 class="section-toggle" onclick="toggleSection('reasoning-content')"><span class="arrow">▼</span> Reasoning <span class="summ" id="summary-reasoning"></span></h3><div class="collapsible" id="reasoning-content" style="max-height:3000px">
 <div class="grid2">
   <div class="glass" style="background:none;backdrop-filter:none;border:none;padding:0;margin:0"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
@@ -301,7 +313,7 @@ async function refresh(){
   try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();renderData(d)}
   catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline';$('footer').textContent='Error: '+e.message}
   setTimeout(refresh,10000)}
-refresh();
+refresh(); loadKanban();
 
 function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||c.error)return;
   const thoughts=(c.thoughts||[]).map(t=>`<div class="chain-row"><span class="mono ${t.score?'green':''}" style="font-size:10px">#${t.number}</span><span style="font-size:11px;flex:1;margin:0 8px">${t.thought}</span>${t.score?`<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">${t.score}★</span>`:''}${t.is_revision?'<span class="tag" style="background:rgba(168,85,247,.15);color:var(--purp)">rev</span>':''}${t.has_branch?'<span class="tag" style="background:rgba(250,204,21,.15);color:var(--yellow)">branch</span>':''}</div>`).join('');
@@ -380,4 +392,119 @@ function saveEntity(event,name){event.preventDefault();const f=event.target;cons
 function newEntity(){const n=prompt('Entity name:');if(!n)return;fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:n,role:'other',deps:[],notes:''})}).then(r=>r.json()).then(d=>{loadWiki();editEntity(n)})}
 function loadWiki(){fetch('/model').then(r=>r.json()).then(data=>{const entries=Object.entries(data||{});$('wiki-list').innerHTML=entries.length?entries.map(([name,e])=>'<div class="card" style="cursor:pointer" onclick="showEntity(\''+name+'\')"><span class="tag cyan mono">'+name.slice(0,30)+'</span> <span class="dim">'+e.role+' · '+(e.deps||[]).length+' deps</span></div>').join(''):'<div class="dim" style="font-size:11px">No entities. <a href="#" onclick="newEntity()">Create one</a></div>'}).catch(()=>{$('wiki-list').innerHTML='<div class="dim" style="font-size:11px">Server offline</div>'})}
 function toggleSection(id){const el=document.getElementById(id);if(!el)return;const arrow=el.parentElement.querySelector('.arrow');if(el.classList.contains('collapsed')){el.classList.remove('collapsed');el.style.maxHeight='3000px';if(arrow)arrow.textContent='▼'}else{el.classList.add('collapsed');el.style.maxHeight='0px';if(arrow)arrow.textContent='▶'}}
+
+
+// ── Kanban ──
+let _kanbanNiches = [];
+let _kanbanTasks = [];
+
+function loadKanban() {
+  const sel = document.getElementById('kanban-niche');
+  if (!sel) return;
+  const nicheId = sel.value;
+  const url = nicheId ? '/kanban?niche_id='+encodeURIComponent(nicheId) : '/kanban';
+  fetch(url).then(r=>r.json()).then(d=>{
+    _kanbanNiches = d.niches || [];
+    _kanbanTasks = d.tasks || [];
+    renderKanban();
+  }).catch(e=>console.log('Kanban fetch error', e));
+}
+
+function renderKanban() {
+  const board = document.getElementById('kanban-board');
+  if (!board) return;
+  const sel = document.getElementById('kanban-niche');
+  const nicheId = sel ? sel.value : '';
+  const niche = _kanbanNiches.find(n=>n.id===nicheId);
+  const columns = niche ? niche.columns : ['Backlog','In Progress','Review','Done','Blocked'];
+  const tasks = nicheId ? _kanbanTasks : [];
+  
+  if (!nicheId) {
+    board.innerHTML = '<div style="flex:1;text-align:center;padding:40px;color:var(--dim);font-size:11px">Select a niche to show the board</div>';
+    return;
+  }
+  
+  // Count tasks by column for summary
+  const counts = {};
+  columns.forEach(c=>counts[c]=0);
+  tasks.forEach(t=>{ if(counts[t.status]!==undefined) counts[t.status]++; });
+  const total = tasks.length;
+  document.getElementById('summary-kanban').textContent = total + ' tasks';
+  
+  // Render columns
+  board.innerHTML = columns.map((col, ci) => {
+    const colTasks = tasks.filter(t=>t.status===col);
+    return '<div style="min-width:200px;flex:1;background:rgba(20,20,35,.5);border-radius:12px;padding:10px;border:1px solid var(--border)">' +
+      '<div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:600">' + col +
+      ' <span style="color:var(--acc);font-weight:700">' + colTasks.length + '</span></div>' +
+      colTasks.map(t => {
+        const prioIcon = {low:'▽',medium:'◇',high:'▲',critical:'!!'}[t.priority]||'◇';
+        const prioColor = {low:'var(--dim)',medium:'var(--text)',high:'var(--yellow)',critical:'var(--red)'}[t.priority]||'var(--text)';
+        const refs = [];
+        if(t.references && t.references.chains && t.references.chains.length) refs.push('🔗'+t.references.chains.length);
+        if(t.references && t.references.patterns && t.references.patterns.length) refs.push('🐞'+t.references.patterns.length);
+        if(t.references && t.references.decisions && t.references.decisions.length) refs.push('📋'+t.references.decisions.length);
+        const refStr = refs.length ? '<span style="font-size:8px;color:var(--purp)">'+refs.join(' ')+'</span>' : '';
+        return '<div class="card" style="cursor:grab;position:relative" draggable="true" data-task-id="'+t.id+'" data-column="'+col+'" ' +
+          'ondragstart="kanbanDrag(event)" ondrop="kanbanDrop(event)" ondragover="event.preventDefault()">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (t.title||'') + '</span>' +
+          '<span style="color:'+prioColor+';font-size:10px;margin-left:4px">' + prioIcon + '</span></div>' +
+          (t.desc ? '<div style="font-size:9px;color:var(--dim);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + t.desc.slice(0,60) + '</div>' : '') +
+          '<div style="font-size:9px;display:flex;gap:4px;align-items:center">' +
+          '<span class="mono" style="font-size:8px;color:var(--dim)">#'+t.id+'</span>' + refStr + '</div></div>';
+      }).join('') || '<div style="font-size:10px;color:var(--dim);padding:16px;text-align:center">Empty</div>' +
+      '</div>';
+  }).join('');
+  
+  // Fill niche selector
+  if(sel && !nicheId && _kanbanNiches.length){
+    sel.innerHTML = '<option value="">-- Select niche --</option>' +
+      _kanbanNiches.filter(n=>!n.archived).map(n=>'<option value="'+n.id+'" style="color:'+(n.color||'#22d3ee')+'">'+n.name+'</option>').join('');
+  }
+}
+
+function kanbanDrag(e) {
+  e.dataTransfer.setData('text/plain', e.target.getAttribute('data-task-id') + '|' + e.target.getAttribute('data-column'));
+  e.target.style.opacity = '0.5';
+}
+
+function kanbanDrop(e) {
+  e.preventDefault();
+  e.target.style.opacity = '';
+  const data = e.dataTransfer.getData('text/plain').split('|');
+  const taskId = data[0];
+  const fromCol = data[1];
+  // Determine the target column from the drop zone
+  const colHeader = e.target.closest('[style*="min-width:200px"]');
+  if (!colHeader) return;
+  const colName = colHeader.querySelector('div[style*="text-transform:uppercase"]');
+  if (!colName) return;
+  const toCol = colName.textContent.trim().replace(/\s+\d+$/,'');
+  if (!toCol || toCol === fromCol) return;
+  
+  fetch('/kanban/move', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({task_id:taskId, to_column:toCol})
+  }).then(r=>r.json()).then(res=>{
+    if(res.status==='ok') loadKanban();
+    else console.log('Move error:', res);
+  }).catch(e=>console.log('Move fetch error:', e));
+}
+
+function showNewTaskForm() {
+  const sel = document.getElementById('kanban-niche');
+  if (!sel || !sel.value) { alert('Select a niche first'); return; }
+  const title = prompt('Task title:');
+  if (!title) return;
+  const desc = prompt('Task description (optional):');
+  fetch('/kanban/move', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({task_id:'_new', to_column:'_create', niche_id:sel.value, title:title, desc:desc||''})
+  }).then(r=>r.json()).then(res=>{
+    if(res.status==='ok'||res.task_id) loadKanban();
+  });
+}
 </script></body></html>
