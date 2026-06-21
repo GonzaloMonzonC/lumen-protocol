@@ -346,7 +346,7 @@ window.renderData = function renderData(d) {
   // Bridges
   const bl=document.getElementById('bridges-list');if(bl){const bd=d.bridges||[];bl.innerHTML=bd.length?bd.map(b=>'<div class="chain-row"><span class="mono" style="font-size:9px;color:var(--purp)">'+(b.score||0).toFixed(2)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(b.thought_preview||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No bridges</div>';}
   // Preserved
-  const pl=document.getElementById('preserved-list');if(pl){const pd=d.preserved||[];pl.innerHTML=pd.length?pd.map(p=>'<div class="chain-row"><span class="tag cyan" style="font-size:8px">'+(p.priority||'low')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.label||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';}
+  const pr=document.getElementById('preserved-list');if(pr){const pd=d.preserved||[];pr.innerHTML=pd.length?pd.map(p=>'<div class="chain-row"><span class="tag cyan" style="font-size:8px">'+(p.priority||'low')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.label||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';}
   // Claims
   ['claims-list'].forEach(id=>{const el=document.getElementById(id);if(el&&el.innerHTML.includes('Loading'))el.innerHTML='<div class="dim" style="font-size:11px">No data</div>'});
   // Sessions
@@ -368,7 +368,7 @@ window.renderData = function renderData(d) {
   if(as)as.innerHTML=assumptions.slice(0,5).map(a=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(a.status==='\u2714'?'\u2705':'\u274C')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#'+a.id+' '+(a.statement||'').slice(0,40)+'</span></div>').join('')||'<div class="dim">Loading</div>';
   // Presence
   const presence=d.presence||{};
-  const pr=document.getElementById('presence-list');
+  const ps=document.getElementById('presence-list');
   if(pr)pr.innerHTML=Object.entries(presence).slice(0,8).map(([sid,p])=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(p.online?'\u25CF':'\u25CB')+'</span><span style="font-size:10px;flex:1;margin:0 4px">'+sid.slice(0,20)+'</span><span class="dim" style="font-size:9px">PID '+p.pid+'</span></div>').join('')||'<div class="dim" style="font-size:11px">No presence data</div>';
   // Footer
   const ft=document.getElementById('footer');
