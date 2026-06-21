@@ -360,7 +360,7 @@ window.renderData = function renderData(d) {
   // Model
   const model=d.model||{};
   const mo=document.getElementById('model-list');
-  if(mo)mo.innerHTML=Object.entries(model).slice(0,15).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
+  if(mo)mo.innerHTML=Object.entries(model).slice(0,25).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
   // Decisions — fetch from /decisions endpoint
   fetch('/decisions').then(r=>r.json()).then(dd=>{
     const de=document.getElementById('decisions-list');
@@ -370,7 +370,7 @@ window.renderData = function renderData(d) {
   // Assumptions
   const assumptions=d.assumptions||[];
   const as=document.getElementById('assumptions-list');
-  if(as)as.innerHTML=assumptions.slice(0,5).map(a=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(a.status==='\u2714'?'\u2705':'\u274C')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#'+a.id+' '+(a.statement||'').slice(0,40)+'</span></div>').join('')||'<div class="dim">Loading</div>';
+  if(as)as.innerHTML=assumptions.slice(0,20).map(a=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(a.status==='\u2714'?'\u2705':'\u274C')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#'+a.id+' '+(a.statement||'').slice(0,40)+'</span></div>').join('')||'<div class="dim">Loading</div>';
   // Presence
   const presence=d.presence||{};
   const ps=document.getElementById('presence-list');
