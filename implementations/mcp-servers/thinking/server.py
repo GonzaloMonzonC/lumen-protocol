@@ -3531,6 +3531,53 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.wfile.write(b"Not found -- try /metrics or /health")
         
         def do_POST(self):
+            if self.path == "/kanban/move":
+                try:
+                    import json as _j
+                    cl = int(self.headers.get('Content-Length', 0))
+                    raw = self.rfile.read(cl) if cl else b'{}'
+                    params = _j.loads(raw) if raw else {}
+                    tid = params.get("task_id","").strip()
+                    col = params.get("to_column","").strip()
+                    nid = params.get("niche_id","").strip()
+                    title = params.get("title","").strip()
+                    desc = params.get("desc","").strip()
+                    if col == "_create" and tid == "_new":
+                        if not nid or not title:
+                            self.send_response(400); self.end_headers()
+                            self.wfile.write(b'{"error":"niche_id and title required"}'); return
+                        if nid not in _niches:
+                            self.send_response(404); self.end_headers()
+                            self.wfile.write(_j.dumps({"error":"Niche not found"}).encode()); return
+                        global _next_task_id
+                        new_id = "task_"+str(_next_task_id); _next_task_id += 1
+                        _tasks[new_id] = {"id":new_id,"niche_id":nid,"title":title,"desc":desc,
+                            "status":_niches[nid]["columns"][0],"priority":"medium",
+                            "tags":[],"assignee":None,
+                            "references":{"chains":[],"patterns":[],"decisions":[],"wikis":[]},
+                            "blockers":[],"blocks":[],
+                            "created_at":time.time(),"updated_at":time.time(),"done_at":None}
+                        _save_state()
+                        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+                        self.wfile.write(_j.dumps({"status":"ok","task_id":new_id}).encode()); return
+                    if not tid or not col:
+                        self.send_response(400); self.end_headers()
+                        self.wfile.write(b'{"error":"task_id and to_column required"}'); return
+                    if tid not in _tasks:
+                        self.send_response(404); self.end_headers()
+                        self.wfile.write(_j.dumps({"error":"Task not found"}).encode()); return
+                    task = _tasks[tid]; niche = _niches.get(task["niche_id"])
+                    if not niche or col not in niche.get("columns", []):
+                        self.send_response(400); self.end_headers()
+                        self.wfile.write(_j.dumps({"error":"Invalid column"}).encode()); return
+                    task["status"] = col; task["updated_at"] = time.time()
+                    task["done_at"] = time.time() if col == "Done" else None
+                    _save_state()
+                    self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+                    self.wfile.write(_j.dumps({"status":"ok","task_id":tid,"to_column":col}).encode())
+                except Exception as e:
+                    self.send_response(500); self.end_headers()
+                    self.wfile.write(_j.dumps({"error":str(e)}).encode())
             if self.path.startswith("/model"):
                 from urllib.parse import urlparse, parse_qs
                 content_len = int(self.headers.get('Content-Length', 0))
@@ -3775,52 +3822,6 @@ def _start_dashboard(port: int = 9876) -> None:
                     self.send_response(500); self.end_headers()
                     self.wfile.write(json.dumps({"error": str(e)}).encode())
 
-            elif self.path == "/kanban/move":
-                try:
-                    content_len = int(self.headers.get('Content-Length', 0))
-                    raw = self.rfile.read(content_len) if content_len else b'{}'
-                    params = json.loads(raw) if raw else {}
-                    task_id = params.get("task_id", "").strip()
-                    to_column = params.get("to_column", "").strip()
-                    niche_id = params.get("niche_id", "").strip()
-                    title = params.get("title", "").strip()
-                    desc = params.get("desc", "").strip()
-                    if to_column == "_create" and task_id == "_new":
-                        if not niche_id or not title:
-                            self.send_response(400); self.end_headers()
-                            self.wfile.write(b'{"error":"niche_id and title required"}'); return
-                        if niche_id not in _niches:
-                            self.send_response(404); self.end_headers()
-                            self.wfile.write(json.dumps({"error":"Niche not found"}).encode()); return
-                        global _next_task_id
-                        new_id = "task_" + str(_next_task_id); _next_task_id += 1
-                        _tasks[new_id] = {"id": new_id, "niche_id": niche_id, "title": title, "desc": desc,
-                            "status": _niches[niche_id]["columns"][0], "priority": "medium",
-                            "tags": [], "assignee": None,
-                            "references": {"chains":[],"patterns":[],"decisions":[],"wikis":[]},
-                            "blockers": [], "blocks": [],
-                            "created_at": time.time(), "updated_at": time.time(), "done_at": None}
-                        _save_state()
-                        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
-                        self.wfile.write(json.dumps({"status":"ok","task_id":new_id}).encode()); return
-                    if not task_id or not to_column:
-                        self.send_response(400); self.end_headers()
-                        self.wfile.write(b'{"error":"task_id and to_column required"}'); return
-                    if task_id not in _tasks:
-                        self.send_response(404); self.end_headers()
-                        self.wfile.write(json.dumps({"error":"Task not found"}).encode()); return
-                    task = _tasks[task_id]; niche = _niches.get(task["niche_id"])
-                    if not niche or to_column not in niche.get("columns", []):
-                        self.send_response(400); self.end_headers()
-                        self.wfile.write(json.dumps({"error":"Invalid column"}).encode()); return
-                    task["status"] = to_column; task["updated_at"] = time.time()
-                    task["done_at"] = time.time() if to_column == "Done" else None
-                    _save_state()
-                    self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
-                    self.wfile.write(json.dumps({"status":"ok","task_id":task_id,"to_column":to_column}).encode())
-                except Exception as e:
-                    self.send_response(500); self.end_headers()
-                    self.wfile.write(json.dumps({"error":str(e)}).encode())
             else:
                 self.send_response(404)
                 self.end_headers()
