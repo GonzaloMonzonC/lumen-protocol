@@ -3081,6 +3081,106 @@ def tool_qa_link(args: dict) -> dict:
     return {"content": [{"type": "text", "text": f"Q&A {qa_id} linked to task:{task_id} chain:{chain_id[:16]}"}]}
 
 
+
+
+def tool_unified_search(args: dict) -> dict:
+    """Search across all cognitive subsystems simultaneously. [LUMEN SHM]"""
+    query = args.get("query", "").strip().lower()
+    if not query:
+        return {"content": [{"type": "text", "text": "Query required"}]}
+    limit = min(args.get("limit", 10), 30)
+    results = []
+    
+    # Search tasks
+    for tid, t in list(_tasks.items()):
+        if query in t.get("title","").lower() or query in t.get("desc","").lower():
+            results.append({"type":"task","id":tid,"title":t["title"][:80],"preview":t.get("desc","")[:100],"niche":_niches.get(t["niche_id"],{}).get("name","?")})
+    
+    # Search patterns (global)
+    for p in _global_patterns[-200:]:
+        if query in p.get("pattern_name","").lower() or query in p.get("description","").lower():
+            results.append({"type":"pattern","id":"#"+str(p.get("id","?")),"title":p.get("pattern_name","")[:80],"preview":p.get("description","")[:100]})
+    
+    # Search decisions
+    for d in _decisions[-50:]:
+        if query in d.get("decision","").lower():
+            results.append({"type":"decision","id":"#"+str(d.get("id","?")),"title":d.get("decision","")[:80],"preview":""})
+    
+    # Search Q&A
+    for qid, q in list(_qa_pairs.items()):
+        if query in q.get("question","").lower() or query in q.get("answer","").lower():
+            results.append({"type":"qa","id":qid,"title":q.get("question","")[:80],"preview":q.get("answer","")[:100]})
+    
+    # Search model
+    for name, ent in list(_model.items()):
+        if query in name.lower() or query in str(ent.get("properties","")).lower():
+            results.append({"type":"model","id":name[:80],"title":name[:80],"preview":str(ent.get("properties",""))[:100]})
+    
+    # Search web snapshots
+    for sid, s in list(_web_snapshots.items()):
+        if query in s.get("title","").lower() or query in s.get("content","").lower()[:200]:
+            results.append({"type":"snapshot","id":sid,"title":(s.get("title") or s.get("url",""))[:80],"preview":s.get("content","")[:100]})
+    
+    if not results:
+        return {"content": [{"type": "text", "text": f"No results for '{query}'"}]}
+    
+    lines = [f"\U0001f50d Unified search: '{query}' ({len(results)} results)\n"]
+    by_type = {}
+    for r in results[:limit]:
+        by_type.setdefault(r["type"], []).append(r)
+    for tpe in ["task","pattern","decision","qa","model","snapshot"]:
+        items = by_type.get(tpe, [])
+        if items:
+            lines.append(f"  [{tpe.upper()}] {len(items)} found:")
+            for r in items[:3]:
+                lines.append(f"    {r['id']}: {r['title']}")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+def tool_cognitive_integrity(args: dict) -> dict:
+    """Check cognitive system health: unlinked tasks, unused patterns, stale decisions, unanswered Q&A. [LUMEN SHM]"""
+    checks = []
+    warnings = 0
+    
+    # Tasks without links
+    unlinked = [tid for tid, t in _tasks.items() if not t.get("links")]
+    if unlinked:
+        warnings += 1
+        checks.append(f"  {len(unlinked)} tasks without links (chains/patterns/decisions)")
+    
+    # Unanswered Q&A
+    unanswered = [qid for qid, q in _qa_pairs.items() if q.get("answer","").strip() in ("","(pending LLM response)")]
+    if unanswered:
+        warnings += 1
+        checks.append(f"  {len(unanswered)} unanswered Q&A pairs")
+    
+    # Stale decisions (older than 90 days, no revisit)
+    now = time.time()
+    stale = [d for d in _decisions[-50:] if d.get("revisit_trigger") and now - d.get("timestamp", now) > 7776000]
+    if stale:
+        warnings += 1
+        checks.append(f"  {len(stale)} decisions overdue for revisit")
+    
+    # Patterns never matched
+    patterns = getattr(_sessions.get("default", None), "patterns", []) if hasattr(_sessions.get("default", None), "patterns") else []
+    low_match = [p for p in patterns if p.get("match_count", 0) == 0]
+    if low_match:
+        checks.append(f"  {len(low_match)} patterns never matched (may be obsolete)")
+    
+    # No data at all
+    total = len(_tasks) + len(_qa_pairs) + len(_decisions) + len(_web_snapshots)
+    if total == 0:
+        return {"content": [{"type": "text", "text": "\u2705 Cognitive system is empty but healthy. Start adding data!"}]}
+    
+    if not checks:
+        return {"content": [{"type": "text", "text": f"\u2705 Cognitive integrity OK. {total} artifacts, no warnings."}]}
+    
+    lines = [f"\u26a0\ufe0f Cognitive Integrity: {warnings} warning(s)\n"]
+    lines.append(f"  Total artifacts: {len(_tasks)} tasks + {len(_qa_pairs)} Q&A + {len(_decisions)} decisions + {len(_patterns)} patterns + {len(_web_snapshots)} snapshots")
+    lines.extend(checks)
+    lines.append(f"\n  Health score: {max(0, 100 - warnings * 15)}/100")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -3135,6 +3235,8 @@ HANDLERS = {
     "qa_ask": tool_qa_ask,
     "qa_list": tool_qa_list,
     "qa_link": tool_qa_link,
+    "unified_search": tool_unified_search,
+    "cognitive_integrity": tool_cognitive_integrity,
      "niche_update": tool_niche_update,
      "task_delete": tool_task_delete,
      "kanban_stats": tool_kanban_stats,
