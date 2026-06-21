@@ -48,7 +48,67 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
 .kanban-col:hover{border-color:rgba(34,211,238,.2);background:rgba(34,211,238,.02)}
 .kanban-col.drag-over{border-color:var(--acc);background:rgba(34,211,238,.08)}
 </style>
-<script src="lumen-client.js"></script>
+<script src="lumen-client.js">
+
+// ── Web Research ──────────────────────────────────────
+let _webSnapshots = [];
+let _webSnapshotTimer = null;
+
+function loadWebSnapshots() {
+  fetch('/web-snapshots')
+    .then(r=>r.json())
+    .then(data=>{
+      _webSnapshots = data||[];
+      renderWebSnapshots();
+    })
+    .catch(()=>{});
+}
+
+function renderWebSnapshots() {
+  const el = document.getElementById('web-snapshots');
+  if (!el) return;
+  const total = _webSnapshots.length;
+  document.getElementById('summary-web').textContent = total + ' snapshots';
+  if (!total) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--dim);padding:20px;text-align:center">No web research snapshots yet. Use web_snapshot() tool to add one.</div>';
+    return;
+  }
+  let h = '';
+  _webSnapshots.forEach(s=>{
+    const ts = s.created_at ? Math.floor((Date.now()/1000 - s.created_at)/60) : '?';
+    const age = ts < 1 ? 'now' : ts < 60 ? ts+'m ago' : Math.floor(ts/60)+'h ago';
+    const taskLink = s.task_id ? '<span style="color:var(--purp);font-size:9px;cursor:pointer" onclick="alert('Task: '+s.task_id+'')">→ '+s.task_id+'</span>' : '';
+    h += '<div style="background:rgba(20,20,35,.5);border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;cursor:pointer" onclick="showSnapshotDetail(\''+s.id+'\')">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(s.title||'untitled')+'</span>' +
+      '<span style="font-size:9px;color:var(--dim)">'+s.word_count+'w · '+age+'</span></div>' +
+      '<div style="font-size:9px;color:var(--dim);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">'+s.url+'</div>' +
+      (s.content_preview ? '<div style="font-size:9px;color:var(--text);margin-top:4px;max-height:32px;overflow:hidden">'+s.content_preview.slice(0,120)+'</div>' : '') +
+      (taskLink ? '<div style="margin-top:4px">'+taskLink+'</div>' : '') +
+    '</div>';
+  });
+  el.innerHTML = h;
+}
+
+function showSnapshotDetail(snapId) {
+  fetch('/web-snapshot-content?id='+snapId)
+    .then(r=>r.json())
+    .then(s=>{
+      if(!s||s.error){alert('Snapshot not found');return;}
+      const content = s.content || 'No content';
+      const html = '<div style="font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow-y:auto;background:rgba(0,0,0,.3);padding:12px;border-radius:8px;font-family:monospace;font-size:10px">'+escapeHtml(content.slice(0,5000))+'</div>' +
+        '<div style="margin-top:8px;font-size:9px;color:var(--dim)">'+s.word_count+' words · <a href="'+s.url+'" target="_blank" style="color:var(--acc)">Open URL</a></div>';
+      showModal('📸 '+ (s.title||'Snapshot'), html);
+    })
+    .catch(()=>alert('Failed to load snapshot'));
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+</script>
 </head>
 <body>
 
@@ -318,6 +378,7 @@ async function refresh(){
   catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline';$('footer').textContent='Error: '+e.message}
   setTimeout(refresh,10000)}
 refresh(); loadKanban();
+  loadWebSnapshots();
 
 function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||c.error)return;
   const thoughts=(c.thoughts||[]).map(t=>`<div class="chain-row"><span class="mono ${t.score?'green':''}" style="font-size:10px">#${t.number}</span><span style="font-size:11px;flex:1;margin:0 8px">${t.thought}</span>${t.score?`<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">${t.score}★</span>`:''}${t.is_revision?'<span class="tag" style="background:rgba(168,85,247,.15);color:var(--purp)">rev</span>':''}${t.has_branch?'<span class="tag" style="background:rgba(250,204,21,.15);color:var(--yellow)">branch</span>':''}</div>`).join('');
@@ -499,6 +560,7 @@ function kanbanDrop(e) {
     body:JSON.stringify({task_id:taskId, to_column:toCol})
   }).then(r=>r.json()).then(res=>{
     if(res.status==='ok') loadKanban();
+  loadWebSnapshots();
     else console.log('Move error:', res);
   }).catch(e=>console.log('Move fetch error:', e));
 }
@@ -515,6 +577,23 @@ function showNewTaskForm() {
     body:JSON.stringify({task_id:'_new', to_column:'_create', niche_id:sel.value, title:title, desc:desc||''})
   }).then(r=>r.json()).then(res=>{
     if(res.status==='ok'||res.task_id) loadKanban();
+  loadWebSnapshots();
   });
 }
-</script></body></html>
+</script>
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- 📸 Web Research                             -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="section" id="section-web" style="margin-top:16px">
+    <div class="collapsible" onclick="toggleSection('web')" style="cursor:pointer;user-select:none">
+      <span id="arrow-web" class="arrow" style="font-size:12px;margin-right:6px">▼</span>
+      <span>📸 Web Research</span>
+      <span id="summary-web" style="margin-left:8px;font-size:10px;color:var(--dim)">(loading...)</span>
+    </div>
+    <div id="content-web" style="display:none;margin-top:8px">
+      <div id="web-snapshots">
+        <div style="font-size:10px;color:var(--dim);padding:20px;text-align:center">Loading snapshots...</div>
+      </div>
+    </div>
+  </div>
+</body></html>
