@@ -41,18 +41,31 @@ PDBM-Lumen is a database for AI agents. Think of it as **MUMPS globals reincarna
 | `pdb_schema()` | List namespaces, node counts, DB size |
 | `pdb_backup(path?)` | Backup DB or show stats |
 
+### FASE 1 — LLM productivity tools
+
+| Tool | Description |
+|------|-------------|
+| `pdb_batch_set(items)` | Atomic bulk insert (N records, 1 transaction) |
+| `pdb_scratch_set(key, value)` | LLM working memory — survives compressions |
+| `pdb_scratch_get(key)` | Read scratchpad value |
+| `pdb_scratch_del(key)` | Delete scratchpad key |
+| `pdb_fts_search(query, limit?, ns?)` | Full-text search across all stored values (FTS5) |
+
+**15 tools total** via the PDB server. Integrated into `lumen-shm-bridge` as **59 tools total** (fs:13, thinking:29, web:2, pdb:15).
+
 ## Quick start
 
 ```bash
-# Start the server
-python server.py
+# Via Hermes plugin (recommended — integrated into lumen-shm-bridge)
+# Enable in config.yaml:
+plugins:
+  enabled:
+    - lumen-shm-bridge
 
-# In Hermes config.yaml:
-mcp_servers:
-  lumen-pdb:
-    command: python
-    args: ["path/to/server.py"]
-    transport: stdio
+# Then /reset or restart. 15 PDB tools appear alongside 44 other LUMEN tools.
+
+# Standalone server (for testing or custom integration):
+python server.py
 ```
 
 ## Patterns for agents
@@ -94,7 +107,7 @@ pdb_query("SELECT ns, count(*) as nodes FROM _globals GROUP BY ns ORDER BY nodes
 - **Single SQLite file** (default: `lumen-pdb.db`, override with `PDB_PATH` env var)
 - **WAL mode** — concurrent reads, crash-safe writes
 - **Level encoding** — type-prefixed, collation-correct byte sequences
-- **LUMEN transport** — SHM zero-copy, 55-80% wire compression via dictionary
+- **Transport: stdio JSON-RPC** — PDB uses `server.py` over stdio. SHM (Level 2 zero-copy) is available via `server_shm.py` but **not recommended**: SHM adds ~700μs overhead per call, while SQLite operations take 15-96μs. For μs-scale KV ops, stdio is 20× faster.
 
 ## License
 
