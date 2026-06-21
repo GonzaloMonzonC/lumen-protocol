@@ -63,7 +63,7 @@ def handle(msg: dict):
         handler = HANDLERS.get(name)
         if handler:
             try:
-                result = handler(**args)
+                result = handler(args)
                 send({
                     "jsonrpc": "2.0", "id": msg_id,
                     "result": {"content": [
