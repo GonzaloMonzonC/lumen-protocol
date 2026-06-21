@@ -3000,6 +3000,7 @@ def tool_web_snapshot(args: dict) -> dict:
     return {"content": [{"type": "text", "text": f"✅ Snapshot saved: {sid}\n{result.get('title','')[:100]}\n{result.get('content','')[:200]}"}]}
 
 def tool_web_snapshots_list(args: dict) -> dict:
+                print("DEBUG WS count: " + str(len(_web_snapshots)), file=sys.stderr)
     snaps = list(_web_snapshots.values())
     tid = args.get("task_id","").strip()
     if tid: snaps = [s for s in snaps if s.get("task_id")==tid]
@@ -3404,18 +3405,18 @@ def _start_dashboard(port: int = 9876) -> None:
                 _reload_state_if_changed()
             elif self.path == "/kanban" or self.path.startswith("/kanban?"):
                 # Reload state from file if another process updated it
-                global _niches, _tasks, _next_niche_id, _next_task_id, _last_state_mtime
                 if _STATE_FILE.exists():
                     try:
                         _fm = _STATE_FILE.stat().st_mtime
-                        if _fm > _last_state_mtime:
+                        _g = globals()
+                        if _fm > _g.get('_last_state_mtime', 0.0):
                             with open(_STATE_FILE, "r", encoding="utf-8") as _sf:
                                 _st = json.load(_sf)
-                            _niches = _st.get("niches", {})
-                            _tasks = _st.get("tasks", {})
-                            _next_niche_id = _st.get("next_niche_id", 1)
-                            _next_task_id = _st.get("next_task_id", 1)
-                            _last_state_mtime = _fm
+                            _g['_niches'] = _st.get("niches", {})
+                            _g['_tasks'] = _st.get("tasks", {})
+                            _g['_next_niche_id'] = _st.get("next_niche_id", 1)
+                            _g['_next_task_id'] = _st.get("next_task_id", 1)
+                            _g['_last_state_mtime'] = _fm
                     except Exception:
                         pass
                 from urllib.parse import urlparse, parse_qs
@@ -3594,6 +3595,40 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path == "/web-snapshots":
+                # Reload state from file if another process updated it
+                if _STATE_FILE.exists():
+                    try:
+                        _fm = _STATE_FILE.stat().st_mtime
+                        _g = globals()
+                        if _fm > _g.get('_last_state_mtime', 0.0):
+                            with open(_STATE_FILE, "r", encoding="utf-8") as _sf:
+                                _st = json.load(_sf)
+                            _g['_niches'] = _st.get("niches", {})
+                            _g['_tasks'] = _st.get("tasks", {})
+                            _g['_web_snapshots'] = _st.get("web_snapshots", {})
+                            _g['_last_state_mtime'] = _fm
+                    except Exception:
+                        pass
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                tid = qs.get("task_id", [None])[0]
+                snaps = list(_web_snapshots.values())
+                if tid: snaps = [s for s in snaps if s.get("task_id") == tid]
+                snaps.sort(key=lambda s: s.get("created_at", 0), reverse=True)
+                # Strip full content for bandwidth, keep preview
+                out = []
+                for s in snaps:
+                    out.append({"id":s["id"],"url":s.get("url",""),"title":s.get("title",""),
+                        "word_count":s.get("word_count",0),"task_id":s.get("task_id"),
+                        "content_preview":s.get("content","")[:500],"created_at":s.get("created_at",0)})
+                body = json.dumps(out, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -3697,6 +3732,21 @@ def _start_dashboard(port: int = 9876) -> None:
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     self.wfile.write(json.dumps({"action": act, "entity": entity}).encode())
+            elif self.path.startswith("/web-snapshot-content"):
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                sid = qs.get("id", [None])[0]
+                if sid and sid in _web_snapshots:
+                    body = json.dumps(_web_snapshots[sid], ensure_ascii=False).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404); self.end_headers()
+                    self.wfile.write(b'{"error":"Snapshot not found"}')
             elif self.path == "/clear-chains":
                 try:
                     content_len = int(self.headers.get('Content-Length', 0))
