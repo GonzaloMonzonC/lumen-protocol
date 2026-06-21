@@ -43,6 +43,10 @@ h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#
 .modal h3{font-size:13px}.modal-close{float:right;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px 8px}
 .section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
 .section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
+
+.kanban-col{border-width:1px;border-style:solid;border-color:var(--border);transition:border-color .2s,background .2s}
+.kanban-col:hover{border-color:rgba(34,211,238,.2);background:rgba(34,211,238,.02)}
+.kanban-col.drag-over{border-color:var(--acc);background:rgba(34,211,238,.08)}
 </style>
 <script src="lumen-client.js"></script>
 </head>
@@ -434,7 +438,8 @@ function renderKanban() {
   // Render columns
   board.innerHTML = columns.map((col, ci) => {
     const colTasks = tasks.filter(t=>t.status===col);
-    return '<div style="min-width:200px;flex:1;background:rgba(20,20,35,.5);border-radius:12px;padding:10px;border:1px solid var(--border)">' +
+    const colClass = "kanban-col-" + col.replace(/\s+/g,'-');
+    return '<div data-col="'+col+'" class="kanban-col '+colClass+'" style="min-width:200px;flex:1;background:rgba(20,20,35,.5);border-radius:12px;padding:10px;border:1px solid var(--border)">' +
       '<div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:600">' + col +
       ' <span style="color:var(--acc);font-weight:700">' + colTasks.length + '</span></div>' +
       colTasks.map(t => {
@@ -457,17 +462,24 @@ function renderKanban() {
       '</div>';
   }).join('');
   
-  // Fill niche selector
-  if(sel && !nicheId && _kanbanNiches.length){
+  // Fill niche selector (always update)
+  if(sel && _kanbanNiches.length){
+    const currentVal = sel.value;
     sel.innerHTML = '<option value="">-- Select niche --</option>' +
       _kanbanNiches.filter(n=>!n.archived).map(n=>'<option value="'+n.id+'" style="color:'+(n.color||'#22d3ee')+'">'+n.name+'</option>').join('');
+    if(currentVal) sel.value = currentVal;
   }
 }
 
 function kanbanDrag(e) {
   e.dataTransfer.setData('text/plain', e.target.getAttribute('data-task-id') + '|' + e.target.getAttribute('data-column'));
   e.target.style.opacity = '0.5';
+  // Add drag-over class to all columns
+  document.querySelectorAll('.kanban-col').forEach(c=>c.classList.add('drag-over'));
 }
+document.addEventListener('dragend', function() {
+  document.querySelectorAll('.kanban-col').forEach(c=>c.classList.remove('drag-over'));
+});
 
 function kanbanDrop(e) {
   e.preventDefault();
@@ -476,11 +488,9 @@ function kanbanDrop(e) {
   const taskId = data[0];
   const fromCol = data[1];
   // Determine the target column from the drop zone
-  const colHeader = e.target.closest('[style*="min-width:200px"]');
+  const colHeader = e.target.closest('.kanban-col');
   if (!colHeader) return;
-  const colName = colHeader.querySelector('div[style*="text-transform:uppercase"]');
-  if (!colName) return;
-  const toCol = colName.textContent.trim().replace(/\s+\d+$/,'');
+  const toCol = colHeader.getAttribute('data-col');
   if (!toCol || toCol === fromCol) return;
   
   fetch('/kanban/move', {

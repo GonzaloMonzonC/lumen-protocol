@@ -3261,6 +3261,24 @@ def _start_dashboard(port: int = 9876) -> None:
     else:
         _DASHBOARD_HTML = "<html><body><h1>LUMEN Dashboard</h1><p>dashboard.html not found</p></body></html>"
 
+
+    def _reload_state_if_changed(self):
+        """Reload global state from file if another process updated it."""
+        global _niches, _tasks, _next_niche_id, _next_task_id, _last_state_mtime
+        if _STATE_FILE.exists():
+            try:
+                mtime = _STATE_FILE.stat().st_mtime
+                if mtime > _last_state_mtime:
+                    with open(_STATE_FILE, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    _niches = state.get("niches", {})
+                    _tasks = state.get("tasks", {})
+                    _next_niche_id = state.get("next_niche_id", 1)
+                    _next_task_id = state.get("next_task_id", 1)
+                    _last_state_mtime = mtime
+            except Exception:
+                pass
+
     class MetricsHandler(_http.BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/" or self.path == "/index.html":
@@ -3352,6 +3370,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.end_headers()
                 self.wfile.write(body)
 
+                self._reload_state_if_changed()
             elif self.path == "/kanban" or self.path.startswith("/kanban?"):
                 from urllib.parse import urlparse, parse_qs
                 qs = parse_qs(urlparse(self.path).query)
@@ -3537,6 +3556,7 @@ def _start_dashboard(port: int = 9876) -> None:
         
         def do_POST(self):
             if self.path == "/kanban/move":
+                self._reload_state_if_changed()
                 try:
                     import json as _j
                     cl = int(self.headers.get('Content-Length', 0))
