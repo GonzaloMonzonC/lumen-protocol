@@ -3102,7 +3102,7 @@ def tool_unified_search(args: dict) -> dict:
             results.append({"type":"pattern","id":"#"+str(p.get("id","?")),"title":p.get("pattern_name","")[:80],"preview":p.get("description","")[:100]})
     
     # Search decisions
-    for d in _decisions[-50:]:
+    for d in list(globals().get("_decisions", []))[-50:]:
         if query in d.get("decision","").lower():
             results.append({"type":"decision","id":"#"+str(d.get("id","?")),"title":d.get("decision","")[:80],"preview":""})
     
@@ -3112,7 +3112,7 @@ def tool_unified_search(args: dict) -> dict:
             results.append({"type":"qa","id":qid,"title":q.get("question","")[:80],"preview":q.get("answer","")[:100]})
     
     # Search model
-    for name, ent in list(_model.items()):
+    for name, ent in list(globals().get("_model", {}).items()):
         if query in name.lower() or query in str(ent.get("properties","")).lower():
             results.append({"type":"model","id":name[:80],"title":name[:80],"preview":str(ent.get("properties",""))[:100]})
     
@@ -3583,8 +3583,6 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.end_headers()
                 self.wfile.write(body)
 
-                _reload_state_if_changed()
-                _reload_state_if_changed()
             elif self.path == "/kanban" or self.path.startswith("/kanban?"):
                 # Reload state from file if another process updated it
                 if _STATE_FILE.exists():
