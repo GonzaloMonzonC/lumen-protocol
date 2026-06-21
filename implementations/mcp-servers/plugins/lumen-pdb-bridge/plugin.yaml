@@ -1,0 +1,5 @@
+name: lumen-pdb-bridge
+version: 0.1.0
+description: "PDBM-Lumen Process Database — hierarchical KV store (MUMPS globals) on SQLite, accessible via 10 MCP tools. Cross-session, no schema, SHM-ready."
+author: Cadences Lab (Gonzalo Monzón)
+kind: standalone

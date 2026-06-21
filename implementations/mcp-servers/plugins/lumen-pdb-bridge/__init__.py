@@ -29,7 +29,7 @@ from typing import Any
 # ═══════════════════════════════════════════════════════════════════════════
 
 _server: subprocess.Popen[str] | None = None
-_server_lock = threading.Lock()
+_server_lock = threading.RLock()
 _request_id = 0
 _request_id_lock = threading.Lock()
 
@@ -69,7 +69,7 @@ def _get_server() -> subprocess.Popen[str]:
             _server = subprocess.Popen(
                 [_HERMES_VENV_PYTHON, "-u", server_path],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, bufsize=1,
+                stderr=subprocess.DEVNULL, text=True, bufsize=1,
                 cwd=os.path.dirname(server_path),
             )
             # Init handshake
@@ -109,16 +109,16 @@ def _call_tool(name: str, args: dict) -> dict:
 # Handlers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _h_set(a): return _call_tool("pdb_set", a)
-def _h_get(a): return _call_tool("pdb_get", a)
-def _h_order(a): return _call_tool("pdb_order", a)
-def _h_data(a): return _call_tool("pdb_data", a)
-def _h_kill(a): return _call_tool("pdb_kill", a)
-def _h_incr(a): return _call_tool("pdb_incr", a)
-def _h_merge(a): return _call_tool("pdb_merge", a)
-def _h_query(a): return _call_tool("pdb_query", a)
-def _h_schema(a): return _call_tool("pdb_schema", a)
-def _h_backup(a): return _call_tool("pdb_backup", a)
+def _h_set(a, **kw): return _call_tool("pdb_set", a)
+def _h_get(a, **kw): return _call_tool("pdb_get", a)
+def _h_order(a, **kw): return _call_tool("pdb_order", a)
+def _h_data(a, **kw): return _call_tool("pdb_data", a)
+def _h_kill(a, **kw): return _call_tool("pdb_kill", a)
+def _h_incr(a, **kw): return _call_tool("pdb_incr", a)
+def _h_merge(a, **kw): return _call_tool("pdb_merge", a)
+def _h_query(a, **kw): return _call_tool("pdb_query", a)
+def _h_schema(a, **kw): return _call_tool("pdb_schema", a)
+def _h_backup(a, **kw): return _call_tool("pdb_backup", a)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
