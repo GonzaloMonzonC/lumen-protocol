@@ -334,7 +334,6 @@ window.renderData = function renderData(d) {
   const bd=document.getElementById('brk-total');if(bd)bd.textContent=t.thoughts||0;
   const bc=document.getElementById('brk-chains');if(bc)bc.textContent=t.chains||0;
   const ba=document.getElementById('brk-avg');if(ba)ba.textContent=t.chains&&t.thoughts?(t.thoughts/t.chains).toFixed(1):'--';
-  const bc=document.getElementById('brk-chains');if(bc)bc.textContent=t.chains||0;
   const bb=document.getElementById('brk-branches');if(bb)bb.textContent=t.branches||0;
   const br=document.getElementById('brk-revisions');if(br)br.textContent=t.revisions||0;
   const brr=document.getElementById('brk-rated');if(brr)brr.textContent=sc.total_rated||0;
