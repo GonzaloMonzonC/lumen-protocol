@@ -84,10 +84,64 @@ We tested SHM (Level 2 zero-copy via `server_shm.py`) but it's **not the right t
 
 **Decision**: PDB uses stdio JSON-RPC (`server.py`). SHM is reserved for filesystem, thinking, and web servers where payloads are large enough to amortize the overhead.
 
+## FASE 1 Tools (scratch, batch, fts)
+
+Benchmarked 2026-06-21 with 5,000 iterations (JSON-RPC stdio, Hermes plugin).
+
+### SCRATCH tools
+
+| Tool | 5,000 ops | Per op | Rate |
+|------|----------:|------:|-----:|
+| `pdb_scratch_set` | 169 ms | **33.8 μs** | 29,556/sec |
+| `pdb_scratch_get` | 145 ms | **28.9 μs** | 34,568/sec |
+| `pdb_scratch_del` | 196 ms | **39.2 μs** | 25,542/sec |
+
+SCRATCH is just syntactic sugar over the KV tools → same performance as `pdb_set`/`pdb_get`.
+
+### BATCH set
+
+`pdb_batch_set` inserts N records atomically in a single transaction:
+
+| Batch size | Time | Per item | Items/sec | vs individual |
+|-----------:|-----:|--------:|----------:|:-------------|
+| 10 items | 168 μs | 16.8 μs | **59,533** | 1.7× faster |
+| 100 items | 1,295 μs | 12.9 μs | **77,225** | 3.2× faster |
+| 1,000 items | 16.8 ms | 16.8 μs | **59,524** | **5.3× faster** |
+
+**Speedup over individual `pdb_set` x1000**: **5.3×** (16.8ms batch vs 89ms individual).  
+Batch amortizes the transaction overhead + JSON serialization across all items.
+
+### FTS Search
+
+`pdb_fts_search` rebuilds the FTS5 index from scratch on each call (DELETE + INSERT + SEARCH):
+
+| Query | 100 runs | Per query |
+|-------|---------:|----------:|
+| `"Barcelona"` (limit=5) | 2,535 ms | **25.4 ms** |
+| `"Barcelona"` (limit=10) | 2,673 ms | **26.7 ms** |
+| `"Barcelona"` (ns filter) | 2,699 ms | **27.0 ms** |
+
+The 25ms overhead is dominated by the FTS index rebuild (DELETE + INSERT of all current data). For persistent indexes, use `pdb_set` with proper namespace structure and FTS separately.
+
+### All 15 tools summary
+
+| Tool category | # tools | Avg latency |
+|--------------|-------:|:-----------:|
+| KV core | 10 | 15-117 μs |
+| SCRATCH | 3 | 29-39 μs |
+| BATCH | 1 | 17 μs/item |
+| FTS | 1 | 25-27 ms |
+
 ## Run it yourself
 
 ```bash
 cd implementations/mcp-servers/pdb
+
+# KV only (FASE 0)
 python benchmark_jsonrpc.py
-# Results: benchmark_jsonrpc.json
+
+# Full benchmark (15 tools including FASE 1)
+python benchmark_full.py
+
+# Results: benchmark_jsonrpc.json, benchmark_full.json
 ```
