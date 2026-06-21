@@ -158,7 +158,7 @@ function escapeHtml(text) {
 <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
   <span style="font-size:11px;font-weight:600">Niche:</span>
   <select id="kanban-niche" style="background:var(--slate800);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-family:inherit" onchange="loadKanban()"></select>
-  <button class="btn btn-acc" onclick="showNewTaskForm()" style="margin-left:auto;padding:6px 12px;font-size:10px">+ New Task</button>
+  <button class="btn btn-acc" onclick="createTask()" style="margin-left:auto;padding:6px 12px;font-size:10px">+ New Task</button>
 </div>
 <div id="kanban-board" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:200px">
   <div style="flex:1;text-align:center;padding:40px;color:var(--dim);font-size:11px">Select a niche to show the board</div>
@@ -334,6 +334,7 @@ window.renderData = function renderData(d) {
   const bd=document.getElementById('brk-total');if(bd)bd.textContent=t.thoughts||0;
   const bc=document.getElementById('brk-chains');if(bc)bc.textContent=t.chains||0;
   const ba=document.getElementById('brk-avg');if(ba)ba.textContent=t.chains&&t.thoughts?(t.thoughts/t.chains).toFixed(1):'--';
+  const bc=document.getElementById('brk-chains');if(bc)bc.textContent=t.chains||0;
   const bb=document.getElementById('brk-branches');if(bb)bb.textContent=t.branches||0;
   const br=document.getElementById('brk-revisions');if(br)br.textContent=t.revisions||0;
   const brr=document.getElementById('brk-rated');if(brr)brr.textContent=sc.total_rated||0;
@@ -343,7 +344,12 @@ window.renderData = function renderData(d) {
   const ms=document.getElementById('mem-sessions');if(ms)ms.textContent=d.sessions||0;
   // Collisions, Claims, Bridges, Preserved
   const col=document.getElementById('collisions-list');if(col)col.innerHTML=(d.collisions||[]).length?(d.collisions||[]).map(x=>'<div>'+x+'</div>').join(''):'<div class="dim" style="font-size:11px">No collisions</div>';
-  ['claims-list','bridges-list','preserved-list'].forEach(id=>{const el=document.getElementById(id);if(el&&el.innerHTML.includes('Loading'))el.innerHTML='<div class="dim" style="font-size:11px">No data</div>'});
+  // Bridges
+  const bl=document.getElementById('bridges-list');if(bl){const bd=d.bridges||[];bl.innerHTML=bd.length?bd.map(b=>'<div class="chain-row"><span class="mono" style="font-size:9px;color:var(--purp)">'+(b.score||0).toFixed(2)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(b.thought_preview||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No bridges</div>';}
+  // Preserved
+  const pl=document.getElementById('preserved-list');if(pl){const pd=d.preserved||[];pl.innerHTML=pd.length?pd.map(p=>'<div class="chain-row"><span class="tag cyan" style="font-size:8px">'+(p.priority||'low')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.label||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';}
+  // Claims
+  ['claims-list'].forEach(id=>{const el=document.getElementById(id);if(el&&el.innerHTML.includes('Loading'))el.innerHTML='<div class="dim" style="font-size:11px">No data</div>'});
   // Sessions
   const sDetail=d.sessions_detail||{};
   const sList=Object.entries(sDetail).slice(0,10);
@@ -352,7 +358,7 @@ window.renderData = function renderData(d) {
   // Model
   const model=d.model||{};
   const mo=document.getElementById('model-list');
-  if(mo)mo.innerHTML=Object.entries(model).slice(0,15).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||[]).length+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
+  if(mo)mo.innerHTML=Object.entries(model).slice(0,15).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
   // Decisions
   const decisions=d.decisions||[];
   const de=document.getElementById('decisions-list');
@@ -372,8 +378,7 @@ window.renderData = function renderData(d) {
   if(typeof drawChart==='function'&&d.timeline)setTimeout(()=>drawChart(d.timeline),50);
 };
 async function refresh(){
-  // HTTP fallback — only used if LUMEN WebSocket is unavailable
-  if(_lumenWs&&_lumenWs.readyState===WebSocket.OPEN)return;
+  // Always fetch via HTTP for reliable data
   try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();renderData(d)}
   catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline';$('footer').textContent='Error: '+e.message}
   setTimeout(refresh,10000)}
@@ -560,12 +565,11 @@ function kanbanDrop(e) {
     body:JSON.stringify({task_id:taskId, to_column:toCol})
   }).then(r=>r.json()).then(res=>{
     if(res.status==='ok') loadKanban();
-  loadWebSnapshots();
     else console.log('Move error:', res);
   }).catch(e=>console.log('Move fetch error:', e));
 }
 
-function showNewTaskForm() {
+function createTask() {
   const sel = document.getElementById('kanban-niche');
   if (!sel || !sel.value) { alert('Select a niche first'); return; }
   const title = prompt('Task title:');
