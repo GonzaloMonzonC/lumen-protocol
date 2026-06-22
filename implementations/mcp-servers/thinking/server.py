@@ -154,7 +154,7 @@ def _save_state() -> None:
     global _save_counter, _json_snap_counter
     _save_counter = 0
     _json_snap_counter += 1
-    if _PDB_SNAPSHOT_INTERVAL > 0 and _json_snap_counter >= _PDB_SNAPSHOT_INTERVAL:
+    if _JSON_SNAPSHOT_INTERVAL > 0 and _json_snap_counter >= _JSON_SNAPSHOT_INTERVAL:
         _json_snap_counter = 0
         threading.Thread(target=_pdb_snapshot, daemon=True).start()
 
