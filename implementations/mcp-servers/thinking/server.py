@@ -4621,39 +4621,12 @@ def _start_dashboard(port: int = 9876) -> None:
             from objective_loop import _objectives
         except ImportError:
             _objectives = {}
-        # Reload state from PDB (primary) or JSON file (fallback)
+        # Reload state from PDB (primary store) — JSON no longer used for dashboard sync
         try:
             if _PDB_PATH.exists():
-                import sqlite3
-                pdb_conn = sqlite3.connect(str(_PDB_PATH))
-                pdb_rows = pdb_conn.execute("SELECT subkey, value FROM _globals WHERE ns='STATE' AND subkey LIKE '%:info'").fetchall()
-                pdb_conn.close()
-                if pdb_rows:
-                    # Session info contains works list via to_dict()
-                    # Rebuild _sessions from PDB
-                    pass  # Full reload handled by _pdb_load_all
+                _pdb_load_all()
         except Exception:
             pass
-        # Fallback: reload from JSON state file
-        if _STATE_FILE.exists():
-            try:
-                file_mtime = _STATE_FILE.stat().st_mtime
-                if file_mtime > _last_state_mtime:
-                    with open(_STATE_FILE, "r", encoding="utf-8") as f:
-                        state = json.load(f)
-                    global _sessions, _preserved, _call_timeline, _next_session_num
-                    _sessions = {sid: Session.from_dict(sd) for sid, sd in state.get("sessions", {}).items()}
-                    _next_session_num = state.get("next_session_num", 1)
-                    _preserved = state.get("preserved", [])
-                    if "timeline" in state:
-                        _call_timeline[:] = state["timeline"]
-                    global _session_presence, _file_touches, _file_claims
-                    _session_presence = state.get("presence", {})
-                    _file_touches = state.get("file_touches", [])
-                    _file_claims = state.get("file_claims", {})
-                    _last_state_mtime = file_mtime
-            except Exception:
-                pass
         
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
