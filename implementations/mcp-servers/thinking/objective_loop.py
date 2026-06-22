@@ -138,7 +138,7 @@ def tool_objective_create(args: dict) -> dict:
     try:
         import sqlite3, json, os
         _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path)
+        _conn = sqlite3.connect(_pdb_path); _c.execute("PRAGMA synchronous=NORMAL"); _c.execute("PRAGMA journal_size_limit=16777216")
         # Save objectives
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
@@ -206,7 +206,7 @@ def tool_objective_judge(args: dict) -> dict:
     try:
         import sqlite3, json, os
         _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path)
+        _conn = sqlite3.connect(_pdb_path); _c.execute("PRAGMA synchronous=NORMAL"); _c.execute("PRAGMA journal_size_limit=16777216")
         # Save objectives
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
@@ -269,7 +269,7 @@ def tool_objective_plan(args: dict) -> dict:
     try:
         import sqlite3, json, os
         _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path)
+        _conn = sqlite3.connect(_pdb_path); _c.execute("PRAGMA synchronous=NORMAL"); _c.execute("PRAGMA journal_size_limit=16777216")
         # Save objectives
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",

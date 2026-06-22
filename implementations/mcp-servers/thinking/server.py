@@ -260,6 +260,8 @@ def _pdb_save_all() -> None:
     """Write ALL thinking state to PDB as individual records. Single ACID transaction."""
     try:
         conn = sqlite3.connect(str(_PDB_PATH))
+        conn.execute("PRAGMA synchronous=NORMAL")  # 2x faster writes, still crash-safe
+        conn.execute("PRAGMA journal_size_limit=16777216")  # 16MB max WAL
         conn.execute("DELETE FROM _globals WHERE ns='STATE'")
         pairs = []
         for sid, sess in _sessions.items():
@@ -324,6 +326,8 @@ def _pdb_load_all() -> bool:
         if not _PDB_PATH.exists():
             return False
         conn = sqlite3.connect(str(_PDB_PATH))
+        conn.execute("PRAGMA synchronous=NORMAL")  # 2x faster writes, still crash-safe
+        conn.execute("PRAGMA journal_size_limit=16777216")  # 16MB max WAL
         rows = conn.execute("SELECT subkey, value FROM _globals WHERE ns='STATE'").fetchall()
         conn.close()
         if not rows:
