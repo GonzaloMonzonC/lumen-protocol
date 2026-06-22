@@ -281,6 +281,10 @@ function drawChart(timeline){
   
   // Stats
   $('chart-stats').innerHTML=`<span>🟢 ${totalCalls} calls</span><span>📈 Peak: ${maxV} at ${bars-1-peakH}h ago</span><span>📊 ${bars}h window</span>`;
+  // Tooltip on hover
+  const _tt=c._tooltipEl||(function(){const el=document.createElement('div');el.style.cssText='position:absolute;background:rgba(20,20,35,.95);border:1px solid var(--border);border-radius:12px;padding:8px 12px;font-size:11px;color:var(--text);pointer-events:none;display:none;z-index:100;white-space:nowrap';c.parentElement.appendChild(el);c._tooltipEl=el;return el})();
+  c.onmousemove=function(e){const r=c.getBoundingClientRect();const mx=e.clientX-r.left-padX;const bw=plotW/(bars-1||1);const i=Math.round(mx/bw);if(i<0||i>=bars||!buckets[i]){_tt.style.display='none';return};const ha=Math.round(((bars-1-i)*3600)/3600);_tt.textContent=buckets[i]+' calls \u2014 '+(ha>=24?Math.floor(ha/24)+'d':ha+'h')+' ago';_tt.style.left='20px';_tt.style.top='0px';_tt.style.display='block'};
+  c.onmouseleave=function(){_tt.style.display='none'};
 }
 
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath()}
