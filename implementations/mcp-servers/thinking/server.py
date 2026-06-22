@@ -2268,7 +2268,7 @@ def tool_work_start(args: dict) -> dict:
     session.works.append(work)
     _next_work_id += 1
     _save_works()
-    _auto_save()
+    _save_state()
 
     in_progress = sum(1 for w in session.works if w["status"] == "in_progress")
     lines = [
