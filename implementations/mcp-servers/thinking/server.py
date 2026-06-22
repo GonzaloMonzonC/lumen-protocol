@@ -2548,6 +2548,16 @@ def tool_agent_message(args: dict) -> dict:
     _agent_messages.append(msg)
     if len(_agent_messages) > 200:
         _agent_messages[:] = _agent_messages[-200:]
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"📨 Message sent to '{to_session}' ({priority} priority)."}]}
 
@@ -2627,6 +2637,17 @@ def tool_pattern_record(args: dict) -> dict:
     _global_patterns.append(dict(pattern))
     if len(_global_patterns) > 500:
         _global_patterns[:] = _global_patterns[-500:]
+    
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:pattern:{pid}'.encode(), _j.dumps(pattern).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     
     # Proactive: suggest similar patterns
     suggestions = []
@@ -2717,6 +2738,16 @@ def tool_decision_log(args: dict) -> dict:
         "revisit_trigger": args.get("revisit_trigger", ""), "recorded_at": time.time(),
     }
     session.decisions.append(decision)
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:decision:{did}'.encode(), _j.dumps(decision).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     alt_text = "\n   ".join(f"• {a}" for a in decision['alternatives']) if decision['alternatives'] else "   (none)"
     return {"content": [{"type": "text", "text": (
         f"📋 Decision #{did}: '{decision['decision']}'\n"
@@ -2959,6 +2990,16 @@ def tool_niche_create(args: dict) -> dict:
         "updated_at": time.time(),
     }
     _niches[niche_id] = niche
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"✅ Niche created: {name} (ID: {niche_id})"}]}
 
@@ -3045,6 +3086,16 @@ def tool_task_create(args: dict) -> dict:
         "done_at": None
     }
     _tasks[task_id] = task
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {task_id}) in niche {_niches[niche_id]['name']}"}]}
 
@@ -3087,6 +3138,16 @@ def tool_task_move(args: dict) -> dict:
         else:
             task["done_at"] = None
     task["updated_at"] = time.time()
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"✅ Task moved: {task['title']} → {task['status']}"}]}
 
@@ -3191,6 +3252,16 @@ def tool_task_delete(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"❌ Task not found: {task_id}"}]}
     title = _tasks[task_id]["title"]
     del _tasks[task_id]
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"🗑️ Task deleted: {title} ({task_id})"}]}
 
@@ -3328,6 +3399,16 @@ def tool_web_snapshot(args: dict) -> dict:
     sid = "snap_" + str(int(time.time()))
     _web_snapshots[sid] = {"id":sid,"url":url,"title":result.get("title","")[:200],"content":result.get("content",""),"word_count":result.get("word_count",0),"task_id":tid or None,"created_at":time.time()}
     if tid and tid in _tasks: _tasks[tid].setdefault("references",{}).setdefault("urls",[]).append(url)
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"✅ Snapshot saved: {sid}\n{result.get('title','')[:100]}\n{result.get('content','')[:200]}"}]}
 
@@ -3371,6 +3452,16 @@ def tool_qa_ask(args: dict) -> dict:
         "task_id": None, "chain_id": None,
         "created_at": time.time(), "updated_at": time.time()
     }
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"Q&A saved: {qa_id}\nQ: {question[:100]}\nA: {answer[:200]}"}]}
 
@@ -3404,6 +3495,16 @@ def tool_qa_link(args: dict) -> dict:
     if chain_id:
         _qa_pairs[qa_id]["chain_id"] = chain_id
     _qa_pairs[qa_id]["updated_at"] = time.time()
+    # Persist to PDB immediately
+    try:
+        import sqlite3, json as _j, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
+        _c = sqlite3.connect(_pdb_path)
+        _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"Q&A {qa_id} linked to task:{task_id} chain:{chain_id[:16]}"}]}
 
@@ -4763,7 +4864,9 @@ def _start_dashboard(port: int = 9876) -> None:
             "top_chains": chains_detail[:10],
             "preserved": [{"label": p.get("label",""), "priority": p["priority"], "content": p["content"][:200]} for p in _preserved[-5:]],
             "model": [{"entity": path, "role": node.get("role","?"), "deps": len(node.get("deps",[])), "notes": node.get("notes","")[:80]} for sid, sess in _sessions.items() for path, node in sess.model.items()][:20],
+            "patterns": [{"name": p.get("pattern_name","?"), "description": p.get("description","")[:120]} for sid, sess in _sessions.items() for p in sess.patterns][:20],
             "assumptions": [{"id": a["id"], "statement": a["statement"][:120], "status": a["status"], "category": a.get("category","")} for sid, sess in _sessions.items() for a in sess.assumptions][:20],
+            "qa_pairs": [{"id": qid, "question": qa["question"][:80], "answer": qa["answer"][:120], "tags": qa.get("tags",[])} for qid, qa in _qa_pairs.items()][:20],
             "decisions": [{"id": d["id"], "decision": d["decision"][:120], "category": d["category"], "rationale": d["rationale"][:80]} for sid, sess in _sessions.items() for d in sess.decisions][:20],
             "presence": _session_presence,
             "claims": {f: {"owner": c["owner"], "expires_in": round(c["expires_at"]-time.time(),1) if c.get("expires_at") else 0, "status": c.get("status","active"), "requests": c.get("requests",[])} for f,c in _file_claims.items() if c.get("expires_at",0) > time.time()},
