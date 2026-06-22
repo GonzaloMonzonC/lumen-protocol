@@ -131,8 +131,8 @@ _next_session_num = 1
 
 _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
 _PDB_PATH = Path(__file__).parent.parent / "pdb" / "lumen-pdb.db"  # shared PDB database
-_SAVE_INTERVAL = 10  # auto-save every N tool calls
-_JSON_SNAPSHOT_INTERVAL = 1  # JSON snapshot every save (cross-process sync)
+_SAVE_INTERVAL = 50  # auto-save every N tool calls (was 10 — saves were bottlenecking SHM)
+_JSON_SNAPSHOT_INTERVAL = 10  # JSON snapshot every N saves (was 1 — was spawning thread every save)
 _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
@@ -222,32 +222,36 @@ def _save_state() -> None:
             "saved_at": time.time(),
             **get_objective_state(),
         }
-        tmp = str(_STATE_FILE) + ".tmp"
-        # Clean up stale tmp file if it exists
-        if os.path.exists(tmp):
-            try: os.remove(tmp)
-            except OSError: pass
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
-        # Retry atomic replace on Windows file locking (dashboard may have file open)
-        for attempt in range(5):
-            try:
-                os.replace(tmp, str(_STATE_FILE))
-                break
-            except (OSError, PermissionError) as e:
-                if attempt < 4:
-                    time.sleep(0.01 * (2 ** attempt))  # exponential backoff
-                else:
-                    # Last resort: write directly
-                    try:
-                        with open(str(_STATE_FILE), "w", encoding="utf-8") as f:
-                            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
-                        try: os.remove(tmp)
-                        except OSError: pass
-                    except Exception:
-                        _safe_print(f"[lumen-thinking] Failed to save state after 5 attempts: {e}")
-    except Exception as e:
-        _safe_print(f"[lumen-thinking] Failed to save state: {e}")
+        # Write to disk in background thread -- don't block the tool call
+        t = threading.Thread(target=_write_state_file, args=(state,), daemon=True)
+        t.start()
+    except Exception:
+        pass  # Never let save break the main flow
+
+
+_state_file_lock = threading.Lock()
+
+def _write_state_file(state: dict) -> None:
+    """Write state dict to JSON file atomically. Runs in background thread."""
+    with _state_file_lock:
+        try:
+            tmp = str(_STATE_FILE) + ".tmp"
+            if os.path.exists(tmp):
+                try: os.remove(tmp)
+                except OSError: pass
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+            for attempt in range(2):  # was 5 -- fewer retries = less blocking
+                try:
+                    os.replace(tmp, str(_STATE_FILE))
+                    return
+                except (OSError, PermissionError):
+                    if attempt == 0:
+                        time.sleep(0.05)
+                    else:
+                        _safe_print("[lumen] State file write busy after retry")
+        except Exception as e:
+            _safe_print(f"[lumen] State file write failed: {e}")
 
 _json_snap_counter = 0
 
