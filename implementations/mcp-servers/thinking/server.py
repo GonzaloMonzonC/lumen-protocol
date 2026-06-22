@@ -846,6 +846,52 @@ TOOLS = [
             },
             "required": ["tools"]
         }
+    },
+    {
+        "name": "wiki_create",
+        "description": "Create or update a wiki page with markdown content in the persistent knowledge base. Survives server restarts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Wiki page title"},
+                "content": {"type": "string", "description": "Markdown content"},
+                "author": {"type": "string", "description": "Author identifier (default: agent)"}
+            },
+            "required": ["title", "content"]
+        }
+    },
+    {
+        "name": "wiki_read",
+        "description": "Read a wiki page by title from the persistent knowledge base.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Wiki page title to read"}
+            },
+            "required": ["title"]
+        }
+    },
+    {
+        "name": "wiki_update",
+        "description": "Update or append to a wiki page. Use mode=append to add new sections.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Wiki page title"},
+                "content": {"type": "string", "description": "Content to write or append"},
+                "mode": {"type": "string", "enum": ["replace", "append"], "description": "Replace full content or append (default: replace)"},
+                "author": {"type": "string", "description": "Author identifier"}
+            },
+            "required": ["title", "content"]
+        }
+    },
+    {
+        "name": "wiki_list",
+        "description": "List all wiki pages with metadata (chars, author, last update).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
     }
 ]
 

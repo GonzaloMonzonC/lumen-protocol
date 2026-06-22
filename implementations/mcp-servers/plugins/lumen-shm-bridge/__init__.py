@@ -1397,6 +1397,28 @@ def register(ctx) -> None:
         handler=_handle_find_duplicates,
     )
 
+    # ── Wiki tools (thinking server) ──
+    ctx.register_tool(
+        name="wiki_create", toolset="lumen-shm",
+        schema={"name":"wiki_create","description":"Create or update a wiki page in the persistent knowledge base. Markdown content survives server restarts. [LUMEN SHM]","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Wiki page title"},"content":{"type":"string","description":"Markdown content"},"author":{"type":"string","description":"Author identifier"}},"required":["title","content"]}},
+        handler=_make_thinking_handler("wiki_create"),
+    )
+    ctx.register_tool(
+        name="wiki_read", toolset="lumen-shm",
+        schema={"name":"wiki_read","description":"Read a wiki page from the persistent knowledge base by title. [LUMEN SHM]","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Wiki page title to read"}},"required":["title"]}},
+        handler=_make_thinking_handler("wiki_read"),
+    )
+    ctx.register_tool(
+        name="wiki_update", toolset="lumen-shm",
+        schema={"name":"wiki_update","description":"Update a wiki page (replace or append). Use mode=append to add new sections. [LUMEN SHM]","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Wiki page title"},"content":{"type":"string","description":"Content to write or append"},"mode":{"type":"string","enum":["replace","append"],"description":"Replace or append (default: replace)"},"author":{"type":"string","description":"Author identifier"}},"required":["title","content"]}},
+        handler=_make_thinking_handler("wiki_update"),
+    )
+    ctx.register_tool(
+        name="wiki_list", toolset="lumen-shm",
+        schema={"name":"wiki_list","description":"List all wiki pages with metadata (chars, author, last update). [LUMEN SHM]","parameters":{"type":"object","properties":{}}},
+        handler=_make_thinking_handler("wiki_list"),
+    )
+
     # ── PDBM-Lumen tools (SHM transport) ──
     pdb_schemas = [
         ("pdb_set", "MUMPS SET ^ns(subs)=value.",
@@ -1466,7 +1488,7 @@ def register(ctx) -> None:
             handler=lambda *a, _n=name, **kw: _call_pdb(_n, a[0] if a else kw),
         )
 
-    print(f"[lumen-shm-bridge] Registered 59 tools (fs: 13, thinking: 29, web: 2, pdb: 15)")
+    print(f"[lumen-shm-bridge] Registered 63 tools (fs: 13, thinking: 33, web: 2, pdb: 15)")
 
 # DEBUG PATCH
 import traceback as _tb
