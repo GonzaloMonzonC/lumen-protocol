@@ -2268,6 +2268,7 @@ def tool_work_start(args: dict) -> dict:
     session.works.append(work)
     _next_work_id += 1
     _save_works()
+    _auto_save()
 
     in_progress = sum(1 for w in session.works if w["status"] == "in_progress")
     lines = [
@@ -2290,6 +2291,7 @@ def tool_work_block(args: dict) -> dict:
             w["blocked_at"] = time.time()
             w["blocked_reason"] = reason
             _save_works()
+            _auto_save()
             return {"content": [{"type": "text", "text": f"🚫 Work #{wid} blocked: {reason}"}]}
 
     return {"content": [{"type": "text", "text": f"Error: Work #{wid} not found."}]}
@@ -2307,6 +2309,7 @@ def tool_work_done(args: dict) -> dict:
             w["done_at"] = time.time()
             w["result"] = result
             _save_works()
+            _auto_save()
             lines = [f"✅ Work #{wid} completed: {w['item']}"]
             if result:
                 lines.append(f"   Result: {result}")
