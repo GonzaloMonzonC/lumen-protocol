@@ -38,6 +38,7 @@ from collections import defaultdict, Counter
 from pathlib import Path
 from typing import Any
 import sqlite3
+import threading
 
 # ── Windows: force UTF-8 on stdout so emoji don't break MCP pipes ──
 if hasattr(sys.stdout, "reconfigure"):
@@ -149,6 +150,30 @@ _niches: dict[str, dict] = {}  # niche_id -> niche data
 _tasks: dict[str, dict] = {}   # task_id -> task data
 _next_niche_id: int = 1
 _next_task_id: int = 1
+
+def _json_snapshot() -> None:
+    """Periodic JSON snapshot for cross-process sync (dashboard)."""
+    try:
+        state = {
+            "sessions": {sid: s.to_dict() for sid, s in _sessions.items()},
+            "next_session_num": _next_session_num,
+            "preserved": _preserved,
+            "timeline": _call_timeline,
+            "presence": {sid: {"pid": 0, "last_seen": time.time(), "tool_calls": s.tool_calls, "model": s.model_name or "unknown"} for sid, s in _sessions.items()},
+            "niches": {nid: n for nid, n in _niches.items()},
+            "tasks": {tid: t for tid, t in _tasks.items()},
+            "next_niche_id": _next_niche_id,
+            "next_task_id": _next_task_id,
+            "saved_at": time.time(),
+        }
+        tmp = str(_STATE_FILE) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+        if os.path.exists(tmp):
+            os.replace(tmp, str(_STATE_FILE))
+    except Exception as e:
+        _safe_print(f"[lumen] JSON snapshot failed: {e}")
+
 def _save_state() -> None:
     """Persist all state to disk atomically."""
     global _save_counter, _json_snap_counter
@@ -156,7 +181,7 @@ def _save_state() -> None:
     _json_snap_counter += 1
     if _JSON_SNAPSHOT_INTERVAL > 0 and _json_snap_counter >= _JSON_SNAPSHOT_INTERVAL:
         _json_snap_counter = 0
-        threading.Thread(target=_pdb_snapshot, daemon=True).start()
+        threading.Thread(target=_json_snapshot, daemon=True).start()
 
     try:
         # Record timeline snapshot with hourly bucketing
