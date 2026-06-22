@@ -17,7 +17,7 @@
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 49 tools — Level 2 SHM zero-copy transport — works with Hermes</strong>
+  <strong>✅ 86 tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
 </p>
 
 ---
@@ -85,10 +85,11 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Server | JSON-RPC | LUMEN | Savings |
 |--------|----------|-------|---------|
 | Filesystem (13 tools) | 100% | 81% | **19% smaller** |
-| Thinking (34 tools) | 100% | 67% | **33% smaller** |
+| Thinking (38 tools) | 100% | 67% | **33% smaller** |
 | Web (2 tools) | 100% | 73% | **27% smaller** |
+| PDB (15 tools) | 100% | 71% | **29% smaller** |
 
-> **Benchmarked**: 49 tools, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
+> **Benchmarked**: 86 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
 
 ---
 
