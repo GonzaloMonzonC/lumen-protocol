@@ -241,6 +241,152 @@ Prevent context decay?  → context_preserve
 
 ---
 
+
+## Kanban (Project Management)
+
+### `niche_create`
+**Case**: Start a new project area.
+**Example**: "Create a niche for the auth refactor."
+**Why**: Organizes tasks into columns (Backlog, In Progress, Review, Done, Blocked).
+
+### `task_create`
+**Case**: Add a task to a niche.
+**Example**: "Create task to implement JWT validation in the auth niche."
+**Why**: Tasks live in PDB, persist across sessions, linkable to reasoning chains.
+
+### `task_move`
+**Case**: Change task status or priority.
+**Example**: "Move the JWT task to In Progress."
+
+### `task_list` / `task_search`
+**Case**: See what's pending or find a specific task.
+**Example**: "Show all high-priority tasks."
+
+### `task_link`
+**Case**: Connect a task to its reasoning chain or pattern.
+**Example**: "Link this task to the chain where we designed the fix."
+
+### `niche_list` / `niche_update` / `task_delete`
+**Case**: Manage projects — archive old ones, delete stale tasks.
+
+---
+
+## Wiki (Institutional Knowledge)
+
+### `wiki_create`
+**Case**: Document architecture, decisions, or guides.
+**Example**: "Create a wiki page explaining the PDB persistence architecture."
+**Why**: Wiki pages are permanent and survive server restarts (PDB-backed).
+
+### `wiki_read` / `wiki_update` / `wiki_list` / `wiki_delete`
+**Case**: Reference or maintain institutional knowledge.
+**Tip**: Use `wiki_update(mode="append")` for accumulating session logs.
+
+---
+
+## Patterns, Decisions & Q&A (Knowledge Artifacts)
+
+### `pattern_record`
+**Case**: Save a bug fix with reproduction steps for future reference.
+**Example**: "Record the SHM timeout fix as a pattern."
+
+### `pattern_match` / `pattern_suggest`
+**Case**: Check if a current problem matches a known pattern.
+**Why**: The system auto-suggests patterns with >30% keyword overlap.
+
+### `decision_log`
+**Case**: Document an architectural decision with rationale and alternatives.
+**Example**: "Log the decision to use PDB over JSON persistence."
+
+### `qa_ask`
+**Case**: Store a factual question and answer for quick reference.
+**Example**: "What port does the dashboard use?" -> ":9876"
+
+### `qa_list` / `qa_link`
+**Case**: Browse knowledge or link Q&A to a task/chain.
+
+---
+
+## Objectives (Agent Loop)
+
+### `objective_create`
+**Case**: Define a high-level goal with acceptance criteria.
+**Example**: "Create objective to implement OAuth2 with 3 criteria."
+**Phases**: BUILDER -> BUILDING -> TESTING -> DONE.
+
+### `objective_judge`
+**Case**: Evaluate objective quality and advance phases.
+**Tip**: `mark_done=true` auto-completes all tasks and criteria in one call.
+
+### `objective_plan`
+**Case**: Decompose an objective into subtasks.
+**Called after**: The objective passes judge in BUILDING phase.
+
+### `objective_status`
+**Case**: Check progress — phase, score, task completion bar.
+
+### `objective_task_done`
+**Case**: Mark a specific subtask as completed.
+
+---
+
+## Cognitive State & Session Management
+
+### `state_snapshot`
+**Case**: Quick health check — chains, thoughts, works, tool calls in 1 line.
+**Best for**: Session start baseline.
+
+### `state_feeling`
+**Case**: Record your cognitive state (mood, confidence, energy).
+**Why**: Persists to PDB and shows in the dashboard.
+
+### `cognitive_integrity`
+**Case**: Full system health audit — linked tasks, stale decisions, orphaned Q&A.
+**Target**: Score >=80/100.
+
+### `cognitive_pulse`
+**Case**: Detect stagnation — "Have I been stuck for 30+ minutes?"
+
+### `work_start` / `work_done` / `work_block` / `work_log`
+**Case**: Track multi-session work items.
+**Note**: `work_done` auto-triggers `session_end` when all works are complete.
+
+### `session_end`
+**Case**: Close a session with summary and cleanup ritual.
+
+---
+
+## Mental Model
+
+### `model_add`
+**Case**: Build a knowledge graph of entities and relationships.
+**Example**: "Add Thinking Server with deps=[SHM, PDB]."
+
+### `model_query` / `model_map` / `model_stats` / `model_remove` / `model_scan`
+**Case**: Explore, visualize, or prune the mental model graph.
+
+### `unified_search`
+**Case**: Search across ALL subsystems at once (tasks, patterns, decisions, Q&A, model, snapshots).
+
+---
+
+## Utilities
+
+### `context_preserve` / `context_check` / `context_estimate`
+**Case**: Anchor critical context across context compressions.
+
+### `assume` / `check_assumption` / `list_assumptions`
+**Case**: Surface and validate hidden premises during decision-making.
+
+### `tool_cache`
+**Case**: Cache expensive results (GET/SET with TTL).
+
+### `batch_call`
+**Case**: Execute multiple tools in sequence, get 1 compact output.
+
+---
+
+
 ## Golden Rule: LUMEN or Built-in?
 
 **Use LUMEN when:**
