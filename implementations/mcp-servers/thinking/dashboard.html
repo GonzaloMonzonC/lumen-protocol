@@ -480,6 +480,16 @@ function loadKanban() {
   fetch(url).then(r=>r.json()).then(d=>{
     _kanbanNiches = d.niches || [];
     _kanbanTasks = d.tasks || [];
+    // Populate dropdown with niches
+    if (_kanbanNiches.length && sel.options.length <= 1) {
+      sel.innerHTML = '<option value=\"\">Select a niche...</option>';
+      _kanbanNiches.forEach(function(n){
+        var opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = (n.archived ? '📦 ' : '') + (n.name||n.id);
+        sel.appendChild(opt);
+      });
+    }
     renderKanban();
   }).catch(e=>console.log('Kanban fetch error', e));
 }
