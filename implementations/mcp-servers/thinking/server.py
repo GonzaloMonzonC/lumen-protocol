@@ -36,6 +36,7 @@ from web_helpers import extract_page
 from collections import defaultdict, Counter
 from pathlib import Path
 from typing import Any
+import sqlite3
 
 # ── Windows: force UTF-8 on stdout so emoji don't break MCP pipes ──
 if hasattr(sys.stdout, "reconfigure"):
