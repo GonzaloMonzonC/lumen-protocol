@@ -84,10 +84,11 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 
 | Server | JSON-RPC | LUMEN | Savings |
 |--------|----------|-------|---------|
-| Filesystem (13 tools) | 100% | 81% | **19% smaller** |
-| Thinking (38 tools) | 100% | 67% | **33% smaller** |
-| Web (2 tools) | 100% | 73% | **27% smaller** |
+| Filesystem (14 tools) | 100% | 81% | **19% smaller** |
+| Thinking (47+ tools) | 100% | 67% | **33% smaller** |
+| Web (3 tools) | 100% | 73% | **27% smaller** |
 | PDB (15 tools) | 100% | 71% | **29% smaller** |
+| Objective Loop (6 tools) | 100% | 65% | **35% smaller** |
 
 > **Benchmarked**: 86 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
 
@@ -129,9 +130,10 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 |--------|-------|-------------|---------------|
 | **[Filesystem](implementations/mcp-servers/filesystem/)** | **13** 🔥 (read, write, search, stream, stats, info, du, dedup...) | 10-38% | Plugin `lumen-shm-bridge` |
 | **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 18-36% | Plugin `lumen-shm-bridge` |
-| **[Thinking](implementations/mcp-servers/thinking/)** | **34** 🔥 (chains, compact, cross-chain, model, patterns, decisions, sessions...) | 11-59% | Plugin `lumen-shm-bridge` |
+| **[Thinking](implementations/mcp-servers/thinking/)** | **47** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
+| **[Objective Loop](implementations/mcp-servers/thinking/objective_loop.py)** | **6** (create, judge, plan, status, task_done, checklist) | auto | Plugin `lumen-shm-bridge` |
 
-> **49 tools, 3 servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
+> **70+ tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
 ---
 
@@ -174,9 +176,9 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **49 tools** across filesystem (**13**), web (2), thinking (**34**) |
-| SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=50M, sub-ms latency |
-| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 49 tools, transparent override of built-ins |
+| MCP servers | ✅ | **70+ tools** across filesystem (**14**), web (3), thinking (**47+**), objective loop (**6**), PDB (**15**) |
+| SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
+| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 70+ tools, transparent override of built-ins |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
@@ -224,7 +226,7 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | **[RFC_LUMEN.md](RFC_LUMEN.md)** | Formal IETF-style protocol RFC |
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |
 | **[HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)** | Hermes Agent setup guide |
-| **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 47-tool reference |
+| **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 70+ tool reference |
 | **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** | Consolidated benchmarks (3,407 calls/sec) |
 | **[docs/enterprise-stress-testing-2026-06-20.md](docs/enterprise-stress-testing-2026-06-20.md)** | 6 enterprise scenarios, 20K calls/sec |
 | **[docs/token-efficient-tools-2026-06-20.md](docs/token-efficient-tools-2026-06-20.md)** | 5 token-efficient tools (90% output savings) |
@@ -233,7 +235,7 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | **[implementations/hermes-plugins/](implementations/hermes-plugins/)** | Plugin source (lumen-shm-bridge) |
 | **[examples/](examples/)** | Runnable demos with bilingual READMEs |
 | **[implementations/mcp-servers/](implementations/mcp-servers/)** | MCP server implementations |
-| **[implementations/mcp-servers/TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md)** | 49-tool reference with schemas |
+| **[implementations/mcp-servers/TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md)** | 70+ tool reference with schemas |
 | **[docs/lumen_thinking_usage.md](docs/lumen_thinking_usage.md)** | Thinking server usage guide |
 | **[acta_revision_1_2026-06-20.md](acta_revision_1_2026-06-20.md)** | Cognitive OS review acta (ES) |
 
