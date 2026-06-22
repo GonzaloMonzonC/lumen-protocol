@@ -2342,6 +2342,17 @@ def tool_work_done(args: dict) -> dict:
             lines = [f"✅ Work #{wid} completed: {w['item']}"]
             if result:
                 lines.append(f"   Result: {result}")
+            done_count = sum(1 for x in session.works if x["status"]=="done")
+            in_progress_count = sum(1 for x in session.works if x["status"]=="in_progress")
+            blocked_count = sum(1 for x in session.works if x["status"]=="blocked")
+            lines.append(f"   📊 {done_count} done, {in_progress_count} in progress, {blocked_count} blocked")
+            if in_progress_count == 0 and blocked_count == 0:
+                try:
+                    _end = tool_session_end({"session_id": args.get("session_id","")})
+                    _msg = "".join(item.get("text","") for item in _end.get("content",[]) if isinstance(item,dict) and item.get("type")=="text")
+                    lines.append(f"   🧠 Auto session_end: {_msg[:60]}")
+                except Exception:
+                    pass
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
     return {"content": [{"type": "text", "text": f"Error: Work #{wid} not found."}]}
