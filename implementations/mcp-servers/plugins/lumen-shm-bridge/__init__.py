@@ -1414,6 +1414,11 @@ def register(ctx) -> None:
         handler=_make_thinking_handler("wiki_update"),
     )
     ctx.register_tool(
+        name="wiki_delete", toolset="lumen-shm",
+        schema={"name":"wiki_delete","description":"Delete a wiki page permanently from the knowledge base. [LUMEN SHM]","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Wiki page title to delete"}},"required":["title"]}},
+        handler=_make_thinking_handler("wiki_delete"),
+    )
+    ctx.register_tool(
         name="wiki_list", toolset="lumen-shm",
         schema={"name":"wiki_list","description":"List all wiki pages with metadata (chars, author, last update). [LUMEN SHM]","parameters":{"type":"object","properties":{}}},
         handler=_make_thinking_handler("wiki_list"),
@@ -1488,7 +1493,7 @@ def register(ctx) -> None:
             handler=lambda *a, _n=name, **kw: _call_pdb(_n, a[0] if a else kw),
         )
 
-    print(f"[lumen-shm-bridge] Registered 63 tools (fs: 13, thinking: 33, web: 2, pdb: 15)")
+    print(f"[lumen-shm-bridge] Registered 64 tools (fs: 13, thinking: 34, web: 2, pdb: 15)")
 
 # DEBUG PATCH
 import traceback as _tb

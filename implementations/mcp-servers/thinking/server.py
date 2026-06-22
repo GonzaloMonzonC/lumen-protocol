@@ -886,6 +886,17 @@ TOOLS = [
         }
     },
     {
+        "name": "wiki_delete",
+        "description": "Delete a wiki page permanently from the knowledge base.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Wiki page title to delete"}
+            },
+            "required": ["title"]
+        }
+    },
+    {
         "name": "wiki_list",
         "description": "List all wiki pages with metadata (chars, author, last update).",
         "inputSchema": {
@@ -2514,6 +2525,15 @@ def tool_wiki_update(args: dict) -> dict:
     session.wiki[title]["updated_at"] = time.time(); session.wiki[title]["author"] = author
     return {"content": [{"type": "text", "text": f"Updated wiki: {title} ({len(session.wiki[title]['content'])} chars)"}]}
 
+def tool_wiki_delete(args: dict) -> dict:
+    """Delete a wiki page permanently."""
+    session = _get_session(args.get("session_id"))
+    title = args.get("title", "").strip()
+    if not title: return {"content": [{"type": "text", "text": "Error: 'title' required."}]}
+    if title not in session.wiki: return {"content": [{"type": "text", "text": f"Page '{title}' not found."}]}
+    del session.wiki[title]
+    return {"content": [{"type": "text", "text": f"Deleted wiki: {title}"}]}
+
 def tool_wiki_list(args: dict) -> dict:
     session = _get_session(args.get("session_id"))
     if not session.wiki: return {"content": [{"type": "text", "text": "No wiki pages yet."}]}
@@ -3274,6 +3294,7 @@ HANDLERS = {
     "wiki_create": tool_wiki_create,
     "wiki_read": tool_wiki_read,
     "wiki_update": tool_wiki_update,
+    "wiki_delete": tool_wiki_delete,
     "wiki_list": tool_wiki_list,
     "state_snapshot": tool_state_snapshot,
     "thought_compress": tool_thought_compress,
