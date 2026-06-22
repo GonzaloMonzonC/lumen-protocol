@@ -2,7 +2,7 @@
 
 **Production-ready MCP servers** using LUMEN binary protocol with Level 2 zero-copy shared memory transport.
 
-✅ **Status: Production** — 44 tools across 3 servers. SHM transport benchmarked at 9× faster than Hermes built-ins.
+✅ **Status: Production** — 86 tools across 4 servers. SHM transport benchmarked at 9× faster than Hermes built-ins.
 Sandboxing, session isolation, Windows parity, and reproducible benchmarks complete.
 
 Three transport modes per server:
@@ -17,11 +17,14 @@ Three transport modes per server:
 
 | Server | Tools | Key Features |
 |--------|-------|--------------|
-| **[Filesystem](filesystem/)** 🔥 | **13** | `read_files` (bulk), `search_with_context`, `stream_read`, `server_stats` — **plus 4 new Windows-parity tools:** `file_info`, `disk_usage`, `search_filename`, `find_duplicates` |
+| **[Filesystem](filesystem/)** 🔥 | **13** | Bulk reads (`read_files`), context search (`search_with_context`), streaming (`stream_read`), Windows-parity tools (`file_info`, `disk_usage`, `search_filename`, `find_duplicates`) |
 | **[Web](web/)** | 2 | `web_search` + `web_extract` combined, zero API keys required |
-| **[Thinking](thinking/)** 🔥 | **29** | Sequential reasoning chains with branches, cross-chain bridges, TF-IDF similarity, contradiction detection, mental model builder, assumptions tracker, pattern memory, decision log, work tracker, session isolation, context preservation |
+| **[PDB](pdb/)** 🔥 | **15** | MUMPS-compatible process database with SQLite backend. CRUD: `pdb_get`, `pdb_set`, `pdb_kill`, `pdb_order`, full-text search via `pdb_fts_search` |
+| **[Thinking](thinking/)** 🔥 | **48** | Reasoning chains (branching, bridges, TF-IDF, contradiction detection), Agent Loop (5 tools), wiki CRUD, kanban, Q&A, assumption tracker, mental model, work tracking, pattern memory, session isolation |
 
-**44 tools across 3 servers. Standard library only — no external dependencies.**
+| **Total** | **86** | 4 servers, 0 external dependencies, Level 2 SHM zero-copy |
+
+**86 tools across 4 servers. Standard library only — no external dependencies.**
 
 ## Benchmark Results (June 2026)
 
@@ -89,7 +92,7 @@ python implementations/mcp-servers/thinking/server_shm.py
 
 ## Hermes Agent Integration
 
-### Via Plugin (Recommended — all 44 tools, zero-copy SHM)
+### Via Plugin (Recommended — all 86 tools, zero-copy SHM)
 
 ```yaml
 plugins:
