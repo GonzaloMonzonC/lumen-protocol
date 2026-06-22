@@ -134,6 +134,22 @@ def tool_objective_create(args: dict) -> dict:
         for q in result["questions"]:
             lines.append(f"   ❓ {q}")
 
+    # Persist to PDB immediately (direct SQLite, no server dependency)
+    try:
+        import sqlite3, json, os
+        _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
+        _conn = sqlite3.connect(_pdb_path)
+        # Save objectives
+        for _gid, _obj in _objectives.items():
+            _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         ('STATE', f'global:objective:{_gid}'.encode(), json.dumps(_obj).encode()))
+        _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     ('STATE', b'global:objective_meta', json.dumps({'next_id': _next_objective_id}).encode()))
+        _conn.commit()
+        _conn.close()
+    except Exception as _e:
+        print(f'[objective-loop] PDB save failed: {_e}')
+
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
@@ -186,6 +202,22 @@ def tool_objective_judge(args: dict) -> dict:
         for q in result["questions"]:
             lines.append(f"   ❓ {q}")
 
+    # Persist to PDB immediately (direct SQLite, no server dependency)
+    try:
+        import sqlite3, json, os
+        _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
+        _conn = sqlite3.connect(_pdb_path)
+        # Save objectives
+        for _gid, _obj in _objectives.items():
+            _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         ('STATE', f'global:objective:{_gid}'.encode(), json.dumps(_obj).encode()))
+        _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     ('STATE', b'global:objective_meta', json.dumps({'next_id': _next_objective_id}).encode()))
+        _conn.commit()
+        _conn.close()
+    except Exception as _e:
+        print(f'[objective-loop] PDB save failed: {_e}')
+
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
@@ -232,6 +264,22 @@ def tool_objective_plan(args: dict) -> dict:
              f"   {len(tasks)} tasks created:"]
     for t in tasks:
         lines.append(f"   • {t['title']}")
+
+    # Persist to PDB immediately (direct SQLite, no server dependency)
+    try:
+        import sqlite3, json, os
+        _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
+        _conn = sqlite3.connect(_pdb_path)
+        # Save objectives
+        for _gid, _obj in _objectives.items():
+            _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         ('STATE', f'global:objective:{_gid}'.encode(), json.dumps(_obj).encode()))
+        _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     ('STATE', b'global:objective_meta', json.dumps({'next_id': _next_objective_id}).encode()))
+        _conn.commit()
+        _conn.close()
+    except Exception as _e:
+        print(f'[objective-loop] PDB save failed: {_e}')
 
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
