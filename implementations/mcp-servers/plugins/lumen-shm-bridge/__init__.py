@@ -1397,6 +1397,28 @@ def register(ctx) -> None:
         handler=_handle_find_duplicates,
     )
 
+    # ── Agent Loop tools ──
+    ctx.register_tool(
+        name="objective_create", toolset="lumen-shm",
+        schema={"name":"objective_create","description":"Create a cognitive objective with acceptance criteria. Starts the Agent Loop in BUILDER phase for iterative refinement.","inputSchema":{"type":"object","properties":{"title":{"type":"string","description":"Goal title"},"description":{"type":"string","description":"Detailed description"},"criteria":{"type":"array","items":{"type":"string"},"description":"Acceptance criteria"}},"required":["title"]}},
+        handler=_make_thinking_handler("objective_create"),
+    )
+    ctx.register_tool(
+        name="objective_judge", toolset="lumen-shm",
+        schema={"name":"objective_judge","description":"Judge the objective: evaluate clarity/completeness and return score 0-10 + verdict. In BUILDING phase, decides loop or move to TESTING.","inputSchema":{"type":"object","properties":{"goal_id":{"type":"string","description":"Objective ID to evaluate"}},"required":["goal_id"]}},
+        handler=_make_thinking_handler("objective_judge"),
+    )
+    ctx.register_tool(
+        name="objective_plan", toolset="lumen-shm",
+        schema={"name":"objective_plan","description":"Plan the objective: decompose into subtasks based on acceptance criteria.","inputSchema":{"type":"object","properties":{"goal_id":{"type":"string","description":"Objective ID to plan"}},"required":["goal_id"]}},
+        handler=_make_thinking_handler("objective_plan"),
+    )
+    ctx.register_tool(
+        name="objective_status", toolset="lumen-shm",
+        schema={"name":"objective_status","description":"Show objective progress: phase, score, task completion bar.","inputSchema":{"type":"object","properties":{"goal_id":{"type":"string","description":"Optional: specific objective ID"}}}},
+        handler=_make_thinking_handler("objective_status"),
+    )
+
     # ── Wiki tools (thinking server) ──
     ctx.register_tool(
         name="wiki_create", toolset="lumen-shm",
@@ -1493,7 +1515,7 @@ def register(ctx) -> None:
             handler=lambda *a, _n=name, **kw: _call_pdb(_n, a[0] if a else kw),
         )
 
-    print(f"[lumen-shm-bridge] Registered 64 tools (fs: 13, thinking: 34, web: 2, pdb: 15)")
+    print(f"[lumen-shm-bridge] Registered 68 tools (fs: 13, thinking: 38, web: 2, pdb: 15)")
 
 # DEBUG PATCH
 import traceback as _tb

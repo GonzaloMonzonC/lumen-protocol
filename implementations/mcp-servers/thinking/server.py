@@ -33,6 +33,7 @@ import re
 import math
 import time
 from web_helpers import extract_page
+from objective_loop import (OBJECTIVE_HANDLERS, OBJECTIVE_SCHEMAS, get_objective_state, load_objective_state)
 from collections import defaultdict, Counter
 from pathlib import Path
 from typing import Any
@@ -191,6 +192,7 @@ def _save_state() -> None:
             "next_niche_id": _next_niche_id,
             "next_task_id": _next_task_id,
             "saved_at": time.time(),
+            **get_objective_state(),
         }
         tmp = str(_STATE_FILE) + ".tmp"
         # Clean up stale tmp file if it exists
@@ -342,6 +344,7 @@ def _load_state() -> bool:
         _loaded_from_disk = True
         global _file_claims
         _file_claims = state.get("file_claims", {})
+        load_objective_state(state)
         _last_state_mtime = _STATE_FILE.stat().st_mtime if _STATE_FILE.exists() else 0.0
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
@@ -1006,7 +1009,7 @@ TOOLS = [
             "properties": {}
         }
     }
-]
+] + OBJECTIVE_SCHEMAS
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3423,6 +3426,7 @@ HANDLERS = {
      "task_delete": tool_task_delete,
      "kanban_stats": tool_kanban_stats,
      "task_search": tool_task_search,
+    **OBJECTIVE_HANDLERS,
 }
 
 
