@@ -1,6 +1,6 @@
 # LUMEN + Hermes Agent — Installation Guide
 
-> **Status**: ✅ Production-ready — 29 tools across 3 MCP servers.  
+> **Status**: ✅ Production-ready — 86 tools across 4 MCP servers (filesystem, thinking, web, PDB).  
 > **PR**: [NousResearch/hermes-agent#47740](https://github.com/NousResearch/hermes-agent/pull/47740)  
 > **Native LUMEN binary**: ✅ Working on Windows, Mac, Linux
 
@@ -62,7 +62,7 @@ mcp_servers:
 
 After reset, the agent will show:
 ```
-⚡ LUMEN tools active: filesystem (9), web (2), thinking (18) — 29 total
+⚡ LUMEN tools active: filesystem (13), web (2), thinking (48), PDB (15) — 86 total
 ```
 
 ---
@@ -71,9 +71,9 @@ After reset, the agent will show:
 
 | Server | Tools | Wire Savings | Key Features |
 |--------|-------|-------------|-------------|
-| **Filesystem** | 9 | 32-70% | Bulk reads, context search, streaming, health metrics |
+| **Filesystem** | 13 | 32-70% | Bulk reads, context search, streaming, health metrics |
 | **Web** | 2 | 40-50% | Search + extract in 1 call, no API key |
-| **Thinking** | 18 | 60-80% | External reasoning, assumption tracker, mental model, context preservation |
+| **Thinking** | 48 | 60-80% | External reasoning, assumption tracker, mental model, context preservation |
 
 ---
 
