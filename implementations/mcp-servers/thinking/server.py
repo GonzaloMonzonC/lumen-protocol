@@ -124,7 +124,9 @@ _next_session_num = 1
 # ═══════════════════════════════════════════════════════════════════════
 
 _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
+_PDB_PATH = Path(__file__).parent.parent / "pdb" / "lumen-pdb.db"  # shared PDB database
 _SAVE_INTERVAL = 10  # auto-save every N tool calls
+_PDB_SNAPSHOT_INTERVAL = 5  # PDB snapshot every N saves (0=disable)
 _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
@@ -144,8 +146,13 @@ _next_niche_id: int = 1
 _next_task_id: int = 1
 def _save_state() -> None:
     """Persist all state to disk atomically."""
-    global _save_counter
+    global _save_counter, _pdb_snap_counter
     _save_counter = 0
+    _pdb_snap_counter += 1
+    if _PDB_SNAPSHOT_INTERVAL > 0 and _pdb_snap_counter >= _PDB_SNAPSHOT_INTERVAL:
+        _pdb_snap_counter = 0
+        threading.Thread(target=_pdb_snapshot, daemon=True).start()
+
     try:
         # Record timeline snapshot with hourly bucketing
         total_calls = sum(s.tool_calls for s in _sessions.values())
@@ -211,10 +218,104 @@ def _save_state() -> None:
     except Exception as e:
         _safe_print(f"[lumen-thinking] Failed to save state: {e}")
 
+_pdb_snap_counter = 0
+
+def _pdb_snapshot() -> None:
+    """Write thinking state to PDB. Runs in daemon thread, 0 LLM tokens."""
+    try:
+        conn = sqlite3.connect(str(_PDB_PATH))
+        conn.execute("DELETE FROM _globals WHERE ns='SNAPSHOT'")
+        now = time.time()
+        pairs = []
+        for sid, sess in _sessions.items():
+            for cid, chain in sess.chains.items():
+                v = json.dumps(chain)
+                pairs.append(("SNAPSHOT", f"c:{cid}".encode(), v.encode()))
+            for d in sess.decisions:
+                v = json.dumps(d)
+                pairs.append(("SNAPSHOT", f"d:{d['id']}".encode(), v.encode()))
+            for a in sess.assumptions:
+                v = json.dumps(a)
+                pairs.append(("SNAPSHOT", f"a:{a['id']}".encode(), v.encode()))
+            for w in sess.works:
+                v = json.dumps(w)
+                pairs.append(("SNAPSHOT", f"w:{w['id']}".encode(), v.encode()))
+            for pat in sess.patterns:
+                v = json.dumps(pat)
+                pairs.append(("SNAPSHOT", f"p:{pat.get('name','?')}".encode(), v.encode()))
+            for title, page in sess.wiki.items():
+                v = json.dumps(page)
+                pairs.append(("SNAPSHOT", f"wiki:{title}".encode(), v.encode()))
+            for name, entity in sess.model.items():
+                v = json.dumps(entity)
+                pairs.append(("SNAPSHOT", f"m:{name}".encode(), v.encode()))
+        conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[lumen-thinking] PDB snapshot FAILED: {e}", file=sys.stderr)
+
+def _pdb_load_snapshot() -> dict | None:
+    """Recover state from PDB backup. Returns None if no backup found."""
+    try:
+        if not _PDB_PATH.exists():
+            return None
+        conn = sqlite3.connect(str(_PDB_PATH))
+        rows = conn.execute("SELECT subkey, value FROM _globals WHERE ns='SNAPSHOT'").fetchall()
+        conn.close()
+        if not rows:
+            return None
+        chains, decisions, assumptions, works, patterns, wiki, model = {}, [], [], [], [], {}, {}
+        for sk, val in rows:
+            sk = sk.decode() if isinstance(sk, bytes) else sk
+            val = val.decode() if isinstance(val, bytes) else val
+            try:
+                v = json.loads(val)
+            except Exception:
+                continue
+            if sk.startswith("c:"):
+                chains[sk[2:]] = v
+            elif sk.startswith("d:"):
+                decisions.append(v)
+            elif sk.startswith("a:"):
+                assumptions.append(v)
+            elif sk.startswith("w:"):
+                works.append(v)
+            elif sk.startswith("p:"):
+                patterns.append(v)
+            elif sk.startswith("wiki:"):
+                wiki[sk[5:]] = v
+            elif sk.startswith("m:"):
+                model[sk[2:]] = v
+        return {"chains": chains, "decisions": decisions, "assumptions": assumptions,
+                "works": works, "patterns": patterns, "wiki": wiki, "model": model}
+    except Exception as e:
+        print(f"[lumen-thinking] PDB load FAILED: {e}", file=sys.stderr)
+        return None
+
+
 def _load_state() -> bool:
     """Restore state from disk. Returns True if state was loaded."""
     global _sessions, _next_session_num, _preserved, _loaded_from_disk
     if not _STATE_FILE.exists():
+        _safe_print("[lumen-thinking] No JSON state, trying PDB...")
+        pdb = _pdb_load_snapshot()
+        if pdb:
+            _safe_print("[lumen-thinking] Recovered from PDB snapshot!")
+            sess = Session("default")
+            sess.chains = pdb.get("chains", {})
+            sess.decisions = pdb.get("decisions", [])
+            sess.assumptions = pdb.get("assumptions", [])
+            sess.works = pdb.get("works", [])
+            sess.patterns = pdb.get("patterns", [])
+            sess.wiki = pdb.get("wiki", {})
+            sess.model = pdb.get("model", {})
+            sess.created_at = time.time()
+            _sessions["default"] = sess
+            if sess.works:
+                global _next_work_id
+                _next_work_id = max(w["id"] for w in sess.works) + 1
+            return True
         _safe_print("[lumen-thinking] No saved state found — starting fresh.")
         return False
     try:
