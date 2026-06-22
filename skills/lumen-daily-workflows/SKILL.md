@@ -185,7 +185,9 @@ Each item has: tool, description, phase (before/during/after), required (bool).
 |--------|---------------|-----|
 | **Before** (pre-flight) | `work_start`, `sequential_thinking`, `context_preserve` | No empiezo sin registrar |
 | **During** (findings) | `pattern_record`, `decision_log`, `model_add` | No descubro sin guardar |
-| **After** (post-flight) | `work_done`, `task_move`, `pattern_record` | No termino sin cerrar |
+| **After** (post-flight) | `work_done(work_id=N)`, `task_move(...)`, `pattern_record()` | No termino sin cerrar |
+
+See `process-database` skill reference: `references/pdb-checklist-pattern.md` for full namespace docs and examples.
 
 ## Proactive System Behavior
 
