@@ -2217,16 +2217,19 @@ def tool_context_check(args: dict) -> dict:
 # Work Tracker — persistent work log across sessions
 # ═══════════════════════════════════════════════════════════════════════
 
-_works: list[dict] = []
 _next_work_id = 1
-WORK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".work_log.json")
+WORK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".work_log.json")  # legacy
 
 def _load_works():
-    """Load persisted work log from disk."""
+    """Load persisted work log. Now handled by PDB-first - works loaded via _pdb_load_all()."""
     global _next_work_id
     session = _get_session()
+    # Set next_work_id from existing works
+    if session.works:
+        _next_work_id = max(w["id"] for w in session.works) + 1
+    # Legacy: migrate from .work_log.json if it exists and session has no works
     try:
-        if os.path.exists(WORK_FILE):
+        if os.path.exists(WORK_FILE) and not session.works:
             with open(WORK_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 session.works = data.get("works", [])
@@ -2235,14 +2238,8 @@ def _load_works():
         pass
 
 def _save_works():
-    """Persist work log to disk."""
-    session = _get_session()
-    try:
-        os.makedirs(os.path.dirname(WORK_FILE), exist_ok=True)
-        with open(WORK_FILE, 'w', encoding='utf-8') as f:
-            json.dump({"works": session.works, "next_id": _next_work_id}, f, indent=2)
-    except Exception:
-        pass
+    """Works are now persisted via PDB-first (_pdb_save_all → to_dict → works)."""
+    pass
 
 _load_works()
 
@@ -4636,6 +4633,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 "model": sess.model_name or "unknown",
                 "created_at": sess.created_at,
                 "updated_at": sess.updated_at,
+                "feeling": sess.feeling,
             }
         
         # Rich chain detail: scores, thoughts, branches, revisions, previews
