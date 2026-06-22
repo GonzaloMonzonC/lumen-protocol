@@ -3593,9 +3593,6 @@ def tool_pattern_suggest(args: dict) -> dict:
     
     # Collect all patterns from all sessions
     all_patterns = list(session.patterns)
-    for sid, s in _sessions.items():
-        if sid != session.session_id:
-            all_patterns.extend(s.patterns)
     
     if not all_patterns:
         return {"content": [{"type": "text", "text": "No patterns recorded yet. Use pattern_record to save fixes."}]}
