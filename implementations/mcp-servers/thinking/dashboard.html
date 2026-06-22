@@ -156,6 +156,10 @@ function escapeHtml(text) {
 </div>
 
 
+<div class="glass"><h3 class="section-toggle" onclick="toggleSection('objectives-content')"><span class="arrow">▼</span> 🎯 Agent Loop <span class="summ" id="summary-objectives"></span></h3>
+<div class="collapsible" id="objectives-content" style="max-height:3000px">
+<div id="objectives-list"><div class="dim" style="font-size:11px">No objectives. Use objective_create in agent to create one.</div></div>
+</div></div>
 <div class="glass"><h3 class="section-toggle" onclick="toggleSection('kanban-content')"><span class="arrow">▼</span> 📋 Kanban <span class="summ" id="summary-kanban"></span></h3>
 <div class="collapsible" id="kanban-content" style="max-height:3000px">
 <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
@@ -348,6 +352,29 @@ window.renderData = function renderData(d) {
   const mt=document.getElementById('mem-t');if(mt)mt.textContent=t.thoughts||0;
   const mc=document.getElementById('mem-c');if(mc)mc.textContent=t.chains||0;
   const ms=document.getElementById('mem-s');if(ms)ms.textContent=d.sessions||0;
+  // Objectives (Agent Loop)
+  const objectives = d.objectives||[];
+  const ol = document.getElementById('objectives-list');
+  if(ol) {
+    const total = objectives.length;
+    const done = objectives.filter(o=>o.phase==='done').length;
+    document.getElementById('summary-objectives').textContent = done + '/' + total + ' done';
+    ol.innerHTML = objectives.map(o => {
+      const phaseIcon = {builder:'🔵',building:'⚙️',testing:'🧪',done:'✅'}[o.phase]||'❓';
+      const barLen = 10;
+      const doneBar = o.tasks_total ? Math.round((o.tasks_done / o.tasks_total) * barLen) : 0;
+      const bar = '█'.repeat(doneBar) + '░'.repeat(barLen - doneBar);
+      return '<div class="card">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span>' + phaseIcon + ' <strong>' + (o.title||'') + '</strong></span>' +
+        '<span class="mono" style="color:' + (o.score >= 8 ? 'var(--green)' : o.score >= 5 ? 'var(--yellow)' : 'var(--red)') + '">' + o.score + '/10</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--dim);margin-top:4px">' + o.phase.toUpperCase() + ' · ' + o.criteria + ' criteria</div>' +
+        '<div style="font-size:10px;margin-top:4px;font-family:monospace">' + bar + ' ' + o.tasks_done + '/' + o.tasks_total + '</div>' +
+        '</div>';
+    }).join('') || '<div class="dim" style="font-size:11px">No objectives. Use objective_create in agent to create one.</div>';
+  }
+
   // Collisions, Claims, Bridges, Preserved
   const col=document.getElementById('collisions-list');if(col)col.innerHTML=(d.collisions||[]).length?(d.collisions||[]).map(x=>'<div>'+x+'</div>').join(''):'<div class="dim" style="font-size:11px">No collisions</div>';
   // Bridges
