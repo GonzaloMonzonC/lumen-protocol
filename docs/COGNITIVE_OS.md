@@ -2,7 +2,7 @@
 
 > **Versión**: 3.0 | **Fecha**: 2026-06-19
 > **Transport**: LUMEN Level 2 — Shared Memory (mmap ring buffers, zero-copy)
-> **Tools**: 32 thinking + 13 filesystem + 2 web = **47 tools total**
+> **Tools**: 48 thinking + 13 filesystem + 2 web + 15 PDB = **78 tools total**
 > **Plugin**: `lumen-shm-bridge` (Hermes Agent)
 
 ---
@@ -59,11 +59,11 @@ Hermes Agent ──► kernel ──► bash ──► kernel ──► file
 
 ## 🗺️ Arquitectura de 47 Tools
 
-### Thinking Server — 32 tools
+### Thinking Server — 48 tools
 
 | Subsistema | Tools | Propósito |
 |------------|-------|-----------|
-| **Reasoning Chain Engine** (7) | `sequential_thinking`, `thought_similarity`, `thought_contradiction`, `thought_summarize`, `thought_to_plan`, `thought_evaluate`, `thought_bridge` | Razonamiento estructurado externo |
+| **Reasoning Chain Engine** (9) | `sequential_thinking`, `thought_similarity`, `thought_contradiction`, `thought_summarize`, `thought_to_plan`, `thought_evaluate`, `thought_bridge` | Razonamiento estructurado externo |
 | **Assumption Tracker** (3) | `assume`, `list_assumptions`, `check_assumption` | Superficie de premisas ocultas |
 | **Mental Model Builder** (6) | `model_add`, `model_query`, `model_stats`, `model_map`, `model_remove`, `model_scan` | Grafo de conocimiento persistente |
 | **Context Preservation** (3) | `context_preserve`, `context_check`, `context_estimate` | Anclaje cross-session |
@@ -71,6 +71,11 @@ Hermes Agent ──► kernel ──► bash ──► kernel ──► file
 | **Session Management** (2) | `session_init`, `session_list` | Aislamiento multi-agente |
 | **Pattern Memory** (2) | `pattern_record`, `pattern_match` | Memoria institucional + global store |
 | **Decision Log** (2) | `decision_log`, `decision_list` | Decisiones con triggers de revisita |
+| **Kanban Cognitive** (7) | `niche_create`, `niche_list`, `niche_update`, `task_create`, `task_move`, `task_list`, `task_link` | Organización por nichos cognitivos |
+| **Agent Loop** (5) | `objective_create`, `objective_judge`, `objective_plan`, `objective_status`, `objective_task_done` | Mini-agentes autónomos de objetivos |
+| **Web Snapshots** (2) | `web_snapshot`, `web_snapshots_list` | Captura persistente de páginas web |
+| **Q&A** (3) | `qa_ask`, `qa_list`, `qa_link` | Pares pregunta-respuesta persistentes |
+| **Token-Efficient** (5) | `state_snapshot`, `thought_compress`, `chain_diff`, `tool_cache`, `batch_call` | Operaciones con 90-95% menos tokens |
 | **Cross-Session Comms** (3) | `agent_message`, `agent_inbox`, `collision_check` | 🆕 Mensajería entre agentes + detección de conflictos |
 
 ### Filesystem Server — 13 tools
@@ -80,6 +85,10 @@ Hermes Agent ──► kernel ──► bash ──► kernel ──► file
 ### Web Server — 2 tools
 
 `web_search`, `web_extract`
+
+### PDB Server — 15 tools
+
+MUMPS-compatible process database with SQLite backend. Full CRUD: pdb_get, pdb_set, pdb_kill, pdb_order, pdb_data, pdb_incr, pdb_merge, pdb_query, pdb_schema, pdb_fts_search, pdb_backup, pdb_batch_set.
 
 ---
 
