@@ -1,7 +1,7 @@
 ---
 name: lumen-daily-workflows
 description: 'Core daily LUMEN workflows — problem-solving, decision-making, debugging, learning, multi-session tasks, and wiki building. The 6 workflows you need every session.'
-version: 1.0.0
+version: 1.1.0
 author: Cadences Lab
 platforms: [linux, macos, windows]
 metadata:
@@ -117,7 +117,7 @@ Session Start:
 
 **When**: Building persistent knowledge — architecture docs, bug reports, institutional memory.
 
-**MCP Tools**: wiki_create, wiki_read, wiki_update, wiki_delete, wiki_list (64 MCP tools total).
+**MCP Tools**: wiki_create, wiki_read, wiki_update, wiki_delete, wiki_list (64 MCP tools total, 5 wiki tools).
 
 ### When to Use Wiki vs Other Tools
 
@@ -162,13 +162,30 @@ wiki_update("Session Log", "\n## Achievements\n- ...", mode="append")
 
 Every session starts with this sequence:
 
+```python
+# 1. Pre-flight checklist (PDB-backed)
+checklist("session_start")  # work_log → objective_status → state_snapshot → decision_list
+
+# 2. Load context
+pdb_scratch_get("session_state")  # last session context
+
+# 3. Choose checklist by task type (PDB-backed)
+checklist("feature")   # for new features
+checklist("bug_fix")   # for bug fixes  
+checklist("research")  # for investigations
+checklist("audit")     # for audits
 ```
-1. wiki_list() — institutional knowledge
-2. pdb_scratch_get("session_state") — last session context
-3. work_log() — pending work items
-4. state_snapshot() — system health baseline
-5. Load relevant skills: lumen-daily-workflows, process-database
-```
+
+The checklists live in PDB namespace `CHECKLIST("def", "{type}")` and persist across sessions.
+Each item has: tool, description, phase (before/during/after), required (bool).
+
+**Three moments — mandatory:**
+
+| Moment | Required tools | Why |
+|--------|---------------|-----|
+| **Before** (pre-flight) | `work_start`, `sequential_thinking`, `context_preserve` | No empiezo sin registrar |
+| **During** (findings) | `pattern_record`, `decision_log`, `model_add` | No descubro sin guardar |
+| **After** (post-flight) | `work_done`, `task_move`, `pattern_record` | No termino sin cerrar |
 
 ## Proactive System Behavior
 
