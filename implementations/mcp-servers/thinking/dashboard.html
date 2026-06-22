@@ -214,9 +214,11 @@ function escapeHtml(text) {
 </div>
 <div class="grid2">
   <div class="glass"><h3>💾 Preserved</h3><div id="preserved-list"><div class="dim" style="font-size:11px">No contexts preserved</div></div></div>
-  <div class="glass"><h3>🧠 Model</h3><div id="model-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>📋 Decisions</h3><div id="decisions-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
+  <div class="glass"><h3>🧠 Model</h3><div id="model-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
+  <div class="glass"><h3>📋 Decisions</h3><div id="decisions-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
+  <div class="glass"><h3>🔍 Patterns</h3><div id="patterns-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
   <div class="glass"><h3>⏳ Assumptions</h3><div id="assumptions-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
+  <div class="glass"><h3>❓ Q&A</h3><div id="qa-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
   <div class="glass"><h3>👥 Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
 </div>
 <div class="grid2">
@@ -407,6 +409,16 @@ window.renderData = function renderData(d) {
   const model=d.model||{};
   const mo=document.getElementById('model-list');
   if(mo)mo.innerHTML=Object.entries(model).slice(0,25).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
+  // Patterns (from /metrics)
+  const patterns=d.patterns||[];
+  const pl=document.getElementById("patterns-list");
+  if(pl)pl.innerHTML=patterns.slice(0,20).map(p=>'<div class="chain-row" style="cursor:pointer" onclick="showPattern(''+p.name+'')"><span class="mono" style="font-size:9px;color:var(--purp)">'+p.name.slice(0,20)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.description||'').slice(0,40)+'</span></div>").join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No patterns</div>';
+
+  // Q&A (from /metrics)
+  const qaPairs=d.qa_pairs||[];
+  const ql=document.getElementById("qa-list");
+  if(ql)ql.innerHTML=qaPairs.slice(0,20).map(q=>'<div class="chain-row" style="cursor:pointer" onclick="showQA(''+q.id+'')"><span class="dim" style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.question||'').slice(0,45)+'</span><span class="tag mono" style="font-size:8px">'+(q.tags||[]).slice(0,2).join(",")+'</span></div>').join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No Q&A</div>';
+
   // Decisions — fetch from /decisions endpoint
   fetch('/decisions').then(r=>r.json()).then(dd=>{
     const de=document.getElementById('decisions-list');
@@ -438,6 +450,25 @@ refresh(); loadKanban();
 function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||c.error)return;
   const thoughts=(c.thoughts||[]).map(t=>`<div class="chain-row"><span class="mono ${t.score?'green':''}" style="font-size:10px">#${t.number}</span><span style="font-size:11px;flex:1;margin:0 8px">${t.thought}</span>${t.score?`<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">${t.score}★</span>`:''}${t.is_revision?'<span class="tag" style="background:rgba(168,85,247,.15);color:var(--purp)">rev</span>':''}${t.has_branch?'<span class="tag" style="background:rgba(250,204,21,.15);color:var(--yellow)">branch</span>':''}</div>`).join('');
   $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${c.chain_id}</h3><div class="dim mono" style="margin:8px 0">${c.total_thoughts} thoughts · v${c.version} · session ${c.session}</div><div style="max-height:50vh;overflow-y:auto">${thoughts||'<div class="dim">No thoughts</div>'}</div></div></div>`}).catch(()=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close">&times;</button><h3>Error</h3><p>Chain not found</p></div></div>'})}
+function showPattern(name){
+  fetch('/metrics').then(r=>r.json()).then(d=>{
+    const p=(d.patterns||[]).find(x=>x.name===name);
+    if(!p){return}
+    const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+p.name+'</div>',
+      '<div class="dim" style="font-size:11px;margin-bottom:8px">'+(p.description||'')+'</div>'];
+    .innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
+  });
+}
+function showQA(id){
+  fetch('/metrics').then(r=>r.json()).then(d=>{
+    const q=(d.qa_pairs||[]).find(x=>x.id===id);
+    if(!q){return}
+    const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">❓ '+q.question+'</div>',
+      '<div style="font-size:12px;padding:12px;background:rgba(34,211,238,.05);border-radius:8px;margin-bottom:8px">'+q.answer+'</div>',
+      '<div class="dim" style="font-size:10px">Tags: '+(q.tags||[]).join(', ')+'</div>'];
+    .innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
+  });
+}
 function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><pre style="font-size:11px;color:var(--text);white-space:pre-wrap;margin-top:12px;max-height:60vh;overflow-y:auto" id="wiki-content">Loading...</pre></div></div>`;
   fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars;else $('wiki-content').textContent='Not found'})}
 function showCluster(cid){const clusters=(window._lastClusters||[]).filter(c=>c.chain_id===cid);
