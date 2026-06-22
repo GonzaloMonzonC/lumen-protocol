@@ -252,6 +252,9 @@ def _pdb_snapshot() -> None:
             for name, entity in sess.model.items():
                 v = json.dumps(entity)
                 pairs.append(("SNAPSHOT", f"m:{name}".encode(), v.encode()))
+        # Save objectives at module level (not per-session)
+        from objective_loop import _objectives, _next_objective_id
+        pairs.append(("SNAPSHOT", "objective:state".encode(), json.dumps({"objectives": _objectives, "next_objective_id": _next_objective_id}).encode()))
         conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
         conn.commit()
         conn.close()
@@ -269,6 +272,8 @@ def _pdb_load_snapshot() -> dict | None:
         if not rows:
             return None
         chains, decisions, assumptions, works, patterns, wiki, model = {}, [], [], [], [], {}, {}
+        objectives = {}
+        next_obj_id = 1
         for sk, val in rows:
             sk = sk.decode() if isinstance(sk, bytes) else sk
             val = val.decode() if isinstance(val, bytes) else val
@@ -291,7 +296,8 @@ def _pdb_load_snapshot() -> dict | None:
             elif sk.startswith("m:"):
                 model[sk[2:]] = v
         return {"chains": chains, "decisions": decisions, "assumptions": assumptions,
-                "works": works, "patterns": patterns, "wiki": wiki, "model": model}
+                "works": works, "patterns": patterns, "wiki": wiki, "model": model,
+                "objectives": objectives, "next_objective_id": next_obj_id}
     except Exception as e:
         print(f"[lumen-thinking] PDB load FAILED: {e}", file=sys.stderr)
         return None
@@ -318,6 +324,9 @@ def _load_state() -> bool:
             if sess.works:
                 global _next_work_id
                 _next_work_id = max(w["id"] for w in sess.works) + 1
+            # Restore objectives from PDB snapshot
+            load_objective_state({"objectives": pdb.get("objectives", {}),
+                                  "next_objective_id": pdb.get("next_objective_id", 1)})
             return True
         _safe_print("[lumen-thinking] No saved state found — starting fresh.")
         return False
