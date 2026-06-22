@@ -74,6 +74,7 @@ class Session:
         self.tool_calls = 0
         self.created_at = time.time()
         self.updated_at = time.time()
+        self.feeling = None  # Last state_feeling record
 
     def to_dict(self) -> dict:
         return {
@@ -94,6 +95,7 @@ class Session:
             "tool_calls": self.tool_calls,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "feeling": self.feeling,
         }
 
     @classmethod
@@ -115,6 +117,7 @@ class Session:
         s.tool_calls = d.get("tool_calls", 0)
         s.created_at = d.get("created_at", time.time())
         s.updated_at = d.get("updated_at", time.time())
+        s.feeling = d.get("feeling", None)
         return s
 
 _sessions: dict[str, Session] = {}  # session_id → Session
@@ -1077,7 +1080,25 @@ TOOLS = [
             "type": "object",
             "properties": {}
         }
-    }
+    },
+    {
+        "name": "state_feeling",
+        "description": "Externalize current cognitive state — mood, confidence, energy. Persists and shows in dashboard.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mood": {
+                    "type": "string",
+                    "enum": ["focused", "frustrated", "stuck", "tired", "confident", "curious", "overwhelmed", "neutral"],
+                    "description": "Current cognitive/emotional state"
+                },
+                "confidence": {"type": "integer", "minimum": 0, "maximum": 10, "description": "Confidence in current trajectory"},
+                "energy": {"type": "integer", "minimum": 0, "maximum": 10, "description": "Mental energy level"},
+                "context": {"type": "string", "description": "Optional context of what you're feeling"}
+            },
+            "required": ["mood", "confidence", "energy"]
+        }
+    },
 ] + OBJECTIVE_SCHEMAS
 
 
@@ -3434,6 +3455,18 @@ def tool_cognitive_integrity(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+
+def tool_state_feeling(args: dict) -> dict:
+    """Externalize current cognitive state."""
+    session = _get_session(args.get("session_id"))
+    mood = args["mood"]
+    confidence = args.get("confidence", 5)
+    energy = args.get("energy", 5)
+    context = args.get("context", "")
+    session.feeling = {"mood": mood, "confidence": confidence, "energy": energy, "context": context, "ts": time.time()}
+    _auto_save()
+    return {"content": [{"type": "text", "text": f"🧠 Feeling recorded: {mood} (confidence={confidence}/10, energy={energy}/10)"}]}
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -3491,6 +3524,7 @@ HANDLERS = {
     "qa_link": tool_qa_link,
     "unified_search": tool_unified_search,
     "cognitive_integrity": tool_cognitive_integrity,
+    "state_feeling": tool_state_feeling,
      "niche_update": tool_niche_update,
      "task_delete": tool_task_delete,
      "kanban_stats": tool_kanban_stats,
