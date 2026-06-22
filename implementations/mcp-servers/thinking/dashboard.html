@@ -328,7 +328,7 @@ window.renderData = function renderData(d) {
   // Works
   const works=d.works||[];
   const wl=document.getElementById('works-list');
-  if(wl)wl.innerHTML=works.map(w=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(w.status==='done'?'\u2713':w.status==='in_progress'?'\u2699':'\u{1F6AB}')+'</span><span style="font-size:11px;flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(w.item||'').slice(0,35)+'</span><span class="dim" style="font-size:10px">'+(w.duration?((w.duration/60).toFixed(1))+'m':'')+'</span></div>').join('')||'<div class="dim">No work tracked</div>';
+  if(wl)wl.innerHTML=works.map(w=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(w.status==='done'?'\u2713':w.status==='in_progress'?'\u2699':'\u{1F6AB}')+'</span><span style="font-size:11px;flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(w.item||'').slice(0,35)+'</span><span class="dim" style="font-size:10px">'+(w.duration_seconds?((w.duration_seconds/60).toFixed(1))+'m':'')+'</span></div>').join('')||'<div class="dim">No work tracked</div>';
   // Wiki
   const wiki=d.wiki||[];
   const wi=document.getElementById('wiki-list');
@@ -389,6 +389,20 @@ window.renderData = function renderData(d) {
   const sList=Object.entries(sDetail).slice(0,10);
   const se=document.getElementById('sessions-list');
   if(se)se.innerHTML=sList.map(([sid,ss])=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+sid.slice(0,12)+'</span><span class="dim" style="margin-left:8px;font-size:10px">'+(ss.chains||0)+'c · '+(ss.patterns||0)+'p · '+(ss.tool_calls||0)+' calls</span></div>').join('')||'<div class="dim">No sessions</div>';
+  // Feeling
+  const fl=document.getElementById('feeling-list');
+  if(fl){
+    let felt=null;
+    Object.values(sDetail).forEach(s=>{if(s.feeling){felt=s.feeling}});
+    if(felt){
+      const moods={focused:"🔵",frustrated:"🔴",stuck:"⛔",tired:"😴",confident:"🟢",curious:"🟣",overwhelmed:"😰",neutral:"⚪"};
+      const icon=moods[felt.mood]||"❓";
+      const dt=Math.floor((Date.now()/1000-parseFloat(felt.ts))/60);
+      fl.innerHTML='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:16px">'+icon+' '+felt.mood+'</span><span class="mono dim">'+(dt<1?"now":dt+"m ago")+'</span></div><div style="margin-top:8px;display:flex;gap:12px;font-size:10px"><span>Confidence: '+felt.confidence+'/10</span><span>Energy: '+felt.energy+'/10</span></div>'+(felt.context?'<div style="font-size:10px;color:var(--dim);margin-top:6px">'+felt.context+'</div>':"")+'</div>';
+    }else{
+      fl.innerHTML='<div class="dim" style="font-size:11px">No feeling recorded</div>';
+    }
+  }
   // Model
   const model=d.model||{};
   const mo=document.getElementById('model-list');
@@ -463,9 +477,9 @@ function pulseUpdate(works){
   const fmtDur=d=>{const m=d/60;return m<60?m.toFixed(0)+'m':(m/60).toFixed(1)+'h'};
   const shortItem=s=>s&&s.length>22?s.slice(0,22)+'...':s||'';
   // NOW: in_progress works started within last 60 minutes
-  const active=works.filter(w=>w.status==='in_progress'&&w.started_at&&(now-w.started_at)<3600).slice(0,5);
+  const active=works.filter(w=>w.status==='in_progress'&&w.started_at).sort((a,b)=>(b.started_at||0)-(a.started_at||0)).slice(0,5);
   // Recent: completed within 24h
-  const done=works.filter(w=>w.status==='done'&&w.done_at&&(now-w.done_at)<86400).sort((a,b)=>(b.done_at||0)-(a.done_at||0)).slice(0,5);
+  const done=works.filter(w=>w.status==='done'&&w.done_at).sort((a,b)=>(b.done_at||0)-(a.done_at||0)).slice(0,5);
   const blocked=works.filter(w=>w.status==='blocked').slice(0,3);
   // Show modal on click with full work data
   window.showWorkInfo=function(w){
