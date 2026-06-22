@@ -4333,6 +4333,11 @@ def _start_dashboard(port: int = 9876) -> None:
     
     def _build_metrics():
         global _last_state_mtime
+        # Import objectives for dashboard (may not be available in all contexts)
+        try:
+            from objective_loop import _objectives
+        except ImportError:
+            _objectives = {}
         # Reload state from file if it was updated by another process (e.g. SHM server)
         if _STATE_FILE.exists():
             try:
@@ -4493,6 +4498,11 @@ def _start_dashboard(port: int = 9876) -> None:
             "presence": _session_presence,
             "claims": {f: {"owner": c["owner"], "expires_in": round(c["expires_at"]-time.time(),1) if c.get("expires_at") else 0, "status": c.get("status","active"), "requests": c.get("requests",[])} for f,c in _file_claims.items() if c.get("expires_at",0) > time.time()},
             "timeline": _call_timeline[-60:],
+            "objectives": [{"id": o["id"], "title": o["title"][:60], "phase": o["phase"],
+                "score": o.get("score", 0), "tasks_done": sum(1 for t in o.get("tasks",[]) if t.get("status")=="done"),
+                "tasks_total": len(o.get("tasks",[])), "criteria": len(o.get("criteria",[])),
+                "created_at": o.get("created_at", 0)}
+                for o in _objectives.values()],
         }
     
     server = _http.HTTPServer(("127.0.0.1", port), MetricsHandler)
