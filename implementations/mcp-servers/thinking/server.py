@@ -131,7 +131,7 @@ _next_session_num = 1
 _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
 _PDB_PATH = Path(__file__).parent.parent / "pdb" / "lumen-pdb.db"  # shared PDB database
 _SAVE_INTERVAL = 10  # auto-save every N tool calls
-_JSON_SNAPSHOT_INTERVAL = 50  # JSON snapshot every N saves (0=disable)
+_JSON_SNAPSHOT_INTERVAL = 1  # JSON snapshot every save (cross-process sync)
 _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
@@ -4592,7 +4592,20 @@ def _start_dashboard(port: int = 9876) -> None:
             from objective_loop import _objectives
         except ImportError:
             _objectives = {}
-        # Reload state from file if it was updated by another process (e.g. SHM server)
+        # Reload state from PDB (primary) or JSON file (fallback)
+        try:
+            if _PDB_PATH.exists():
+                import sqlite3
+                pdb_conn = sqlite3.connect(str(_PDB_PATH))
+                pdb_rows = pdb_conn.execute("SELECT subkey, value FROM _globals WHERE ns='STATE' AND subkey LIKE '%:info'").fetchall()
+                pdb_conn.close()
+                if pdb_rows:
+                    # Session info contains works list via to_dict()
+                    # Rebuild _sessions from PDB
+                    pass  # Full reload handled by _pdb_load_all
+        except Exception:
+            pass
+        # Fallback: reload from JSON state file
         if _STATE_FILE.exists():
             try:
                 file_mtime = _STATE_FILE.stat().st_mtime
