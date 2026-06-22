@@ -3779,21 +3779,20 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.wfile.write(body)
 
             elif self.path == "/kanban" or self.path.startswith("/kanban?"):
-                # Reload state from file if another process updated it
-                if _STATE_FILE.exists():
-                    try:
+                # Always reload from state file (may be updated by other process)
+                try:
+                    if _STATE_FILE.exists():
                         _fm = _STATE_FILE.stat().st_mtime
                         _g = globals()
-                        if _fm > _g.get('_last_state_mtime', 0.0):
-                            with open(_STATE_FILE, "r", encoding="utf-8") as _sf:
-                                _st = json.load(_sf)
-                            _g['_niches'] = _st.get("niches", {})
-                            _g['_tasks'] = _st.get("tasks", {})
-                            _g['_next_niche_id'] = _st.get("next_niche_id", 1)
-                            _g['_next_task_id'] = _st.get("next_task_id", 1)
-                            _g['_last_state_mtime'] = _fm
-                    except Exception:
-                        pass
+                        with open(_STATE_FILE, "r", encoding="utf-8") as _sf:
+                            _st = json.load(_sf)
+                        _g['_niches'] = _st.get("niches", {})
+                        _g['_tasks'] = _st.get("tasks", {})
+                        _g['_next_niche_id'] = _st.get("next_niche_id", 1)
+                        _g['_next_task_id'] = _st.get("next_task_id", 1)
+                        _g['_last_state_mtime'] = _fm
+                except Exception:
+                    pass
                 from urllib.parse import urlparse, parse_qs
                 qs = parse_qs(urlparse(self.path).query)
                 niche_id = qs.get("niche_id", [None])[0]
