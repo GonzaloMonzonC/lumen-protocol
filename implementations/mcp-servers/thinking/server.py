@@ -2022,7 +2022,9 @@ def tool_work_start(args: dict) -> dict:
     global _next_work_id
     session = _get_session(args.get("session_id"))
 
-    item = args["item"]
+    item = args.get("item") or args.get("title", "")
+    if not item:
+        return {"content": [{"type": "text", "text": "Error: 'item' (or 'title') required."}]}
     category = args.get("category", "other")
 
     work = {
