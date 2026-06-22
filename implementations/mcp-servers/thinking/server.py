@@ -1110,6 +1110,16 @@ TOOLS = [
             }
         }
     },
+    {
+        "name": "session_end",
+        "description": "End-of-session ritual. Verifies open works, suggests closing them, checks for unlogged decisions and unrecorded patterns. Creates a final state snapshot. [LUMEN SHM]",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID (optional)"}
+            }
+        }
+    },
 ] + OBJECTIVE_SCHEMAS
 
 
@@ -3510,6 +3520,44 @@ def tool_cognitive_pulse(args: dict) -> dict:
         lines.append("  Tip: Try pattern_match() or thought_contradiction() to break out.")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
+
+def tool_session_end(args: dict) -> dict:
+    """End-of-session ritual: verify works, decisions, patterns, snapshot."""
+    session = _get_session(args.get("session_id"))
+    lines = []
+    warnings = 0
+
+    # Check open works
+    active = [w for w in session.works if w.get("status") == "in_progress"]
+    if active:
+        warnings += 1
+        lines.append(f"  {len(active)} work(s) still in_progress:")
+        for w in active:
+            lines.append(f"    - #{w['id']}: {w.get('item', w.get('title', '?'))}")
+        lines.append("  Suggestion: work_done(work_id=N) for each.")
+    else:
+        lines.append("  All works closed.")
+
+    # Check decisions
+    if session.decisions:
+        lines.append(f"  {len(session.decisions)} decision(s) logged.")
+    else:
+        lines.append("  No decisions logged this session.")
+
+    # Check patterns
+    if session.patterns:
+        lines.append(f"  {len(session.patterns)} pattern(s) recorded.")
+    else:
+        lines.append("  No patterns recorded this session.")
+
+    # Snapshot
+    _save_state()
+    lines.append(f"  State snapshot saved.")
+
+    summary = f" Session End: {warnings} item(s) need attention" if warnings else " Session End: clean"
+    lines.insert(0, summary)
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -3569,6 +3617,7 @@ HANDLERS = {
     "cognitive_integrity": tool_cognitive_integrity,
     "state_feeling": tool_state_feeling,
     "cognitive_pulse": tool_cognitive_pulse,
+    "session_end": tool_session_end,
      "niche_update": tool_niche_update,
      "task_delete": tool_task_delete,
      "kanban_stats": tool_kanban_stats,
