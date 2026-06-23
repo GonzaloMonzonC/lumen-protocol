@@ -11,13 +11,9 @@
 </p>
 
 <p align="center">
-  <strong>English</strong> &nbsp;|&nbsp; <a href="README_ES.md">Español</a>
-</p>
-
-<p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 86 tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
+  <strong>✅ 70+ tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
 </p>
 
 ---
@@ -84,13 +80,13 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 
 | Server | JSON-RPC | LUMEN | Savings |
 |--------|----------|-------|---------|
-| Filesystem (14 tools) | 100% | 81% | **19% smaller** |
-| Thinking (47+ tools) | 100% | 67% | **33% smaller** |
-| Web (3 tools) | 100% | 73% | **27% smaller** |
+| Filesystem (13 tools) | 100% | 81% | **19% smaller** |
+| Thinking (47 tools) | 100% | 67% | **33% smaller** |
+| Web (2 tools) | 100% | 73% | **27% smaller** |
 | PDB (15 tools) | 100% | 71% | **29% smaller** |
 | Objective Loop (6 tools) | 100% | 65% | **35% smaller** |
 
-> **Benchmarked**: 86 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/benchmarks/internal/).
+> **Benchmarked**: 70+ tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/BENCHMARKS.md).
 
 ---
 
@@ -117,8 +113,8 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | **TypeScript** | `npm i @gonzalomonzonc/mcp-transport` | Node.js + browser, zero-copy SHM via koffi |
 | **Python** | `pip install lumen-mcp` | Full protocol, session dict, MCP tools |
 | **PHP** | `implementations/php/` | PHP 8.5+, 217/217 e2e passing |
-| **C#** | `implementations/dotnet/` | .NET 9, P/Invoke FFI to Rust |
-| **WASM** | `implementations/rust/wasm/` | Browser-ready, 22 KB gzipped |
+| **C#** | `implementations/csharp/` | .NET 9, P/Invoke FFI to Rust |
+| **WASM** | `implementations/rust/src/wasm.rs` | Browser-ready, 22 KB gzipped |
 
 ---
 
@@ -129,7 +125,7 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 | Server | Tools | Wire Savings | Hermes Config |
 |--------|-------|-------------|---------------|
 | **[Filesystem](implementations/mcp-servers/filesystem/)** | **13** 🔥 (read, write, search, stream, stats, info, du, dedup...) | 10-38% | Plugin `lumen-shm-bridge` |
-| **[Web](implementations/mcp-servers/web/)** | 2 (search + extract unified) | 18-36% | Plugin `lumen-shm-bridge` |
+| **[Web](implementations/mcp-servers/web/)** | **2** (search + extract unified) | 18-36% | Plugin `lumen-shm-bridge` |
 | **[Thinking](implementations/mcp-servers/thinking/)** | **47** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
 | **[Objective Loop](implementations/mcp-servers/thinking/objective_loop.py)** | **6** (create, judge, plan, status, task_done, checklist) | auto | Plugin `lumen-shm-bridge` |
 
@@ -176,7 +172,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **70+ tools** across filesystem (**14**), web (3), thinking (**47+**), objective loop (**6**), PDB (**15**) |
+| MCP servers | ✅ | **70+ tools** across filesystem (**13**), web (**2**), thinking (**47**), objective loop (**6**), PDB (**15**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
 | Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 70+ tools, transparent override of built-ins |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
