@@ -131,6 +131,8 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 
 > **81 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
+> **🧠 PDB** — 15 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Es donde el agente guarda su memoria persistente: cadenas de pensamiento, works, patrones, decisiones, wikis y kanban. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+
 ---
 
 ## Transport levels

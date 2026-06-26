@@ -2,7 +2,7 @@
 
 > **Versión**: 3.0 | **Fecha**: 2026-06-19
 > **Transport**: LUMEN Level 2 — Shared Memory (mmap ring buffers, zero-copy)
-> **Tools**: 48 thinking + 13 filesystem + 2 web + 15 PDB = **78 tools total**
+> **Tools**: 46 thinking + 13 filesystem + 2 web + 15 PDB + 5 objective loop = **81 tools total**
 > **Plugin**: `lumen-shm-bridge` (Hermes Agent)
 
 ---
@@ -201,6 +201,83 @@ Detecta archivos modificados por múltiples sesiones en los últimos 5 minutos.
   "window_seconds": 300
 }
 ```
+
+---
+
+## 🧠 PDB — Process Database (La Memoria del Agente)
+
+> **15 tools** · SQLite B-tree · Dual KV+SQL · Herencia MUMPS (1966)
+> 15.5 μs GET · 30.8 μs SET · 81 MB de memoria persistente en este repo
+
+### ¿Qué es?
+
+Una base de datos jerárquica clave-valor con superpoderes de SQL. Sin esquemas, sin migraciones, sin DDL. El agente guarda datos como árboles:
+
+```
+^STATE("session:abc","chain:42","thought")     = "..."    ← cadenas de razonamiento
+^STATE("global:objective:6")                     = {...}    ← agent loop objectives
+^STATE("global:task:99")                         = {...}    ← tareas kanban
+^CASITY("consent","device","AA:BB:CC:DD:EE:02") = true     ← escaneos WiFi
+^SCRATCH("current_project")                      = "Casity" ← memoria efímera
+```
+
+Cada `^NS(sub1,sub2,...)=value` es un nodo en un B-tree. La primary key `(ns, subkey)` **es** el índice.
+
+### ¿Por qué existe?
+
+**1966 — MUMPS en el Massachusetts General Hospital.** Inventaron los "globals": árboles jerárquicos persistente sin esquemas. Con `SET`, `GET`, `ORDER` (next/prev hermano), `DATA` (¿existe? ¿tiene hijos?), `KILL` (borra subárbol). Las mismas 7 operaciones que tenemos hoy.
+
+MUMPS se adelantó 30 años: jerárquico antes que MongoDB, atómico antes que Redis, sin esquemas antes que cualquier NoSQL. **Epic, el sistema de salud de EEUU, aún corre en MUMPS.** La VA, Kaiser, NHS — todos.
+
+Pero MUMPS tenía sintaxis críptica, era propietario y no tenía SQL.
+
+**2026 — PDB sobre SQLite.** Cogemos el modelo MUMPS y lo ejecutamos sobre SQLite. La tabla `_globals(ns, subkey, value)` es un B-tree puro. Las tools KV navegan el árbol (`$ORDER`, `$DATA`), el SQL lo consulta plano (`SELECT`, `GROUP BY`, `JOIN`). El LLM elige.
+
+### Métricas en vivo
+
+| Operación | Latencia | Throughput | 
+|-----------|:--------:|:----------:|
+| GET (exact key) | **15.5 μs** | 64,700/seg |
+| SET (1 nivel) | **30.8 μs** | 32,500/seg |
+| SET (3 niveles) | **56.2 μs** | 17,800/seg |
+| $DATA (existe) | **33.9 μs** | 29,500/seg |
+| $INCREMENT | **96.0 μs** | 10,400/seg |
+| KILL (subárbol) | **26.7 μs** | 37,500/seg |
+| $ORDER (next sibling) | **~5 μs** | ~200,000/seg |
+| Batch (2,476 records) | **649 ms** | 3,817 rec/sec |
+| FTS5 search | **~50 ms** | BM25 ranking |
+
+Benchmark: 100K iteraciones, SQLite WAL, stdio JSON-RPC (SHM es 20× más lento para KV).
+
+### Dual Interface
+
+```python
+# KV — navegación jerárquica (MUMPS-style)
+pdb_order(ns="STATE", subs=["session:abc","chain"])   → next chain ID
+pdb_data(ns="STATE", subs=["session:abc"])             → 10 (tiene hijos, sin valor)
+
+# SQL — análisis plano
+pdb_query("SELECT ns, COUNT(*) as n FROM _globals GROUP BY ns")
+pdb_query("SELECT value FROM _globals WHERE value LIKE '%error%'")
+```
+
+### ¿Por qué no usar Redis / MongoDB / PostgreSQL?
+
+| Sistema | Sin esquema | Jerárquico | ACID | SQL | Latencia GET |
+|---------|:-----------:|:----------:|:----:|:---:|:-----------:|
+| **PDB** | ✅ | ✅ | ✅ | ✅ | **15 μs** |
+| Redis | ✅ | ❌ | ✅ | ❌ | ~50 μs |
+| MongoDB | ✅ | ✅ | ❌ | ❌ | ~100 μs |
+| PostgreSQL | ❌ | ❌ | ✅ | ✅ | ~100 μs |
+| SQLite plano | ❌ | ❌ | ✅ | ✅ | ~10 μs |
+
+PDB es el único que junta los cuatro: sin esquemas + jerárquico + ACID + SQL.
+
+### En una línea
+
+> *SQLite's B-tree es el mismo concepto que los globals de MUMPS — solo que 60 años más barato, más rápido, y con SQL.*
+
+Ver también: [`implementations/mcp-servers/pdb/`](../implementations/mcp-servers/pdb/README.md) | [TOOLS_GUIDE → PDB section](../implementations/mcp-servers/TOOLS_GUIDE.md#pdb-database)
 
 ---
 
