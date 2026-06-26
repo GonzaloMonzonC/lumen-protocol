@@ -57,9 +57,9 @@ Hermes Agent ──► kernel ──► bash ──► kernel ──► file
 
 ---
 
-## 🗺️ Arquitectura de 47 Tools
+## 🗺️ Arquitectura de 46 Tools
 
-### Thinking Server — 48 tools
+### Thinking Server — 46 tools
 
 | Subsistema | Tools | Propósito |
 |------------|-------|-----------|

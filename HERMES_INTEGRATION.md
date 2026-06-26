@@ -69,9 +69,9 @@ hermes config set plugins.enabled "[lumen-shm-bridge]"
 ### What You Get
 
 - **Filesystem**: read_file, write_file, search_files, patch, read_files, stream_read, etc. (13 tools)
-- **Thinking**: sequential_thinking, thought_contradiction, model_add, agent_message, collision_check, etc. (32 tools)
+- **Thinking**: sequential_thinking, thought_contradiction, model_add, agent_message, collision_check, etc. (46 tools)
 - **Web**: web_search, web_extract (2 tools)
-- **Total**: 47 tools over Level 2 SHM zero-copy transport
+- **Total**: 61 tools over Level 2 SHM zero-copy transport
 
 ### Benchmarks
 
@@ -236,7 +236,7 @@ LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`:
 
 | Server | Tools | Wire Savings | Config |
 |--------|-------|-------------|--------|
-| Filesystem | 9 tools (read, read_files, write, search, search_ctx, stream_read, list, patch, stats) | 32-70% | `transport: lumen` |
+| Filesystem | 13 tools (read_file, write_file, search_files, list_directory, read_files, search_with_context, stream_read, server_stats, patch, file_info, disk_usage, search_filename, find_duplicates) | 32-70% | `transport: lumen` |
 | Web | 2 tools (web_search, web_extract unified) | 40-50% | `transport: lumen` |
 | Thinking | 15 tools (sequential, similarity, contradiction, summarize, to_plan, evaluate, bridge, assume, list_assumptions, check_assumption, model_add, model_query, model_stats, model_map, model_remove) | 60-80% | `transport: lumen` |
 
