@@ -246,6 +246,7 @@ def tool_set(args: dict) -> dict:
             [ns, key, _encode_value(value)]
         )
         _auto_index_on_set(ns, subs, c)
+        _fire_triggers("ON_SET", ns, subs, value, c)
         c.commit()
         return {"success": True}
     except Exception as e:
@@ -428,6 +429,7 @@ def tool_kill(args: dict) -> dict:
         key = encode_subkey(subs)
         c = _get_conn()
         _auto_index_on_kill(ns, subs, c)
+        _fire_triggers("ON_KILL", ns, subs, None, c)
         # Delete the node itself
         c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [ns, key])
         # Delete all children (keys that start with key and are longer)
@@ -755,6 +757,127 @@ def _auto_index_on_kill(ns: str, orig_subs: list, conn):
                     )
             except Exception:
                 continue
+
+# ---------------------------------------------------------------------------
+# Triggers — ON SET / ON KILL callbacks
+# ---------------------------------------------------------------------------
+# Define a trigger: ^TRIGGER_CFG(ns, trigger_id) = {"event":"ON_SET","action":"pdb_set|webhook|log","params":{...}}
+# Events: ON_SET, ON_KILL (ON_READ planned)
+# Actions: pdb_set(replicate to another ns), webhook(POST url), log(system log)
+
+_TRIGGER_CFG_NS = "TRIGGER_CFG"
+
+def _load_triggers() -> dict:
+    """Load all trigger definitions. Returns {ns: {trigger_id: {event, action, params}}}."""
+    triggers = {}
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
+        [_TRIGGER_CFG_NS]
+    ).fetchall()
+    for r in rows:
+        subs = decode_subkey(r["subkey"])
+        if len(subs) < 2:
+            continue
+        ns = subs[0] if isinstance(subs[0], str) else subs[0].decode() if isinstance(subs[0], bytes) else str(subs[0])
+        tid = subs[1] if isinstance(subs[1], str) else subs[1].decode() if isinstance(subs[1], bytes) else str(subs[1])
+        val = _decode_value(r["value"]) if r["value"] else {}
+        if isinstance(val, dict):
+            if ns not in triggers:
+                triggers[ns] = {}
+            triggers[ns][tid] = val
+    return triggers
+
+def _fire_triggers(event: str, ns: str, subs: list, value, conn, old_value=None):
+    """Called after SET/KILL. Executes matching trigger actions."""
+    triggers = _load_triggers()
+    if ns not in triggers:
+        return
+    for tid, cfg in triggers[ns].items():
+        if cfg.get("event") != event:
+            continue
+        action = cfg.get("action", "")
+        params = cfg.get("params", {})
+        try:
+            if action == "pdb_set":
+                dest_ns = params.get("dest_ns", ns)
+                # Template substitution: {sub_N} → orig_subs[N]
+                dest_subs = []
+                for s in params.get("dest_subs", subs):
+                    if isinstance(s, str) and s.startswith("{sub_") and s.endswith("}"):
+                        idx = int(s[5:-1])
+                        dest_subs.append(subs[idx] if idx < len(subs) else s)
+                    else:
+                        dest_subs.append(s)
+                dest_key = encode_subkey(dest_subs)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                    [dest_ns, dest_key, _encode_value(params.get("dest_value", value))]
+                )
+            elif action == "log":
+                logger.info(f"TRIGGER [{event}] ^{ns}({subs}) = {value}")
+        except Exception as e:
+            logger.warning(f"TRIGGER error {tid} on ^{ns}: {e}")
+
+def tool_trigger_define(args: dict) -> dict:
+    """Define a trigger. Fires on SET/KILL events in a namespace."""
+    ns = args["ns"]
+    trigger_id = args.get("trigger_id")
+    event = args.get("event", "ON_SET")
+    action = args.get("action", "log")
+    params = args.get("params", {})
+    import uuid
+    trigger_id = trigger_id or f"trg_{uuid.uuid4().hex[:8]}"
+    try:
+        conn = _get_conn()
+        key = encode_subkey([ns, trigger_id])
+        val = json.dumps({"event": event, "action": action, "params": params}).encode()
+        conn.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [_TRIGGER_CFG_NS, key, val]
+        )
+        conn.commit()
+        return {"success": True, "trigger_id": trigger_id,
+                "message": f"Trigger {trigger_id}: ON {event} → {action}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_trigger_list(args: dict) -> dict:
+    """List all defined triggers."""
+    ns_filter = args.get("ns")
+    try:
+        triggers = _load_triggers()
+        results = []
+        for ns_name, trigs in triggers.items():
+            if ns_filter and ns_name != ns_filter:
+                continue
+            for tid, cfg in trigs.items():
+                results.append({"namespace": ns_name, "trigger_id": tid, **cfg})
+        return {"success": True, "triggers": results, "count": len(results)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_trigger_drop(args: dict) -> dict:
+    """Remove a trigger definition."""
+    ns = args["ns"]
+    trigger_id = args["trigger_id"]
+    try:
+        conn = _get_conn()
+        key = encode_subkey([ns, trigger_id])
+        conn.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_TRIGGER_CFG_NS, key])
+        conn.commit()
+        return {"success": True, "message": f"Trigger dropped: {ns}/{trigger_id}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_trigger(args: dict) -> dict:
+    """List or drop triggers (legacy/combined entry point)."""
+    action = args.get("action", "list")
+    if action == "list":
+        return tool_trigger_list(args)
+    elif action == "drop":
+        return tool_trigger_drop(args)
+    return {"success": False, "error": "Unknown action. Use list or drop."}
 
 def tool_index_define(args: dict) -> dict:
     """Define an auto-index. After this, every SET to ^ns(subs) with
@@ -1095,6 +1218,56 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_trigger_define",
+        "description": "Define a trigger. Fires on ON_SET or ON_KILL events in a namespace. Actions: log, pdb_set (replicate), webhook. Use {sub_N} in dest_subs for subscript substitution.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to watch"},
+                "trigger_id": {"type": "string", "description": "Optional custom ID (auto-generated if omitted)"},
+                "event": {"type": "string", "enum": ["ON_SET", "ON_KILL"], "description": "Event type", "default": "ON_SET"},
+                "action": {"type": "string", "enum": ["log", "pdb_set", "webhook"], "description": "Action to execute", "default": "log"},
+                "params": {"type": "object", "description": "Action params: dest_ns, dest_subs (with {sub_N} templates), dest_value, url"}
+            },
+            "required": ["ns"]
+        }
+    },
+    {
+        "name": "pdb_trigger_list",
+        "description": "List all defined triggers. Filter by namespace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Optional namespace filter"}
+            }
+        }
+    },
+    {
+        "name": "pdb_trigger_drop",
+        "description": "Remove a trigger definition.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace of the trigger"},
+                "trigger_id": {"type": "string", "description": "Trigger ID to remove"}
+            },
+            "required": ["ns", "trigger_id"]
+        }
+    },
+    {
+        "name": "pdb_trigger",
+        "description": "Combined trigger management: list or drop triggers.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "drop"], "description": "Action"},
+                "ns": {"type": "string"},
+                "trigger_id": {"type": "string"}
+            },
+            "required": ["action"]
+        }
+    },
+    {
         "name": "pdb_lock",
         "description": "LOCK — acquire a resource lock. Blocks other sessions from writing to the same namespace+subscripts. Analogous to MUMPS LOCK ^ns(subs). Use with pdb_unlock.",
         "inputSchema": {
@@ -1143,4 +1316,8 @@ HANDLERS = {
     "pdb_index_define": tool_index_define,
     "pdb_index_list": tool_index_list,
     "pdb_index_drop": tool_index_drop,
+    "pdb_trigger_define": tool_trigger_define,
+    "pdb_trigger_list": tool_trigger_list,
+    "pdb_trigger_drop": tool_trigger_drop,
+    "pdb_trigger": tool_trigger,
 }

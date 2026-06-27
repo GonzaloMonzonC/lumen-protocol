@@ -13,7 +13,7 @@
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 86 tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
+  <strong>✅ 90 tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
 </p>
 
 ---
@@ -83,10 +83,10 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Filesystem (13 tools) | 100% | 81% | **19% smaller** |
 | Thinking (46 tools) | 100% | 67% | **33% smaller** |
 | Web (2 tools) | 100% | 73% | **27% smaller** |
-| PDB (20 tools) | 100% | 71% | **29% smaller** |
+| PDB (24 tools) | 100% | 71% | **29% smaller** |
 | Objective Loop (5 tools) | 100% | 65% | **35% smaller** |
 
-> **Benchmarked**: 86 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/BENCHMARKS.md).
+> **Benchmarked**: 90 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/BENCHMARKS.md).
 
 ---
 
@@ -129,9 +129,9 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 | **[Thinking](implementations/mcp-servers/thinking/)** | **46** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
 | **[Objective Loop](implementations/mcp-servers/thinking/objective_loop.py)** | **5** (create, judge, plan, status, checklist) | auto | Plugin `lumen-shm-bridge` |
 
-> **86 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
+> **90 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
-> **🧠 PDB** — 20 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Es donde el agente guarda su memoria persistente: cadenas de pensamiento, works, patrones, decisiones, wikis y kanban. Incluye $LOCK y auto-indices ^IDX. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+> **🧠 PDB** — 24 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Es donde el agente guarda su memoria persistente: cadenas de pensamiento, works, patrones, decisiones, wikis y kanban. Incluye $LOCK y auto-indices ^IDX. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
 
 ---
 
@@ -174,9 +174,9 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **86 tools** across filesystem (**13**), web (**2**), thinking (**46**), objective loop (**5**), PDB (**20**) |
+| MCP servers | ✅ | **90 tools** across filesystem (**13**), web (**2**), thinking (**46**), objective loop (**5**), PDB (**24**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
-| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 86 tools, transparent override of built-ins |
+| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 90 tools, transparent override of built-ins |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
