@@ -67,3 +67,4 @@ Los indices se guardan en `^IDX_CFG` dentro de PDB.
 - Triggers: cada uno anade overhead. Solo para casos necesarios
 - Partitioning: requiere key numerica para el rango de subindice
 - Global mapping: el path se crea automaticamente si no existe
+- **Disponibilidad**: triggers, indices, mapping, M-Light y todas las 43 tools SI estan expuestas via MCP tras el fix del bridge (2026-06-27).
