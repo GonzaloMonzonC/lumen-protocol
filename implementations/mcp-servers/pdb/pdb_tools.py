@@ -999,7 +999,7 @@ def tool_merge(args: dict) -> dict:
     try:
         src_key = encode_subkey(source_subs)
         tgt_key = encode_subkey(target_subs)
-        c = _get_conn(ns, subs)
+        c = _get_conn(target_ns, target_subs)
         
         # Copy source node
         row = c.execute(
