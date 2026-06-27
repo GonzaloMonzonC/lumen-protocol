@@ -419,9 +419,43 @@ class MEvaluator:
             table = str.maketrans(old, new)
             return val.translate(table)
 
+        # #hex — hex literal (MUMPS: #FF = 255, #10 = 16)
+        m = re.match(r'#([0-9A-Fa-f]+)$', token)
+        if m:
+            return int(m.group(1), 16)
+
+        # +expr — unary plus / numeric cast
+        m = re.match(r'^\+([^ ].*)$', token)
+        if m:
+            val = self._resolve(m.group(1))
+            try: return float(val) if '.' in str(val) else int(float(val))
+            except: return 0
+
         # Variable local
         if token in self.scope.vars or (self.scope.parent and token in self.scope.parent.vars):
             return self.scope.get(token)
+
+        # Arithmetic expression — MUMPS evalúa left-to-right SIN precedencia
+        # Soporta: \ div, # mod, ** exp, *, /, +, -
+        # Ej: I\100000#10*2, +$G(x), 5*2+1
+        if re.match(r'^[+\-]?\w[\w\\#\*\/+\-]*$', token) and any(op in token for op in ['\\','#','*','/','+','-']):
+            # Left-to-right evaluation (MUMPS style)
+            parts = re.split(r'(\\|#|\*\*|[\*\/+\-])', token)
+            if len(parts) >= 3:
+                result = self._resolve_num(parts[0].strip())
+                i = 1
+                while i < len(parts) - 1:
+                    op = parts[i].strip()
+                    right = self._resolve_num(parts[i+1].strip())
+                    if op == '\\': result = int(result // right) if result is not None else 0
+                    elif op == '#': result = int(result % right) if result is not None else 0
+                    elif op == '**': result = (result ** right) if result is not None else 0
+                    elif op == '*': result = (result * right) if result is not None else 0
+                    elif op == '/': result = (result / right) if result is not None else 0
+                    elif op == '+': result = (result + right) if result is not None else 0
+                    elif op == '-': result = (result - right) if result is not None else 0
+                    i += 2
+                return int(result) if result == int(result) else result
 
         # Literal
         if token.startswith('"') and token.endswith('"'):
@@ -433,6 +467,27 @@ class MEvaluator:
                 return float(token)
             except ValueError:
                 return token
+
+    def _resolve_num(self, token: str) -> float:
+        """Resuelve un token a número (MUMPS: '1' → 1, #FF → 255, +$G(x) → numeric)."""
+        token = token.strip()
+        if not token:
+            return 0
+        if token.startswith('#'):
+            try: return float(int(token[1:], 16))
+            except: pass
+        if token.startswith('+'):
+            val = self._resolve(token[1:])
+            try: return float(val) if val is not None else 0
+            except: return 0
+        # Try direct number first
+        try: return float(token)
+        except: pass
+        # Resolve as expression
+        val = self._resolve(token)
+        if val is None: return 0
+        try: return float(val)
+        except: return 0
 
     def _eval_condition(self, cond: str) -> bool:
         """Evalúa una condición M: $DATA(x)=1, var>5, etc."""
