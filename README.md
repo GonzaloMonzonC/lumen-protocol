@@ -83,7 +83,7 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Filesystem (13 tools) | 100% | 81% | **19% smaller** |
 | Thinking (46 tools) | 100% | 67% | **33% smaller** |
 | Web (2 tools) | 100% | 73% | **27% smaller** |
-| PDB (34 tools) | 100% | 71% | **29% smaller** |
+| PDB (40 tools) | 100% | 71% | **29% smaller** |
 | Objective Loop (5 tools) | 100% | 65% | **35% smaller** |
 
 > **Benchmarked**: 100 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/BENCHMARKS.md).
@@ -174,7 +174,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **100 tools** across filesystem (**13**), web (**2**), thinking (**46**), objective loop (**5**), PDB (**34**) |
+| MCP servers | ✅ | **106 tools** across filesystem (**13**), web (**2**), thinking (**46**), objective loop (**5**), PDB (**40**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
 | Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 100 tools, transparent override of built-ins |
 | M-Light M evaluator | ✅ | $O, $G, $D, $P, $E, $S, $L, $F, $TR, FOR, IF, GOTO, DO, Q:cond. ~70% MSM STU |
