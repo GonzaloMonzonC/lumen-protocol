@@ -21,11 +21,40 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # SQLite connection — single persistent connection, WAL mode
+# With global mapping support for namespace→file redirection
 # ---------------------------------------------------------------------------
 
 _DB_PATH: Optional[str] = None
 _conn: Optional[sqlite3.Connection] = None
 _conn_lock = threading.Lock()
+
+# Global mapping registry: ns → alternative db path
+# Stored in ^MAP_CFG(ns) = path in the MAIN pdb
+_db_connections: dict[str, sqlite3.Connection] = {}
+_db_map: dict[str, str] = {}  # populated from MAP_CFG at first use
+
+_MAP_CFG_NS = "MAP_CFG"
+
+def _load_db_map():
+    """Load global mappings from the main PDB into _db_map."""
+    global _db_map
+    try:
+        c = _get_conn()  # ensure main conn exists
+        rows = c.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=?", [_MAP_CFG_NS]
+        ).fetchall()
+        _db_map = {}
+        for r in rows:
+            subs = decode_subkey(r["subkey"])
+            if len(subs) >= 1:
+                ns = subs[0]
+                if isinstance(ns, bytes):
+                    ns = ns.decode("utf-8", errors="replace")
+                path = r["value"].decode("utf-8", errors="replace") if r["value"] else None
+                if path:
+                    _db_map[ns] = path
+    except Exception:
+        _db_map = {}
 
 def _get_db_path() -> str:
     global _DB_PATH
@@ -35,8 +64,28 @@ def _get_db_path() -> str:
         )
     return _DB_PATH
 
-def _get_conn() -> sqlite3.Connection:
+def _get_conn(ns: str = None) -> sqlite3.Connection:
+    """Get a connection for the given namespace.
+    If ns has a global mapping, returns the mapped DB connection.
+    Otherwise returns the default connection."""
     global _conn
+
+    # Check if this namespace has a global mapping
+    if ns and _db_map:
+        mapped_path = _db_map.get(ns)
+        if mapped_path:
+            if ns not in _db_connections:
+                c = sqlite3.connect(mapped_path, timeout=5, check_same_thread=False)
+                c.execute("PRAGMA journal_mode=WAL")
+                c.execute("PRAGMA synchronous=NORMAL")
+                c.execute("PRAGMA busy_timeout=5000")
+                c.execute("PRAGMA cache_size=-8000")
+                c.row_factory = sqlite3.Row
+                _init_schema(c)
+                _db_connections[ns] = c
+            return _db_connections[ns]
+
+    # Default connection
     if _conn is None:
         with _conn_lock:
             if _conn is None:
@@ -50,6 +99,74 @@ def _get_conn() -> sqlite3.Connection:
                 _init_schema(c)
                 _conn = c
     return _conn
+
+# Load db map on first module access
+_load_db_map()
+
+# ---------------------------------------------------------------------------
+# Global Mapping tools — ^GLOBAL → file redirection (MSM-style)
+# ---------------------------------------------------------------------------
+
+def tool_map_set(args: dict) -> dict:
+    """Map a namespace to a different SQLite file. ^ns(subs) will read/write to that file.
+    Analogous to MSM global mapping. Stored in ^MAP_CFG(ns) in the main PDB."""
+    ns = args["ns"]
+    db_path = args.get("db_path", "")
+    if not db_path:
+        # Remove mapping (use default DB)
+        c = _get_conn(ns)
+        key = encode_subkey([ns])
+        c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_MAP_CFG_NS, key])
+        c.commit()
+        _db_map.pop(ns, None)
+        _db_connections.pop(ns, None)
+        return {"success": True, "message": f"Mapping removed: ^{ns} → default"}
+    try:
+        # Verify the path is writable by creating the file if needed
+        path = Path(db_path).resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Test connection
+        test_conn = sqlite3.connect(str(path), timeout=2)
+        test_conn.execute("PRAGMA journal_mode=WAL")
+        test_conn.close()
+        # Store mapping
+        c = _get_conn(ns)
+        key = encode_subkey([ns])
+        c.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [_MAP_CFG_NS, key, str(path).encode()]
+        )
+        c.commit()
+        _db_map[ns] = str(path)
+        return {"success": True, "message": f"^{ns} → {path}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_map_get(args: dict) -> dict:
+    """Get the mapped path for a namespace."""
+    ns = args["ns"]
+    path = _db_map.get(ns)
+    if path:
+        return {"success": True, "namespace": ns, "db_path": path}
+    return {"success": True, "namespace": ns, "db_path": None, "message": "Using default DB"}
+
+def tool_map_list(args: dict) -> dict:
+    """List all namespace→file mappings."""
+    if not _db_map:
+        return {"success": True, "mappings": [], "count": 0}
+    mappings = [{"namespace": ns, "db_path": path} for ns, path in _db_map.items()]
+    return {"success": True, "mappings": mappings, "count": len(mappings)}
+
+def tool_map_drop(args: dict) -> dict:
+    """Remove a namespace mapping. Falls back to default DB."""
+    ns = args["ns"]
+    c = _get_conn(ns)
+    key = encode_subkey([ns])
+    c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_MAP_CFG_NS, key])
+    c.commit()
+    _db_map.pop(ns, None)
+    _db_connections.pop(ns, None)
+    return {"success": True, "message": f"Mapping removed: ^{ns} → default"}
 
 def _init_schema(c: sqlite3.Connection):
     c.execute("""
@@ -220,7 +337,7 @@ def _decode_value(raw: Optional[str]):
 
 def _execute(sql: str, params: list = None) -> list:
     """Execute SQL, return rows as list of dicts."""
-    c = _get_conn()
+    c = _get_conn(ns)
     try:
         cur = c.execute(sql, params or [])
         if sql.strip().upper().startswith("SELECT") or sql.strip().upper().startswith("WITH"):
@@ -240,7 +357,7 @@ def tool_set(args: dict) -> dict:
     ns = args["ns"]; subs = args["subs"]; value = args["value"]
     try:
         key = encode_subkey(subs)
-        c = _get_conn()
+        c = _get_conn(ns)
         c.execute(
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
             [ns, key, _encode_value(value)]
@@ -257,7 +374,7 @@ def tool_get(args: dict) -> dict:
     ns = args["ns"]; subs = args["subs"]; default = args.get("default")
     try:
         key = encode_subkey(subs)
-        c = _get_conn()
+        c = _get_conn(ns)
         row = c.execute(
             "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
         ).fetchone()
@@ -300,7 +417,7 @@ def tool_order(args: dict) -> dict:
                 op = "<"
                 order = "DESC"
         
-        c = _get_conn()
+        c = _get_conn(ns)
         # Paginate: scan until sibling found at target level (fix LIMIT 50 bug)
         offset = 0
         page_size = 200
@@ -351,7 +468,7 @@ def tool_data(args: dict) -> dict:
     """
     try:
         key = encode_subkey(subs)
-        c = _get_conn()
+        c = _get_conn(ns)
         row = c.execute(
             "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
         ).fetchone()
@@ -427,7 +544,7 @@ def tool_kill(args: dict) -> dict:
     """KILL ^ns(subs) — delete node and all children."""
     try:
         key = encode_subkey(subs)
-        c = _get_conn()
+        c = _get_conn(ns)
         _auto_index_on_kill(ns, subs, c)
         _fire_triggers("ON_KILL", ns, subs, None, c)
         # Delete the node itself
@@ -447,7 +564,7 @@ def tool_incr(args: dict) -> dict:
     """$INCREMENT(^ns(subs), increment) — atomic increment. Returns new value."""
     try:
         key = encode_subkey(subs)
-        c = _get_conn()
+        c = _get_conn(ns)
         
         # Two-step atomic increment: ensure node exists, then increment
         c.execute(
@@ -476,7 +593,7 @@ def tool_merge(args: dict) -> dict:
     try:
         src_key = encode_subkey(source_subs)
         tgt_key = encode_subkey(target_subs)
-        c = _get_conn()
+        c = _get_conn(ns)
         
         # Copy source node
         row = c.execute(
@@ -533,7 +650,7 @@ def tool_query(args: dict) -> dict:
 def tool_schema(args: dict = None) -> dict:
     """Describe the database: namespaces, sizes, sample paths."""
     try:
-        c = _get_conn()
+        c = _get_conn(ns)
         # Namespace summary
         namespaces = c.execute("""
             SELECT ns, COUNT(*) as nodes,
@@ -577,7 +694,7 @@ def tool_backup(args: dict = None) -> dict:
         
         # Stats only
         db_path = _get_db_path()
-        c = _get_conn()
+        c = _get_conn(ns)
         cur = c.execute("SELECT COUNT(*) as total FROM _globals")
         total = cur.fetchone()["total"]
         return {
@@ -603,7 +720,7 @@ def tool_batch_set(args: dict) -> dict:
     items = args["items"]
     if not items:
         return {"success": True, "count": 0}
-    c = _get_conn()
+    c = _get_conn(ns)
     try:
         for item in items:
             key = encode_subkey(item["subs"])
@@ -637,7 +754,7 @@ def tool_fts_search(args: dict) -> dict:
     query = args["query"]
     limit = args.get("limit", 10)
     ns_filter = args.get("ns")
-    c = _get_conn()
+    c = _get_conn(ns)
     try:
         # Create FTS5 table on first call (no content= sync — handles WITHOUT ROWID tables)
         c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS _fts USING fts5(
@@ -680,7 +797,7 @@ _INDEX_DATA_NS_PREFIX = "_IDX"
 def _load_index_configs() -> dict:
     """Load all index definitions from PDB. Returns {ns: {idx_name: sub_pos}}."""
     configs = {}
-    conn = _get_conn()
+    conn = _get_conn(ns)
     rows = conn.execute(
         "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
         [_INDEX_CFG_NS]
@@ -770,7 +887,7 @@ _TRIGGER_CFG_NS = "TRIGGER_CFG"
 def _load_triggers() -> dict:
     """Load all trigger definitions. Returns {ns: {trigger_id: {event, action, params}}}."""
     triggers = {}
-    conn = _get_conn()
+    conn = _get_conn(ns)
     rows = conn.execute(
         "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
         [_TRIGGER_CFG_NS]
@@ -829,7 +946,7 @@ def tool_trigger_define(args: dict) -> dict:
     import uuid
     trigger_id = trigger_id or f"trg_{uuid.uuid4().hex[:8]}"
     try:
-        conn = _get_conn()
+        conn = _get_conn(ns)
         key = encode_subkey([ns, trigger_id])
         val = json.dumps({"event": event, "action": action, "params": params}).encode()
         conn.execute(
@@ -862,7 +979,7 @@ def tool_trigger_drop(args: dict) -> dict:
     ns = args["ns"]
     trigger_id = args["trigger_id"]
     try:
-        conn = _get_conn()
+        conn = _get_conn(ns)
         key = encode_subkey([ns, trigger_id])
         conn.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_TRIGGER_CFG_NS, key])
         conn.commit()
@@ -886,7 +1003,7 @@ def tool_index_define(args: dict) -> dict:
     idx_name = args["idx_name"]
     sub_pos = args.get("sub_pos", 1)
     try:
-        conn = _get_conn()
+        conn = _get_conn(ns)
         key = encode_subkey([ns, idx_name])
         conn.execute(
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
@@ -920,7 +1037,7 @@ def tool_index_drop(args: dict) -> dict:
     ns = args["ns"]
     idx_name = args["idx_name"]
     try:
-        conn = _get_conn()
+        conn = _get_conn(ns)
         key = encode_subkey([ns, idx_name])
         # Remove definition
         conn.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_INDEX_CFG_NS, key])
@@ -1268,6 +1385,48 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_map_set",
+        "description": "Map a namespace to a different SQLite file. ^ns(subs) will read/write to that file instead of the default DB. Pass empty db_path to remove mapping. Analogous to MSM global mapping.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to map (e.g. 'PATIENT')"},
+                "db_path": {"type": "string", "description": "Path to SQLite file. Empty string removes mapping."}
+            },
+            "required": ["ns"]
+        }
+    },
+    {
+        "name": "pdb_map_get",
+        "description": "Get the mapped file path for a namespace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to query"}
+            },
+            "required": ["ns"]
+        }
+    },
+    {
+        "name": "pdb_map_list",
+        "description": "List all namespace→file global mappings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "pdb_map_drop",
+        "description": "Remove a namespace mapping. Falls back to default PDB.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to unmap"}
+            },
+            "required": ["ns"]
+        }
+    },
+    {
         "name": "pdb_lock",
         "description": "LOCK — acquire a resource lock. Blocks other sessions from writing to the same namespace+subscripts. Analogous to MUMPS LOCK ^ns(subs). Use with pdb_unlock.",
         "inputSchema": {
@@ -1320,4 +1479,8 @@ HANDLERS = {
     "pdb_trigger_list": tool_trigger_list,
     "pdb_trigger_drop": tool_trigger_drop,
     "pdb_trigger": tool_trigger,
+    "pdb_map_set": tool_map_set,
+    "pdb_map_get": tool_map_get,
+    "pdb_map_list": tool_map_list,
+    "pdb_map_drop": tool_map_drop,
 }

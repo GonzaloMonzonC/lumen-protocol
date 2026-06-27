@@ -43,6 +43,6 @@ hermes skill install skills/<skill-name>
 | **lumen-pro-tools** | PRO-level: unified_search, cognitive_integration, advanced patterns. |
 | **kanban-cognitive** | Cross-session Kanban by cognitive niche. 10 tools, HTTP at :9876. |
 
-## Total LUMEN tool count: **90** (13 FS + 2 web + 46 thinking + 5 obj loop + 24 PDB)
+## Total LUMEN tool count: **94** (13 FS + 2 web + 46 thinking + 5 obj loop + 24 PDB)
 
 Verified against source at each commit.
