@@ -355,7 +355,7 @@ for name, desc, props, req in new_pdb_tools:
     )
 ```
 
-**15 tools total** (10 KV+SQL + 3 scratch + 1 batch + 1 fts).
+**24 tools total** (10 KV+SQL + 3 scratch + 1 batch + 1 fts + 2 lock + 3 indices + 4 triggers).
 
 ## Project Structure
 
@@ -367,8 +367,8 @@ implementations/mcp-servers/pdb/
 ├── server_shm.py       ← SHM Level 2 (NO usar para PDB — 20× más lento)
 ├── test_suite.py       ← 16 tests, todos OK
 ├── test_native.py      ← Tests LUMEN transport
-├── BENCHMARK.md        ← Resultados benchmark con tabla comparativa (15 tools)
-└── README.md           ← Documentación completa (15 tools)
+├── BENCHMARK.md        ← Resultados benchmark con tabla comparativa (24 tools)
+└── README.md           ← Documentación completa (24 tools)
 
 implementations/mcp-servers/plugins/lumen-pdb-bridge/
 └── __init__.py
@@ -394,7 +394,7 @@ SHM adds ~680μs per call from compress/build_frame/send/spin/recv/parse/decompr
 
 - `references/backward-compat-handlers.md` — tool_schema/tool_backup: accept both dict and positional args
 - `references/bridge-registration-pattern.md` — Generic handler lambda for FASE 1 tools; Windows encoding fix
-- `references/pdbm-benchmark-results.md` — Full JSON-RPC baseline: 100K ops per operation (15 tools)
+- `references/pdbm-benchmark-results.md` — Full JSON-RPC baseline: 100K ops per operation (24 tools)
 - `references/pdbm-shm-vs-stdio.md` — SHM vs stdio comparison: SHM adds ~700μs per call; decision to use stdio for PDB
 - `references/poc-travelmap.md` — PoC transcript: single-type import, 80 records, SQL queries
 - `references/rag-indexing-workflow.md` — Index 1,192 markdown docs in ~1s; batch + FTS pipeline
