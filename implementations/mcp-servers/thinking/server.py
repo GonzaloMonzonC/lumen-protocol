@@ -4181,7 +4181,12 @@ def _start_dashboard(port: int = 9876) -> None:
                     _pdb = _iu.module_from_spec(_pdb_spec)
                     _pdb_spec.loader.exec_module(_pdb)
                     encoder = _mm.MEvaluator(_pdb)
-                    result = encoder.eval(code)
+                    first_word = code.strip().split()[0].upper() if code.strip() else ''
+                    is_cmd = first_word in ('S','K','F','I','W','D','SET','KILL','FOR','IF','WRITE','DO')
+                    if is_cmd or '=' in code:
+                        result = encoder.eval(code)
+                    else:
+                        result = encoder.eval_expr(code)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
@@ -4189,7 +4194,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 except Exception as e:
                     self.send_response(500); self.end_headers()
                     self.wfile.write(json.dumps({"error": str(e)}).encode())
-elif self.path == "/wiki":
+            elif self.path == "/wiki":
                 try:
                     content_len = int(self.headers.get('Content-Length', 0))
                     raw = self.rfile.read(content_len) if content_len else b'{}'
