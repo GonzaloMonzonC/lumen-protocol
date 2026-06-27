@@ -1587,6 +1587,8 @@ def tool_unlock(args: dict) -> dict:
 _EMBED_MODEL = None
 _EMBED_DIMS = 384
 _EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+_EMBED_MATRIX = None  # numpy array cache
+_EMBED_HASHES = None  # list of hash strings
 
 def _get_embedder():
     global _EMBED_MODEL
@@ -1613,6 +1615,13 @@ def tool_embed(args: dict) -> dict:
         items += [{"ns": "EMBED_META", "subs": [h, "text"], "value": text},
                   {"ns": "EMBED_META", "subs": [h, "source"], "value": source or ""},
                   {"ns": "EMBED_META", "subs": [h, "created"], "value": str(time.time())}]
+        # Compute IVF (24 groups of 16 dims)
+        ivf_items = []
+        for g in range(24):
+            start = g * 16
+            avg = sum(emb[start:start+16]) / 16.0
+            ivf_items.append({"ns": "EMBED_IVF", "subs": [h, g], "value": str(round(float(avg), 6))})
+        items += ivf_items
         tool_batch_set({"items": items})
         results.append({"hash": h, "dims": len(emb), "source": source})
     return {"success": True, "results": results, "count": len(results)}
@@ -1631,49 +1640,44 @@ def tool_embed_search(args: dict) -> dict:
     if q_norm > 0:
         q_vec = [v/q_norm for v in q_vec]
     c = _get_conn()
-    hashes = set()
-    # Get unique hashes from EMBED: subkey format is \x02{hash}\xff\x02{dim}\xff
-    cur = c.execute("SELECT DISTINCT substr(subkey, 2, 16) as h FROM _globals WHERE ns='EMBED' AND length(subkey) > 18")
-    for row in cur.fetchall():
-        h = row[0]
-        if isinstance(h, bytes):
-            h = h.decode('utf-8', errors='replace')
-        if len(h) == 16:
-            hashes.add(h)
+
+    # Cached vector matrix: load once, reuse across calls
+    import json as _j
+    global _EMBED_MATRIX, _EMBED_HASHES
+    if _EMBED_MATRIX is None:
+        cur = c.execute("SELECT subkey, value FROM _globals WHERE ns='EMBED_VEC'")
+        hashes = []
+        vecs = []
+        for sk, val in cur.fetchall():
+            try:
+                decoded = decode_subkey(sk)
+            except:
+                continue
+            if not decoded: continue
+            hashes.append(str(decoded[0]))
+            raw = val.decode('utf-8') if isinstance(val, bytes) else str(val)
+            try:
+                vecs.append(_j.loads(raw))
+            except:
+                continue
+        _EMBED_HASHES = hashes
+        _EMBED_MATRIX = __import__('numpy', fromlist=['']).array(vecs, dtype='float32')
+
+    # Vectorized cosine similarity
+    import numpy as np
+    norms = np.linalg.norm(_EMBED_MATRIX, axis=1)
+    dots = _EMBED_MATRIX @ q_vec
+    scores = dots / (norms * q_norm)
+    top_idx = np.argsort(scores)[-limit:][::-1]
+
     scored = []
-    # Read all vectors via SQLite: extract dim from subkey, order by it
-    cur2 = c.execute("""
-        SELECT substr(subkey, 2, 16) as h,
-               CAST(substr(subkey, instr(subkey, x'ff02') + 2) AS INTEGER) as dim,
-               CAST(json_extract(value, '$') AS REAL) as v
-        FROM _globals WHERE ns='EMBED' AND length(subkey) > 18
-        ORDER BY h, dim
-    """)
-    # Group into vectors in Python
-    import itertools
-    for h, group in itertools.groupby(cur2.fetchall(), key=lambda r: r[0].decode() if isinstance(r[0], bytes) else r[0]):
-        vec = []
-        for row in group:
-            v = row[2]
-            vec.append(float(v) if v is not None else 0.0)
-        if len(vec) != _EMBED_DIMS:
-            continue
-        dot = sum(q_vec[i]*vec[i] for i in range(_EMBED_DIMS))
-        n1 = math.sqrt(sum(v*v for v in vec))
-        score = dot/(q_norm*n1) if q_norm > 0 and n1 > 0 else 0
-        cur3 = c.execute("SELECT value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [h.encode() if isinstance(h, str) else h])
-        text = ""
-        for row in cur3.fetchall():
-            sk = row[0]
-            if sk and b'text' in (sk if isinstance(sk, bytes) else b''):
-                # Next row has the value
-                pass
-        # Simpler: use SQL LIKE
-        import json as _j
-        cur3 = c.execute("SELECT value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [h.encode() if isinstance(h, str) else h])
+    for idx in top_idx:
+        h = _EMBED_HASHES[idx]
+        score = float(scores[idx])
+        cur2 = c.execute("SELECT value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [h.encode() if isinstance(h, str) else h])
         text = ""
         src = ""
-        for row in cur3.fetchall():
+        for row in cur2.fetchall():
             val = row[0]
             if val is None: continue
             raw = val.decode('utf-8') if isinstance(val, bytes) else str(val)
@@ -1681,12 +1685,9 @@ def tool_embed_search(args: dict) -> dict:
                 decoded = _j.loads(raw)
             except:
                 decoded = raw
-            if not isinstance(decoded, str):
-                continue
-            if decoded == 'petmap':
-                src = decoded
-            elif len(decoded) > 20:
-                text = decoded
+            if not isinstance(decoded, str): continue
+            if decoded == 'petmap': src = decoded
+            elif len(decoded) > 20: text = decoded
         scored.append({"hash": h, "text": text, "score": round(score, 4), "source": src})
     scored.sort(key=lambda x: -x["score"])
     return {"success": True, "results": scored[:limit], "count": len(scored[:limit])}
