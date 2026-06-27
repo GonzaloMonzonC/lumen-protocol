@@ -4183,6 +4183,63 @@ def _start_dashboard(port: int = 9876) -> None:
                     encoder = _mm.MEvaluator(_pdb)
                     first_word = code.strip().split()[0].upper() if code.strip() else ''
                     is_cmd = first_word in ('S','K','F','I','W','D','SET','KILL','FOR','IF','WRITE','DO')
+
+                    # Special MSM-style commands
+                    if code.upper() in ("D ^%GL", "^%GL", "%GL"):
+                        try:
+                            import sqlite3, os as _osx
+                            _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
+                            _cx = sqlite3.connect(_dbp)
+                            _cur = _cx.execute("SELECT DISTINCT ns, COUNT(*) as c FROM _globals GROUP BY ns ORDER BY ns")
+                            _lines = [ns + ": " + str(c) + " nodes" for ns, c in _cur.fetchall()]
+                            result = chr(10).join(_lines) if _lines else "No globals found"
+                            result += chr(10) + chr(10) + "Total: " + str(len(_lines)) + " namespaces"
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"code": code, "result": result}).encode())
+                            return
+                        except Exception as e:
+                            result = "Error: " + str(e)
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"code": code, "result": result}).encode())
+                            return
+                    if code.upper() in ("D ^%SS", "^%SS", "%SS"):
+                        try:
+                            import sqlite3, os as _osx
+                            _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
+                            _cx = sqlite3.connect(_dbp)
+                            _cur = _cx.execute("SELECT COUNT(DISTINCT ns) as namespaces, COUNT(*) as nodes FROM _globals")
+                            ns_cnt, nodes = _cur.fetchone()
+                            dbsize = _osx.path.getsize(_dbp)
+                            sessions_n = len(_sessions)
+                            _pat = sum(len(s.patterns) for s in _sessions.values())
+                            _dec = sum(len(s.decisions) for s in _sessions.values())
+                            _cha = sum(len(s.chains) for s in _sessions.values())
+                            _wik = sum(len(s.wiki) for s in _sessions.values())
+                            result = ""
+                            result += "Namespaces: " + str(ns_cnt) + chr(10)
+                            result += "Total nodes: " + str(nodes) + chr(10)
+                            result += "DB size: " + str(round(dbsize/1048576, 1)) + " MB" + chr(10)
+                            result += "Sessions: " + str(sessions_n) + chr(10)
+                            result += "Chains: " + str(_cha) + chr(10)
+                            result += "Patterns: " + str(_pat) + chr(10)
+                            result += "Decisions: " + str(_dec) + chr(10)
+                            result += "Wiki pages: " + str(_wik)
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"code": code, "result": result}).encode())
+                            return
+                        except Exception as e:
+                            result = "Error: " + str(e)
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"code": code, "result": result}).encode())
+                            return
                     if is_cmd or '=' in code:
                         result = encoder.eval(code)
                     else:
