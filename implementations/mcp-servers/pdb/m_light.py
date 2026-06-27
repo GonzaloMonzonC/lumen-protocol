@@ -727,26 +727,44 @@ class MEvaluator:
             return ""
 
         # Arithmetic expression — MUMPS evalúa left-to-right SIN precedencia
-        # Soporta: \ div, # mod, ** exp, *, /, +, -
-        # Ej: I\100000#10*2, +$G(x), 5*2+1
-        if re.match(r'^[+\-]?\w[\w\\#\*\/+\-]*$', token) and any(op in token for op in ['\\','#','*','/','+','-']):
-            # Left-to-right evaluation (MUMPS style)
-            parts = re.split(r'(\\|#|\*\*|[\*\/+\-])', token)
-            if len(parts) >= 3:
-                result = self._resolve_num(parts[0].strip())
-                i = 1
-                while i < len(parts) - 1:
-                    op = parts[i].strip()
-                    right = self._resolve_num(parts[i+1].strip())
-                    if op == '\\': result = int(result // right) if result is not None else 0
-                    elif op == '#': result = int(result % right) if result is not None else 0
-                    elif op == '**': result = (result ** right) if result is not None else 0
-                    elif op == '*': result = (result * right) if result is not None else 0
-                    elif op == '/': result = (result / right) if result is not None else 0
-                    elif op == '+': result = (result + right) if result is not None else 0
-                    elif op == '-': result = (result - right) if result is not None else 0
-                    i += 2
-                return int(result) if result == int(result) else result
+        # Soporta: +, -, *, /, \\ (div), # (mod), ** (exp)
+        # Ej: T+$G(^X(I)), 5*$G(^A)+$G(^B), I\\100000#10*2
+        # Busca operadores fuera de paréntesis (depth=0)
+        if any(op in token for op in ['\\','#','*','/','+','-']):
+            # Find operators at depth=0
+            depth = 0
+            ops_at_depth0 = []
+            # Check operators in order: ** first, then \\, #, *, /, +, -
+            # (MUMPS is left-to-right, but we split on outermost operators)
+            for i, ch in enumerate(token):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                elif depth == 0:
+                    if ch == '+' or ch == '-':
+                        # Skip unary: if it's the first char or after another operator
+                        if i == 0 or token[i-1] in ('*', '/', '\\', '#', '(', '+', '-'):
+                            continue
+                        ops_at_depth0.append((i, ch))
+                    elif ch in ('*', '/', '\\', '#'):
+                        ops_at_depth0.append((i, ch))
+            
+            if ops_at_depth0:
+                # Take the LAST operator at depth 0 (rightmost = left-to-right eval)
+                pos, op = ops_at_depth0[-1]
+                left = token[:pos].strip()
+                right = token[pos+1:].strip()
+                if left and right:
+                    lv = self._resolve_num(left)
+                    rv = self._resolve_num(right)
+                    if op == '+': result = lv + rv
+                    elif op == '-': result = lv - rv
+                    elif op == '*': result = lv * rv
+                    elif op == '/': result = lv / rv if rv != 0 else 0
+                    elif op == '\\': result = int(lv // rv) if rv != 0 else 0
+                    elif op == '#': result = int(lv % rv) if rv != 0 else 0
+                    return int(result) if result == int(result) else result
 
         # Literal
         if token.startswith('"') and token.endswith('"'):
