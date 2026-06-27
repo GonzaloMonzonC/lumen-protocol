@@ -17,6 +17,19 @@ import json, logging, os, sqlite3, struct, threading, time
 from pathlib import Path
 from typing import Any, Optional
 
+# M-Light evaluator for trigger conditions and rules
+_m_encoder = None
+try:
+    import importlib.util
+    _m_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m_light.py")
+    _m_spec = importlib.util.spec_from_file_location("m_light", _m_path)
+    if _m_spec:
+        _m_mod = importlib.util.module_from_spec(_m_spec)
+        _m_spec.loader.exec_module(_m_mod)
+        _m_encoder = _m_mod.MEncoder()
+except Exception:
+    _m_encoder = None
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -285,6 +298,96 @@ def tool_map_drop(args: dict) -> dict:
     _db_map.pop(ns, None)
     _db_connections.pop(ns, None)
     return {"success": True, "message": f"Mapping removed: ^{ns} → default"}
+
+# ---------------------------------------------------------------------------
+# Journaling — WAL management, checkpoint, backup
+# ---------------------------------------------------------------------------
+
+def tool_journal_checkpoint(args: dict) -> dict:
+    """Force a WAL checkpoint on the main PDB and all mapped/partitioned DBs.
+    Returns WAL file sizes before and after."""
+    import os
+    results = {"default": {}, "mapped": {}}
+    # Default DB
+    c = _get_conn()
+    before = _wal_size(_get_db_path())
+    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    after = _wal_size(_get_db_path())
+    results["default"] = {"db": _get_db_path(), "wal_before_kb": before//1024, "wal_after_kb": after//1024}
+    # Mapped/partitioned DBs
+    for key, conn in _db_connections.items():
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except:
+            pass
+    return {"success": True, "checkpoints": results}
+
+def _wal_size(db_path: str) -> int:
+    """Get WAL file size for a given DB path."""
+    import os
+    wal_path = db_path + "-wal"
+    try:
+        return os.path.getsize(wal_path)
+    except:
+        return 0
+
+def tool_journal_status(args: dict) -> dict:
+    """Show journal status for the main PDB and all mapped connections."""
+    c = _get_conn()
+    pages = c.execute("PRAGMA page_count").fetchone()[0]
+    page_size = c.execute("PRAGMA page_size").fetchone()[0]
+    wal_auto = c.execute("PRAGMA wal_autocheckpoint").fetchone()[0]
+    results = {
+        "default": {
+            "db_path": _get_db_path(),
+            "db_size_kb": os.path.getsize(_get_db_path()) // 1024 if os.path.exists(_get_db_path()) else 0,
+            "wal_size_kb": _wal_size(_get_db_path()) // 1024,
+            "pages": pages,
+            "page_size": page_size,
+            "wal_autocheckpoint": wal_auto,
+            "journal_mode": c.execute("PRAGMA journal_mode").fetchone()[0],
+        },
+        "mapped": {}
+    }
+    for key, conn in _db_connections.items():
+        try:
+            p = conn.execute("PRAGMA page_count").fetchone()[0]
+            ps = conn.execute("PRAGMA page_size").fetchone()[0]
+            results["mapped"][key] = {"page_count": p, "page_size": ps}
+        except:
+            pass
+    return {"success": True, "status": results}
+
+def tool_journal_backup(args: dict) -> dict:
+    """Create a consistent backup of the main PDB (with WAL checkpoint).
+    Optionally specify backup path. Default: lumen-pdb.backup.db"""
+    backup_path = args.get("backup_path", str(Path(_get_db_path()).parent / "lumen-pdb.backup.db"))
+    try:
+        c = _get_conn()
+        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        from shutil import copy2
+        copy2(_get_db_path(), backup_path)
+        size = os.path.getsize(backup_path)
+        return {"success": True, "backup_path": backup_path, "size_bytes": size}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_m_eval(args: dict) -> dict:
+    """Evaluate an M expression using M-Light. Supports $GET, $DATA, $PIECE, $EXTRACT, $SELECT.
+    Examples: $GET(^PATIENT(42,"name")), $PIECE("a|b|c","|",2), $SELECT(1=1:"yes",1:"no")"""
+    expr = args.get("expression", "")
+    try:
+        import importlib.util, sys
+        _m_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m_light.py")
+        _m_spec = importlib.util.spec_from_file_location("m_light", _m_path)
+        _m_mod = importlib.util.module_from_spec(_m_spec)
+        _m_spec.loader.exec_module(_m_mod)
+        # Pass this module as the PDB reference
+        encoder = _m_mod.MEncoder(sys.modules[__name__])
+        result = encoder.eval_expression(expr)
+        return {"success": True, "expression": expr, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e), "expression": expr}
 
 def _init_schema(c: sqlite3.Connection):
     c.execute("""
@@ -1545,6 +1648,17 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_m_eval",
+        "description": "Evaluate an M expression using M-Light. Supports $GET(^ns(subs)), $PIECE, $EXTRACT, $SELECT. Examples: $GET(^PATIENT(42,\"name\")), $PIECE(\"a|b|c\",\"|\",2).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "expression": {"type": "string", "description": "M expression to evaluate"}
+            },
+            "required": ["expression"]
+        }
+    },
+    {
         "name": "pdb_partition_define",
         "description": "Define automatic partitioning for a namespace. Partitions split by subscript at key_pos into ranges, each range mapped to a separate SQLite file. Solves the MSM 2GB limit problem.",
         "inputSchema": {
@@ -1637,4 +1751,5 @@ HANDLERS = {
     "pdb_partition_define": tool_partition_define,
     "pdb_partition_list": tool_partition_list,
     "pdb_partition_drop": tool_partition_drop,
+    "pdb_m_eval": tool_m_eval,
 }
