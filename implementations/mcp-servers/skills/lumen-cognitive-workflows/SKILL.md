@@ -1,6 +1,6 @@
 ---
 name: lumen-cognitive-workflows
-description: 5 composable cognitive workflow patterns for Lumen Thinking's 22 tools — problem-solving, decision-validation, debugging, learning, and multi-session task tracking.
+description: 5 composable cognitive workflow patterns for Lumen Thinking's 46 tools — problem-solving, decision-validation, debugging, learning, and multi-session task tracking.
 version: 1.0.0
 author: Cadences Lab
 platforms: [linux, macos, windows]
@@ -11,7 +11,7 @@ metadata:
 
 # Lumen Cognitive Workflows
 
-Documented composition patterns for Lumen Thinking's 22 tools. These workflows
+Documented composition patterns for Lumen Thinking's 46 tools. These workflows
 chain multiple cognitive tools into **proven decision-making and problem-solving
 pipelines**. Copy, adapt, and compose them.
 
@@ -261,6 +261,30 @@ These 5 workflows are **primitives** — compose them:
 - **Learning → Debug**: `model_add(pattern)` → `context_preserve(bug)` → `sequential_thinking(match pattern to symptoms)`
 - **Task → Decision**: `work_start` → hit blocker → `assume(cause)` → `check_assumption` → `work_block(revised approach)`
 - **Cross-session Insight**: `thought_bridge("security patterns")` → finds past reasoning → `model_query(relevant pattern)` → `sequential_thinking(adapt to current context)`
+
+## 🧠 PDB + M-Light Workflows
+
+PDB (40 tools) is the agent's persistent memory — a MUMPS-style hierarchical database on SQLite. M-Light lets you query it with MUMPS expressions.
+
+### Load & Query Pattern
+```
+1. pdb_set(ns, subs, value) — store structured data
+2. m.eval('S I="" F  S I=$O(^ns(I)) Q:I=""  ...') — traverse with $ORDER
+3. m.eval_expr('$G(^ns(id,field))') — retrieve specific fields
+4. pdb_batch_set(items) — bulk insert for performance
+```
+
+### Trigger Pattern
+```
+pdb_trigger_define(ns, event='ON_SET', action='REPLICATE', params={...})
+→ Automatic reactions when data changes (audit logs, indexing, sync)
+```
+
+### M-Light Expression Tools
+```
+pdb_m_eval('$P("a|b|c","|",2)') → "b"
+pdb_m_repl → interactive M REPL for prototyping queries
+```
 
 ## Safety Principle
 
