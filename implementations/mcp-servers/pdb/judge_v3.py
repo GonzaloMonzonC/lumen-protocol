@@ -78,31 +78,33 @@ def get_models():
     return models
 
 
-def walk_global(ns, max_depth=3, max_samples=20):
-    """Walk a ^GLOBAL structure sampling first N branches to determine depth."""
-    shape = {"depth": 0, "leaf_count": 0, "field_names": set(), "sampled": True}
-    remaining = [max_samples]  # mutable container for closure
-
-    def _walk(subs, depth):
-        if depth > max_depth or remaining[0] <= 0: return
-        if depth > shape["depth"]: shape["depth"] = depth
-        
-        I = ''
-        while remaining[0] > 0:
-            r = to(ns, subs + [I])
-            if not r: break
-            I = r
-            remaining[0] -= 1
-            d = td(ns, subs + [I])
-            if d in (1, 11):
-                shape["leaf_count"] += 1
-                if depth >= 1:
-                    shape["field_names"].add(str(I))
-            if d in (10, 11):
-                _walk(subs + [I], depth + 1)
-
-    _walk([], 0)
-    shape["field_count"] = len(shape["field_names"])
+def walk_global(ns, max_depth=5):
+    """Determine structure depth by analyzing subkey levels via SQLite."""
+    shape = {"depth": 0, "leaf_count": 0, "field_names": set()}
+    try:
+        import sqlite3
+        db_path = pdb_tools._get_db_path() if hasattr(pdb_tools, '_get_db_path') else \
+                  os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lumen-pdb.db')
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        sep = b'\xff\x02'
+        # Get max depth by counting separators in a sample
+        c.execute(f"SELECT subkey FROM _globals WHERE ns=? ORDER BY subkey LIMIT 500", [ns])
+        max_depth_found = 0
+        for row in c.fetchall():
+            sk = row[0]
+            depth = len(sk.split(sep))
+            if depth > max_depth_found:
+                max_depth_found = depth
+        # Also get distinct types/prefixes
+        c.execute(f"SELECT DISTINCT substr(subkey, 3, 3) FROM _globals WHERE ns=? LIMIT 20", [ns])
+        prefixes = [row[0] for row in c.fetchall() if row[0]]
+        conn.close()
+        shape["depth"] = max_depth_found
+        shape["prefixes"] = prefixes
+    except:
+        pass
+    shape["field_count"] = 0
     return shape
 
 
@@ -171,8 +173,11 @@ def score_circuit_2(model):
     size_dist = tg('BENCH_MODEL_V3', [model, 2, "size_dist"])
     no_ext = tg('BENCH_MODEL_V3', [model, 2, "no_ext"])
 
-    # c2a: Files without extension
-    ne = safe_float(no_ext)
+    # c2a: Files without extension — handle "count" or "count/bytes" format
+    ne_raw = str(no_ext) if no_ext else '0'
+    # Extract first number from: "3358" or "3358/11904796" or "3358 files"
+    ne_match = re.search(r'(\d+)', ne_raw)
+    ne = int(ne_match.group(1)) if ne_match else 0
     ne_expected = GROUND_TRUTH["no_ext_count"]
     c2a = max(0, 1.0 - abs(ne - ne_expected) / ne_expected)
     c2a = round(max(0, min(1, c2a)), 4)
