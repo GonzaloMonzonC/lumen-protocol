@@ -135,7 +135,7 @@ class MEvaluator:
                 break
 
             # Identificar el comando (con posible postconditional :cond)
-            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|IF|ELSE|W(?:RITE)?|D(?:O)?)((?:[:][^ ]+)?)(?:\s|$)', line[pos:])
+            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|IF|ELSE|W(?:RITE)?|D(?:O)?|G(?:OTO)?|R(?:EAD)?|N(?:EW)?|O(?:PEN)?|U(?:SE)?|C(?:LOSE)?)((?:[:][^ ]+)?)(?:\s|$)', line[pos:])
             if cmd_match:
                 cmd = cmd_match.group(1)[0]  # Primera letra del comando
                 pos += cmd_match.end()
@@ -155,6 +155,16 @@ class MEvaluator:
                     pos = self._exec_goto(line, pos)
                 elif cmd in ('D',):
                     pos = self._exec_do(line, pos)
+                elif cmd in ('R',):
+                    pos = self._exec_read(line, pos)
+                elif cmd in ('N',):
+                    pos = self._exec_new(line, pos)
+                elif cmd in ('O',):
+                    pos = self._exec_open(line, pos)
+                elif cmd in ('U',):
+                    pos = self._exec_use(line, pos)
+                elif cmd in ('C',):
+                    pos = self._exec_close(line, pos)
                 else:
                     pos += 1
             else:
@@ -239,7 +249,7 @@ class MEvaluator:
     # ── SET ──
 
     def _exec_set(self, line: str, pos: int) -> int:
-        """SET var=value o SET ^ns(subs)=value o SET A=1,B=2 (coma = más asignaciones)"""
+        """SET var=value o SET ^ns(subs)=value o SET A=1,B=2"""
         original_section = line[pos:]  # keep for offset calc
         rest = original_section.strip()
         consumed = len(original_section) - len(rest)  # leading whitespace
@@ -321,13 +331,12 @@ class MEvaluator:
                 if ch == ',':
                     return i
                 # ch == ' '
-                if re.match(r'[FKSQIWD]\b', s[i:].strip()):
+                if re.match(r'[FKSQIWDGRNUC]\b', s[i:].strip()):
                     return i
         return len(s)
 
     def _until_next_cmd(self, s: str) -> str:
-        """Extrae el valor hasta el siguiente comando M (espacio + letra de comando)."""
-        # Buscar espacio seguido de letra de comando (F,S,K,Q,I,W,D) que NO esté entre paréntesis
+        """Extrae el valor hasta el siguiente comando M."""
         depth = 0
         for i, ch in enumerate(s):
             if ch == '(':
@@ -335,9 +344,8 @@ class MEvaluator:
             elif ch == ')':
                 depth -= 1
             elif ch == ' ' and depth == 0:
-                # Probar si la siguiente palabra es un comando M
                 rest = s[i:].strip()
-                if re.match(r'[FKSQIWD]\b', rest):
+                if re.match(r'[FKSQIWDGRNUC]\b', rest):
                     return s[:i].strip()
         return s.strip()
 
@@ -390,8 +398,8 @@ class MEvaluator:
             cond = if_match.group(1).strip()
             brace_pos = if_match.end() - 1  # position of {
             block_end_rel = self._find_block_end(rest[brace_pos:])
-            # block_end_rel is index of } within rest[brace_pos:]
-            body_text = rest[brace_pos+1 : brace_pos + block_end_rel]
+            end_pos = min(brace_pos + block_end_rel, len(rest))
+            body_text = rest[brace_pos+1 : end_pos]
             if self._eval_condition(cond):
                 self._exec_line(body_text.strip())
             return len(line)
@@ -411,10 +419,64 @@ class MEvaluator:
     # ── WRITE ──
 
     def _exec_write(self, line: str, pos: int) -> int:
-        """WRITE expresión — imprime (útil para debug)"""
+        """WRITE — imprime expresiones separadas por coma.
+        W *7 → bell, W ! → newline, W ?n → columna, W \"str\" → texto"""
         rest = line[pos:].strip()
-        val = self._resolve(rest)
-        print(f"[M-Light WRITE] {val}")
+        output = []
+        for item in re.split(r',\s*', rest):
+            if not item:
+                continue
+            item = item.strip()
+            # Handle !! sequences (multiple newlines)
+            if item.replace('!', '') == '':
+                output.append('\n' * len(item))
+            elif item.startswith('*'):
+                try:
+                    code = int(self._resolve(item[1:]))
+                    output.append(chr(code))
+                except:
+                    output.append(f'[{item}]')
+            elif item.startswith('?'):
+                try:
+                    col = int(self._resolve(item[1:]))
+                    output.append(f'[COL{col}]')
+                except:
+                    output.append(f'[{item}]')
+            else:
+                val = self._resolve(item)
+                output.append(str(val) if val is not None else '')
+        print(f'[M-Light WRITE] {"".join(output)}')
+        return len(line)
+
+    def _exec_read(self, line: str, pos: int) -> int:
+        """READ prompt:var — lee entrada (simulado)"""
+        rest = line[pos:].strip()
+        if ':' in rest:
+            prompt, var = rest.split(':', 1)
+            var = var.strip()
+            if prompt:
+                print(f'[M-Light READ prompt] {self._resolve(prompt.strip())}')
+            # En modo demo, responder vacío
+            self.scope.set(var, '')
+        elif rest:
+            self.scope.set(rest.strip(), '')
+        return len(line)
+
+    def _exec_new(self, line, pos):
+        for v in line[pos:].strip().replace(',',' ').split():
+            self.scope.vars.pop(v.strip(), None)
+        return len(line)
+
+    def _exec_open(self, line, pos):
+        print(f'[M-Light OPEN] {line[pos:].strip()}')
+        return len(line)
+
+    def _exec_use(self, line, pos):
+        print(f'[M-Light USE] {line[pos:].strip()}')
+        return len(line)
+
+    def _exec_close(self, line, pos):
+        print(f'[M-Light CLOSE] {line[pos:].strip()}')
         return len(line)
 
     # ── Evaluación de expresiones ──
