@@ -5,8 +5,8 @@
 | Model | Data Modeling | Debugging | Optimization | **Final** | Level |
 |-------|:-------------:|:---------:|:------------:|:---------:|:-----:|
 | **deepseek-v4-flash-max** | 0.938 | 0.944 | 1.000 | **0.958** | 🥇 LUMEN Architect |
+| **deepseek-v4-pro** | 0.938 | 0.889 | 1.000 | **0.942** | 🥇 LUMEN Architect |
 | **laguna-m-1** | 0.688 | 0.556 | 0.750 | **0.667** | 🥉 LUMEN Analyst |
-| **deepseek-v4-pro** | 0.500 | 0.333 | 0.750 | **0.525** | 🥉 LUMEN Analyst |
 | **nvidia/nemotron-3-super-120b-a12b:free** | 0.265 | 0.000 | 0.000 | **0.106** | 🔧 LUMEN Apprentice |
 | **step-3.7-flash-free** | 0.000 | 0.000 | 0.000 | **0.000** | 🔧 LUMEN Apprentice |
 
