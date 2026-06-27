@@ -52,10 +52,12 @@ def to(ns, subs):
         return None
 
 def td(ns, subs):
-    """pdb_data safe."""
+    """pdb_data safe - returns value key from tool_data."""
     try:
         r = pdb_tools.tool_data({"ns": ns, "subs": subs})
-        return r.get("data", 0)
+        # Debug
+        v = r.get("value", 0)
+        return v
     except:
         return 0
 
@@ -138,7 +140,9 @@ def score_circuit_1(model):
     details.append(f"  Records loaded: {count} (expected {GROUND_TRUTH['total_count']}) → {c1a:.2f}")
 
     # c1b: Structure analysis — walk the global the model created
-    gns = str(global_name).strip('\'" ')
+    gns_raw = str(global_name).strip('\'" ')
+    # Remove leading ^ if present (PDB namespaces don't use caret)
+    gns = gns_raw.lstrip('^')
     shape = walk_global(gns)
 
     # Depth: should be at least 3 (global → id → field) or (global → province → id → field)
