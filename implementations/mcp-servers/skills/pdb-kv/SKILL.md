@@ -49,3 +49,4 @@ pdb_batch_set(items=[{"ns":"X","subs":[1],"value":"a"}])
 - $ORDER retorna "" al final: usa `Q:I=""` para salir
 - $DATA: 0=no existe, 1=tiene valor, 10=tiene hijos, 11=ambos
 - Siempre inicializa variables: `S I=""` antes de $O
+- **Disponibilidad**: todas las 13 tools KV estan expuestas via MCP.
