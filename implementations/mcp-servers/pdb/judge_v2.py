@@ -217,15 +217,17 @@ def score_circuit_2(model):
     criteria["c2a_bugs_detected"] = c2a
     details.append(f"  Bugs reported: {bf} → {c2a:.2f}")
 
-    # c2b: Bug types identified (check summary for keywords)
-    if summary:
-        summary_lower = str(summary).lower()
+    # c2b: Bug types identified (check summary AND bug_types for keywords)
+    if summary or bug_types_raw:
+        search_text = (str(summary) + ' ' + str(bug_types_raw)).lower()
         types_found = 0
         for bug_type, pattern in BUG_TYPES.items():
-            if re.search(pattern, summary_lower):
+            if re.search(pattern, search_text):
                 types_found += 1
         c2b = types_found / len(BUG_TYPES)
         details.append(f"  Bug types identified: {types_found}/{len(BUG_TYPES)} → {c2b:.2f}")
+        if types_found < len(BUG_TYPES):
+            details.append(f"  Missed patterns: {[k for k in BUG_TYPES if not re.search(BUG_TYPES[k], search_text)]}")
     else:
         c2b = 0.0
         details.append(f"  No summary provided → 0.0")
