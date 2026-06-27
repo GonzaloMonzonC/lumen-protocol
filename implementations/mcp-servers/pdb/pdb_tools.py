@@ -40,7 +40,7 @@ try:
     if _m_spec:
         _m_mod = importlib.util.module_from_spec(_m_spec)
         _m_spec.loader.exec_module(_m_mod)
-        _m_encoder = _m_mod.MEncoder()
+        _m_encoder = _m_mod.MEvaluator()
 except Exception:
     _m_encoder = None
 
@@ -405,8 +405,8 @@ def tool_m_eval(args: dict) -> dict:
         _m_mod = importlib.util.module_from_spec(_m_spec)
         _m_spec.loader.exec_module(_m_mod)
         # Pass this module as the PDB reference
-        encoder = _m_mod.MEncoder(sys.modules[__name__])
-        result = encoder.eval_expression(expr)
+        encoder = _m_mod.MEvaluator(sys.modules[__name__])
+        result = encoder.eval_expr(expr)
         return {"success": True, "expression": expr, "result": result}
     except Exception as e:
         return {"success": False, "error": str(e), "expression": expr}
