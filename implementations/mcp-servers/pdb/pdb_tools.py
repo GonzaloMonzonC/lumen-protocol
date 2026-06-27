@@ -395,21 +395,51 @@ def tool_journal_backup(args: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 def tool_m_eval(args: dict) -> dict:
-    """Evaluate an M expression using M-Light. Supports $GET, $DATA, $PIECE, $EXTRACT, $SELECT.
-    Examples: $GET(^PATIENT(42,"name")), $PIECE("a|b|c","|",2), $SELECT(1=1:"yes",1:"no")"""
+    """Evaluate an M expression OR command using M-Light.
+    Supports expressions: $GET, $DATA, $PIECE, $EXTRACT, $SELECT
+    Supports commands: SET, FOR, KILL, IF, WRITE, $ORDER
+    Examples:
+        $GET(^PATIENT(42,"name"))
+        $SELECT(1=1:"yes",1:"no")
+        S I="" F  S I=$O(^FS(I)) Q:I=""  S ^SUM=$G(^SUM)+1
+    """
     expr = args.get("expression", "")
+    if not expr.strip():
+        return {"success": False, "error": "Empty expression"}
     try:
         import importlib.util, sys
         _m_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m_light.py")
         _m_spec = importlib.util.spec_from_file_location("m_light", _m_path)
         _m_mod = importlib.util.module_from_spec(_m_spec)
         _m_spec.loader.exec_module(_m_mod)
-        # Pass this module as the PDB reference
         encoder = _m_mod.MEvaluator(sys.modules[__name__])
-        result = encoder.eval_expr(expr)
-        return {"success": True, "expression": expr, "result": result}
+
+        # Try as expression first (pure functions like $G, $P, etc.)
+        # If it looks like a command (starts with S, K, F, I, W, D, G, N, O, U, C)
+        # or contains '=', use eval instead of eval_expr
+        first_word = expr.strip().split()[0].upper() if expr.strip() else ''
+        is_command = first_word in ('S', 'K', 'F', 'I', 'W', 'D', 'G', 'N', 'O', 'U', 'C', 'SET', 'KILL', 'FOR', 'IF', 'WRITE', 'DO', 'GOTO', 'NEW', 'OPEN', 'USE', 'CLOSE')
+        has_assignment = '=' in expr and not expr.strip().startswith('$')
+
+        if is_command or has_assignment:
+            result = encoder.eval(expr)
+            return {"success": True, "expression": expr, "result": str(result) if result is not None else "", "mode": "eval"}
+        else:
+            result = encoder.eval_expr(expr)
+            return {"success": True, "expression": expr, "result": result, "mode": "eval_expr"}
     except Exception as e:
-        return {"success": False, "error": str(e), "expression": expr}
+        # Fallback: try eval_expr if eval failed
+        try:
+            import importlib.util, sys
+            _m_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m_light.py")
+            _m_spec = importlib.util.spec_from_file_location("m_light", _m_path)
+            _m_mod = importlib.util.module_from_spec(_m_spec)
+            _m_spec.loader.exec_module(_m_mod)
+            encoder = _m_mod.MEvaluator(sys.modules[__name__])
+            result = encoder.eval_expr(expr)
+            return {"success": True, "expression": expr, "result": result, "mode": "eval_expr_fallback"}
+        except Exception as e2:
+            return {"success": False, "error": str(e), "expression": expr}
 
 def tool_m_repl(args: dict) -> dict:
     """M REPL — ejecuta una o más líneas de código M contra PDB en vivo.
