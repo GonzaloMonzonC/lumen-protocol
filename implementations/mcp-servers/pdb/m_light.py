@@ -38,6 +38,11 @@ class MEvaluator:
         self.pdb = pdb_tools_module
         self.scope = MScope()
         self._quit_flag = False
+        self._labels = {}
+        self._label_mode = False
+        self._goto_target = None
+        self._call_stack = []
+        self._do_call = False  # True when next jump is a DO, not GOTO
 
     # ── API pública ──
 
@@ -45,6 +50,62 @@ class MEvaluator:
         """Evaluar una línea o bloque de código M."""
         self._quit_flag = False
         return self._exec_line(code.strip())
+
+    def eval_script(self, script: str) -> Any:
+        """Ejecutar un script M multilínea con soporte de labels (GOTO/DO).
+        Escanea labels primero, luego ejecuta línea por línea."""
+        self._quit_flag = False
+        self._labels = {}
+        lines = script.strip().split('\n')
+
+        # First pass: scan labels
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            # Label: LABEL ; code  o  LABEL code
+            label_match = re.match(r'^(\w+)\s*[ ;]', line)
+            if label_match:
+                label = label_match.group(1)
+                if label.upper() not in ('S', 'K', 'F', 'Q', 'I', 'W', 'D', 'G', 'N', 'O', 'U', 'C', 'V', 'Z', 'J', 'R'):
+                    self._labels[label] = i  # line index
+
+        # Second pass: execute with jump support (GOTO/DO)
+        self._call_stack = []
+        self._label_mode = False
+        i = 0
+        while i < len(lines) and not self._quit_flag:
+            line = lines[i].strip()
+            if not line:
+                i += 1
+                continue
+            # Skip label-only lines
+            if line in self._labels:
+                i += 1
+                continue
+            # Strip label prefix if present
+            code_line = line
+            label_match = re.match(r'^(\w+)\s*[ ;]', line)
+            if label_match and label_match.group(1) in self._labels:
+                code_line = line[label_match.end():].strip()
+            if code_line:
+                self._exec_line(code_line)
+            # Handle jumps
+            if self._goto_target is not None:
+                target = self._goto_target
+                self._goto_target = None
+                if target in self._labels:
+                    if self._do_call:
+                        self._do_call = False
+                        self._call_stack.append(i + 1)  # return to next line
+                    i = self._labels[target]
+                    continue
+            # Handle DO return: when QUIT fires and call stack not empty
+            if self._quit_flag and self._call_stack:
+                self._quit_flag = False
+                i = self._call_stack.pop()
+                continue
+            i += 1
 
     def eval_expr(self, expr: str) -> Any:
         """Evaluar una expresión M (sin efectos secundarios)."""
@@ -90,6 +151,10 @@ class MEvaluator:
                     pos = self._exec_if(line, pos)
                 elif cmd in ('W',):
                     pos = self._exec_write(line, pos)
+                elif cmd in ('G',):
+                    pos = self._exec_goto(line, pos)
+                elif cmd in ('D',):
+                    pos = self._exec_do(line, pos)
                 else:
                     pos += 1
             else:
@@ -225,6 +290,24 @@ class MEvaluator:
         return pos + consumed
 
         return pos + 1
+
+    def _exec_goto(self, line: str, pos: int) -> int:
+        """G label — GOTO. En _exec_line, establece _goto_target.
+        En eval_script, el loop principal maneja el salto."""
+        rest = line[pos:].strip()
+        label = rest.split()[0] if rest else ""
+        if label:
+            self._goto_target = label
+        return len(line)
+
+    def _exec_do(self, line: str, pos: int) -> int:
+        """D label — DO (call subroutine)."""
+        rest = line[pos:].strip()
+        m = re.match(r'\^?(\w+)', rest)
+        if m:
+            self._goto_target = m.group(1)
+            self._do_call = True  # signals eval_script to push return point
+        return len(line)
 
     def _cmd_boundary(self, s: str) -> int:
         """Encuentra dónde termina el valor (antes del siguiente comando M o coma)."""
