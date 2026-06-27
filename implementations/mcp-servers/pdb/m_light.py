@@ -85,7 +85,7 @@ class MEvaluator:
                 elif cmd in ('K',):
                     pos = self._exec_kill(line, pos)
                 elif cmd in ('Q',):
-                    pos = self._exec_quit(line, pos)
+                    pos = self._exec_quit(line, pos, cmd_match.group(2) or "")
                 elif cmd in ('I',):
                     pos = self._exec_if(line, pos)
                 elif cmd in ('W',):
@@ -154,6 +154,9 @@ class MEvaluator:
                     break
 
         self.scope = old_scope
+        # Propagar variables del child scope al parent (MUMPS semantics)
+        for k, v in child.vars.items():
+            old_scope.set(k, v)
         return len(line)
 
     def _find_block_end(self, s: str) -> int:
@@ -243,19 +246,14 @@ class MEvaluator:
 
     # ── QUIT ──
 
-    def _exec_quit(self, line: str, pos: int) -> int:
+    def _exec_quit(self, line: str, pos: int, postcond: str = "") -> int:
         """QUIT[:condition] — sale del bucle actual si se cumple la condición.
-        Si no se cumple, devuelve la posición después del QUIT para continuar."""
-        rest = line[pos:].strip()
-        consumed = len(line) - len(rest)  # lo que había antes del strip
-        cond_match = re.match(r':([^ ]+)', rest)
-        if cond_match:
-            cond = cond_match.group(1).strip()
+        postcond viene ya extraído por cmd_match. Si está vacío, QUIT sin condición."""
+        if postcond and postcond.startswith(':'):
+            cond = postcond[1:].strip()
             if self._eval_condition(cond):
                 self._quit_flag = True
-            # Consume solo el postconditional, no toda la línea
-            cond_len = len(cond_match.group(0))
-            return pos + cond_len
+            return pos
         else:
             self._quit_flag = True
             return len(line)
@@ -269,10 +267,12 @@ class MEvaluator:
         if_match = re.match(r'([^{]+)\s*\{', rest)
         if if_match:
             cond = if_match.group(1).strip()
-            body_start = if_match.end() - 1  # apunta al {
-            block_end = self._find_block_end(rest[body_start:])
+            brace_pos = if_match.end() - 1  # position of {
+            block_end_rel = self._find_block_end(rest[brace_pos:])
+            # block_end_rel is index of } within rest[brace_pos:]
+            body_text = rest[brace_pos+1 : brace_pos + block_end_rel]
             if self._eval_condition(cond):
-                self._exec_line(rest[body_start+1:body_start+block_end])
+                self._exec_line(body_text.strip())
             return len(line)
 
         # IF condition command (sin llaves)
@@ -338,16 +338,16 @@ class MEvaluator:
             parts = str(string).split(delim)
             return parts[n-1] if n <= len(parts) else ""
 
-        # $EXTRACT(string, from, to?)
-        m = re.match(r'\$EXTRACT\s*\(\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*\)', token)
+        # $EXTRACT(string, from, to?) — también $E
+        m = re.match(r'\$(?:EXTRACT|E)\s*\(\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*\)', token)
         if m:
             string = str(self._resolve(m.group(1)))
             frm = int(m.group(2)) - 1
             to = int(m.group(3)) if m.group(3) else frm + 1
             return string[frm:to]
 
-        # $SELECT(cond1:val1, ..., 1:default)
-        m = re.match(r'\$SELECT\s*\(\s*(.+)\s*\)', token)
+        # $SELECT(cond1:val1, ..., 1:default) — también $S
+        m = re.match(r'\$(?:SELECT|S)\s*\(\s*(.+)\s*\)', token)
         if m:
             pairs = m.group(1).split(",")
             for pair in pairs:
