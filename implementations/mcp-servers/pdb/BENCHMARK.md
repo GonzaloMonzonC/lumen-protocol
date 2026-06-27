@@ -123,7 +123,7 @@ Batch amortizes the transaction overhead + JSON serialization across all items.
 
 The 25ms overhead is dominated by the FTS index rebuild (DELETE + INSERT of all current data). For persistent indexes, use `pdb_set` with proper namespace structure and FTS separately.
 
-### All 15 tools summary
+### All 40 tools summary
 
 | Tool category | # tools | Avg latency |
 |--------------|-------:|:-----------:|

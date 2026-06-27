@@ -1,6 +1,6 @@
 # LUMEN Tools Guide — When to Use Each Tool
 
-Practical decision guide for all 97 LUMEN MCP tools across 4 servers.
+Practical decision guide for all 106 LUMEN MCP tools across 4 servers.
 Use this to choose the right tool for every scenario.
 
 ---

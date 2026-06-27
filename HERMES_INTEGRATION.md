@@ -133,7 +133,7 @@ Measured with real MCP workloads on Windows 10, Python 3.11, Node.js 22.
 | MCP tool call | 115 B | **48 B** | **58%** |
 | `tools/list` (5 tools, ~1.5 KB JSON) | 1,536 B | **910 B** | **41%** |
 | `tools/call` (echo x3) | 222 B | **149 B** | **33%** |
-| Tool list (100 tools) | 39.7 KB | **24.8 KB** | **37%**¹ |
+| Tool list (106 tools) | 39.7 KB | **24.8 KB** | **37%**¹ |
 | Agent loop (30 turns) | 6.4 KB | **3.3 KB** | **48%**¹ |
 
 ¹ *From LUMEN paper benchmarks*
