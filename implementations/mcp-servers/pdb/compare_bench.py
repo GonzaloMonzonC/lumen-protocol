@@ -11,12 +11,14 @@ Usage:
 Then compare:
   python compare_bench.py --report       # Shows both models side by side
 """
-import os, sys, time, json, tempfile
+import os, sys, time, json
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "unknown"
 RUN = 1
 
-os.environ['PDB_PATH'] = os.path.join(tempfile.mkdtemp(), f'bench_{MODEL}.db')
+PERSISTENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bench_cache')
+os.makedirs(PERSISTENT_DIR, exist_ok=True)
+os.environ['PDB_PATH'] = os.path.join(PERSISTENT_DIR, f'bench_{MODEL}.db')
 sys.path.insert(0, '.')
 import pdb_tools
 from m_light import MEvaluator
