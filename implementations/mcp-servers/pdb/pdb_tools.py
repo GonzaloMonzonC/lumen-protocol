@@ -1580,6 +1580,89 @@ def tool_unlock(args: dict) -> dict:
     return {"content": [{"type": "text", "text": f"Lock not found: ^${ns}({','.join(str(s) for s in subs)})"}]}
 
 # ---------------------------------------------------------------------------
+# Embedding (RAG) tools
+# Requires: pip install fastembed
+# Uses: sentence-transformers/all-MiniLM-L6-v2 (384 dims)
+
+_EMBED_MODEL = None
+_EMBED_DIMS = 384
+_EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
+def _get_embedder():
+    global _EMBED_MODEL
+    if _EMBED_MODEL is None:
+        try:
+            from fastembed import TextEmbedding
+            _EMBED_MODEL = TextEmbedding(_EMBED_MODEL_NAME)
+        except ImportError:
+            raise ImportError("fastembed not installed. Run: pip install fastembed")
+    return _EMBED_MODEL
+
+def tool_embed(args: dict) -> dict:
+    """Generate embeddings for text(s) and store in PDB."""
+    texts = args.get("texts", args.get("text", ""))
+    source = args.get("source", "")
+    if isinstance(texts, str):
+        texts = [texts]
+    import hashlib, time
+    model = _get_embedder()
+    results = []
+    for text, emb in zip(texts, list(model.embed(texts))):
+        h = hashlib.sha256(text.encode()).hexdigest()[:16]
+        items = [{"ns": "EMBED", "subs": [h, dim], "value": str(round(float(v), 6))} for dim, v in enumerate(emb)]
+        items += [{"ns": "EMBED_META", "subs": [h, "text"], "value": text},
+                  {"ns": "EMBED_META", "subs": [h, "source"], "value": source or ""},
+                  {"ns": "EMBED_META", "subs": [h, "created"], "value": str(time.time())}]
+        tool_batch_set({"items": items})
+        results.append({"hash": h, "dims": len(emb), "source": source})
+    return {"success": True, "results": results, "count": len(results)}
+
+def tool_embed_search(args: dict) -> dict:
+    """Search indexed texts by cosine similarity."""
+    query = args.get("query", "")
+    limit = min(args.get("limit", 5), 50)
+    if not query:
+        return {"success": False, "error": "query required"}
+    import math
+    model = _get_embedder()
+    q_emb = list(model.embed([query]))[0]
+    q_vec = [float(q_emb[i]) for i in range(_EMBED_DIMS)]
+    q_norm = math.sqrt(sum(v*v for v in q_vec))
+    if q_norm > 0:
+        q_vec = [v/q_norm for v in q_vec]
+    c = _get_conn()
+    hashes = set()
+    cur = c.execute("SELECT DISTINCT subkey FROM _globals WHERE ns='EMBED' AND length(subkey) = 18")
+    for row in cur.fetchall():
+        sk = row[0]
+        if isinstance(sk, bytes):
+            s = sk.rstrip(b'\xff').lstrip(b'\x02').decode('utf-8', errors='replace')
+        else:
+            s = str(sk)
+        if len(s) == 16:
+            hashes.add(s)
+    scored = []
+    for h in hashes:
+        vec = []
+        for dim in range(_EMBED_DIMS):
+            r = tool_get({"ns": "EMBED", "subs": [h, dim]})
+            v = r.get("value")
+            if v is None:
+                break
+            vec.append(float(v))
+        if len(vec) != _EMBED_DIMS:
+            continue
+        dot = sum(q_vec[i]*vec[i] for i in range(_EMBED_DIMS))
+        n1 = math.sqrt(sum(v*v for v in vec))
+        score = dot/(q_norm*n1) if q_norm > 0 and n1 > 0 else 0
+        r = tool_get({"ns": "EMBED_META", "subs": [h, "text"]})
+        text = r.get("value", "") if r else ""
+        r2 = tool_get({"ns": "EMBED_META", "subs": [h, "source"]})
+        src = r2.get("value", "") if r2 else ""
+        scored.append({"hash": h, "text": text, "score": round(score, 4), "source": src})
+    scored.sort(key=lambda x: -x["score"])
+    return {"success": True, "results": scored[:limit], "count": len(scored[:limit])}
+
 # Tool definitions
 # ---------------------------------------------------------------------------
 
