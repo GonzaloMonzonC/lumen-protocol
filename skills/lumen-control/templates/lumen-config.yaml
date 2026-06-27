@@ -1,0 +1,41 @@
+# Template: LUMEN MCP server configuration for Hermes Agent
+# Updated: 2026-06-17 — 3 servers, 18 tools
+
+mcp_lumen:
+  enabled: true              # Global LUMEN on/off switch
+
+mcp_servers:
+
+  # ── LUMEN Filesystem Server (9 tools) ──────────────────────
+  lumen_filesystem:
+    enabled: true
+    command: "C:/Users/gonzalo/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe"
+    args:
+      - "C:/Users/gonzalo/Documents/GitHub/lumen-protocol/implementations/mcp-servers/filesystem/server.py"
+    transport: lumen
+    lumen_force_json_rpc: true
+    timeout: 30
+
+  # ── LUMEN Web Server (2 tools) ─────────────────────────────
+  lumen_web:
+    enabled: true
+    command: "C:/Users/gonzalo/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe"
+    args:
+      - "C:/Users/gonzalo/Documents/GitHub/lumen-protocol/implementations/mcp-servers/web/server.py"
+    transport: lumen
+    lumen_force_json_rpc: true
+    timeout: 30
+
+  # ── LUMEN Thinking Server (7 tools) ────────────────────────
+  lumen_thinking:
+    enabled: true
+    command: "C:/Users/gonzalo/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe"
+    args:
+      - "C:/Users/gonzalo/Documents/GitHub/lumen-protocol/implementations/mcp-servers/thinking/server.py"
+    transport: lumen
+    lumen_force_json_rpc: true
+    timeout: 30
+
+# ── Optional: disable built-in file tools ─────────────────────
+# tools:
+#   disabled_toolsets: ["file"]
