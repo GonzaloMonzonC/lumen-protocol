@@ -605,7 +605,27 @@ def _init_schema(c: sqlite3.Connection):
 # ---------------------------------------------------------------------------
 
 def encode_subkey(subs: list) -> bytes:
-    """Encode subscript list into a sortable BLOB key."""
+    """Encode subscript list into a sortable BLOB key.
+
+    Binary format:
+        Each subscript is encoded as: [type_byte] [data] [separator?]
+
+        Types:
+        - ``\\x00`` — NULL sentinel (backward compat, only as last sub)
+        - ``\\x01`` + 8 bytes (IEEE 754 double, sortable) + ``\\xff`` — numeric
+        - ``\\x02`` + UTF-8 bytes + ``\\xff`` — string
+        - ``\\x02\\xff`` — empty string ``""`` (zero-length string marker)
+
+    Examples:
+        ``['ext', '.py', 'foo.py']`` →
+        ``\\x02ext\\xff\\x02.py\\xff\\x02foo.py\\xff``
+
+        ``['ext', '', 'foo']`` (empty extension) →
+        ``\\x02ext\\xff\\x02\\xff\\x02foo\\xff``
+
+    NOTE: The old ``\\x00`` sentinel for ``""`` broke multi-subscript keys
+    because ``decode_subkey`` stopped at ``\\x00``. Fixed 2026-06-27.
+    """
     parts = []
     for sub in subs:
         if sub is None:  # null sentinel (backward compat)
@@ -622,7 +642,14 @@ def encode_subkey(subs: list) -> bytes:
     return b''.join(parts)
 
 def decode_subkey(blob: bytes) -> list:
-    """Decode a full subkey BLOB back into a list of subscripts."""
+    """Decode a full subkey BLOB back into a list of subscripts.
+
+    Inverse of encode_subkey. See encode_subkey docs for binary format.
+
+    Handles both:
+    - New format: ``\\x02\\xff`` for empty string ``""``
+    - Legacy format: ``\\x00`` sentinel (backward compatible, last subscript only)
+    """
     subs = []
     i = 0
     while i < len(blob):
