@@ -42,7 +42,8 @@ class MEvaluator:
         self._label_mode = False
         self._goto_target = None
         self._call_stack = []
-        self._do_call = False  # True when next jump is a DO, not GOTO
+        self._do_call = False
+        self._last_ref = None  # naked reference: último ^GLOBAL accedido
 
     # ── API pública ──
 
@@ -135,7 +136,7 @@ class MEvaluator:
                 break
 
             # Identificar el comando (con posible postconditional :cond)
-            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|IF|ELSE|W(?:RITE)?|D(?:O)?|G(?:OTO)?|R(?:EAD)?|N(?:EW)?|O(?:PEN)?|U(?:SE)?|C(?:LOSE)?)((?:[:][^ ]+)?)(?:\s|$)', line[pos:])
+            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|I(?:F)?|ELSE|W(?:RITE)?|D(?:O)?|G(?:OTO)?|R(?:EAD)?|N(?:EW)?|O(?:PEN)?|U(?:SE)?|C(?:LOSE)?)((?:[:][^ ]+)?)(?:\s|$)', line[pos:])
             if cmd_match:
                 cmd = cmd_match.group(1)[0]  # Primera letra del comando
                 pos += cmd_match.end()
@@ -280,6 +281,20 @@ class MEvaluator:
                         continue
                     break
 
+            # ^(subs)=value — naked reference SET
+            naked_match = re.match(r'\^\(([^)]+)\)\s*=\s*(.+)', rest)
+            if naked_match and self.pdb and self._last_ref:
+                ns = self._last_ref
+                subs = self._parse_subs(naked_match.group(1))
+                value_expr = naked_match.group(2)
+                value_end = self._cmd_boundary(value_expr)
+                value = self._resolve(value_expr[:value_end].strip())
+                self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
+                chunk = len(naked_match.group(0)) - (len(value_expr) - value_end)
+                consumed += chunk
+                rest = rest[chunk:]
+                break
+
             # ^ns(subs)=value
             g_match = re.match(r'\^(\w+)\(([^)]+)\)\s*=\s*(.+)', rest)
             if g_match and self.pdb:
@@ -288,6 +303,7 @@ class MEvaluator:
                 value_expr = g_match.group(3)
                 value_end = self._cmd_boundary(value_expr)
                 value = self._resolve(value_expr[:value_end].strip())
+                self._last_ref = ns
                 self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
                 chunk = len(g_match.group(0)) - (len(value_expr) - value_end)
                 consumed += chunk
@@ -433,10 +449,11 @@ class MEvaluator:
             return len(line)
 
         # IF condition command (sin llaves)
-        space_idx = rest.find('  ')
-        if space_idx > 0:
-            cond = rest[:space_idx].strip()
-            cmd = rest[space_idx:].strip()
+        # Encontrar el final de la condición usando _cmd_boundary
+        cond_end = self._cmd_boundary(rest)
+        if cond_end > 0 and cond_end < len(rest):
+            cond = rest[:cond_end].strip()
+            cmd = rest[cond_end:].strip()
             if self._eval_condition(cond):
                 self._exec_line(cmd)
         else:
@@ -447,15 +464,31 @@ class MEvaluator:
     # ── WRITE ──
 
     def _exec_write(self, line: str, pos: int) -> int:
-        """WRITE — imprime expresiones separadas por coma.
-        W *7 → bell, W ! → newline, W ?n → columna, W \"str\" → texto"""
+        """WRITE — imprime expresiones separadas por coma."""
         rest = line[pos:].strip()
         output = []
-        for item in re.split(r',\s*', rest):
-            if not item:
-                continue
-            item = item.strip()
-            # Handle !! sequences (multiple newlines)
+
+        # Dividir por comas solo en depth=0 (no dentro de paréntesis)
+        items = []
+        depth = 0
+        current = ""
+        for ch in rest:
+            if ch == '(':
+                depth += 1
+                current += ch
+            elif ch == ')':
+                depth -= 1
+                current += ch
+            elif ch == ',' and depth == 0:
+                items.append(current.strip())
+                current = ""
+            else:
+                current += ch
+        if current.strip():
+            items.append(current.strip())
+
+        for item in items:
+            if not item: continue
             if item.replace('!', '') == '':
                 output.append('\n' * len(item))
             elif item.startswith('*'):
@@ -535,6 +568,7 @@ class MEvaluator:
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
+            self._last_ref = ns
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
@@ -549,6 +583,7 @@ class MEvaluator:
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
+            self._last_ref = ns
             r = self.pdb.tool_data({"ns": ns, "subs": subs})
             return r.get("value", 0)
 
@@ -558,6 +593,7 @@ class MEvaluator:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
             direction = int(m.group(3)) if m.group(3) else 1
+            self._last_ref = ns
             r = self.pdb.tool_order({"ns": ns, "subs": subs, "direction": direction})
             # MUMPS $ORDER returns "" (empty string) when no more elements
             val = r.get("value")
@@ -657,11 +693,20 @@ class MEvaluator:
             try: return float(val) if '.' in str(val) else int(float(val))
             except: return 0
 
-        # ^ns(subs) — acceso directo a global (para @ indirección)
+        # ^(subs) — naked reference (usa el último ^GLOBAL accedido)
+        m = re.match(r'\^\(([^)]+)\)', token)
+        if m and self.pdb and self._last_ref:
+            ns = self._last_ref
+            subs = self._parse_subs(m.group(1))
+            r = self.pdb.tool_get({"ns": ns, "subs": subs})
+            return r.get("value")
+
+        # ^ns(subs) — acceso directo a global
         m = re.match(r'\^(\w+)\(([^)]+)\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
+            self._last_ref = ns  # para naked reference
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
@@ -673,9 +718,13 @@ class MEvaluator:
                 return self._resolve(inner)
             return inner
 
-        # Variable local
-        if token in self.scope.vars or (self.scope.parent and token in self.scope.parent.vars):
-            return self.scope.get(token)
+        # Variable local — M devuelve "" para variables no inicializadas
+        val = self.scope.get(token)
+        if val is not None:
+            return val
+        # Variable no definida en M = cadena vacía
+        if re.match(r'^[A-Z][A-Z0-9]*$', token, re.IGNORECASE):
+            return ""
 
         # Arithmetic expression — MUMPS evalúa left-to-right SIN precedencia
         # Soporta: \ div, # mod, ** exp, *, /, +, -
