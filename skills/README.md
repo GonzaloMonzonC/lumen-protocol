@@ -3,20 +3,46 @@
 Published skills for the LUMEN cognitive ecosystem. Install with Hermes:
 
 ```bash
-hermes skill install skills/kanban-cognitive
-hermes skill install skills/lumen-daily-workflows
-hermes skill install skills/lumen-server-development
-hermes skill install skills/process-database
+hermes skill install skills/<skill-name>
 ```
 
-## Available Skills
+## All Skills
 
-- **kanban-cognitive**: Cross-session Kanban by cognitive niche. 10 tools, HTTP endpoints at :9876.
-- **lumen-daily-workflows**: Core daily LUMEN workflows — problem-solving, decisions, debugging, learning, multi-session tasks, wiki, project reset.
-- **lumen-server-development**: Build, test, and deploy LUMEN MCP servers. Covers SHM transport, PROBE handshake.
-- **process-database**: PDBM-Lumen architecture: MUMPS-compatible process database with SQLite backend. **24 tools** ($LOCK, auto-indices, triggers, FTS5, batch).
-- **autonomous-ai-agents**: Delegate coding tasks to Claude Code CLI.
+### Core (daily use)
+| Skill | Description |
+|-------|-------------|
+| **lumen-daily-workflows** | 7 core workflows: problem-solving, decisions, debugging, learning, multi-session, clean slate, wiki. |
+| **lumen-cognitive-workflows** | Advanced: audit, adversarial testing, enterprise patterns, Q&A, puzzle-solving. |
+| **lumen-agent-loop** | Autonomous objective-driven iteration: BUILDER→BUILDING→TESTING→DONE. 5 tools. |
+| **process-database** | PDBM-Lumen: MUMPS-compatible hierarchical KV on SQLite. **24 tools** ($LOCK, auto-indices, triggers, FTS5). |
+
+### Thinking Server & Integration
+| Skill | Description |
+|-------|-------------|
+| **lumen-server-development** | Build, test, deploy LUMEN MCP servers. SHM transport, PROBE handshake. |
+| **lumen-thinking-server-dev** | Build LUMEN-native thinking servers with STREAM_DATA frames. |
+| **lumen-thinking-hermes-integration** | Deep integration guide for Lumen Thinking in Hermes Agent. |
+
+### Cognitive Architecture
+| Skill | Description |
+|-------|-------------|
+| **lumen-cognitive-safety** | Ethical and technical guardrails for LUMEN cognitive tools. |
+| **lumen-cognitive-state-sync** | Multi-agent shared mental models via LUMEN MUX channels. |
+| **lumen-enterprise-pattern** | Enterprise patterns: multi-team, cross-niche, SLA monitoring. |
+
+### Dashboard & Control
+| Skill | Description |
+|-------|-------------|
+| **lumen-control** | Interactive control panel for LUMEN — monitor, alarms, health. |
+| **lumen-dashboard-pattern** | Build interactive LUMEN monitoring dashboards with vanilla HTML/JS. |
+
+### Productivity & Kickstart
+| Skill | Description |
+|-------|-------------|
+| **lumen-kickstart** | Quickstart guide — first steps, cognitive tools, PDB, kanban. |
+| **lumen-pro-tools** | PRO-level: unified_search, cognitive_integration, advanced patterns. |
+| **kanban-cognitive** | Cross-session Kanban by cognitive niche. 10 tools, HTTP at :9876. |
 
 ## Total LUMEN tool count: **90** (13 FS + 2 web + 46 thinking + 5 obj loop + 24 PDB)
 
-Verified against source at each commit. See `SOUL.md` for the full breakdown.
+Verified against source at each commit.
