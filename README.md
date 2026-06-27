@@ -181,6 +181,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | D^ROUTINE web | ✅ | :8767 — D^SS (procesos), D^GS (globals), dashboard HTML |
 | MSM Compatibility | ✅ | 14/18 MSM STU patterns. Hex #, +cast, \\div, #mod. KILL locales, coma-SET |
 | Cognitive Benchmark | ✅ | 27K insert/s, 58K GET/s, \$ORDER jerárquico, M-Light \$ORDER 0.5s/1K |
+| MVM — M Virtual Machine | ✅ | Procesos M autónomos: spawn, tick, mailbox, kill. D^SS panel |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
