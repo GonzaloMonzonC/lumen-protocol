@@ -32,6 +32,8 @@ PDBM-Lumen is a database for AI agents. Think of it as **MUMPS globals reincarna
 | `pdb_kill(ns, subs)` | `KILL ^ns(subs)` | Delete subtree |
 | `pdb_incr(ns, subs, inc?)` | `$INCREMENT(^ns(subs),inc)` | Atomic increment |
 | `pdb_merge(t_ns, t_subs, s_ns, s_subs)` | `MERGE ^t(t_s)=^s(s_s)` | Copy subtree |
+| `pdb_lock(ns, subs, timeout?)` | `LOCK ^ns(subs)` | Acquire resource lock |
+| `pdb_unlock(ns, subs?)` | `LOCK` (no args) | Release resource lock |
 
 ### SQL tools (analysis)
 
