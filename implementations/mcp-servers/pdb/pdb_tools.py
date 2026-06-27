@@ -743,7 +743,7 @@ def _decode_value(raw: Optional[str]):
 
 def _execute(sql: str, params: list = None) -> list:
     """Execute SQL, return rows as list of dicts."""
-    c = _get_conn(ns)
+    c = _get_conn()
     try:
         cur = c.execute(sql, params or [])
         if sql.strip().upper().startswith("SELECT") or sql.strip().upper().startswith("WITH"):
@@ -1056,7 +1056,7 @@ def tool_query(args: dict) -> dict:
 def tool_schema(args: dict = None) -> dict:
     """Describe the database: namespaces, sizes, sample paths."""
     try:
-        c = _get_conn(ns)
+        c = _get_conn()
         # Namespace summary
         namespaces = c.execute("""
             SELECT ns, COUNT(*) as nodes,
@@ -1100,7 +1100,7 @@ def tool_backup(args: dict = None) -> dict:
         
         # Stats only
         db_path = _get_db_path()
-        c = _get_conn(ns)
+        c = _get_conn()
         cur = c.execute("SELECT COUNT(*) as total FROM _globals")
         total = cur.fetchone()["total"]
         return {
@@ -1126,7 +1126,7 @@ def tool_batch_set(args: dict) -> dict:
     items = args["items"]
     if not items:
         return {"success": True, "count": 0}
-    c = _get_conn(ns)
+    c = _get_conn()
     try:
         for item in items:
             key = encode_subkey(item["subs"])
@@ -1160,7 +1160,7 @@ def tool_fts_search(args: dict) -> dict:
     query = args["query"]
     limit = args.get("limit", 10)
     ns_filter = args.get("ns")
-    c = _get_conn(ns)
+    c = _get_conn()
     try:
         # Create FTS5 table on first call (no content= sync — handles WITHOUT ROWID tables)
         c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS _fts USING fts5(
@@ -1203,7 +1203,7 @@ _INDEX_DATA_NS_PREFIX = "_IDX"
 def _load_index_configs() -> dict:
     """Load all index definitions from PDB. Returns {ns: {idx_name: sub_pos}}."""
     configs = {}
-    conn = _get_conn(ns)
+    conn = _get_conn()
     rows = conn.execute(
         "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
         [_INDEX_CFG_NS]
@@ -1293,7 +1293,7 @@ _TRIGGER_CFG_NS = "TRIGGER_CFG"
 def _load_triggers() -> dict:
     """Load all trigger definitions. Returns {ns: {trigger_id: {event, action, params}}}."""
     triggers = {}
-    conn = _get_conn(ns)
+    conn = _get_conn()
     rows = conn.execute(
         "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
         [_TRIGGER_CFG_NS]
