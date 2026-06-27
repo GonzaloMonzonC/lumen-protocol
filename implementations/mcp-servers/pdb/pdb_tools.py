@@ -1641,23 +1641,52 @@ def tool_embed_search(args: dict) -> dict:
         if len(h) == 16:
             hashes.add(h)
     scored = []
-    for h in hashes:
+    # Read all vectors via SQLite: extract dim from subkey, order by it
+    cur2 = c.execute("""
+        SELECT substr(subkey, 2, 16) as h,
+               CAST(substr(subkey, instr(subkey, x'ff02') + 2) AS INTEGER) as dim,
+               CAST(json_extract(value, '$') AS REAL) as v
+        FROM _globals WHERE ns='EMBED' AND length(subkey) > 18
+        ORDER BY h, dim
+    """)
+    # Group into vectors in Python
+    import itertools
+    for h, group in itertools.groupby(cur2.fetchall(), key=lambda r: r[0].decode() if isinstance(r[0], bytes) else r[0]):
         vec = []
-        for dim in range(_EMBED_DIMS):
-            r = tool_get({"ns": "EMBED", "subs": [h, dim]})
-            v = r.get("value")
-            if v is None:
-                break
-            vec.append(float(v))
+        for row in group:
+            v = row[2]
+            vec.append(float(v) if v is not None else 0.0)
         if len(vec) != _EMBED_DIMS:
             continue
         dot = sum(q_vec[i]*vec[i] for i in range(_EMBED_DIMS))
         n1 = math.sqrt(sum(v*v for v in vec))
         score = dot/(q_norm*n1) if q_norm > 0 and n1 > 0 else 0
-        r = tool_get({"ns": "EMBED_META", "subs": [h, "text"]})
-        text = r.get("value", "") if r else ""
-        r2 = tool_get({"ns": "EMBED_META", "subs": [h, "source"]})
-        src = r2.get("value", "") if r2 else ""
+        cur3 = c.execute("SELECT value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [h.encode() if isinstance(h, str) else h])
+        text = ""
+        for row in cur3.fetchall():
+            sk = row[0]
+            if sk and b'text' in (sk if isinstance(sk, bytes) else b''):
+                # Next row has the value
+                pass
+        # Simpler: use SQL LIKE
+        import json as _j
+        cur3 = c.execute("SELECT value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [h.encode() if isinstance(h, str) else h])
+        text = ""
+        src = ""
+        for row in cur3.fetchall():
+            val = row[0]
+            if val is None: continue
+            raw = val.decode('utf-8') if isinstance(val, bytes) else str(val)
+            try:
+                decoded = _j.loads(raw)
+            except:
+                decoded = raw
+            if not isinstance(decoded, str):
+                continue
+            if decoded == 'petmap':
+                src = decoded
+            elif len(decoded) > 20:
+                text = decoded
         scored.append({"hash": h, "text": text, "score": round(score, 4), "source": src})
     scored.sort(key=lambda x: -x["score"])
     return {"success": True, "results": scored[:limit], "count": len(scored[:limit])}
