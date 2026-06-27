@@ -358,6 +358,29 @@ class MEvaluator:
                         return self._resolve(val.strip())
             return None
 
+        # $LENGTH(string) — también $L
+        m = re.match(r'\$(?:LENGTH|L)\s*\(\s*([^)]+)\s*\)', token)
+        if m:
+            val = str(self._resolve(m.group(1)))
+            return len(val)
+
+        # $FIND(string,substring) — también $F
+        m = re.match(r'\$(?:FIND|F)\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)', token)
+        if m:
+            haystack = str(self._resolve(m.group(1)))
+            needle = str(self._resolve(m.group(2)))
+            pos = haystack.find(needle)
+            return pos + len(needle) + 1 if pos >= 0 else 0
+
+        # $TRANSLATE(string,old,new) — también $TR
+        m = re.match(r'\$(?:TRANSLATE|TR)\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)', token)
+        if m:
+            val = str(self._resolve(m.group(1)))
+            old = str(self._resolve(m.group(2)))
+            new = str(self._resolve(m.group(3)))
+            table = str.maketrans(old, new)
+            return val.translate(table)
+
         # Variable local
         if token in self.scope.vars or (self.scope.parent and token in self.scope.parent.vars):
             return self.scope.get(token)
