@@ -581,6 +581,21 @@ class MEvaluator:
             pos = haystack.find(needle)
             return pos + len(needle) + 1 if pos >= 0 else 0
 
+        # System variables: $J (job), $H (time), $IO (device)
+        if token == '$J':
+            return self.scope.get('$J') or '0'
+        if token == '$H':
+            import time
+            return str(int(time.time()))
+        if token == '$IO':
+            return self.scope.get('$IO') or '0'
+        if token == '$ZV':
+            return 'LUMEN M-Light v1.0'
+        if token == '$X':
+            return 0
+        if token == '$Y':
+            return 0
+
         # $TRANSLATE(string,old,new) — también $TR
         m = re.match(r'\$(?:TRANSLATE|TR)\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)', token)
         if m:
