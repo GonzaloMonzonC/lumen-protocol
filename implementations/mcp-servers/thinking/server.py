@@ -4161,7 +4161,35 @@ def _start_dashboard(port: int = 9876) -> None:
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"window_s": window, "collisions": collisions}).encode())
-            elif self.path == "/wiki":
+            elif self.path == "/m":
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    raw = self.rfile.read(content_len) if content_len else b'{}'
+                    params = json.loads(raw)
+                    code = params.get("code", "").strip()
+                    if not code:
+                        self.send_response(400); self.end_headers()
+                        self.wfile.write(b'{"error":"code required"}'); return
+                    import importlib.util as _iu, sys, os
+                    _dir = os.path.dirname(os.path.abspath(__file__))
+                    _mp = os.path.join(_dir, '..', 'pdb', 'm_light.py')
+                    _ms = _iu.spec_from_file_location('m_light', _mp)
+                    _mm = _iu.module_from_spec(_ms)
+                    _ms.loader.exec_module(_mm)
+                    _ps = os.path.join(_dir, '..', 'pdb', 'pdb_tools.py')
+                    _pdb_spec = _iu.spec_from_file_location('pdb_tools', _ps)
+                    _pdb = _iu.module_from_spec(_pdb_spec)
+                    _pdb_spec.loader.exec_module(_pdb)
+                    encoder = _mm.MEvaluator(_pdb)
+                    result = encoder.eval(code)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"code": code, "result": str(result) if result is not None else ""}).encode())
+                except Exception as e:
+                    self.send_response(500); self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+elif self.path == "/wiki":
                 try:
                     content_len = int(self.headers.get('Content-Length', 0))
                     raw = self.rfile.read(content_len) if content_len else b'{}'

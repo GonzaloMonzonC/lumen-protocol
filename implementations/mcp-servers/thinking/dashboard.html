@@ -691,4 +691,35 @@ function createTask() {
       </div>
     </div>
   </div>
+
+<div class="glass" style="margin-top:16px">
+  <h3>💻 M Console</h3>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <input id="m-code" type="text" placeholder="$O(^FARMA(""))" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:#22d3ee;font-family:JetBrains Mono,monospace;font-size:12px" onkeydown="if(event.key==='Enter')runM()">
+    <button onclick="runM()" class="btn btn-acc" style="padding:8px 16px">▶ Run</button>
+  </div>
+  <pre id="m-output" style="margin-top:8px;padding:12px;background:var(--slate800);border-radius:8px;color:var(--acc);font-family:JetBrains Mono,monospace;font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap">M-Light ready...</pre>
+</div>
+<script>
+var _mh=[];
+async function runM(){
+  var c=document.getElementById('m-code').value.trim();
+  if(!c)return;
+  try{
+    var r=await fetch('/m',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})});
+    var d=await r.json();
+    var o='> '+c+'
+'+(d.error?'! '+d.error:d.result)+'
+';
+    _mh.push(o);
+    document.getElementById('m-output').textContent=_mh.slice(-20).join('');
+    document.getElementById('m-code').value='';
+  }catch(e){
+    _mh.push('> '+c+'
+! '+e.message+'
+');
+    document.getElementById('m-output').textContent=_mh.slice(-20).join('');
+  }
+}
+</script>
 </body></html>
