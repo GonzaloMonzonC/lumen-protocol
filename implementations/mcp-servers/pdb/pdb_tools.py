@@ -2134,6 +2134,31 @@ TOOLS = [
         }
     },
 
+    {
+        "name": "pdb_embed",
+        "description": "Generate embeddings for text(s) and store in PDB. Uses fastembed (all-MiniLM-L6-v2, 384 dims).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "texts": {"type": "array", "items": {"type": "string"}, "description": "Texts to embed"},
+                "source": {"type": "string", "description": "Optional source label"}
+            },
+            "required": ["texts"]
+        }
+    },
+    {
+        "name": "pdb_embed_search",
+        "description": "Search indexed texts by cosine similarity. Returns top-N results with scores.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "limit": {"type": "integer", "description": "Max results", "default": 5}
+            },
+            "required": ["query"]
+        }
+    },
+
 ]
 
 HANDLERS = {
@@ -2177,4 +2202,6 @@ HANDLERS = {
     "pdb_mvm_kill": tool_mvm_kill,
     "pdb_mvm_mailbox_send": tool_mvm_mailbox_send,
     "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
+    "pdb_embed": tool_embed,
+    "pdb_embed_search": tool_embed_search,
 }
