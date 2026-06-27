@@ -292,6 +292,20 @@ class PDBDevice(Device):
         return "^PDB OK"
 
 
+class MailboxDevice(Device):
+    """Device 99 - Message inbox for inter-process communication."""
+    def __init__(self, num=99, name="MAILBOX"):
+        super().__init__(num, name)
+        self.messages = []
+
+    def read(self, timeout=0):
+        if self.messages:
+            return self.messages.pop(0)
+        return ""
+
+    def write(self, data):
+        self.messages.append(str(data))
+
 class DeviceManager:
     def __init__(self, pdb_module=None, vm=None):
         self.devices = {}
