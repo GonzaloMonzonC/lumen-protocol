@@ -1632,15 +1632,14 @@ def tool_embed_search(args: dict) -> dict:
         q_vec = [v/q_norm for v in q_vec]
     c = _get_conn()
     hashes = set()
-    cur = c.execute("SELECT DISTINCT subkey FROM _globals WHERE ns='EMBED' AND length(subkey) = 18")
+    # Get unique hashes from EMBED: subkey format is \x02{hash}\xff\x02{dim}\xff
+    cur = c.execute("SELECT DISTINCT substr(subkey, 2, 16) as h FROM _globals WHERE ns='EMBED' AND length(subkey) > 18")
     for row in cur.fetchall():
-        sk = row[0]
-        if isinstance(sk, bytes):
-            s = sk.rstrip(b'\xff').lstrip(b'\x02').decode('utf-8', errors='replace')
-        else:
-            s = str(sk)
-        if len(s) == 16:
-            hashes.add(s)
+        h = row[0]
+        if isinstance(h, bytes):
+            h = h.decode('utf-8', errors='replace')
+        if len(h) == 16:
+            hashes.add(h)
     scored = []
     for h in hashes:
         vec = []
