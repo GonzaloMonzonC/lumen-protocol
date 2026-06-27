@@ -2,7 +2,7 @@
 
 **Production-ready MCP servers** using LUMEN binary protocol with Level 2 zero-copy shared memory transport.
 
-✅ **Status: Production** — 86 tools across 4 servers. SHM transport benchmarked at 9× faster than Hermes built-ins.
+✅ **Status: Production** — 88 tools across 4 servers. SHM transport benchmarked at 9× faster than Hermes built-ins.
 Sandboxing, session isolation, Windows parity, and reproducible benchmarks complete.
 
 Three transport modes per server:
@@ -19,7 +19,7 @@ Three transport modes per server:
 |--------|-------|--------------|
 | **[Filesystem](filesystem/)** 🔥 | **13** | Bulk reads (`read_files`), context search (`search_with_context`), streaming (`stream_read`), Windows-parity tools (`file_info`, `disk_usage`, `search_filename`, `find_duplicates`) |
 | **[Web](web/)** | 2 | `web_search` + `web_extract` combined, zero API keys required |
-| **[PDB](pdb/)** 🔥 | **15** | MUMPS-compatible process database with SQLite backend. CRUD: `pdb_get`, `pdb_set`, `pdb_kill`, `pdb_order`, full-text search via `pdb_fts_search` |
+| **[PDB](pdb/)** 🔥 | **17** | MUMPS-compatible process database with SQLite backend. CRUD, FTS5, **RAG (semantic embeddings via fastembed)**, M-Light expressions. `pdb_embed`, `pdb_embed_search` |
 | **[Thinking](thinking/)** 🔥 | **48** | Reasoning chains (branching, bridges, TF-IDF, contradiction detection), Agent Loop (5 tools), wiki CRUD, kanban, Q&A, assumption tracker, mental model, work tracking, pattern memory, session isolation |
 
 | **Total** | **86** | 4 servers, 0 external dependencies, Level 2 SHM zero-copy |
@@ -38,7 +38,7 @@ Three transport modes per server:
 | Kernel copies | **0** (mmap) | 2 per call (pipes) | Zero-copy |
 | Errors (440 calls) | **0** | Variable (shell fragility) | Rock-solid |
 
-> Full benchmarks: `docs/benchmarks/internal/` (internal experiments, not in repo)
+> Full benchmarks: `pdb/bench-results/INFORME_GLOBAL.md` (3 versions, 8 models)
 
 ## Cognitive Workflow Skills
 
