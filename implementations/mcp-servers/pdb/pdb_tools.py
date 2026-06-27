@@ -64,11 +64,29 @@ def _get_db_path() -> str:
         )
     return _DB_PATH
 
-def _get_conn(ns: str = None) -> sqlite3.Connection:
+def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
     """Get a connection for the given namespace.
+    If ns has subs and a partition config, routes to the correct partition.
     If ns has a global mapping, returns the mapped DB connection.
     Otherwise returns the default connection."""
     global _conn
+
+    # Partition routing (checked first — more specific)
+    if ns and subs and _part_configs:
+        part_cfg = _part_configs.get(ns)
+        if part_cfg:
+            key_pos = part_cfg.get("key_pos", 0)
+            ranges = part_cfg.get("ranges", [])
+            if key_pos < len(subs):
+                part_key = subs[key_pos]
+                if isinstance(part_key, (int, float)):
+                    for r in ranges:
+                        if part_key <= r.get("max", float('inf')):
+                            mapped_path = r.get("path")
+                            if mapped_path:
+                                pkey = f"{ns}_part_{part_key}"
+                                return _get_or_create_mapped_conn(pkey, mapped_path)
+                            break
 
     # Check if this namespace has a global mapping
     if ns and _db_map:
@@ -100,8 +118,108 @@ def _get_conn(ns: str = None) -> sqlite3.Connection:
                 _conn = c
     return _conn
 
+def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
+    """Get or create a connection for a mapped path. Used by mapping and partitioning."""
+    if key in _db_connections:
+        return _db_connections[key]
+    c = sqlite3.connect(path, timeout=5, check_same_thread=False)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA synchronous=NORMAL")
+    c.execute("PRAGMA busy_timeout=5000")
+    c.execute("PRAGMA cache_size=-8000")
+    c.row_factory = sqlite3.Row
+    _init_schema(c)
+    _db_connections[key] = c
+    return c
+
 # Load db map on first module access
 _load_db_map()
+
+# Partition config — loaded lazily
+_PART_CFG_NS = "PART_CFG"
+_part_configs: dict = {}
+_part_configs_loaded = False
+
+def _load_part_configs():
+    """Load partition configurations from PDB."""
+    global _part_configs, _part_configs_loaded
+    if _part_configs_loaded:
+        return
+    try:
+        c = _get_conn()
+        rows = c.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=?", [_PART_CFG_NS]
+        ).fetchall()
+        _part_configs = {}
+        for r in rows:
+            subs = decode_subkey(r["subkey"])
+            if len(subs) >= 1:
+                ns = subs[0]
+                if isinstance(ns, bytes):
+                    ns = ns.decode("utf-8", errors="replace")
+                val = json.loads(r["value"].decode("utf-8", errors="replace")) if r["value"] else {}
+                if isinstance(val, dict):
+                    _part_configs[ns] = val
+        _part_configs_loaded = True
+    except Exception:
+        _part_configs = {}
+
+def tool_partition_define(args: dict) -> dict:
+    """Define automatic partitioning for a namespace.
+    Partitions split by subscript at key_pos into ranges, each range mapped to a file.
+    Example: key_pos=0, ranges=[{max:100000, path:'/data/part1.db'}, {max:200000, path:'/data/part2.db'}]"""
+    ns = args["ns"]
+    key_pos = args.get("key_pos", 0)
+    ranges = args.get("ranges", [])
+    if not ranges:
+        return {"success": False, "error": "At least one range required"}
+    try:
+        # Validate paths
+        for r in ranges:
+            path = Path(r.get("path", "")).resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            test = sqlite3.connect(str(path), timeout=2)
+            test.execute("PRAGMA journal_mode=WAL")
+            test.close()
+            r["path"] = str(path)
+        # Store config
+        c = _get_conn()
+        key = encode_subkey([ns])
+        val = json.dumps({"key_pos": key_pos, "ranges": ranges}).encode()
+        c.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [_PART_CFG_NS, key, val]
+        )
+        c.commit()
+        _part_configs[ns] = {"key_pos": key_pos, "ranges": ranges}
+        return {"success": True, "message": f"^{ns} partitioned by subs[{key_pos}], {len(ranges)} ranges"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_partition_list(args: dict) -> dict:
+    """List all partition configurations."""
+    _load_part_configs()
+    results = []
+    for ns, cfg in _part_configs.items():
+        results.append({"namespace": ns, "key_pos": cfg.get("key_pos"), "range_count": len(cfg.get("ranges", []))})
+    return {"success": True, "partitions": results, "count": len(results)}
+
+def tool_partition_drop(args: dict) -> dict:
+    """Remove partition configuration for a namespace. Falls back to single file."""
+    ns = args["ns"]
+    try:
+        c = _get_conn()
+        key = encode_subkey([ns])
+        c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_PART_CFG_NS, key])
+        c.commit()
+        _part_configs.pop(ns, None)
+        # Clean up partition connections
+        keys_to_remove = [k for k in _db_connections if k.startswith(f"{ns}_part_")]
+        for k in keys_to_remove:
+            _db_connections.pop(k, None)
+        return {"success": True, "message": f"Partitioning removed: ^{ns}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # ---------------------------------------------------------------------------
 # Global Mapping tools — ^GLOBAL → file redirection (MSM-style)
@@ -357,7 +475,7 @@ def tool_set(args: dict) -> dict:
     ns = args["ns"]; subs = args["subs"]; value = args["value"]
     try:
         key = encode_subkey(subs)
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         c.execute(
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
             [ns, key, _encode_value(value)]
@@ -374,7 +492,7 @@ def tool_get(args: dict) -> dict:
     ns = args["ns"]; subs = args["subs"]; default = args.get("default")
     try:
         key = encode_subkey(subs)
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         row = c.execute(
             "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
         ).fetchone()
@@ -417,7 +535,7 @@ def tool_order(args: dict) -> dict:
                 op = "<"
                 order = "DESC"
         
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         # Paginate: scan until sibling found at target level (fix LIMIT 50 bug)
         offset = 0
         page_size = 200
@@ -468,7 +586,7 @@ def tool_data(args: dict) -> dict:
     """
     try:
         key = encode_subkey(subs)
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         row = c.execute(
             "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
         ).fetchone()
@@ -544,7 +662,7 @@ def tool_kill(args: dict) -> dict:
     """KILL ^ns(subs) — delete node and all children."""
     try:
         key = encode_subkey(subs)
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         _auto_index_on_kill(ns, subs, c)
         _fire_triggers("ON_KILL", ns, subs, None, c)
         # Delete the node itself
@@ -564,7 +682,7 @@ def tool_incr(args: dict) -> dict:
     """$INCREMENT(^ns(subs), increment) — atomic increment. Returns new value."""
     try:
         key = encode_subkey(subs)
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         
         # Two-step atomic increment: ensure node exists, then increment
         c.execute(
@@ -593,7 +711,7 @@ def tool_merge(args: dict) -> dict:
     try:
         src_key = encode_subkey(source_subs)
         tgt_key = encode_subkey(target_subs)
-        c = _get_conn(ns)
+        c = _get_conn(ns, subs)
         
         # Copy source node
         row = c.execute(
@@ -1427,6 +1545,39 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_partition_define",
+        "description": "Define automatic partitioning for a namespace. Partitions split by subscript at key_pos into ranges, each range mapped to a separate SQLite file. Solves the MSM 2GB limit problem.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to partition"},
+                "key_pos": {"type": "integer", "description": "Subscript position to partition by (0-based, default: 0)", "default": 0},
+                "ranges": {"type": "array", "items": {"type": "object", "properties": {"max": {"type": "number"}, "path": {"type": "string"}}},
+                          "description": "Range definitions: [{max: 100000, path: '/data/part1.db'}, {max: 200000, path: '/data/part2.db'}]"}
+            },
+            "required": ["ns", "ranges"]
+        }
+    },
+    {
+        "name": "pdb_partition_list",
+        "description": "List all partition configurations.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "pdb_partition_drop",
+        "description": "Remove partition configuration for a namespace. Falls back to single file.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to remove partitioning from"}
+            },
+            "required": ["ns"]
+        }
+    },
+    {
         "name": "pdb_lock",
         "description": "LOCK — acquire a resource lock. Blocks other sessions from writing to the same namespace+subscripts. Analogous to MUMPS LOCK ^ns(subs). Use with pdb_unlock.",
         "inputSchema": {
@@ -1483,4 +1634,7 @@ HANDLERS = {
     "pdb_map_get": tool_map_get,
     "pdb_map_list": tool_map_list,
     "pdb_map_drop": tool_map_drop,
+    "pdb_partition_define": tool_partition_define,
+    "pdb_partition_list": tool_partition_list,
+    "pdb_partition_drop": tool_partition_drop,
 }

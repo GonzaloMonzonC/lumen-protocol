@@ -2,7 +2,7 @@
 
 > **Versión**: 3.0 | **Fecha**: 2026-06-19
 > **Transport**: LUMEN Level 2 — Shared Memory (mmap ring buffers, zero-copy)
-> **Tools**: 46 thinking + 13 filesystem + 2 web + 28 PDB + 5 objective loop = **94 tools total**
+> **Tools**: 46 thinking + 13 filesystem + 2 web + 31 PDB + 5 objective loop = **97 tools total**
 > **Plugin**: `lumen-shm-bridge` (Hermes Agent)
 
 ---
@@ -206,7 +206,7 @@ Detecta archivos modificados por múltiples sesiones en los últimos 5 minutos.
 
 ## 🧠 PDB — Process Database (La Memoria del Agente)
 
-> **28 tools** · SQLite B-tree · Dual KV+SQL · Herencia MUMPS (1966)
+> **31 tools** · SQLite B-tree · Dual KV+SQL · Herencia MUMPS (1966)
 > 15.5 μs GET · 30.8 μs SET · 81 MB de memoria persistente en este repo
 
 ### ¿Qué es?
