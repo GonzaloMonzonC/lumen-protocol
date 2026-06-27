@@ -174,44 +174,70 @@ class MEvaluator:
     # ── SET ──
 
     def _exec_set(self, line: str, pos: int) -> int:
-        """SET var=value o SET ^ns(subs)=value"""
-        rest = line[pos:].strip()
+        """SET var=value o SET ^ns(subs)=value o SET A=1,B=2 (coma = más asignaciones)"""
+        original_section = line[pos:]  # keep for offset calc
+        rest = original_section.strip()
+        consumed = len(original_section) - len(rest)  # leading whitespace
 
-        # ^ns(subs)=value
-        g_match = re.match(r'\^(\w+)\(([^)]+)\)\s*=\s*(.+)', rest)
-        if g_match and self.pdb:
-            ns = g_match.group(1)
-            subs = self._parse_subs(g_match.group(2))
-            value_expr = g_match.group(3)
-            value_end = self._cmd_boundary(value_expr)
-            value = self._resolve(value_expr[:value_end].strip())
-            self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
-            # Consumir hasta donde termina el valor, no toda la línea
-            consumed = len(g_match.group(0)) - (len(value_expr) - value_end)
-            return pos + consumed
+        # Procesar una o más asignaciones separadas por coma
+        while True:
+            rest = rest.lstrip()
+            if not rest:
+                break
 
-        # var=value
-        v_match = re.match(r'(\w+)\s*=\s*(.+)', rest)
-        if v_match:
-            var = v_match.group(1)
-            value_expr = v_match.group(2)
-            value_end = self._cmd_boundary(value_expr)
-            value = self._resolve(value_expr[:value_end].strip())
-            self.scope.set(var, value)
-            consumed = len(v_match.group(0)) - (len(value_expr) - value_end)
-            return pos + consumed
+            # ^ns(subs)=value
+            g_match = re.match(r'\^(\w+)\(([^)]+)\)\s*=\s*(.+)', rest)
+            if g_match and self.pdb:
+                ns = g_match.group(1)
+                subs = self._parse_subs(g_match.group(2))
+                value_expr = g_match.group(3)
+                value_end = self._cmd_boundary(value_expr)
+                value = self._resolve(value_expr[:value_end].strip())
+                self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
+                chunk = len(g_match.group(0)) - (len(value_expr) - value_end)
+                consumed += chunk
+                rest = rest[chunk:]
+                if rest.startswith(','):
+                    rest = rest[1:]
+                    consumed += 1
+                    continue
+                break
+
+            # var=value
+            v_match = re.match(r'(\w+)\s*=\s*(.+)', rest)
+            if v_match:
+                var = v_match.group(1)
+                value_expr = v_match.group(2)
+                value_end = self._cmd_boundary(value_expr)
+                value = self._resolve(value_expr[:value_end].strip())
+                self.scope.set(var, value)
+                chunk = len(v_match.group(0)) - (len(value_expr) - value_end)
+                consumed += chunk
+                rest = rest[chunk:]
+                if rest.startswith(','):
+                    rest = rest[1:]
+                    consumed += 1
+                    continue
+                break
+
+            break  # no match, exit
+
+        return pos + consumed
 
         return pos + 1
 
     def _cmd_boundary(self, s: str) -> int:
-        """Encuentra dónde termina el valor (antes del siguiente comando M)."""
+        """Encuentra dónde termina el valor (antes del siguiente comando M o coma)."""
         depth = 0
         for i, ch in enumerate(s):
             if ch == '(':
                 depth += 1
             elif ch == ')':
                 depth -= 1
-            elif ch == ' ' and depth == 0:
+            elif depth == 0 and (ch == ' ' or ch == ','):
+                if ch == ',':
+                    return i
+                # ch == ' '
                 if re.match(r'[FKSQIWD]\b', s[i:].strip()):
                     return i
         return len(s)
@@ -235,13 +261,25 @@ class MEvaluator:
     # ── KILL ──
 
     def _exec_kill(self, line: str, pos: int) -> int:
-        """KILL ^ns(subs)"""
+        """KILL ^ns(subs) o KILL var — elimina global o variable local.
+        Soporta KILL A,B,C (múltiples variables separadas por coma)."""
         rest = line[pos:].strip()
+        # ^ns(subs)
         g_match = re.match(r'\^(\w+)\(([^)]+)\)', rest)
         if g_match and self.pdb:
             ns = g_match.group(1)
             subs = self._parse_subs(g_match.group(2))
             self.pdb.tool_kill({"ns": ns, "subs": subs})
+            return len(line)
+        # var (local variable) — puede ser A,B,C
+        v_match = re.match(r'(\w+(?:,\w+)*)', rest)
+        if v_match:
+            vars_str = v_match.group(1)
+            for var in vars_str.split(','):
+                var = var.strip()
+                if var:
+                    self.scope.vars.pop(var, None)
+            return pos + v_match.end()
         return len(line)
 
     # ── QUIT ──
