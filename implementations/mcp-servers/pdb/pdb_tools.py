@@ -121,7 +121,7 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
         if mapped_path:
             if ns not in _db_connections:
                 c = sqlite3.connect(mapped_path, timeout=5, check_same_thread=False)
-                c.execute("PRAGMA journal_mode=WAL")
+                c.execute("PRAGMA journal_mode=DELETE")
                 c.execute("PRAGMA synchronous=NORMAL")
                 c.execute("PRAGMA busy_timeout=5000")
                 c.execute("PRAGMA cache_size=-8000")
@@ -136,7 +136,7 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
             if _conn is None:
                 path = _get_db_path()
                 c = sqlite3.connect(path, timeout=10, check_same_thread=False)
-                c.execute("PRAGMA journal_mode=WAL")
+                c.execute("PRAGMA journal_mode=DELETE")
                 c.execute("PRAGMA synchronous=NORMAL")
                 c.execute("PRAGMA busy_timeout=30000")
                 c.execute("PRAGMA cache_size=-8000")  # 8 MB
@@ -158,7 +158,7 @@ def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
     if key in _db_connections:
         return _db_connections[key]
     c = sqlite3.connect(path, timeout=5, check_same_thread=False)
-    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA journal_mode=DELETE")
     c.execute("PRAGMA synchronous=NORMAL")
     c.execute("PRAGMA busy_timeout=5000")
     c.execute("PRAGMA cache_size=-8000")
@@ -214,7 +214,7 @@ def tool_partition_define(args: dict) -> dict:
             path = Path(r.get("path", "")).resolve()
             path.parent.mkdir(parents=True, exist_ok=True)
             test = sqlite3.connect(str(path), timeout=2)
-            test.execute("PRAGMA journal_mode=WAL")
+            test.execute("PRAGMA journal_mode=DELETE")
             test.close()
             r["path"] = str(path)
         # Store config
@@ -280,7 +280,7 @@ def tool_map_set(args: dict) -> dict:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Test connection
         test_conn = sqlite3.connect(str(path), timeout=2)
-        test_conn.execute("PRAGMA journal_mode=WAL")
+        test_conn.execute("PRAGMA journal_mode=DELETE")
         test_conn.close()
         # Store mapping
         c = _get_conn(ns)
