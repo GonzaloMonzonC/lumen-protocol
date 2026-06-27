@@ -1,6 +1,6 @@
 # PDBM-Lumen
 
-**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics and LUMEN MCP transport.
+**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics and LUMEN MCP transport. **20 tools.**
 
 ## What it is
 
@@ -53,7 +53,27 @@ PDBM-Lumen is a database for AI agents. Think of it as **MUMPS globals reincarna
 | `pdb_scratch_del(key)` | Delete scratchpad key |
 | `pdb_fts_search(query, limit?, ns?)` | Full-text search across all stored values (FTS5) |
 
-**15 tools total** via the PDB server. Integrated into `lumen-shm-bridge` as **59 tools total** (fs:13, thinking:29, web:2, pdb:15).
+### Auto-Indices — ^IDX automáticos al SETear
+
+| Tool | Description |
+|------|-------------|
+| `pdb_index_define(ns, idx_name, sub_pos?)` | Define auto-index: cada SET a `^ns(..., valor, ...)` crea `^_IDX_ns_idxname(valor, ...)` |
+| `pdb_index_list()` | List all defined auto-indices |
+| `pdb_index_drop(ns, idx_name)` | Remove index definition and all its stored data |
+
+Los índices se actualizan automáticamente:
+- **SET** → crea/actualiza entrada en `^_IDX_{ns}_{name}(valor_indexado, subscripts_originales...)`
+- **KILL** → limpia todas las entradas hijas del path eliminado
+- **Batch** → mismo comportamiento que SET
+
+### Resource Locks — $LOCK
+
+| Tool | MUMPS | Description |
+|------|-------|-------------|
+| `pdb_lock(ns, subs, timeout?)` | `LOCK ^ns(subs)` | Acquire a resource lock. Blocks other sessions. |
+| `pdb_unlock(ns, subs?)` / `pdb_unlock(all=true)` | `LOCK` (no args) | Release specific lock or all held locks. |
+
+**20 tools total** via the PDB server.
 
 ## Quick start
 
