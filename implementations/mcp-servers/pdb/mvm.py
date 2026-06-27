@@ -76,7 +76,10 @@ class MProcess:
         m = MEvaluator(self.pdb)
         
         # Restaurar variables del scope
-        m.scope.vars = self.scope_vars
+        m.scope.vars = self.scope_vars.copy()
+        # System variables
+        m.scope.set('$J', str(self.pid))
+        m.scope.set('$IO', '0')
         
         while self.pc < len(lines) and inst_count < max_instructions:
             line = lines[self.pc]
@@ -102,7 +105,8 @@ class MProcess:
                 inst_count += 1
         
         # Guardar variables de vuelta
-        self.scope_vars = dict(m.scope.vars)
+        self.scope_vars = {k: v for k, v in dict(m.scope.vars).items() 
+                          if not k.startswith('$')}  # no guardar system vars
         
         if self.pc >= len(lines):
             self.status = "DEAD"  # proceso terminó
