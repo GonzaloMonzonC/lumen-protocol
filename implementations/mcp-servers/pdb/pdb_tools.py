@@ -389,6 +389,90 @@ def tool_m_eval(args: dict) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e), "expression": expr}
 
+def tool_m_repl(args: dict) -> dict:
+    """M REPL — ejecuta una o más líneas de código M contra PDB en vivo.
+    Cada línea se evalúa independientemente. Las variables persisten entre líneas.
+    Soporta: S, K, F, Q, IF, $O, $G, $D, $P, $E, $S.
+    Ejemplo: S N=\"\" F  S N=$O(^nombres(N)) Q:N=\"\"  S ^res(N)=N"""
+    code = args.get("code", "")
+    if not code.strip():
+        return {"success": True, "result": "", "lines": 0}
+    try:
+        import importlib.util, sys
+        _m_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m_light.py")
+        _m_spec = importlib.util.spec_from_file_location("m_light", _m_path)
+        _m_mod = importlib.util.module_from_spec(_m_spec)
+        _m_spec.loader.exec_module(_m_mod)
+        encoder = _m_mod.MEvaluator(sys.modules[__name__])
+        output = []
+        for line in code.strip().split("\n"):
+            line = line.strip()
+            if not line or line.startswith(";"):
+                continue
+            try:
+                result = encoder.eval(line)
+                output.append(f"> {line}")
+                if result is not None:
+                    output.append(f"  = {result}")
+            except Exception as e:
+                output.append(f"> {line}")
+                output.append(f"  ! {e}")
+        return {"success": True, "result": "\n".join(output), "lines": len([l for l in code.strip().split("\n") if l.strip() and not l.strip().startswith(";")])}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ── DBFIX — Mantenimiento automático ──
+
+def tool_dbfix(args: dict) -> dict:
+    """DBFIX — mantenimiento automático de PDB.
+    Ejecuta: integrity_check, reindex FTS5, WAL checkpoint, vacuum condicional."""
+    report = {}
+    c = _get_conn()
+
+    # 1. Integrity check
+    try:
+        rows = c.execute("PRAGMA integrity_check").fetchall()
+        errors = [r[0] for r in rows if r[0] != 'ok']
+        report['integrity'] = {'ok': len(errors) == 0, 'errors': errors[:5]}
+    except Exception as e:
+        report['integrity'] = {'ok': False, 'error': str(e)}
+
+    # 2. FTS5 reindex
+    try:
+        c.execute("DELETE FROM _fts")
+        c.execute("INSERT INTO _fts(ns, value) SELECT ns, value FROM _globals WHERE value IS NOT NULL")
+        fts_count = c.execute("SELECT COUNT(*) FROM _fts").fetchone()[0]
+        report['fts_reindex'] = {'ok': True, 'count': fts_count}
+    except Exception as e:
+        report['fts_reindex'] = {'ok': False, 'error': str(e)}
+
+    # 3. WAL checkpoint
+    try:
+        before = _wal_size(_get_db_path())
+        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        after = _wal_size(_get_db_path())
+        report['wal_checkpoint'] = {'ok': True, 'wal_before_kb': before//1024, 'wal_after_kb': after//1024}
+    except Exception as e:
+        report['wal_checkpoint'] = {'ok': False, 'error': str(e)}
+
+    # 4. Vacuum condicional
+    try:
+        db_size = os.path.getsize(_get_db_path())
+        page_count = c.execute("PRAGMA page_count").fetchone()[0]
+        page_size = c.execute("PRAGMA page_size").fetchone()[0]
+        freelist = c.execute("PRAGMA freelist_count").fetchone()[0]
+        free_pct = (freelist * page_size / db_size * 100) if db_size > 0 else 0
+        if db_size > 100_000_000 and free_pct > 20:
+            c.execute("VACUUM")
+            report['vacuum'] = {'ok': True, 'freed_mb': round(db_size/1024/1024 - os.path.getsize(_get_db_path())/1024/1024, 1)}
+        else:
+            report['vacuum'] = {'skipped': True, 'reason': f'DB {db_size/1024/1024:.0f}MB, free {free_pct:.0f}%'}
+    except Exception as e:
+        report['vacuum'] = {'ok': False, 'error': str(e)}
+
+    c.commit()
+    return {"success": True, "report": report}
+
 def _init_schema(c: sqlite3.Connection):
     c.execute("""
         CREATE TABLE IF NOT EXISTS _globals (
@@ -1659,6 +1743,25 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_m_repl",
+        "description": "M REPL — ejecuta código M contra PDB en vivo. Variables persisten entre líneas. Múltiples líneas separadas por saltos. Ejemplo: S N=\"\"\\nF  S N=$O(^n(N)) Q:N=\"\"",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Código M (una o más líneas)"}
+            },
+            "required": ["code"]
+        }
+    },
+    {
+        "name": "pdb_dbfix",
+        "description": "DBFIX — mantenimiento automático de PDB. Ejecuta: integrity_check, FTS5 reindex, WAL checkpoint, vacuum condicional. Devuelve report completo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
         "name": "pdb_partition_define",
         "description": "Define automatic partitioning for a namespace. Partitions split by subscript at key_pos into ranges, each range mapped to a separate SQLite file. Solves the MSM 2GB limit problem.",
         "inputSchema": {
@@ -1752,4 +1855,6 @@ HANDLERS = {
     "pdb_partition_list": tool_partition_list,
     "pdb_partition_drop": tool_partition_drop,
     "pdb_m_eval": tool_m_eval,
+    "pdb_m_repl": tool_m_repl,
+    "pdb_dbfix": tool_dbfix,
 }
