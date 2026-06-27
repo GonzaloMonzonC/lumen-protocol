@@ -1,6 +1,6 @@
 # PDBM-Lumen
 
-**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics and LUMEN MCP transport. **40 tools.**
+**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics, RAG, and LUMEN MCP transport. **42 tools.**
 
 ## What it is
 
@@ -130,6 +130,39 @@ pdb_query("SELECT ns, count(*) as nodes FROM _globals GROUP BY ns ORDER BY nodes
 - **WAL mode** — concurrent reads, crash-safe writes
 - **Level encoding** — type-prefixed, collation-correct byte sequences
 - **Transport: stdio JSON-RPC** — PDB uses `server.py` over stdio. SHM (Level 2 zero-copy) is available via `server_shm.py` but **not recommended**: SHM adds ~700μs overhead per call, while SQLite operations take 15-96μs. For μs-scale KV ops, stdio is 20× faster.
+
+### Embedding / RAG tools (semantic search)
+
+| Tool | Description |
+|------|-------------|
+| `pdb_embed(texts, source?)` | Generate embeddings via fastembed (all-MiniLM-L6-v2, 384 dims). Stores in ^EMBED/^EMBED_META. First call downloads model (~80MB). |
+| `pdb_embed_search(query, limit?)` | Semantic search by cosine similarity. Scans all indexed vectors. ~100ms/query with numpy cache. |
+
+Usage:
+```python
+# Index knowledge
+pdb_embed(texts=["texto1", "texto2"], source="wiki")
+
+# Semantic search
+pdb_embed_search(query="busqueda semantica", limit=5)
+# → [{"text": "...", "score": 0.86, "source": "wiki"}, ...]
+```
+
+Requires: `pip install fastembed`
+
+## Benchmarks
+
+See `bench-results/` for model comparison benchmarks:
+- `BENCH_FUERZA_BRUTA.md` / `BENCH_RAW_SPEED.md` — raw PDB speed (8 models)
+- `INFORME_GLOBAL.md` — full cognitive benchmark report (v1, v2, v3)
+
+## Changelog (2026-06-27)
+
+- **Embedding/RAG**: `pdb_embed` and `pdb_embed_search` via fastembed + numpy
+- **M-Light fix**: commands (FOR, SET, KILL) now work via `pdb_m_eval`
+- **Subkey fix**: empty strings no longer break multi-level subkeys
+- **Arithmetic**: compound expressions (`T+$G(^X(I))`) now evaluate correctly
+- **Vectors**: EMBED_VEC stores vectors as JSON arrays for ~100ms search
 
 ## License
 
