@@ -17,6 +17,23 @@ import json, logging, os, sqlite3, struct, threading, time
 from pathlib import Path
 from typing import Any, Optional
 
+# MVM — singleton global (VM de procesos M)
+_mvm_instance = None
+def _get_mvm():
+    global _mvm_instance
+    if _mvm_instance is None:
+        try:
+            import importlib.util
+            _mvm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mvm.py")
+            _mvm_spec = importlib.util.spec_from_file_location("mvm", _mvm_path)
+            if _mvm_spec:
+                _mvm_mod = importlib.util.module_from_spec(_mvm_spec)
+                _mvm_spec.loader.exec_module(_mvm_mod)
+                _mvm_instance = _mvm_mod.MVM(sys.modules[__name__])
+        except Exception:
+            _mvm_instance = None
+    return _mvm_instance
+
 # M-Light evaluator for trigger conditions and rules
 _m_encoder = None
 try:
@@ -418,6 +435,85 @@ def tool_m_repl(args: dict) -> dict:
                 output.append(f"> {line}")
                 output.append(f"  ! {e}")
         return {"success": True, "result": "\n".join(output), "lines": len([l for l in code.strip().split("\n") if l.strip() and not l.strip().startswith(";")])}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ── MVM — M Virtual Machine tools ──
+
+def tool_mvm_spawn(args: dict) -> dict:
+    """Spawn a new M process. Returns PID ($J)."""
+    code = args.get("code", "")
+    name = args.get("name", f"proc_{time.time()}")
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        pid = vm.spawn(code, name=name)
+        procs = vm.list_processes()
+        procs_info = [{"pid": p["pid"], "name": p["name"], "status": p["status"]} for p in procs]
+        return {"success": True, "pid": pid, "processes": procs_info}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_tick(args: dict) -> dict:
+    """Execute one tick of the MVM dispatcher. Runs all processes."""
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        max_per = args.get("max_per_process", 100)
+        alive = vm.tick(max_per_process=max_per)
+        procs = vm.list_processes()
+        procs_info = [{"pid": p["pid"], "name": p["name"], "status": p["status"], "pc": p["pc"]} for p in procs]
+        return {"success": True, "alive": alive, "total": len(procs_info), "processes": procs_info}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_list(args: dict) -> dict:
+    """List all MVM processes and their status."""
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        procs = vm.list_processes()
+        return {"success": True, "count": len(procs), "processes": procs}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_kill(args: dict) -> dict:
+    """Kill an MVM process by PID."""
+    pid = str(args.get("pid", ""))
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        ok = vm.kill(pid)
+        return {"success": ok, "pid": pid}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_mailbox_send(args: dict) -> dict:
+    """Send a message to a process mailbox."""
+    to_pid = str(args.get("to_pid", ""))
+    message = args.get("message", "")
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        msg_id = vm.mailbox_send(to_pid, message)
+        return {"success": True, "message_id": msg_id, "to_pid": to_pid}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_mailbox_read(args: dict) -> dict:
+    """Read all pending messages from a process mailbox."""
+    pid = str(args.get("pid", ""))
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        msgs = vm.mailbox_read(pid)
+        return {"success": True, "count": len(msgs), "messages": msgs}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1762,6 +1858,70 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_mvm_spawn",
+        "description": "Spawn a new M process (MVM). Returns PID ($J). Code runs as M-Light in a persistent process.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "M code to execute"},
+                "name": {"type": "string", "description": "Process name"}
+            },
+            "required": ["code"]
+        }
+    },
+    {
+        "name": "pdb_mvm_tick",
+        "description": "Execute one VM tick. Runs all active processes by a number of instructions each.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_per_process": {"type": "integer", "description": "Max instructions per process"}
+            }
+        }
+    },
+    {
+        "name": "pdb_mvm_list",
+        "description": "List all MVM processes with status, PC, vars, age.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "pdb_mvm_kill",
+        "description": "Kill an MVM process by PID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pid": {"type": "string", "description": "Process ID to kill"}
+            },
+            "required": ["pid"]
+        }
+    },
+    {
+        "name": "pdb_mvm_mailbox_send",
+        "description": "Send a message to a process mailbox.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to_pid": {"type": "string", "description": "Target process ID"},
+                "message": {"description": "Message content (string or object)"}
+            },
+            "required": ["to_pid", "message"]
+        }
+    },
+    {
+        "name": "pdb_mvm_mailbox_read",
+        "description": "Read all pending messages from a process mailbox. Messages are deleted after reading.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pid": {"type": "string", "description": "Process ID to read mailbox from"}
+            },
+            "required": ["pid"]
+        }
+    },
+    {
         "name": "pdb_partition_define",
         "description": "Define automatic partitioning for a namespace. Partitions split by subscript at key_pos into ranges, each range mapped to a separate SQLite file. Solves the MSM 2GB limit problem.",
         "inputSchema": {
@@ -1857,4 +2017,10 @@ HANDLERS = {
     "pdb_m_eval": tool_m_eval,
     "pdb_m_repl": tool_m_repl,
     "pdb_dbfix": tool_dbfix,
+    "pdb_mvm_spawn": tool_mvm_spawn,
+    "pdb_mvm_tick": tool_mvm_tick,
+    "pdb_mvm_list": tool_mvm_list,
+    "pdb_mvm_kill": tool_mvm_kill,
+    "pdb_mvm_mailbox_send": tool_mvm_mailbox_send,
+    "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
 }
