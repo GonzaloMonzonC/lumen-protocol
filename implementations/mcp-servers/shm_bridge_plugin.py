@@ -1556,7 +1556,7 @@ def register(ctx) -> None:
         ("pdb_index_drop", "Drop an index.",{"ns":{"type":"string"},"idx_name":{"type":"string"}},["ns","idx_name"]),
         ("pdb_trigger_define", "Create trigger ON SET/ON KILL.",
          {"ns":{"type":"string"},"event":{"type":"string"},"action":{"type":"string"},"trigger_id":{"type":"string"},"params":{"type":"object"}},["ns","event","action"]),
-        ("pdb_trigger_list", "List triggers for namespace.",{"ns":{"type":"string"}}),
+        ("pdb_trigger_list", "List triggers for namespace.",{"ns":{"type":"string"}},[]),
         ("pdb_trigger_drop", "Drop a trigger.",{"ns":{"type":"string"},"trigger_id":{"type":"string"}},["ns","trigger_id"]),
         ("pdb_trigger", "Evaluate trigger manually.",{},[]),
         ("pdb_map_set", "Map ^GLOBAL to a different DB file.",{"ns":{"type":"string"},"path":{"type":"string"}},["ns","path"]),
