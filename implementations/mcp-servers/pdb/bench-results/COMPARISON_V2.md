@@ -6,6 +6,7 @@
 |-------|:-------------:|:---------:|:------------:|:---------:|:-----:|
 | **deepseek-v4-flash-max** | 0.938 | 0.944 | 1.000 | **0.958** | 🥇 LUMEN Architect |
 | **laguna-m-1** | 0.688 | 0.556 | 0.750 | **0.667** | 🥉 LUMEN Analyst |
+| **nvidia/nemotron-3-super-120b-a12b:free** | 0.265 | 0.000 | 0.000 | **0.106** | 🔧 LUMEN Apprentice |
 | **step-3.7-flash-free** | 0.000 | 0.000 | 0.000 | **0.000** | 🔧 LUMEN Apprentice |
 
 ## Key Insights
@@ -51,6 +52,7 @@
 
 - [deepseek-v4-flash-max](./results_deepseek-v4-flash-max.md) — 0.958 🥇
 - [laguna-m-1](./results_laguna-m-1.md) — 0.667 🥉
+- [nvidia/nemotron-3-super-120b-a12b:free](./results_nvidia-nemotron-3-super-120b-a12b-free.md) — 0.106 🔧
 - [step-3.7-flash-free](./results_step-3.7-flash-free.md) — 0.000 🔧
 
 ---
