@@ -2,8 +2,8 @@
 
 ## step-3.7-flash-free
 
-**Date**: 2026-06-27  
-**Score**: **0.000** — 🔧 LUMEN Apprentice
+**Date**: 2026-06-27 (rerun with improved prompt)  
+**Score**: **0.942** — 🥇 LUMEN Architect
 
 ---
 
@@ -11,43 +11,50 @@
 
 | Circuit | Weight | Score | Weighted |
 |---------|:------:|:-----:|:--------:|
-| 🏗️ Data Modeling | 40% | **0.000** | 0.000 |
-| 🐛 Debugging | 30% | **0.000** | 0.000 |
-| ⚡ Optimization | 30% | **0.000** | 0.000 |
-| **🔧 Final** | 100% | **0.000** | |
+| 🏗️ Data Modeling | 40% | **0.938** | 0.375 |
+| 🐛 Debugging | 30% | **0.889** | 0.267 |
+| ⚡ Optimization | 30% | **1.000** | 0.300 |
+| **🥇 Final** | 100% | **0.942** | |
 
 ---
 
-### Analysis
+### Circuit 1 — Data Modeling (0.938)
 
-Step3.7 attempted the benchmark but made structural errors that caused the judge to find zero verification data.
+| Criterion | Score | Detail |
+|-----------|:-----:|--------|
+| Records loaded | 1.000 | 500/500 ✅ |
+| Structure depth | 0.500 | depth=1 (flat) |
+| Field coverage | 1.000 | 11/11 ✅ |
+| Decision logged | 1.000 | ✅ |
+| Subscript documented | 1.000 | ✅ |
 
-**What went right:**
-- ✅ Created `^FARMACIAS` namespace with 500 pharmacy records loaded
-- ✅ Registered in `^BENCH_MODEL_V2` with `total=3` and `complete=1`
+### Circuit 2 — Debugging (0.889)
 
-**What went wrong:**
+| Criterion | Score | Detail |
+|-----------|:-----:|--------|
+| Bugs reported | 1.000 | 499 bugs ✅ (overcounted NULL phones) |
+| Bug types identified | 0.667 | 4/6 types |
+| Decision logged | 1.000 | ✅ |
 
-1. **Wrong ^GLOBAL name**: Used `^FARMACIAS` instead of saving the name in `^BENCH_MODEL_V2` under `{model},1,"global_name"`. The judge can't find it.
-   
-2. **Wrong subscript depth for verification keys**: Saved keys as:
-   ```
-   ^BENCH_MODEL_V2("step-3.7-flash-free", 1) = None
-   ```
-   Instead of the expected 3-level structure:
-   ```
-   ^BENCH_MODEL_V2("step-3.7-flash-free", 1, "status") = "done"
-   ^BENCH_MODEL_V2("step-3.7-flash-free", 1, "count") = "500"
-   ^BENCH_MODEL_V2("step-3.7-flash-free", 1, "global_name") = "^FARMACIAS"
-   ```
+**Note**: Reported 499 bugs — counted all records with NULL phone as bugs. The seed naturally has NULL phones; only ~12 records have planted errors.
 
-3. **No debugging circuit**: `^FARMA_BUGS` namespace not found. Did not inspect corrupted data.
+### Circuit 3 — Optimization (1.000)
 
-4. **No optimization results**: Missing keys for CP count, avg lat, top street, max ID.
+| Criterion | Score | Detail |
+|-----------|:-----:|--------|
+| CP count | 1.000 | 1 unique ✅ |
+| Avg latitude | 1.000 | 40.4257 ✅ |
+| Top street | 1.000 | CALLE ✅ |
+| Max ID | 1.000 | MAD-621 ✅ |
 
-### 🔑 Verdict
+### 🔍 Improvement from previous run
 
-The model **loaded the data correctly** but did not follow the verification key protocol. This suggests a misunderstanding of the `^BENCH_MODEL_V2(model, C, "key")` subscript structure required by the judge.
+| Aspect | Before | After |
+|--------|:------:|:-----:|
+| Key format | ❌ 2-level subs | ✅ 3-level subs |
+| global_name | ❌ missing | ✅ "^FARMA" |
+| Decision logged | ❌ | ✅ |
+| **Score** | **0.000** | **0.942** 🚀 |
 
 ---
 
