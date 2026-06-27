@@ -245,6 +245,7 @@ def tool_set(args: dict) -> dict:
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
             [ns, key, _encode_value(value)]
         )
+        _auto_index_on_set(ns, subs, c)
         c.commit()
         return {"success": True}
     except Exception as e:
@@ -426,6 +427,7 @@ def tool_kill(args: dict) -> dict:
     try:
         key = encode_subkey(subs)
         c = _get_conn()
+        _auto_index_on_kill(ns, subs, c)
         # Delete the node itself
         c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [ns, key])
         # Delete all children (keys that start with key and are longer)
@@ -607,6 +609,7 @@ def tool_batch_set(args: dict) -> dict:
                 "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                 [item["ns"], key, _encode_value(item["value"])]
             )
+            _auto_index_on_set(item["ns"], item["subs"], c)
         c.commit()
         return {"success": True, "count": len(items)}
     except Exception as e:
@@ -662,8 +665,149 @@ def tool_fts_search(args: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 # ---------------------------------------------------------------------------
-# $LOCK — MUMPS-style resource locking
+# Auto-indices — MUMPS-style ^IDX maintained automatically
 # ---------------------------------------------------------------------------
+# Define an index: ^INDEX_CFG(ns, idx_name) = {"sub_pos": N}
+# tells PDB: "when ^ns(..., value_at_pos_N) changes, update ^IDX_ns_idx_name"
+# On SET: auto-creates ^_IDX_{ns}_{idx_name}(extracted_value, parent_subs...) = ""
+# On KILL: auto-deletes matching index entries
+
+_INDEX_CFG_NS = "INDEX_CFG"
+_INDEX_DATA_NS_PREFIX = "_IDX"
+
+def _load_index_configs() -> dict:
+    """Load all index definitions from PDB. Returns {ns: {idx_name: sub_pos}}."""
+    configs = {}
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
+        [_INDEX_CFG_NS]
+    ).fetchall()
+    for r in rows:
+        # subkey encodes: idx_name
+        subs = decode_subkey(r["subkey"])
+        if len(subs) < 2:
+            continue
+        ns = subs[0]
+        if isinstance(ns, bytes):
+            ns = ns.decode("utf-8", errors="replace")
+        idx_name = subs[1]
+        if isinstance(idx_name, bytes):
+            idx_name = idx_name.decode("utf-8", errors="replace")
+        val = _decode_value(r["value"]) if r["value"] else {}
+        sub_pos = val.get("sub_pos", 1) if isinstance(val, dict) else 1
+        if ns not in configs:
+            configs[ns] = {}
+        configs[ns][idx_name] = sub_pos
+    return configs
+
+def _auto_index_on_set(ns: str, orig_subs: list, conn):
+    """After SET, update auto-indices for this namespace.
+    Entry: ^_IDX_{ns}_{idx_name}(indexed_value) = hash(orig_subs):JSON
+    KILL uses prefix match on hash to find all children entries."""
+    configs = _load_index_configs()
+    if ns not in configs:
+        return
+    for idx_name, sub_pos in configs[ns].items():
+        if sub_pos >= len(orig_subs):
+            continue
+        indexed_value = orig_subs[sub_pos]
+        if indexed_value is None or indexed_value == "":
+            continue
+        idx_ns = f"{_INDEX_DATA_NS_PREFIX}_{ns}_{idx_name}"
+        idx_key = encode_subkey([str(indexed_value)] + orig_subs)
+        # Value format: "HASH:JSON" where HASH = hash of orig_subs for prefix match on KILL
+        subs_hash = abs(hash(str(orig_subs))) % 10_000_000
+        idx_val = f"{subs_hash}:{json.dumps({'orig_subs': orig_subs})}".encode()
+        conn.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [idx_ns, idx_key, idx_val]
+        )
+
+def _auto_index_on_kill(ns: str, orig_subs: list, conn):
+    """After KILL, clean up auto-indices by hash prefix match on value.
+    Deletes entries whose stored orig_subs STARTS WITH the killed path.
+    e.g. KILL [42] cleans [42, 'name', 'Juan'] because [42] is prefix."""
+    configs = _load_index_configs()
+    if ns not in configs:
+        return
+    for idx_name in configs[ns]:
+        idx_ns = f"{_INDEX_DATA_NS_PREFIX}_{ns}_{idx_name}"
+        rows = conn.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=?", [idx_ns]
+        ).fetchall()
+        for r in rows:
+            if r[1] is None:
+                continue
+            try:
+                # Value format: "HASH:{...}"
+                colon_pos = r[1].find(b':')
+                if colon_pos < 0:
+                    continue
+                payload = r[1][colon_pos+1:]
+                val = json.loads(payload.decode("utf-8", errors="replace"))
+                stored_subs = val.get("orig_subs", [])
+                # Check if killed path is a PREFIX of stored subs
+                if len(stored_subs) >= len(orig_subs) and stored_subs[:len(orig_subs)] == orig_subs:
+                    conn.execute(
+                        "DELETE FROM _globals WHERE ns=? AND subkey=?",
+                        [idx_ns, r[0]]
+                    )
+            except Exception:
+                continue
+
+def tool_index_define(args: dict) -> dict:
+    """Define an auto-index. After this, every SET to ^ns(subs) with
+    a value at sub_pos will auto-maintain ^_IDX_{ns}_{name}(value, ...)."""
+    ns = args["ns"]
+    idx_name = args["idx_name"]
+    sub_pos = args.get("sub_pos", 1)
+    try:
+        conn = _get_conn()
+        key = encode_subkey([ns, idx_name])
+        conn.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [_INDEX_CFG_NS, key, json.dumps({"sub_pos": sub_pos}).encode()]
+        )
+        conn.commit()
+        return {"success": True,
+                "message": f"Index defined: ^{ns}(:,{sub_pos}) → ^_IDX_{ns}_{idx_name}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_index_list(args: dict) -> dict:
+    """List all defined auto-indices."""
+    try:
+        configs = _load_index_configs()
+        indices = []
+        for ns, idx_map in configs.items():
+            for idx_name, sub_pos in idx_map.items():
+                indices.append({
+                    "namespace": ns,
+                    "index_name": idx_name,
+                    "sub_pos": sub_pos,
+                    "data_ns": f"_IDX_{ns}_{idx_name}"
+                })
+        return {"success": True, "indices": indices, "count": len(indices)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_index_drop(args: dict) -> dict:
+    """Remove an auto-index definition and its data."""
+    ns = args["ns"]
+    idx_name = args["idx_name"]
+    try:
+        conn = _get_conn()
+        key = encode_subkey([ns, idx_name])
+        # Remove definition
+        conn.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [_INDEX_CFG_NS, key])
+        # Remove index data
+        idx_ns = f"{_INDEX_DATA_NS_PREFIX}_{ns}_{idx_name}"
+        conn.execute("DELETE FROM _globals WHERE ns=?", [idx_ns])
+        conn.commit()
+        return {"success": True, "message": f"Index dropped: ^{ns} -> ^_IDX_{ns}_{idx_name}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 # In MUMPS: LOCK ^GLOBAL(key) acquires, LOCK (no args) releases all.
 # Here we use threading locks keyed by namespace+subscripts.
 # Supports blocking acquire with optional timeout, and targeted release.
@@ -918,6 +1062,39 @@ TOOLS = [
         }
     },
     {
+        "name": "pdb_index_define",
+        "description": "Define an auto-index. After this, every SET to ^ns(subs) with a value at sub_pos will auto-maintain ^_IDX_{ns}_{name}(value, parent_subs...). Use pdb_index_list to see defined indices.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to index (e.g. 'PATIENT')"},
+                "idx_name": {"type": "string", "description": "Index name (e.g. 'name' creates ^_IDX_PATIENT_name)"},
+                "sub_pos": {"type": "integer", "description": "Subscript position containing the indexed value (0-based, default: 1)", "default": 1}
+            },
+            "required": ["ns", "idx_name"]
+        }
+    },
+    {
+        "name": "pdb_index_list",
+        "description": "List all defined auto-indices.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "pdb_index_drop",
+        "description": "Remove an auto-index definition and all its stored index data.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace of the index"},
+                "idx_name": {"type": "string", "description": "Index name to drop"}
+            },
+            "required": ["ns", "idx_name"]
+        }
+    },
+    {
         "name": "pdb_lock",
         "description": "LOCK — acquire a resource lock. Blocks other sessions from writing to the same namespace+subscripts. Analogous to MUMPS LOCK ^ns(subs). Use with pdb_unlock.",
         "inputSchema": {
@@ -963,4 +1140,7 @@ HANDLERS = {
     "pdb_fts_search": tool_fts_search,
     "pdb_lock": tool_lock,
     "pdb_unlock": tool_unlock,
+    "pdb_index_define": tool_index_define,
+    "pdb_index_list": tool_index_list,
+    "pdb_index_drop": tool_index_drop,
 }
