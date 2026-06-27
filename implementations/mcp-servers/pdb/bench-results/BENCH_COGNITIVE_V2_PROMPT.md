@@ -20,6 +20,31 @@ The clean seed is available as JSON at:
 
 ---
 
+## ⚠️ CRITICAL — Verification Key Format
+
+The judge reads `^BENCH_MODEL_V2` to score your work. You MUST follow these formats exactly:
+
+```
+✅ CORRECT:
+pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}', 1, 'status'],'value':'done'})
+pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}', 1, 'global_name'],'value':'^FARMA'})
+
+❌ WRONG — don't do these:
+pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}', 1.0],'value':'done'})         # NO: missing 3rd level, float
+pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}', 1],'value':'done'})             # NO: missing 3rd level
+pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}', 1, 'global_name'],'value':'^FARMA primary index + CP'})  # NO: description not name
+```
+
+**Key rules:**
+- Circuit numbers are integers: `1`, `2`, `3` — NOT `1.0` or `"1"`
+- Always 3 levels deep: `['model', C, 'key_name']` — NOT 2 levels
+- `global_name` must be JUST the ^GLOBAL name (e.g. `^FARMA`) — NOT a description
+- Values are strings: `'500'`, `'done'`, `'yes'` — NOT bare numbers
+- After calling `decision_log` or `pattern_record`, ALSO save `decision_logged=yes` and `pattern_recorded=yes`
+- `max_id` must be the FULL ID string (e.g. `'MAD-621'`) — NOT just the number
+
+---
+
 ## Circuit 1 — Data Modeling (weight: 40%)
 
 **Problem**: Design a PDB structure for these 500 pharmacies and load the data.
@@ -42,10 +67,12 @@ You must decide:
 4. Save verification:
    ```
    pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'status'],'value':'done'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'global_name'],'value':'<your ^GLOBAL name>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'count'],'value':'<number loaded>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'subscript_structure'],'value':'<describe: e.g. ^GLOBAL(provincia,id,campo)>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'summary'],'value':'<brief summary of your design decisions>'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'global_name'],'value':'^FARMA'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'count'],'value':'500'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'subscript_structure'],'value':'^FARMA(id,field)'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'decision_logged'],'value':'yes'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'pattern_recorded'],'value':'yes'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',1,'summary'],'value':'Flat structure ^FARMA(id,field) with 11 fields per record'})
    ```
 
 ---
@@ -69,10 +96,11 @@ The corrupted seed has 500 records with intentional errors planted. Use `$ORDER`
 3. Log a decision about what bugs you found and how you'd fix them
 4. Save verification:
    ```
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'bugs_found'],'value':'<number of unique bugs detected>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'bug_types'],'value':'<comma-separated list>'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'bugs_found'],'value':'12'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'bug_types'],'value':'latitud_nula,nombre_vacio,ciudad_inconsistente,latitud_formato_invalido,id_duplicado'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'decision_logged'],'value':'yes'})
    pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'status'],'value':'done'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'summary'],'value':'<brief summary of bugs found and your approach>'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',2,'summary'],'value':'Found 12 records with issues across 5 categories'})
    ```
 
 ---
@@ -97,12 +125,12 @@ The corrupted seed has 500 records with intentional errors planted. Use `$ORDER`
 1. All 4 queries executed
 2. Verification:
    ```
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'cp_count'],'value':'<number of unique CPs>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'avg_lat'],'value':'<average latitude>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'top_street'],'value':'<most common street type>'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'max_id'],'value':'<highest ID>'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'cp_count'],'value':'1'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'avg_lat'],'value':'40.4257'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'top_street'],'value':'CALLE'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'max_id'],'value':'MAD-621'})    # ← full ID string, not just "621"
    pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'status'],'value':'done'})
-   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'summary'],'value':'<brief summary of your approach and results>'})
+   pdb_set({'ns':'BENCH_MODEL_V2','subs':['{MODEL_NAME}',3,'summary'],'value':'Street types: CALLE(399), AVDA(46), PASEO(28). Avg lat: 40.4257'})
    ```
 
 ---
