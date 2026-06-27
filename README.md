@@ -13,7 +13,7 @@
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 100 tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
+  <strong>✅ 106 tools — Level 2 SHM zero-copy transport — 4 MCP servers — works with Hermes</strong>
 </p>
 
 ---
@@ -86,7 +86,7 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | PDB (40 tools) | 100% | 71% | **29% smaller** |
 | Objective Loop (5 tools) | 100% | 65% | **35% smaller** |
 
-> **Benchmarked**: 100 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/BENCHMARKS.md).
+> **Benchmarked**: 106 tools across 4 servers, 0 errors, 3,662 thinking calls/sec, 525 FS calls/sec. See [benchmarks](docs/BENCHMARKS.md).
 
 ---
 
@@ -95,7 +95,7 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | Benchmark | JSON-RPC | LUMEN | Reduction |
 |-----------|----------|-------|-----------|
 | Small RPC (heartbeat) | 50 B | 21 B | **58%** |
-| Tool list (100 tools) | 39.7 KB | 24.8 KB | **37%** |
+| Tool list (106 tools) | 39.7 KB | 24.8 KB | **37%** |
 | LLM token stream (10K) | 1009 KB | 543 KB | **46%** |
 | Agent loop (30 turns) | 6.4 KB | 3.3 KB | **48%** |
 | tools/list (4 tools) | 1128 B | 581 B | **48%** |
@@ -129,9 +129,9 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 | **[Thinking](implementations/mcp-servers/thinking/)** | **46** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
 | **[Objective Loop](implementations/mcp-servers/thinking/objective_loop.py)** | **5** (create, judge, plan, status, checklist) | auto | Plugin `lumen-shm-bridge` |
 
-> **100 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
+> **106 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
-> **🧠 PDB** — 34 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Incluye $LOCK, auto-indices ^IDX, triggers ON SET/ON KILL, global mapping ^GLOBAL→archivo, partitioning automático, journaling WAL, DBFIX, y M REPL. Es donde el agente guarda su memoria persistente. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+> **🧠 PDB** — 40 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Incluye $LOCK, auto-indices ^IDX, triggers ON SET/ON KILL, global mapping ^GLOBAL→archivo, partitioning automático, journaling WAL, DBFIX, y M REPL. Es donde el agente guarda su memoria persistente. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
 
 ---
 

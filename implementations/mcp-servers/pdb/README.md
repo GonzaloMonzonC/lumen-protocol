@@ -1,6 +1,6 @@
 # PDBM-Lumen
 
-**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics and LUMEN MCP transport. **20 tools.**
+**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics and LUMEN MCP transport. **40 tools.**
 
 ## What it is
 
@@ -73,7 +73,7 @@ Los índices se actualizan automáticamente:
 | `pdb_lock(ns, subs, timeout?)` | `LOCK ^ns(subs)` | Acquire a resource lock. Blocks other sessions. |
 | `pdb_unlock(ns, subs?)` / `pdb_unlock(all=true)` | `LOCK` (no args) | Release specific lock or all held locks. |
 
-**20 tools total** via the PDB server.
+**40 tools total** via the PDB server.
 
 ## Quick start
 
