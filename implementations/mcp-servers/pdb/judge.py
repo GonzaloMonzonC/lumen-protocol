@@ -222,17 +222,19 @@ def score_circuit_3(model):
     criteria["c3a_status"] = c3a
     details.append(f"  ^BENCH_MODEL(status) = {status!r} → {c3a:.2f}")
 
-    # c3b — Decision exists (check ^DECISIONS)
-    decisions_exist = tool_data('DECISIONS', [''])
-    c3b = 1.0 if decisions_exist and decisions_exist > 0 else 0.0
+    # c3b — Decision logged (verification key in BENCH_MODEL)
+    # decision_log stores in LUMEN thinking server, not PDB.
+    # Model confirms via ^BENCH_MODEL({M},3,"decision_logged") = "yes"
+    decision_val = tool_get('BENCH_MODEL', [model, 3, "decision_logged"])
+    c3b = 1.0 if decision_val and str(decision_val).lower() in ('yes', '1', 'true') else 0.0
     criteria["c3b_decision_logged"] = c3b
-    details.append(f"  ^DECISIONS exists? → {c3b:.2f}")
+    details.append(f"  ^BENCH_MODEL(decision_logged) = {decision_val!r} → {c3b:.2f}")
 
-    # c3c — Pattern exists (check ^PATTERNS)
-    patterns_exist = tool_data('PATTERNS', [''])
-    c3c = 1.0 if patterns_exist and patterns_exist > 0 else 0.5
+    # c3c — Pattern recorded (verification key in BENCH_MODEL)
+    pattern_val = tool_get('BENCH_MODEL', [model, 3, "pattern_recorded"])
+    c3c = 1.0 if pattern_val and str(pattern_val).lower() in ('yes', '1', 'true') else 0.0
     criteria["c3c_pattern_recorded"] = c3c
-    details.append(f"  ^PATTERNS exists? → {c3c:.2f}")
+    details.append(f"  ^BENCH_MODEL(pattern_recorded) = {pattern_val!r} → {c3c:.2f}")
 
     score = (c3a + c3b + c3c) / 3.0
     return {"score": round(score, 4), "criteria": criteria, "details": details}
