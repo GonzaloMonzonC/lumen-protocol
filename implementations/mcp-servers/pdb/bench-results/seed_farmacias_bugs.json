@@ -1,0 +1,48 @@
+{
+  "total": 500,
+  "errors_planted": {
+    "lat_null": {
+      "indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "desc": "5 registros con latitud=None"
+    },
+    "nombre_vacio": {
+      "indices": [
+        5,
+        6,
+        7
+      ],
+      "desc": "3 registros con nombre=\"\""
+    },
+    "ciudad_out": {
+      "indices": [
+        10,
+        11
+      ],
+      "desc": "2 registros con ciudad fuera de Madrid"
+    },
+    "lat_string": {
+      "indices": [
+        15
+      ],
+      "desc": "1 registro con latitud string"
+    },
+    "telefono_null": {
+      "indices": [
+        20
+      ],
+      "desc": "1 registro con telefono=None"
+    },
+    "id_duplicado": {
+      "indices": [
+        25
+      ],
+      "desc": "1 registro con ID duplicado"
+    }
+  }
+}
