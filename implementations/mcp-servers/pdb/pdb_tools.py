@@ -135,14 +135,22 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
         with _conn_lock:
             if _conn is None:
                 path = _get_db_path()
-                c = sqlite3.connect(path, timeout=5, check_same_thread=False)
+                c = sqlite3.connect(path, timeout=10, check_same_thread=False)
                 c.execute("PRAGMA journal_mode=WAL")
                 c.execute("PRAGMA synchronous=NORMAL")
-                c.execute("PRAGMA busy_timeout=5000")
+                c.execute("PRAGMA busy_timeout=30000")
                 c.execute("PRAGMA cache_size=-8000")  # 8 MB
                 c.row_factory = sqlite3.Row
                 _init_schema(c)
                 _conn = c
+    # Auto-checkpoint si WAL > 10MB (previene DB locks)
+    if _conn:
+        try:
+            wal_path = _get_db_path() + "-wal"
+            if os.path.exists(wal_path) and os.path.getsize(wal_path) > 10_000_000:
+                _conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except:
+            pass
     return _conn
 
 def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
