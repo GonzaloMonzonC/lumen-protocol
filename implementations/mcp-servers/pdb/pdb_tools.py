@@ -661,6 +661,71 @@ def tool_fts_search(args: dict) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# ---------------------------------------------------------------------------
+# $LOCK — MUMPS-style resource locking
+# ---------------------------------------------------------------------------
+# In MUMPS: LOCK ^GLOBAL(key) acquires, LOCK (no args) releases all.
+# Here we use threading locks keyed by namespace+subscripts.
+# Supports blocking acquire with optional timeout, and targeted release.
+
+_locks: dict[str, threading.Lock] = {}
+_locks_lock = threading.Lock()
+
+def _lock_key(ns: str, subs: list) -> str:
+    """Build a lock key from namespace + subscripts."""
+    return ns + ":" + "|".join(str(s) for s in subs)
+
+def tool_lock(args: dict) -> dict:
+    """LOCK ^ns(subs) — acquire a resource lock. Blocking with optional timeout."""
+    ns = args["ns"]
+    subs = args.get("subs", [])
+    timeout = args.get("timeout", None)  # None = block indefinitely
+    key = _lock_key(ns, subs)
+
+    with _locks_lock:
+        if key not in _locks:
+            _locks[key] = threading.Lock()
+
+    lock = _locks[key]
+    acquired = lock.acquire(timeout=timeout)
+    if acquired:
+        return {"content": [{"type": "text", "text": f"Lock acquired: ^${ns}({','.join(str(s) for s in subs)})"}]}
+    else:
+        return {"content": [{"type": "text", "text": f"Lock timeout: ^${ns}({','.join(str(s) for s in subs)})"}]}
+
+def tool_unlock(args: dict) -> dict:
+    """UNLOCK ^ns(subs) — release a specific lock. If no args, releases all locks held by this thread."""
+    ns = args.get("ns")
+    subs = args.get("subs", [])
+    all_flag = args.get("all", False)
+
+    if all_flag or ns is None:
+        # Release all locks this thread holds
+        released = 0
+        with _locks_lock:
+            for key, lock in list(_locks.items()):
+                try:
+                    lock.release()
+                    released += 1
+                except RuntimeError:
+                    pass  # not owned by this thread
+        return {"content": [{"type": "text", "text": f"Released {released} lock(s)"}]}
+
+    key = _lock_key(ns, subs)
+    with _locks_lock:
+        lock = _locks.get(key)
+    if lock:
+        try:
+            lock.release()
+            return {"content": [{"type": "text", "text": f"Lock released: ^${ns}({','.join(str(s) for s in subs)})"}]}
+        except RuntimeError:
+            return {"content": [{"type": "text", "text": f"Lock not held by this thread: ^${ns}({','.join(str(s) for s in subs)})"}]}
+    return {"content": [{"type": "text", "text": f"Lock not found: ^${ns}({','.join(str(s) for s in subs)})"}]}
+
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
 TOOLS = [
     {
         "name": "pdb_set",
@@ -852,6 +917,31 @@ TOOLS = [
             "required": ["query"]
         }
     },
+    {
+        "name": "pdb_lock",
+        "description": "LOCK — acquire a resource lock. Blocks other sessions from writing to the same namespace+subscripts. Analogous to MUMPS LOCK ^ns(subs). Use with pdb_unlock.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to lock (e.g. 'STATE')"},
+                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}, "description": "Subscript path to lock"},
+                "timeout": {"type": "number", "description": "Max seconds to wait. Omit to block indefinitely."}
+            },
+            "required": ["ns"]
+        }
+    },
+    {
+        "name": "pdb_unlock",
+        "description": "UNLOCK — release a resource lock. Pass all=true to release all locks held by the current session. Analogous to MUMPS LOCK (no args).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ns": {"type": "string", "description": "Namespace to unlock"},
+                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}, "description": "Subscript path to unlock"},
+                "all": {"type": "boolean", "description": "Release ALL locks held by this session", "default": False}
+            }
+        }
+    },
 
 ]
 
@@ -871,4 +961,6 @@ HANDLERS = {
     "pdb_scratch_get": tool_scratch_get,
     "pdb_scratch_del": tool_scratch_del,
     "pdb_fts_search": tool_fts_search,
+    "pdb_lock": tool_lock,
+    "pdb_unlock": tool_unlock,
 }
