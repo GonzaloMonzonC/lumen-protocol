@@ -1,0 +1,4402 @@
+[
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "id"
+    ],
+    "value": "MAD-2"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "nombre"
+    ],
+    "value": "Farmacia AMAYA CORRAL PALOMINO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "direccion"
+    ],
+    "value": "PLAZA del Dos de Mayo, 6"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "latitud"
+    ],
+    "value": "40.427324"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "longitud"
+    ],
+    "value": "-3.704185"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-2",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "id"
+    ],
+    "value": "MAD-3"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "nombre"
+    ],
+    "value": "Farmacia MONTSERRAT LOPEZ GIMÉNEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "direccion"
+    ],
+    "value": "CALLE de Ríos Rosas, 50"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "latitud"
+    ],
+    "value": "40.441588"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "longitud"
+    ],
+    "value": "-3.696238"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-3",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "id"
+    ],
+    "value": "MAD-4"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "nombre"
+    ],
+    "value": "Farmacia JUSTO AQUILINO CORRAL ARAGON"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "direccion"
+    ],
+    "value": "CALLE de Argensola, 12"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "latitud"
+    ],
+    "value": "40.425282"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "longitud"
+    ],
+    "value": "-3.694786"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-4",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "id"
+    ],
+    "value": "MAD-5"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "nombre"
+    ],
+    "value": "Farmacia IRENE ARROITA DEL CAMPO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "direccion"
+    ],
+    "value": "CALLE de Alcalá, 98"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "latitud"
+    ],
+    "value": "40.424992"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "longitud"
+    ],
+    "value": "-3.674841"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-5",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "id"
+    ],
+    "value": "MAD-6"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "nombre"
+    ],
+    "value": "Farmacia ESTHER SANSI PONSICO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "direccion"
+    ],
+    "value": "PLAZA de Salesas, 7"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "latitud"
+    ],
+    "value": "40.423736"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "longitud"
+    ],
+    "value": "-3.694453"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-6",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "id"
+    ],
+    "value": "MAD-7"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "nombre"
+    ],
+    "value": "Farmacia PILAR VELEZ DE MENDOZA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "direccion"
+    ],
+    "value": "CALLE de Leopoldo Alas Clarín, 8"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "latitud"
+    ],
+    "value": "40.480333"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "longitud"
+    ],
+    "value": "-3.73355"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-7",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "id"
+    ],
+    "value": "MAD-9"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "nombre"
+    ],
+    "value": "Farmacia SANDRA PATRICIA BAEZA ORALLO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "direccion"
+    ],
+    "value": "GTA de López de Hoyos, 3"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "latitud"
+    ],
+    "value": "40.440942"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "longitud"
+    ],
+    "value": "-3.680633"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-9",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "id"
+    ],
+    "value": "MAD-10"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "nombre"
+    ],
+    "value": "Farmacia ISABEL MIRANDA MARTÍN"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "direccion"
+    ],
+    "value": "CALLE del Valle de Mena, 4"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "latitud"
+    ],
+    "value": "40.47016"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "longitud"
+    ],
+    "value": "-3.715114"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-10",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "id"
+    ],
+    "value": "MAD-11"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "nombre"
+    ],
+    "value": "Farmacia ROSA MARIA PERELLO GONZALEZ-MORENO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "direccion"
+    ],
+    "value": "CALLE del Príncipe de Vergara, 210"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "latitud"
+    ],
+    "value": "40.451122"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "longitud"
+    ],
+    "value": "-3.677377"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-11",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "id"
+    ],
+    "value": "MAD-12"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "nombre"
+    ],
+    "value": "Farmacia ANA LARGACHA LAMELA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "direccion"
+    ],
+    "value": "CALLE del General Pardiñas, 61"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "latitud"
+    ],
+    "value": "40.431889"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "longitud"
+    ],
+    "value": "-3.678224"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-12",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "id"
+    ],
+    "value": "MAD-15"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "nombre"
+    ],
+    "value": "Farmacia MERCEDES VALDES GALERA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "direccion"
+    ],
+    "value": "CALLE de Gutenberg, 20"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "latitud"
+    ],
+    "value": "40.406655"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "longitud"
+    ],
+    "value": "-3.680325"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-15",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "id"
+    ],
+    "value": "MAD-16"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "nombre"
+    ],
+    "value": "Farmacia JOSE CARLOS MONTILLA ILLERA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "direccion"
+    ],
+    "value": "CALLE de Preciados, 19"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "latitud"
+    ],
+    "value": "40.419032"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "longitud"
+    ],
+    "value": "-3.705456"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-16",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "id"
+    ],
+    "value": "MAD-17"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "nombre"
+    ],
+    "value": "Farmacia ALEJANDRO JIMENEZ GAMELLA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "direccion"
+    ],
+    "value": "CALLE del Alcalde Henche de la Plata, 7"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "latitud"
+    ],
+    "value": "40.488339"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "longitud"
+    ],
+    "value": "-3.649878"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-17",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "id"
+    ],
+    "value": "MAD-18"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "nombre"
+    ],
+    "value": "Farmacia MERCEDES ALLUE LINARES"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "direccion"
+    ],
+    "value": "CALLE de Ponzano, 31"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "latitud"
+    ],
+    "value": "40.439387"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "longitud"
+    ],
+    "value": "-3.699405"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-18",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "id"
+    ],
+    "value": "MAD-19"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "nombre"
+    ],
+    "value": "Farmacia MARTA LLORENTE GARCIA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "direccion"
+    ],
+    "value": "AVDA General, 1"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "latitud"
+    ],
+    "value": "40.473276"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "longitud"
+    ],
+    "value": "-3.577826"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-19",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "id"
+    ],
+    "value": "MAD-20"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "nombre"
+    ],
+    "value": "Farmacia MARÍA GONZÁLEZ SÁNCHEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "direccion"
+    ],
+    "value": "PASEO de Santa María de la Cabeza, 80"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "latitud"
+    ],
+    "value": "40.398737"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "longitud"
+    ],
+    "value": "-3.701581"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-20",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "id"
+    ],
+    "value": "MAD-21"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "nombre"
+    ],
+    "value": "Farmacia LEYRE  DE LA IGLESIA SANTAMARIA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "direccion"
+    ],
+    "value": "CALLE de Rodríguez San Pedro, 23"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "latitud"
+    ],
+    "value": "40.431612"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "longitud"
+    ],
+    "value": "-3.711052"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-21",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "id"
+    ],
+    "value": "MAD-22"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "nombre"
+    ],
+    "value": "Farmacia ANA MARIA QUINTAS RODRIGUEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "direccion"
+    ],
+    "value": "CALLE de Feijoo, 12"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "latitud"
+    ],
+    "value": "40.434702"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "longitud"
+    ],
+    "value": "-3.70315"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-22",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "id"
+    ],
+    "value": "MAD-23"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "nombre"
+    ],
+    "value": "Farmacia MARIA PILAR FERNANDEZ LOPEZ-AYLLON"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "direccion"
+    ],
+    "value": "CALLE de Diego de León, 34"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "latitud"
+    ],
+    "value": "40.434672"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "longitud"
+    ],
+    "value": "-3.681349"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-23",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "id"
+    ],
+    "value": "MAD-26"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "nombre"
+    ],
+    "value": "Farmacia LUIS CEÑA GUISADO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "direccion"
+    ],
+    "value": "CALLE de Juan Zofío, 4"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "latitud"
+    ],
+    "value": "40.381263"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "longitud"
+    ],
+    "value": "-3.715839"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-26",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "id"
+    ],
+    "value": "MAD-27"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "nombre"
+    ],
+    "value": "Farmacia JUAN ANTONIO CILLER CORTES"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "direccion"
+    ],
+    "value": "CALLE de la Ilustración, 8"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "latitud"
+    ],
+    "value": "40.421296"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "longitud"
+    ],
+    "value": "-3.717001"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-27",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "id"
+    ],
+    "value": "MAD-28"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "nombre"
+    ],
+    "value": "Farmacia JOSE RAMON BARRO ARRANZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "direccion"
+    ],
+    "value": "CALLE del General Ricardos, 118"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "latitud"
+    ],
+    "value": "40.3922"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "longitud"
+    ],
+    "value": "-3.726275"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-28",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "id"
+    ],
+    "value": "MAD-29"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "nombre"
+    ],
+    "value": "Farmacia MARGARITA DE VICENTE GALAN"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "direccion"
+    ],
+    "value": "CALLE de Eugenia de Montijo, 43"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "latitud"
+    ],
+    "value": "40.381566"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "longitud"
+    ],
+    "value": "-3.743417"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-29",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "id"
+    ],
+    "value": "MAD-30"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "nombre"
+    ],
+    "value": "Farmacia BEATRIZ PIÑERO PANADERO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "direccion"
+    ],
+    "value": "CALLE de Hortaleza, 44"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "latitud"
+    ],
+    "value": "40.422192"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "longitud"
+    ],
+    "value": "-3.699619"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-30",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "id"
+    ],
+    "value": "MAD-33"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "nombre"
+    ],
+    "value": "Farmacia LAURA FERRER MARTI"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "direccion"
+    ],
+    "value": "AVDA de Peña Prieta, 16"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "latitud"
+    ],
+    "value": "40.399209"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "longitud"
+    ],
+    "value": "-3.667698"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-33",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "id"
+    ],
+    "value": "MAD-35"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "nombre"
+    ],
+    "value": "Farmacia MARTA COVADONGA NESTARES LOPEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "direccion"
+    ],
+    "value": "CALLE de Goya, 55"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "latitud"
+    ],
+    "value": "40.425246"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "longitud"
+    ],
+    "value": "-3.681313"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-35",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "id"
+    ],
+    "value": "MAD-37"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "nombre"
+    ],
+    "value": "Farmacia ANGEL FERNANDEZ-MONTES MORALEDA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "direccion"
+    ],
+    "value": "AVDA de la Ciudad de Barcelona, 105"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "latitud"
+    ],
+    "value": "40.399452"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "longitud"
+    ],
+    "value": "-3.671063"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-37",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "id"
+    ],
+    "value": "MAD-38"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "nombre"
+    ],
+    "value": "Farmacia MARIA VIDAL BAÑON"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "direccion"
+    ],
+    "value": "CALLE de Toledo, 129"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "latitud"
+    ],
+    "value": "40.405889"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "longitud"
+    ],
+    "value": "-3.711618"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-38",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "id"
+    ],
+    "value": "MAD-39"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "nombre"
+    ],
+    "value": "Farmacia MIGUEL ANGEL ALEGRE SANZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "direccion"
+    ],
+    "value": "AVDA de Peña Prieta, 39"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "latitud"
+    ],
+    "value": "40.401402"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "longitud"
+    ],
+    "value": "-3.665477"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-39",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "id"
+    ],
+    "value": "MAD-40"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "nombre"
+    ],
+    "value": "Farmacia MARIA SCHEREZADE JIMENEZ MORENO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "direccion"
+    ],
+    "value": "CALLE de Alonso Cano, 69"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "latitud"
+    ],
+    "value": "40.441491"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "longitud"
+    ],
+    "value": "-3.697659"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-40",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "id"
+    ],
+    "value": "MAD-41"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "nombre"
+    ],
+    "value": "Farmacia MARIA DEL CARMEN COMENDADOR SANCHEZ-SERRANO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "direccion"
+    ],
+    "value": "PASEO del General Martínez Campos, 22"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "latitud"
+    ],
+    "value": "40.434912"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "longitud"
+    ],
+    "value": "-3.69497"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-41",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "id"
+    ],
+    "value": "MAD-42"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "nombre"
+    ],
+    "value": "Farmacia ANA MARIA DE DIEGO LOPEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "direccion"
+    ],
+    "value": "CALLE de San Bernardo, 115"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "latitud"
+    ],
+    "value": "40.432662"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "longitud"
+    ],
+    "value": "-3.704893"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-42",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "id"
+    ],
+    "value": "MAD-44"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "nombre"
+    ],
+    "value": "Farmacia BELEN GUTIERREZ ABBAD"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "direccion"
+    ],
+    "value": "CALLE de Alonso Heredia, 22"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "latitud"
+    ],
+    "value": "40.435796"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "longitud"
+    ],
+    "value": "-3.6724"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-44",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "id"
+    ],
+    "value": "MAD-45"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "nombre"
+    ],
+    "value": "Farmacia ALBA MARIA CALVO FERNANDEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "direccion"
+    ],
+    "value": "CALLE del General Ricardos, 183"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "latitud"
+    ],
+    "value": "40.383039"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "longitud"
+    ],
+    "value": "-3.741499"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-45",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "id"
+    ],
+    "value": "MAD-46"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "nombre"
+    ],
+    "value": "Farmacia JUAN JOSE PERNIA VALDES"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "direccion"
+    ],
+    "value": "PLAZA del Ángel, 14"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "latitud"
+    ],
+    "value": "40.414328"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "longitud"
+    ],
+    "value": "-3.70254"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-46",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "id"
+    ],
+    "value": "MAD-47"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "nombre"
+    ],
+    "value": "Farmacia MIRYAM ENRIQUETA ARITIO GUTIÉRREZ-HERRERO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "direccion"
+    ],
+    "value": "CALLE de Moreto, 15"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "latitud"
+    ],
+    "value": "40.413221"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "longitud"
+    ],
+    "value": "-3.690205"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-47",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "id"
+    ],
+    "value": "MAD-48"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "nombre"
+    ],
+    "value": "Farmacia MARTA ROSA MUNAR GELABERT"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "direccion"
+    ],
+    "value": "CALLE de Goya, 19"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "latitud"
+    ],
+    "value": "40.425524"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "longitud"
+    ],
+    "value": "-3.686835"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-48",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "id"
+    ],
+    "value": "MAD-49"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "nombre"
+    ],
+    "value": "Farmacia BELEN BLANCO TEJEDOR"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "direccion"
+    ],
+    "value": "PASEO de la Ermita del Santo, 42"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "latitud"
+    ],
+    "value": "40.409182"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "longitud"
+    ],
+    "value": "-3.723875"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-49",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "id"
+    ],
+    "value": "MAD-50"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "nombre"
+    ],
+    "value": "Farmacia BELEN FERNANDEZ-MONTES MORALEDA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "direccion"
+    ],
+    "value": "AVDA de Portugal, 155"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "latitud"
+    ],
+    "value": "40.4112"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "longitud"
+    ],
+    "value": "-3.737776"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-50",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "id"
+    ],
+    "value": "MAD-51"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "nombre"
+    ],
+    "value": "Farmacia ANA MARIA CUBILLAS TRIANA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "direccion"
+    ],
+    "value": "CALLE de María Tubau, 19"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "latitud"
+    ],
+    "value": "40.511284"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "longitud"
+    ],
+    "value": "-3.678521"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-51",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "id"
+    ],
+    "value": "MAD-52"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "nombre"
+    ],
+    "value": "Farmacia CARLOS JOSE MARTINEZ HONDUVILLA"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "direccion"
+    ],
+    "value": "CALLE del Mesón de Paredes, 8"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "latitud"
+    ],
+    "value": "40.411471"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "longitud"
+    ],
+    "value": "-3.705179"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-52",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "id"
+    ],
+    "value": "MAD-53"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "nombre"
+    ],
+    "value": "Farmacia MARIA TERESA VILLEGAS PEREZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "direccion"
+    ],
+    "value": "CALLE de García de Paredes, 80"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "latitud"
+    ],
+    "value": "40.436518"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "longitud"
+    ],
+    "value": "-3.693489"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-53",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "id"
+    ],
+    "value": "MAD-54"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "nombre"
+    ],
+    "value": "Farmacia JUAN JOSÉ GÓMEZ-VIRSEDA MARTÍNEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "direccion"
+    ],
+    "value": "PLAZA de Cascorro, 2"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "latitud"
+    ],
+    "value": "40.411211"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "longitud"
+    ],
+    "value": "-3.707123"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-54",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "id"
+    ],
+    "value": "MAD-55"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "nombre"
+    ],
+    "value": "Farmacia JOSE MARIA  RIVERA DE SOTO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "direccion"
+    ],
+    "value": "CALLE de Ferraz, 13"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "latitud"
+    ],
+    "value": "40.426536"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "longitud"
+    ],
+    "value": "-3.717878"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-55",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "id"
+    ],
+    "value": "MAD-56"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "nombre"
+    ],
+    "value": "Farmacia ROSA MARIA SERRADILLA LANCHO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "direccion"
+    ],
+    "value": "PLAZA de Verín, 3"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "latitud"
+    ],
+    "value": "40.477828"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "longitud"
+    ],
+    "value": "-3.708848"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-56",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "id"
+    ],
+    "value": "MAD-57"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "nombre"
+    ],
+    "value": "Farmacia Mª SOLEDAD MARTINEZ-AVIAL DOLZ DE ESPEJO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "direccion"
+    ],
+    "value": "CALLE de Serrano, 112"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "latitud"
+    ],
+    "value": "40.435542"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "longitud"
+    ],
+    "value": "-3.686241"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-57",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "id"
+    ],
+    "value": "MAD-58"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "nombre"
+    ],
+    "value": "Farmacia MERCEDES BRU GORRAIZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "direccion"
+    ],
+    "value": "CALLE de Sánchez Barcaiztegui, 19"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "latitud"
+    ],
+    "value": "40.403888"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "longitud"
+    ],
+    "value": "-3.674891"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-58",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "id"
+    ],
+    "value": "MAD-59"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "nombre"
+    ],
+    "value": "Farmacia MONICA SEVILLEJA MENDEZ"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "direccion"
+    ],
+    "value": "CALLE de José Antonio de Armona, 22"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "latitud"
+    ],
+    "value": "40.40454"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "longitud"
+    ],
+    "value": "-3.696896"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-59",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "id"
+    ],
+    "value": "MAD-60"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "nombre"
+    ],
+    "value": "Farmacia Mª CRISTINA PEREZ SOBEJANO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "direccion"
+    ],
+    "value": "CALLE de Quintana, 20"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "latitud"
+    ],
+    "value": "40.427805"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "longitud"
+    ],
+    "value": "-3.717909"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-60",
+      "telefono"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "id"
+    ],
+    "value": "MAD-61"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "nombre"
+    ],
+    "value": "Farmacia Mª BLANCA CABALLERO SALGADO"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "direccion"
+    ],
+    "value": "CALLE de Atocha, 109"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "cp"
+    ],
+    "value": "NULL"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "ciudad"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "municipio"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "provincia"
+    ],
+    "value": "Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "comunidad"
+    ],
+    "value": "Comunidad de Madrid"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "latitud"
+    ],
+    "value": "40.410515"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "longitud"
+    ],
+    "value": "-3.695026"
+  },
+  {
+    "ns": "FARMA",
+    "subs": [
+      "MAD-61",
+      "telefono"
+    ],
+    "value": "NULL"
+  }
+]
