@@ -260,6 +260,26 @@ class MEvaluator:
             if not rest:
                 break
 
+            # @(expr)=value — indirección
+            g_match = re.match(r'@\((.+)\)\s*=\s*(.+)', rest)
+            if g_match:
+                expr_inner = g_match.group(1)
+                val_expr = g_match.group(2)
+                indir_result = self._resolve(expr_inner)
+                # Get the value as a resolvable token
+                val_token = val_expr[:self._cmd_boundary(val_expr)].strip()
+                val_raw = val_token  # pass raw, M-Light will resolve
+                if isinstance(indir_result, str) and indir_result.startswith('^'):
+                    result_code = "S " + indir_result + "=" + val_raw
+                    self.eval(result_code)
+                    consumed += len(g_match.group(0)) - (len(val_expr) - self._cmd_boundary(val_expr))
+                    rest = rest[consumed:]
+                    if rest.startswith(','):
+                        rest = rest[1:]
+                        consumed += 1
+                        continue
+                    break
+
             # ^ns(subs)=value
             g_match = re.match(r'\^(\w+)\(([^)]+)\)\s*=\s*(.+)', rest)
             if g_match and self.pdb:
@@ -493,6 +513,12 @@ class MEvaluator:
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
+        # $GET(var) — $G con variable local
+        m = re.match(r'\$(?:GET|G)\s*\((\w+)\)', token)
+        if m:
+            var = self.scope.get(m.group(1))
+            return var if var is not None else ""
+
         # $DATA(^ns(subs)) — también $D
         m = re.match(r'\$(?:DATA|D)\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
         if m and self.pdb:
@@ -575,6 +601,35 @@ class MEvaluator:
             val = self._resolve(m.group(1))
             try: return float(val) if '.' in str(val) else int(float(val))
             except: return 0
+
+        # ^ns(subs) — acceso directo a global (para @ indirección)
+        m = re.match(r'\^(\w+)\(([^)]+)\)', token)
+        if m and self.pdb:
+            ns = m.group(1)
+            subs = self._parse_subs(m.group(2))
+            r = self.pdb.tool_get({"ns": ns, "subs": subs})
+            return r.get("value")
+
+        # @(expr) — indirección M (evalúa expr y usa el resultado como código)
+        m = re.match(r'@\((.+)\)', token)
+        if m:
+            inner = self._resolve(m.group(1))
+            if inner and isinstance(inner, str):
+                return self._resolve(inner)
+            return inner
+
+        # _ concatenación de strings (M: "a"_"b" = "ab")
+        if '_' in token and not token.startswith('$'):
+            parts = [p.strip() for p in token.split('_')]
+            if parts:
+                try:
+                    result = ''
+                    for p in parts:
+                        resolved = str(self._resolve(p))
+                        result += resolved
+                    return result
+                except:
+                    pass
 
         # Variable local
         if token in self.scope.vars or (self.scope.parent and token in self.scope.parent.vars):
