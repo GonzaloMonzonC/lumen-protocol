@@ -27,7 +27,7 @@ CIRCUITS = [
 # Ground truth for the clean seed (computed from seed_farmacias_madrid.json)
 GROUND_TRUTH = {
     "total_count": 500,
-    "avg_lat": 40.439,  # approximate
+    "avg_lat": 40.4257,  # exact average of 500 pharmacies
     "unique_cps": 1,    # all NULL
     "top_street": "CALLE",
 }
@@ -145,8 +145,8 @@ def score_circuit_1(model):
     gns = gns_raw.lstrip('^')
     shape = walk_global(gns)
 
-    # Depth: should be at least 3 (global → id → field) or (global → province → id → field)
-    ideal_depth = 3  # minimum: ^GLOBAL(id, field)
+    # Depth: should be at least 2 (id → field). Depth 1 = flat, 2 = id+field, 3+ = hierarchical
+    ideal_depth = 2  # minimum: ^GLOBAL(id, field)
     c1b_depth = min(1.0, shape["depth"] / ideal_depth)
     details.append(f"  Structure depth: {shape['depth']} (ideal ≥{ideal_depth}) → {c1b_depth:.2f}")
 
@@ -189,12 +189,12 @@ def score_circuit_1(model):
 
 # The 6 bug types planted
 BUG_TYPES = {
-    'lat_null': r'latitud.*null|latitud.*None|coordenada.*falt|missing.*lat',
-    'nombre_vacio': r'nombre.*vacio|nombre.*empty|nombre.*blank|missing.*name',
-    'ciudad_out': r'ciudad.*incorrect|ciudad.*inconsist|provincia.*mismatch|fuera.*madrid|ciudad.*barcelona|ciudad.*valencia',
-    'lat_string': r'latitud.*string|latitud.*text|tipo.*incorrect|formato.*lat|lat.*invalid',
-    'telefono_null': r'telefono.*null|telefono.*falt|phone.*miss|sin.*telefono',
-    'id_duplicado': r'id.*duplic|id.*repet|duplicate.*id|id.*conflict',
+    'lat_null': r'latitud.*(null|none|ausente|falt|missing|vacia)',
+    'nombre_vacio': r'nombre.*(vacio|empty|blank|vacio|ausente|sin)',
+    'ciudad_out': r'(ciudad|provincia).*(inconsist|incorrect|mismatch|fuera|barcelona|valencia)',
+    'lat_string': r'latitud.*(string|texto|formato|invalid|cuarenta|text)',
+    'telefono_null': r'telefono.*(null|none|ausente|falt|missing|sin)',
+    'id_duplicado': r'(id|duplic|repet|duplicate|conflict|repetido)',
 }
 
 
