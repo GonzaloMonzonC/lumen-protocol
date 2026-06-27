@@ -74,7 +74,7 @@ class MEvaluator:
                 break
 
             # Identificar el comando (con posible postconditional :cond)
-            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|IF|ELSE|W(?:RITE)?|D(?:O)?)((?:[:][^ ]+)?)\s', line[pos:])
+            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|IF|ELSE|W(?:RITE)?|D(?:O)?)((?:[:][^ ]+)?)(?:\s|$)', line[pos:])
             if cmd_match:
                 cmd = cmd_match.group(1)[0]  # Primera letra del comando
                 pos += cmd_match.end()
@@ -140,14 +140,16 @@ class MEvaluator:
         else:
             # FOR infinito: F  S N=$O(...) Q:cond
             body = line[pos:].strip()
-            # Buscar el cuerpo: todo hasta el final
-            while not self._quit_flag:
+            _max_iter = 100000
+            _iter = 0
+            while not self._quit_flag and _iter < _max_iter:
+                _iter += 1
                 old_quit = self._quit_flag
                 if body.startswith('{'):
                     block_end = self._find_block_end(body)
-                    self._exec_line(body[1:block_end])
+                    self.eval(body[1:block_end])
                 else:
-                    self._exec_line(body)
+                    self.eval(body)
                 if self._quit_flag or old_quit:
                     break
 
@@ -177,29 +179,54 @@ class MEvaluator:
         if g_match and self.pdb:
             ns = g_match.group(1)
             subs = self._parse_subs(g_match.group(2))
-            value_str = g_match.group(3).strip()
-            # Separar el valor del siguiente comando (dos espacios o fin de línea)
-            value = self._resolve(self._until_next_cmd(value_str))
+            value_expr = g_match.group(3)
+            value_end = self._cmd_boundary(value_expr)
+            value = self._resolve(value_expr[:value_end].strip())
             self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
-            return len(line)
+            # Consumir hasta donde termina el valor, no toda la línea
+            consumed = len(g_match.group(0)) - (len(value_expr) - value_end)
+            return pos + consumed
 
         # var=value
         v_match = re.match(r'(\w+)\s*=\s*(.+)', rest)
         if v_match:
             var = v_match.group(1)
-            value_str = v_match.group(2).strip()
-            value = self._resolve(self._until_next_cmd(value_str))
+            value_expr = v_match.group(2)
+            value_end = self._cmd_boundary(value_expr)
+            value = self._resolve(value_expr[:value_end].strip())
             self.scope.set(var, value)
-            return len(line)
+            consumed = len(v_match.group(0)) - (len(value_expr) - value_end)
+            return pos + consumed
 
         return pos + 1
 
+    def _cmd_boundary(self, s: str) -> int:
+        """Encuentra dónde termina el valor (antes del siguiente comando M)."""
+        depth = 0
+        for i, ch in enumerate(s):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == ' ' and depth == 0:
+                if re.match(r'[FKSQIWD]\b', s[i:].strip()):
+                    return i
+        return len(s)
+
     def _until_next_cmd(self, s: str) -> str:
-        """Extrae el valor hasta el siguiente comando (dos espacios o fin)."""
-        # Buscar el patrón de dos espacios seguidos de un comando
-        m = re.match(r'(.*?)\s{2,}(?:F|S|K|Q|IF|ELSE|W|D)\b', s)
-        if m:
-            return m.group(1).strip()
+        """Extrae el valor hasta el siguiente comando M (espacio + letra de comando)."""
+        # Buscar espacio seguido de letra de comando (F,S,K,Q,I,W,D) que NO esté entre paréntesis
+        depth = 0
+        for i, ch in enumerate(s):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == ' ' and depth == 0:
+                # Probar si la siguiente palabra es un comando M
+                rest = s[i:].strip()
+                if re.match(r'[FKSQIWD]\b', rest):
+                    return s[:i].strip()
         return s.strip()
 
     # ── KILL ──
@@ -217,16 +244,21 @@ class MEvaluator:
     # ── QUIT ──
 
     def _exec_quit(self, line: str, pos: int) -> int:
-        """QUIT[:condition] — sale del bucle actual si se cumple la condición"""
+        """QUIT[:condition] — sale del bucle actual si se cumple la condición.
+        Si no se cumple, devuelve la posición después del QUIT para continuar."""
         rest = line[pos:].strip()
-        cond_match = re.match(r':(.+)', rest)
+        consumed = len(line) - len(rest)  # lo que había antes del strip
+        cond_match = re.match(r':([^ ]+)', rest)
         if cond_match:
             cond = cond_match.group(1).strip()
             if self._eval_condition(cond):
                 self._quit_flag = True
+            # Consume solo el postconditional, no toda la línea
+            cond_len = len(cond_match.group(0))
+            return pos + cond_len
         else:
             self._quit_flag = True
-        return len(line)
+            return len(line)
 
     # ── IF ──
 
@@ -270,33 +302,35 @@ class MEvaluator:
         """Resuelve un token: expresión $, variable, literal."""
         token = token.strip()
 
-        # $GET(^ns(subs))
-        m = re.match(r'\$GET\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
+        # $GET(^ns(subs)) — también $G
+        m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
-        # $DATA(^ns(subs))
-        m = re.match(r'\$DATA\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
+        # $DATA(^ns(subs)) — también $D
+        m = re.match(r'\$(?:DATA|D)\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
             r = self.pdb.tool_data({"ns": ns, "subs": subs})
             return r.get("value", 0)
 
-        # $ORDER(^ns(subs), dir) — el alma de M
-        m = re.match(r'\$ORDER\s*\(\^(\w+)\(([^)]+)\)\s*(?:,\s*([-]?\d+))?\s*\)', token)
+        # $ORDER(^ns(subs), dir) — el alma de M (también $O)
+        m = re.match(r'\$(?:ORDER|O)\s*\(\^(\w+)\(([^)]+)\)\s*(?:,\s*([-]?\d+))?\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
             direction = int(m.group(3)) if m.group(3) else 1
             r = self.pdb.tool_order({"ns": ns, "subs": subs, "direction": direction})
-            return r.get("value")
+            # MUMPS $ORDER returns "" (empty string) when no more elements
+            val = r.get("value")
+            return val if val is not None else ""
 
-        # $PIECE(string, delim, n)
-        m = re.match(r'\$PIECE\s*\(\s*([^,]+)\s*,\s*["\']([^"\']+)["\']\s*,\s*(\d+)\s*\)', token)
+        # $PIECE(string, delim, n) — también $P
+        m = re.match(r'\$(?:PIECE|P)\s*\(\s*([^,]+)\s*,\s*["\']([^"\']+)["\']\s*,\s*(\d+)\s*\)', token)
         if m:
             string = self._resolve(m.group(1))
             delim = m.group(2)
