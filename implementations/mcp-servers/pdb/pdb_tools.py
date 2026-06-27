@@ -608,8 +608,10 @@ def encode_subkey(subs: list) -> bytes:
     """Encode subscript list into a sortable BLOB key."""
     parts = []
     for sub in subs:
-        if sub is None or sub == "":  # empty sentinel
+        if sub is None:  # null sentinel (backward compat)
             parts.append(b'\x00')
+        elif sub == "":  # empty string — encode as zero-length string,
+            parts.append(b'\x02\xff')  # not as \x00 sentinel which breaks $ORDER
         elif isinstance(sub, (int, float)):
             parts.append(b'\x01' + _double_to_sortable(float(sub)) + b'\xff')
         elif isinstance(sub, str):
@@ -626,8 +628,8 @@ def decode_subkey(blob: bytes) -> list:
     while i < len(blob):
         typ = blob[i]
         i += 1
-        if typ == 0x00:  # empty sentinel
-            subs.append("")
+        if typ == 0x00:  # null sentinel (backward compat)
+            subs.append(None)
             break  # sentinel is always last
         elif typ == 0x01:  # numeric
             data = blob[i:i+8]
@@ -638,12 +640,20 @@ def decode_subkey(blob: bytes) -> list:
         elif typ == 0x02:  # string
             end = blob.find(b'\xff', i)
             if end == -1:
-                data = blob[i:]
-                i = len(blob)
+                # Check for zero-length string (\x02 followed by \xff)
+                if i < len(blob) and blob[i] == 0xff:
+                    subs.append("")
+                    i += 1
+                else:
+                    data = blob[i:]
+                    i = len(blob)
             else:
-                data = blob[i:end]
+                if end == i:  # zero-length string: \x02\xff
+                    subs.append("")
+                else:
+                    data = blob[i:end]
+                    subs.append(data.decode('utf-8'))
                 i = end + 1
-            subs.append(data.decode('utf-8'))
         else:
             raise ValueError(f"Unknown subkey type byte: 0x{typ:02x}")
     return subs
