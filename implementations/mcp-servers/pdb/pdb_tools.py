@@ -1621,6 +1621,8 @@ def tool_embed(args: dict) -> dict:
             start = g * 16
             avg = sum(emb[start:start+16]) / 16.0
             ivf_items.append({"ns": "EMBED_IVF", "subs": [h, g], "value": str(round(float(avg), 6))})
+        # Store as single JSON array for fast numpy loading
+        ivf_items.append({"ns": "EMBED_VEC", "subs": [h], "value": json.dumps([round(float(v), 6) for v in emb])})
         items += ivf_items
         tool_batch_set({"items": items})
         results.append({"hash": h, "dims": len(emb), "source": source})
