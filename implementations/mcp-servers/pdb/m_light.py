@@ -347,11 +347,15 @@ class MEvaluator:
                 depth += 1
             elif ch == ')':
                 depth -= 1
-            elif depth == 0 and (ch == ' ' or ch == ','):
-                if ch == ',':
+            elif depth == 0 and (ch == ' ' or ch == ',' or ch == '}'):
+                if ch in ',}':
                     return i
                 # ch == ' '
-                if re.match(r'[FKSQIWDGRNUC]\b', s[i:].strip()):
+                # Detectar siguiente comando M (mono o multi-letra)
+                remain = s[i:].strip()
+                if re.match(r'(?:DO|FOR|SET|KILL|QUIT|IF|ELSE|WRITE|GOTO|READ|NEW|OPEN|USE|CLOSE|BREAK|HALT|XECUTE|JOB|TSTART|TROLLBACK|TCOMMIT|TLEVEL|ZINSERT|ZLOAD|ZPRINT|ZREMOVE|ZSAVE)\b', remain):
+                    return i
+                if remain and remain[0] in 'FKSQIWDGRNUC' and (len(remain) == 1 or not remain[1].isalpha()):
                     return i
         return len(s)
 
@@ -365,7 +369,11 @@ class MEvaluator:
                 depth -= 1
             elif ch == ' ' and depth == 0:
                 rest = s[i:].strip()
-                if re.match(r'[FKSQIWDGRNUC]\b', rest):
+                # Multi-letter commands
+                if re.match(r'(?:DO|FOR|SET|KILL|QUIT|IF|ELSE|WRITE|GOTO|READ|NEW|OPEN|USE|CLOSE|BREAK|HALT|XECUTE|JOB|TSTART|TROLLBACK|TCOMMIT|TLEVEL|ZINSERT|ZLOAD|ZPRINT|ZREMOVE|ZSAVE)\b', rest):
+                    return s[:i].strip()
+                # Single-letter commands
+                if rest and rest[0] in 'FKSQIWDGRNUC' and (len(rest) == 1 or not rest[1].isalpha()):
                     return s[:i].strip()
         return s.strip()
 
@@ -505,6 +513,23 @@ class MEvaluator:
         """Resuelve un token: expresión $, variable, literal."""
         token = token.strip()
 
+        # _ concatenación — debe ir PRIMERO para evitar que $ funciones
+        # capturen todo (ej: $C(27)_"[6" no debe ser interpretado como solo $C)
+        if '_' in token:
+            depth = 0
+            for i, ch in enumerate(token):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                elif ch == '_' and depth == 0:
+                    left = token[:i].strip()
+                    right = token[i+1:].strip()
+                    if left and right:
+                        lv = str(self._resolve(left))
+                        rv = str(self._resolve(right))
+                        return lv + rv
+
         # $GET(^ns(subs)) — también $G
         m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
         if m and self.pdb:
@@ -581,12 +606,27 @@ class MEvaluator:
             pos = haystack.find(needle)
             return pos + len(needle) + 1 if pos >= 0 else 0
 
-        # System variables: $J (job), $H (time), $IO (device)
+        # $CHAR(code) — también $C. Devuelve carácter para código ASCII
+        # $CHAR(c1,c2,...) devuelve string con múltiples caracteres
+        m = re.match(r'\$(?:CHAR|C)\s*\(\s*(.+)\s*\)', token)
+        if m:
+            args_str = m.group(1)
+            codes = []
+            for arg in args_str.split(","):
+                arg = arg.strip()
+                codes.append(int(self._resolve(arg)))
+            return ''.join(chr(c) for c in codes)
+
+        # System variables: $J (job), $H (horolog), $IO (device)
         if token == '$J':
             return self.scope.get('$J') or '0'
         if token == '$H':
-            import time
-            return str(int(time.time()))
+            import time, datetime
+            now = datetime.datetime.now()
+            epoch = datetime.datetime(1840, 12, 31)
+            days = (now - epoch).days
+            seconds = now.hour * 3600 + now.minute * 60 + now.second
+            return f"{days},{seconds}"
         if token == '$IO':
             return self.scope.get('$IO') or '0'
         if token == '$ZV':
@@ -632,19 +672,6 @@ class MEvaluator:
             if inner and isinstance(inner, str):
                 return self._resolve(inner)
             return inner
-
-        # _ concatenación de strings (M: "a"_"b" = "ab")
-        if '_' in token and not token.startswith('$'):
-            parts = [p.strip() for p in token.split('_')]
-            if parts:
-                try:
-                    result = ''
-                    for p in parts:
-                        resolved = str(self._resolve(p))
-                        result += resolved
-                    return result
-                except:
-                    pass
 
         # Variable local
         if token in self.scope.vars or (self.scope.parent and token in self.scope.parent.vars):
@@ -710,6 +737,10 @@ class MEvaluator:
         if cond == "":
             return True  # condición vacía = verdadero en M
 
+        # Negación — debe ir ANTES de operadores para evitar 'X=3
+        if cond.startswith("'"):
+            return not self._eval_condition(cond[1:])
+
         # Operadores de comparación
         for op in [">=", "<=", "!=", "=", ">", "<"]:
             if op in cond:
@@ -732,10 +763,6 @@ class MEvaluator:
                     if op == "<": return ls < rs
                     if op == ">=": return ls >= rs
                     if op == "<=": return ls <= rs
-
-        # Negación
-        if cond.startswith("'"):
-            return not self._eval_condition(cond[1:])
 
         # Valor directo
         val = self._resolve(cond)
