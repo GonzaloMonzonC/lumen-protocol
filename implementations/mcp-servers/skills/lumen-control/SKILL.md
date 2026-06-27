@@ -32,11 +32,12 @@ Este skill te da control total sobre el transporte LUMEN para servidores MCP.
 
 | Server | Tools | Wire | Killer Feature | Repo |
 |--------|-------|------|----------------|------|
-| `lumen_filesystem` | **9** (read, write, search, patch, list, read_files, search_ctx, stream_read, stats) | 32-70% | Multi-agente, bulk read, streaming chunks | `lumen-protocol/implementations/mcp-servers/filesystem/` |
-| `lumen_web` | 2 (web_search + web_extract unificados) | 40-50% | 1 call en vez de 2, zero-deps, DuckDuckGo | `lumen-protocol/implementations/mcp-servers/web/` |
-| `lumen_thinking` | **23** (sequential_thinking, thought_similarity, thought_contradiction, thought_summarize, thought_to_plan, thought_evaluate, thought_bridge, assume, list_assumptions, check_assumption, model_add, model_query, model_stats, model_map, model_remove, model_scan, context_preserve, context_check, work_start, work_block, work_done, work_log, context_estimate) | 60-80% | 🔥 Razonamiento externo, TF-IDF zero-deps, Assumption Tracker, Mental Model Builder, Context Decay Detector, Work Tracker, Context Estimator | `lumen-protocol/implementations/mcp-servers/thinking/` |
+| `lumen_filesystem` | **13** (read_file, read_files, write_file, search_files, search_with_context, stream_read, patch, list_directory, file_info, search_filename, find_duplicates, disk_usage, read_files) | 32-70% | Multi-agente, bulk read, streaming chunks | `lumen-protocol/implementations/mcp-servers/filesystem/` |
+| `lumen_web` | 2 (web_search + web_extract unificados) | 40-50% | 1 call en vez de 2, zero-deps | `lumen-protocol/implementations/mcp-servers/web/` |
+| `lumen_thinking` | **46** (sequential_thinking, chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 60-80% | 🔥 Razonamiento externo, TF-IDF zero-deps, Assumption Tracker, Mental Model Builder, Work Tracker | `lumen-protocol/implementations/mcp-servers/thinking/` |
+| **`lumen_pdb`** 🔥 | **40** (pdb_set/get/kill/order/data/merge, $LOCK, triggers, auto-indices ^IDX, global mapping, partitioning, M-Light eval/REPL, MVM, backup, batch_set, FTS, scratchpad) | 71% | 🧠 **MUMPS en SQLite** — $ORDER, triggers, ^GLOBAL mapping, M-Light evaluador, MVM procesos | `lumen-protocol/implementations/mcp-servers/pdb/` |
 
-**34 tools total en 3 servidores.**
+**106 tools total en 4 servidores.**
 Ninguno en `cadencia/apps/` (que es para apps que dependen de infraestructura de Cadences).
 
 PR en hermes-agent: [#47740](https://github.com/NousResearch/hermes-agent/pull/47740)
@@ -64,6 +65,12 @@ mcp_servers:
   lumen_thinking:
     command: "python"
     args: ["C:/Users/gonzalo/Documents/GitHub/lumen-protocol/implementations/mcp-servers/thinking/server.py"]
+    transport: lumen
+    lumen_force_json_rpc: true
+
+  lumen_pdb:
+    command: "python"
+    args: ["C:/Users/gonzalo/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/server.py"]
     transport: lumen
     lumen_force_json_rpc: true
 ```
