@@ -78,18 +78,21 @@ def get_models():
     return models
 
 
-def walk_global(ns, max_depth=4):
-    """Walk a ^GLOBAL structure and return its shape."""
-    shape = {"depth": 0, "leaf_count": 0, "field_names": set()}
+def walk_global(ns, max_depth=3, max_samples=20):
+    """Walk a ^GLOBAL structure sampling first N branches to determine depth."""
+    shape = {"depth": 0, "leaf_count": 0, "field_names": set(), "sampled": True}
+    remaining = [max_samples]  # mutable container for closure
 
     def _walk(subs, depth):
-        if depth > max_depth: return
+        if depth > max_depth or remaining[0] <= 0: return
         if depth > shape["depth"]: shape["depth"] = depth
+        
         I = ''
-        while True:
+        while remaining[0] > 0:
             r = to(ns, subs + [I])
             if not r: break
             I = r
+            remaining[0] -= 1
             d = td(ns, subs + [I])
             if d in (1, 11):
                 shape["leaf_count"] += 1
