@@ -207,6 +207,11 @@ _S = [
        {"pid":{"type":"string"},"message":{"type":"string"}},["pid","message"]),
     _s("pdb_mvm_mailbox_read","Read MVM mailbox messages.",
        {"pid":{"type":"string"}},["pid"]),
+    # ── Embedding / RAG ──
+    _s("pdb_embed","Generate embeddings for text(s) and store in PDB. Uses all-MiniLM-L6-v2 (384 dims).",
+       {"texts":{"type":"array","items":{"type":"string"}},"source":{"type":"string"}},["texts"]),
+    _s("pdb_embed_search","Search indexed texts by cosine similarity. Returns top-N with scores.",
+       {"query":{"type":"string"},"limit":{"type":"integer","default":5}},["query"]),
 ]
 
 _H = {
@@ -245,6 +250,8 @@ _H = {
     "pdb_mvm_kill": lambda a,**kw: _call_tool("pdb_mvm_kill",a),
     "pdb_mvm_mailbox_send": lambda a,**kw: _call_tool("pdb_mvm_mailbox_send",a),
     "pdb_mvm_mailbox_read": lambda a,**kw: _call_tool("pdb_mvm_mailbox_read",a),
+    "pdb_embed": lambda a,**kw: _call_tool("pdb_embed",a),
+    "pdb_embed_search": lambda a,**kw: _call_tool("pdb_embed_search",a),
 }
 
 
