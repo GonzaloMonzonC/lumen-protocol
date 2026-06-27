@@ -13,7 +13,7 @@ SQL tools (pdb_query) for analysis.
 """
 
 from __future__ import annotations
-import json, logging, os, sqlite3, struct, threading, time
+import json, logging, os, sqlite3, struct, sys, threading, time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,16 +22,13 @@ _mvm_instance = None
 def _get_mvm():
     global _mvm_instance
     if _mvm_instance is None:
-        try:
-            import importlib.util
-            _mvm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mvm.py")
-            _mvm_spec = importlib.util.spec_from_file_location("mvm", _mvm_path)
-            if _mvm_spec:
-                _mvm_mod = importlib.util.module_from_spec(_mvm_spec)
-                _mvm_spec.loader.exec_module(_mvm_mod)
-                _mvm_instance = _mvm_mod.MVM(sys.modules[__name__])
-        except Exception:
-            _mvm_instance = None
+        import importlib.util
+        _mvm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mvm.py")
+        _mvm_spec = importlib.util.spec_from_file_location("mvm", _mvm_path)
+        if _mvm_spec and os.path.exists(_mvm_path):
+            _mvm_mod = importlib.util.module_from_spec(_mvm_spec)
+            _mvm_spec.loader.exec_module(_mvm_mod)
+            _mvm_instance = _mvm_mod.MVM(sys.modules[__name__])
     return _mvm_instance
 
 # M-Light evaluator for trigger conditions and rules
