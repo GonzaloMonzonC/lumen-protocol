@@ -131,7 +131,7 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 
 > **106 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
-> **🧠 PDB** — 40 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Incluye $LOCK, auto-indices ^IDX, triggers ON SET/ON KILL, global mapping ^GLOBAL→archivo, partitioning automático, journaling WAL, DBFIX, y M REPL. Es donde el agente guarda su memoria persistente. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+> **🧠 PDB** — 40 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Incluye $LOCK, auto-indices ^IDX, triggers ON SET/ON KILL, global mapping ^GLOBAL→archivo, partitioning automático, journaling DELETE, DBFIX, y M REPL. Es donde el agente guarda su memoria persistente. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
 
 ---
 
@@ -176,7 +176,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
 | MCP servers | ✅ | **106 tools** across filesystem (**13**), web (**2**), thinking (**46**), objective loop (**5**), PDB (**40**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
-| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 100 tools, transparent override of built-ins |
+| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 106 tools, transparent override of built-ins |
 | M-Light M evaluator | ✅ | $O, $G, $D, $P, $E, $S, $L, $F, $TR, FOR, IF, GOTO, DO, Q:cond. ~70% MSM STU |
 | D^ROUTINE web | ✅ | :8767 — D^SS (procesos), D^GS (globals), dashboard HTML |
 | MSM Compatibility | ✅ | 14/18 MSM STU patterns. Hex #, +cast, \\div, #mod. KILL locales, coma-SET |
@@ -229,7 +229,7 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | **[RFC_LUMEN.md](RFC_LUMEN.md)** | Formal IETF-style protocol RFC |
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |
 | **[HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)** | Hermes Agent setup guide |
-| **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 100 tool reference |
+| **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 106 tool reference |
 | **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** | Consolidated benchmarks (3,407 calls/sec) |
 | **[docs/enterprise-stress-testing-2026-06-20.md](docs/enterprise-stress-testing-2026-06-20.md)** | 6 enterprise scenarios, 20K calls/sec |
 | **[docs/token-efficient-tools-2026-06-20.md](docs/token-efficient-tools-2026-06-20.md)** | 5 token-efficient tools (90% output savings) |
@@ -238,7 +238,7 @@ The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
 | **[implementations/hermes-plugins/](implementations/hermes-plugins/)** | Plugin source (lumen-shm-bridge) |
 | **[examples/](examples/)** | Runnable demos with bilingual READMEs |
 | **[implementations/mcp-servers/](implementations/mcp-servers/)** | MCP server implementations |
-| **[implementations/mcp-servers/TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md)** | 100 tool reference with schemas |
+| **[implementations/mcp-servers/TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md)** | 106 tool reference with schemas |
 | **[implementations/mcp-servers/pdb/m_light.py](implementations/mcp-servers/pdb/m_light.py)** | M-Light: evaluador MUMPS para PDB |
 | **[docs/ROADMAP_MLIGHT.md](docs/ROADMAP_MLIGHT.md)** | M-Light MSM Compatibility Roadmap |
 | **[docs/lumen_thinking_usage.md](docs/lumen_thinking_usage.md)** | Thinking server usage guide |
