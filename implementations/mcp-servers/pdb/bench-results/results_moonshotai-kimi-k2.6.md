@@ -1,0 +1,50 @@
+# 🏆 LUMEN Cognitive Benchmark v2 — Model Results
+
+## moonshotai/kimi-k2.6
+
+**Date**: 2026-06-27  
+**Score**: **0.975** — 🥇 LUMEN Architect
+
+---
+
+### 📊 Score Breakdown
+
+| Circuit | Weight | Score | Weighted |
+|---------|:------:|:-----:|:--------:|
+| 🏗️ Data Modeling | 40% | **0.938** | 0.375 |
+| 🐛 Debugging | 30% | **1.000** | 0.300 |
+| ⚡ Optimization | 30% | **1.000** | 0.300 |
+| **🥇 Final** | 100% | **0.975** | |
+
+---
+
+### Circuit 1 — Data Modeling (0.938)
+
+| Criterion | Score | Detail |
+|-----------|:-----:|--------|
+| Records loaded | 1.000 | 500/500 ✅ |
+| Structure depth | 0.500 | depth=1 (flat) |
+| Field coverage | 1.000 | 11/11 ✅ |
+| Decision logged | 1.000 | ✅ |
+| Subscript documented | 1.000 | ✅ |
+
+### Circuit 2 — Debugging (1.000)
+
+| Criterion | Score | Detail |
+|-----------|:-----:|--------|
+| Bugs reported | 1.000 | 12 bugs ✅ |
+| Bug types identified | **1.000** | 6/6 ✅ perfect |
+| Decision logged | 1.000 | ✅ |
+
+### Circuit 3 — Optimization (1.000)
+
+| Criterion | Score | Detail |
+|-----------|:-----:|--------|
+| CP count | 1.000 | 1 unique ✅ |
+| Avg latitude | 1.000 | 40.4257 ✅ |
+| Top street | 1.000 | CALLE ✅ |
+| Max ID | 1.000 | MAD-621 ✅ |
+
+---
+
+*Model: moonshotai/kimi-k2.6 | Seed: 500 farmacias Madrid capital*
