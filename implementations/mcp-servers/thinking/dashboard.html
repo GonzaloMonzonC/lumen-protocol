@@ -681,78 +681,69 @@ function createTask() {
   <!-- ═══════════════════════════════════════════ -->
   >
   <h3>💻 M Console</h3>
-  <div id="m-term" style="background:#0a0a0f;border:1px solid #22d3ee33;border-radius:8px;padding:12px;font-family:JetBrains Mono,monospace;font-size:13px;min-height:120px;max-height:450px;overflow-y:auto;cursor:text;white-space:pre-wrap;color:#22d3ee;line-height:1.5" onclick="mFocus()" tabindex="0">
-    <span style="color:#666">%SS 09:04:47  LUMEN M-Light v1.0</span>
-    <span style="color:#555">------------------------------------------------------------
-Type MUMPS commands. Enter to execute.<br>  D ^%GL  |  D ^%SS  |  $O(^GLOB)</span>
+  <div style="background:#0a0a0f;border:1px solid #22d3ee33;border-radius:8px;padding:12px;font-family:JetBrains Mono,monospace;font-size:13px;min-height:120px;max-height:450px;overflow-y:auto;white-space:pre-wrap;color:#22d3ee;line-height:1.5" onclick="mFocus()">
+    <div id="m-hist" style="color:#22d3ee">
+      <span style="color:#666">%SS 09:04:47  LUMEN M-Light v1.0<br>------------------------------------------------------------<br>Type MUMPS or MSM commands. Enter to run. Arrows for history.<br>  D ^%GL  |  D ^%SS  |  $O(^GLOB)</span>
+    </div>
+    <div id="m-line" style="display:flex;align-items:center;gap:4px;min-height:20px">
+      <span style="color:#888;user-select:none">M:\></span>
+      <span id="m-input" contenteditable="true" style="flex:1;outline:none;color:#22d3ee;white-space:pre;caret-color:#22d3ee" spellcheck="false"></span>
+    </div>
   </div>
 </div>
 <script>
-var mHist=[], mHPos=-1, mBuf="";
-function mFocus(){ document.getElementById('m-term').focus(); }
-function mWrite(t){ var el=document.getElementById('m-term'); el.innerHTML+=t; el.scrollTop=el.scrollHeight; }
+var mHist=[], mHPos=-1;
+function mFocus(){ document.getElementById('m-input').focus(); }
+function mLine(t){ document.getElementById('m-input').textContent=t; }
+function mAddHist(h){ 
+  var div=document.getElementById('m-hist');
+  div.innerHTML+='<br><span style="color:#888">M:\\></span> <span style="color:#fff">'+h+'</span><br>';
+  div.scrollTop=div.scrollHeight;
+}
+function mAddOut(t){ 
+  var div=document.getElementById('m-hist');
+  div.innerHTML+=t;
+  div.scrollTop=div.scrollHeight;
+}
+setTimeout(mFocus,500);
 
 document.addEventListener('keydown',function(e){
-  var el=document.getElementById('m-term');
-  if(document.activeElement!==el && e.target.id!=='m-term') return;
+  var el=document.getElementById('m-input');
+  if(document.activeElement!==el) return;
   if(e.key==='Enter'){
     e.preventDefault();
-    var lines=el.innerHTML.split('<br>');
-    var last=lines[lines.length-1];
-    var cmd=last.replace(/^.*?M:\\&gt;\s*/,'').trim();
+    var cmd=el.textContent.trim();
     if(!cmd) return;
     mHist.push(cmd); mHPos=mHist.length;
-    el.innerHTML=el.innerHTML.replace(/<br>$/, '') + '<br><span style="color:#888">M:\\> </span><span style="color:#fff">' + cmd + '</span><br>';
+    mAddHist(cmd);
+    el.textContent='';
     fetch('/m',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cmd})})
     .then(function(r){return r.json()})
     .then(function(d){
-      var out=(d.error?'<span style="color:#f55">! '+d.error:'<span>'+ (d.result||''));
-      mWrite(out+'</span><br><span style="color:#888">M:\\> </span>');
+      var txt=(d.result||'').replace(/\n/g,'<br>');
+      var out=d.error?'<span style="color:#f55">! '+d.error+'</span>':'<span style="color:#22d3ee">'+txt+'</span>';
+      mAddOut(out);
+      mFocus();
     })
     .catch(function(err){
-      mWrite('<span style="color:#f55">! '+err.message+'</span><br><span style="color:#888">M:\\> </span>');
+      mAddOut('<span style="color:#f55">! '+err.message+'</span>');
+      mFocus();
     });
-    el.scrollTop=el.scrollHeight;
   }else if(e.key==='ArrowUp'){
     e.preventDefault();
     if(mHist.length===0) return;
     mHPos=Math.max(0,mHPos-1);
-    var lines=el.innerHTML.split('<br>');
-    var last=lines[lines.length-1];
-    var promptPos=last.lastIndexOf('M:\\&gt;');
-    if(promptPos>=0) lines[lines.length-1]=last.substring(0,promptPos+7)+mHist[mHPos];
-    else lines[lines.length-1]='<span style="color:#888">M:\\> </span>'+mHist[mHPos];
-    el.innerHTML=lines.join('<br>');
-    el.scrollTop=el.scrollHeight;
+    el.textContent=mHist[mHPos];
+    if(window.getSelection){ var r=document.createRange(); r.selectNodeContents(el); r.collapse(false); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
   }else if(e.key==='ArrowDown'){
     e.preventDefault();
     mHPos=Math.min(mHist.length,mHPos+1);
-    var lines=el.innerHTML.split('<br>');
-    var last=lines[lines.length-1];
-    var promptPos=last.lastIndexOf('M:\\&gt;');
-    var txt=mHPos>=mHist.length?'':mHist[mHPos];
-    if(promptPos>=0) lines[lines.length-1]=last.substring(0,promptPos+7)+txt;
-    else lines[lines.length-1]='<span style="color:#888">M:\\> </span>'+txt;
-    el.innerHTML=lines.join('<br>');
-    el.scrollTop=el.scrollHeight;
-  }else if(e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+    el.textContent=mHPos>=mHist.length?'':mHist[mHPos];
+    if(window.getSelection){ var r=document.createRange(); r.selectNodeContents(el); r.collapse(false); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+  }else if(e.key==='Escape'){
     e.preventDefault();
-    var lines=el.innerHTML.split('<br>');
-    var last=lines[lines.length-1];
-    if(last.indexOf('M:\\&gt;')<0){ mWrite('<span style="color:#888">M:\\> </span>'); lines=el.innerHTML.split('<br>'); last=lines[lines.length-1]; }
-    lines[lines.length-1]=last+e.key;
-    el.innerHTML=lines.join('<br>');
-    el.scrollTop=el.scrollHeight;
-  }else if(e.key==='Backspace'){
-    e.preventDefault();
-    var lines=el.innerHTML.split('<br>');
-    var last=lines[lines.length-1];
-    var promptPos=last.lastIndexOf('M:\\&gt;');
-    if(promptPos>=0 && last.length>promptPos+7){
-      lines[lines.length-1]=last.substring(0,last.length-1);
-      el.innerHTML=lines.join('<br>');
-      el.scrollTop=el.scrollHeight;
-    }
+    el.textContent='';
+    mHPos=mHist.length;
   }
 });
 </script>
