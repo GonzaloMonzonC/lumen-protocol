@@ -4321,7 +4321,12 @@ def _start_dashboard(port: int = 9876) -> None:
                         try:
                             result = encoder.eval(code)
                             _w = sys.stdout.getvalue()
-                            if _w.strip(): result = _w
+                            if _w.strip():
+                                # Limit output to 20 lines
+                                _lines = _w.split('\n')
+                                if len(_lines) > 22:
+                                    _w = '\n'.join(_lines[:20]) + f'\n... ({len(_lines)-20} more lines)'
+                                result = _w
                         finally:
                             sys.stdout = _old
                     else:
