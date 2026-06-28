@@ -4314,19 +4314,16 @@ def _start_dashboard(port: int = 9876) -> None:
                             self.wfile.write(json.dumps({"code": code, "result": result}).encode())
                             return
                     if is_cmd or '=' in code:
-                        # Capture WRITE output
-                        if code.lstrip().upper().startswith('W ') or code.lstrip().upper().startswith('WRITE '):
-                            import io as _mio
-                            _old = sys.stdout
-                            sys.stdout = _mio.StringIO()
-                            try:
-                                encoder.eval(code)
-                                result = sys.stdout.getvalue()
-                            finally:
-                                sys.stdout = _old
-                            if not result.strip(): result = "(no output)"
-                        else:
+                        # Always capture WRITE output (incl. inside FOR loops)
+                        import io as _mio
+                        _old = sys.stdout
+                        sys.stdout = _mio.StringIO()
+                        try:
                             result = encoder.eval(code)
+                            _w = sys.stdout.getvalue()
+                            if _w.strip(): result = _w
+                        finally:
+                            sys.stdout = _old
                     else:
                         result = encoder.eval_expr(code)
                     self.send_response(200)
