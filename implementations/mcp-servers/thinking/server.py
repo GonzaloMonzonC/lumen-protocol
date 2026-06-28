@@ -4274,9 +4274,9 @@ def _start_dashboard(port: int = 9876) -> None:
                                 for ns, c in _top_ns.fetchall():
                                     _top_lines.append(f"  ^{ns:20s} {c:7d} nodes")
                                 result = "SYSTEM STATUS — LUMEN PDB v1.0"
-                                result += f"\n  Namespaces: {ns_n}   Nodes: {nodes:,}"
-                                result += f"\n  DB file: {dbsize/1048576:.1f} MB"
-                                result += f"\n  Sessions: {sessions_n}   Chains: {_cha}   Patterns: {_pat}   Decisions: {_dec}   Wiki: {_wik}"
+                                result += "\n  Namespaces: " + str(ns_n) + "   Nodes: " + str(nodes)
+                                result += "\n  DB file: " + str(round(dbsize/1048576, 1)) + " MB"
+                                result += "\n  Sessions: " + str(_sess_n) + "   Chains: " + str(_cha) + "   Patterns: " + str(_pat) + "   Decisions: " + str(_dec) + "   Wiki: " + str(_wik)
                                 result += "\n  Top namespaces:\n" + "\n".join(_top_lines)
                                 result += "\nOptions: G=globals L=locks P=processes"
                             self.send_response(200)
