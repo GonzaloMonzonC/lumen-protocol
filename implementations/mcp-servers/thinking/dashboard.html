@@ -699,6 +699,7 @@ function mAddHist(h){
   var div=document.getElementById('m-hist');
   div.innerHTML+='<br><span style="color:#888">M:\\></span> <span style="color:#fff">'+h+'</span><br>';
   div.scrollTop=div.scrollHeight;
+  var mterm=document.getElementById('m-term'); if(mterm)mterm.scrollTop=mterm.scrollHeight;
 }
 function mAddOut(t){ 
   var div=document.getElementById('m-hist');
