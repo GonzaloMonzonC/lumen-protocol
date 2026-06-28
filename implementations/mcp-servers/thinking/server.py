@@ -4261,11 +4261,14 @@ def _start_dashboard(port: int = 9876) -> None:
                                 _cur = _cx.execute("SELECT COUNT(DISTINCT ns), COUNT(*) FROM _globals")
                                 ns_n, nodes = _cur.fetchone()
                                 dbsize = _osx.path.getsize(_dbp)
-                                sessions_n = len(_sessions)
-                                _pat = sum(len(s.patterns) for s in _sessions.values())
-                                _dec = sum(len(s.decisions) for s in _sessions.values())
-                                _cha = sum(len(s.chains) for s in _sessions.values())
-                                _wik = sum(len(s.wiki) for s in _sessions.values())
+                                try:
+                                    _sess_n = len(_sessions)
+                                    _pat = sum(len(s.patterns) for s in _sessions.values())
+                                    _dec = sum(len(s.decisions) for s in _sessions.values())
+                                    _cha = sum(len(s.chains) for s in _sessions.values())
+                                    _wik = sum(len(s.wiki) for s in _sessions.values())
+                                except:
+                                    _sess_n = _pat = _dec = _cha = _wik = 0
                                 _top_ns = _cx.execute("SELECT ns, COUNT(*) FROM _globals GROUP BY ns ORDER BY 2 DESC LIMIT 5")
                                 _top_lines = []
                                 for ns, c in _top_ns.fetchall():
