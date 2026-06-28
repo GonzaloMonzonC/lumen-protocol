@@ -679,20 +679,7 @@ function createTask() {
   <!-- ═══════════════════════════════════════════ -->
   <!-- 📸 Web Research                             -->
   <!-- ═══════════════════════════════════════════ -->
-  <div class="section" id="section-web" style="margin-top:16px">
-    <div class="collapsible" onclick="toggleSection('web')" style="cursor:pointer;user-select:none">
-      <span id="arrow-web" class="arrow" style="font-size:12px;margin-right:6px">▼</span>
-      <span>📸 Web Research</span>
-      <span id="summary-web" style="margin-left:8px;font-size:10px;color:var(--dim)">(loading...)</span>
-    </div>
-    <div id="content-web" style="display:none;margin-top:8px">
-      <div id="web-snapshots">
-        <div style="font-size:10px;color:var(--dim);padding:20px;text-align:center">Loading snapshots...</div>
-      </div>
-    </div>
-  </div>
-
-<div class="glass" style="margin-top:16px">
+  >
   <h3>💻 M Console</h3>
   <div style="display:flex;gap:8px;margin-top:8px">
     <input id="m-code" type="text" placeholder="$O(^FARMA(""))" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:#22d3ee;font-family:JetBrains Mono,monospace;font-size:12px" onkeydown="if(event.key==='Enter')runM()">
@@ -722,4 +709,18 @@ async function runM(){
   }
 }
 </script>
-</body></html>
+
+<div class="section" id="section-web" style="margin-top:16px">
+    <div class="collapsible" onclick="toggleSection('web')" style="cursor:pointer;user-select:none">
+      <span id="arrow-web" class="arrow" style="font-size:12px;margin-right:6px">▼</span>
+      <span>📸 Web Research</span>
+      <span id="summary-web" style="margin-left:8px;font-size:10px;color:var(--dim)">(loading...)</span>
+    </div>
+    <div id="content-web" style="display:none;margin-top:8px">
+      <div id="web-snapshots">
+        <div style="font-size:10px;color:var(--dim);padding:20px;text-align:center">Loading snapshots...</div>
+      </div>
+    </div>
+  </div>
+
+<div class="glass" style="margin-top:16px"</body></html>
