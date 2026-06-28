@@ -714,7 +714,7 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Enter'){
     e.preventDefault();
     var cmd=el.textContent.trim();
-    if(!cmd) return;
+    if(!cmd || cmd.toUpperCase()=='CONTINUE' || cmd.toUpperCase()=='C') cmd='D ^%GL';
     mHist.push(cmd); mHPos=mHist.length;
     mAddHist(cmd);
     el.textContent='';
