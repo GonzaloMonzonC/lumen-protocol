@@ -104,6 +104,12 @@ def gl_handler(code):
     _cx = sqlite3.connect(_dbp)
     _arg = code.strip()
     
+    # Quit/exit from pagination
+    if _arg.upper() in ('Q', 'QUIT', 'EXIT', 'STOP', 'END'):
+        _GL_STATE = None
+        _cx.close()
+        return '(%GL finished)'
+    
     _matches = re.findall(r'(?:\^?%?\w+)', _arg)
     _all_globals = []
     for m in _matches:
@@ -144,6 +150,9 @@ def gl_handler(code):
         return result
     
     _ns = _typed_ns
+    # Clear state when a NEW global is requested (not continuation)
+    if _GL_STATE and _GL_STATE.get('ns') != _ns:
+        _GL_STATE = None
     _cnt = _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", [_ns]).fetchone()[0]
     if _cnt == 0:
         result = '^' + _ns + ': namespace not found'
