@@ -5,7 +5,8 @@ import importlib.util as _iu
 # ── Stateful %GL ──────────────────────────────────────────────
 _GL_STATE = None  # {"ns": str, "last_sub": bytes, "page": int, "mode": str}
 
-def _get_pdb():
+def _get_enc_dec():
+    """Lazy-load pdb_tools encode/decode functions."""
     _pd = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pdb')
     sys.path.insert(0, _pd)
     _pdb_s = _iu.spec_from_file_location('_pdb_dec', os.path.join(_pd, 'pdb_tools.py'))
@@ -13,11 +14,10 @@ def _get_pdb():
     _pdb_s.loader.exec_module(_pdb_m)
     return _pdb_m.encode_subkey, _pdb_m.decode_subkey
 
-_enc, _dec = _get_pdb()
-
 def gl_handler(code):
     """Handle D ^%GL commands with interactive state."""
     global _GL_STATE
+    _enc, _dec = _get_enc_dec()
     _pd = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pdb')
     _dbp = os.path.join(_pd, 'lumen-pdb.db')
     _cx = sqlite3.connect(_dbp)
@@ -143,6 +143,7 @@ def gl_handler(code):
 def _show_next_page(_cx):
     """Show next page of subscripts from current state."""
     global _GL_STATE
+    _enc, _dec = _get_enc_dec()
     if not _GL_STATE or _GL_STATE.get('mode') != 'browse':
         return '(%GL finished)'
     
