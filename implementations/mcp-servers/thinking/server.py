@@ -4231,28 +4231,51 @@ def _start_dashboard(port: int = 9876) -> None:
                             self.end_headers()
                             self.wfile.write(json.dumps({"code": code, "result": result}).encode())
                             return
-                    if code.upper() in ("D ^%SS", "^%SS", "%SS"):
+                    if code.upper().startswith("D ^%SS") or code.upper() in ("^%SS", "%SS"):
                         try:
                             import sqlite3, os as _osx
+                            _parts = code.upper().split()
+                            _opt = _parts[2] if len(_parts) > 2 else ""
                             _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
                             _cx = sqlite3.connect(_dbp)
-                            _cur = _cx.execute("SELECT COUNT(DISTINCT ns) as namespaces, COUNT(*) as nodes FROM _globals")
-                            ns_cnt, nodes = _cur.fetchone()
-                            dbsize = _osx.path.getsize(_dbp)
-                            sessions_n = len(_sessions)
-                            _pat = sum(len(s.patterns) for s in _sessions.values())
-                            _dec = sum(len(s.decisions) for s in _sessions.values())
-                            _cha = sum(len(s.chains) for s in _sessions.values())
-                            _wik = sum(len(s.wiki) for s in _sessions.values())
-                            result = ""
-                            result += "Namespaces: " + str(ns_cnt) + chr(10)
-                            result += "Total nodes: " + str(nodes) + chr(10)
-                            result += "DB size: " + str(round(dbsize/1048576, 1)) + " MB" + chr(10)
-                            result += "Sessions: " + str(sessions_n) + chr(10)
-                            result += "Chains: " + str(_cha) + chr(10)
-                            result += "Patterns: " + str(_pat) + chr(10)
-                            result += "Decisions: " + str(_dec) + chr(10)
-                            result += "Wiki pages: " + str(_wik)
+                            if _opt == "G":
+                                # Global buffer stats (size per namespace)
+                                _cur = _cx.execute("SELECT ns, COUNT(*), SUM(LENGTH(value)) FROM _globals GROUP BY ns ORDER BY 3 DESC LIMIT 15")
+                                result = "GLOBALS by size:\n"
+                                for ns, cnt, sz in _cur.fetchall():
+                                    sz_mb = (sz or 0) / 1048576.0
+                                    result += f"  ^{ns:20s} {cnt:6d} nodes {sz_mb:8.1f} MB\n"
+                            elif _opt == "L":
+                                # Lock info (from STATE namespace)
+                                _cur = _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns='STATE'")
+                                st = _cur.fetchone()[0]
+                                result = f"LOCKS: STATE has {st} entries\n(PDB uses sqlite3 locking, no M-style LOCK table)"
+                            elif _opt == "P":
+                                # Process info
+                                _cur = _cx.execute("SELECT value FROM _globals WHERE ns='STATE' AND subkey LIKE '%process%' LIMIT 5")
+                                procs = list(_cur.fetchall())
+                                _sessions = sum(1 for _ in _sessions)
+                                result = f"PROCESSES:\n  Hermes sessions: {_sessions}\n  MVM processes: {len(procs)}"
+                            else:
+                                # Standard %SS: system summary
+                                _cur = _cx.execute("SELECT COUNT(DISTINCT ns), COUNT(*) FROM _globals")
+                                ns_n, nodes = _cur.fetchone()
+                                dbsize = _osx.path.getsize(_dbp)
+                                sessions_n = len(_sessions)
+                                _pat = sum(len(s.patterns) for s in _sessions.values())
+                                _dec = sum(len(s.decisions) for s in _sessions.values())
+                                _cha = sum(len(s.chains) for s in _sessions.values())
+                                _wik = sum(len(s.wiki) for s in _sessions.values())
+                                _top_ns = _cx.execute("SELECT ns, COUNT(*) FROM _globals GROUP BY ns ORDER BY 2 DESC LIMIT 5")
+                                _top_lines = []
+                                for ns, c in _top_ns.fetchall():
+                                    _top_lines.append(f"  ^{ns:20s} {c:7d} nodes")
+                                result = "SYSTEM STATUS — LUMEN PDB v1.0"
+                                result += f"\n  Namespaces: {ns_n}   Nodes: {nodes:,}"
+                                result += f"\n  DB file: {dbsize/1048576:.1f} MB"
+                                result += f"\n  Sessions: {sessions_n}   Chains: {_cha}   Patterns: {_pat}   Decisions: {_dec}   Wiki: {_wik}"
+                                result += "\n  Top namespaces:\n" + "\n".join(_top_lines)
+                                result += "\nOptions: G=globals L=locks P=processes"
                             self.send_response(200)
                             self.send_header("Content-Type", "application/json")
                             self.end_headers()
