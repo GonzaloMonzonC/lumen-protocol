@@ -4322,12 +4322,8 @@ def _start_dashboard(port: int = 9876) -> None:
                             result = encoder.eval(code)
                             _w = sys.stdout.getvalue()
                             if _w.strip():
-                                # Remove [M-Light WRITE] prefix and clean up
+                                # Remove [M-Light WRITE] prefix
                                 _w = _w.replace('[M-Light WRITE] ', '').replace('[M-Light WRITE]', '')
-                                # Limit output to 20 lines
-                                _lines = _w.rstrip('\n').split('\n')
-                                if len(_lines) > 22:
-                                    _w = '\n'.join(_lines[:20]) + f'\n... ({len(_lines)-20} more lines)'
                                 result = _w
                         finally:
                             sys.stdout = _old
