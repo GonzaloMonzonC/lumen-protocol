@@ -173,8 +173,8 @@ def gl_handler(code):
                 sk_str = str(sk)[:40]
             result += '  ' + sk_str + ' = ' + str(val) + '\n'
         if _total_in_range > 20:
-            result += '... (' + str(_total_in_range - 20) + ' more)'
-        _GL_STATE = None
+            result += '\nContinue? (Enter for next page, or type a new command)'
+            _GL_STATE = {'ns': _ns, 'mode': 'browse', 'page': 0, 'total': _total_in_range, 'offset': 20, 'range_from': _range_from, 'range_to': _range_to}
         _cx.close()
         return result
     
@@ -197,7 +197,7 @@ def gl_handler(code):
             result += '  ' + sk_str + ' = ' + str(val) + '\n'
         if _cnt > 5:
             result += '... (' + str(_cnt - 5) + ' more)'
-            result += '\nEnter a subscript to drill down, or just Enter for next page'
+            result += '\nContinue? (Enter for next page)'
             _GL_STATE = {'ns': _ns, 'mode': 'browse', 'page': 0, 'total': _cnt, 'offset': 5}
         else:
             _GL_STATE = None
@@ -250,9 +250,18 @@ def _show_next_page(_cx):
     _ns = _GL_STATE['ns']
     _offset = _GL_STATE.get('offset', 0)
     _page = _GL_STATE.get('page', 0) + 1
-    _cur = _cx.execute("SELECT subkey, value FROM _globals WHERE ns=? LIMIT 5 OFFSET ?", [_ns, _offset])
+    _range_from = _GL_STATE.get('range_from')
+    _range_to = _GL_STATE.get('range_to')
+    
+    if _range_from is not None:
+        _skey_from = _enc([_range_from]) if _range_from else b''
+        _skey_to = _enc([_range_to]) + b'\xff' if _range_to else b'\xff'
+        _cur = _cx.execute("SELECT subkey, value FROM _globals WHERE ns=? AND subkey >= ? AND subkey < ? LIMIT 20 OFFSET ?", [_ns, _skey_from, _skey_to, _offset])
+        _total = _GL_STATE.get('total', _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=? AND subkey >= ? AND subkey < ?", [_ns, _skey_from, _skey_to]).fetchone()[0])
+    else:
+        _cur = _cx.execute("SELECT subkey, value FROM _globals WHERE ns=? LIMIT 5 OFFSET ?", [_ns, _offset])
+        _total = _GL_STATE.get('total', _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", [_ns]).fetchone()[0])
     _rows = _cur.fetchall()
-    _total = _GL_STATE.get('total', _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", [_ns]).fetchone()[0])
     if not _rows:
         _GL_STATE = None
         return '^' + _ns + ': end of data'
@@ -272,9 +281,8 @@ def _show_next_page(_cx):
         result += '  ' + sk_str + ' = ' + str(val) + '\n'
     _remaining = _total - _offset - len(_rows)
     if _remaining > 0:
-        result += '... (' + str(_remaining) + ' more)'
-        result += '\nPress Enter for next page, or type a new %GL command'
-        _GL_STATE['offset'] = _offset + 5
+        result += 'Continue? (Enter for next page)'
+        _GL_STATE['offset'] = _offset + len(_rows)
         _GL_STATE['page'] = _page
     else:
         result += '\n(^' + _ns + ': all entries shown)'
