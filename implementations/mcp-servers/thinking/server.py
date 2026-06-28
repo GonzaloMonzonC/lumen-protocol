@@ -4182,7 +4182,7 @@ def _start_dashboard(port: int = 9876) -> None:
                     _pdb_spec.loader.exec_module(_pdb)
                     encoder = _mm.MEvaluator(_pdb)
                     first_word = code.strip().split()[0].upper() if code.strip() else ''
-                    is_cmd = first_word in ('S','K','F','I','W','D','SET','KILL','FOR','IF','WRITE','DO')
+                    is_cmd = first_word in ('S','K','F','I','W','D','ZW','ZWRITE','SET','KILL','FOR','IF','WRITE','DO')
 
                     # Special MSM-style commands
                     if code.upper() in ("D ^%GL", "^%GL", "%GL") or code.upper().startswith("D ^%GL ") or code.upper().startswith("^%GL "):
@@ -4262,6 +4262,15 @@ def _start_dashboard(port: int = 9876) -> None:
                             self.wfile.write(json.dumps({"code": code, "result": result}).encode())
                             return
                     if is_cmd or '=' in code:
+                        # ZW: use ZWRITE handler
+                        if first_word in ('ZW', 'ZWRITE'):
+                            from m_commands import zw_handler as _zw
+                            result = _zw(code)
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(json.dumps({"code": code, "result": result}).encode())
+                            return
                         # Always capture WRITE output (incl. inside FOR loops)
                         import io as _mio
                         _old = sys.stdout
