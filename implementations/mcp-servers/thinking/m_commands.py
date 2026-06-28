@@ -34,7 +34,7 @@ def zw_handler(code):
     
     _m2 = re.search(r'\(([^)]+)\)', code)
     _subs_str = _m2.group(1) if _m2 else ''
-    _subs_list = [s.strip() for s in _subs_str.split(',')] if _subs_str else []
+    _subs_list = [s.strip().strip('"') for s in _subs_str.split(',')] if _subs_str else []
     
     if not _subs_list:
         # ZW ^GLOBAL → show ALL entries (limit 20)
@@ -85,7 +85,7 @@ def zw_handler(code):
                     try:
                         _d = _dec(sk)
                         _child = ','.join(str(s) for s in _d[len(_subs_list):])
-                        _key = '","'.join('"' + s + '"' if ' ' in s else s for s in _d)
+                        _key = ','.join(str(s) for s in _d)
                         result += '^' + _ns + '(' + _key + ') = ' + str(val) + '\n'
                     except:
                         result += '  ' + sk.hex()[:40] + ' = ' + str(val) + '\n'
@@ -166,7 +166,7 @@ def gl_handler(code):
         else:
             _GL_STATE = None
     else:
-        _subs_list = [s.strip() for s in _typed_subs_str.split(',')] if _typed_subs_str else []
+        _subs_list = [s.strip().strip('"') for s in _typed_subs_str.split(',')] if _typed_subs_str else []
         _skey = _enc(_subs_list)
         _bound = _skey + b'\xff'
         _exact = _cx.execute("SELECT value FROM _globals WHERE ns=? AND subkey=?", [_ns, _skey]).fetchone()
