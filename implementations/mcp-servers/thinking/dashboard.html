@@ -682,30 +682,42 @@ function createTask() {
   >
   <h3>💻 M Console</h3>
   <div style="display:flex;gap:8px;margin-top:8px">
-    <input id="m-code" type="text" placeholder="$O(^FARMA(""))" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:#22d3ee;font-family:JetBrains Mono,monospace;font-size:12px" onkeydown="if(event.key==='Enter')runM()">
-    <button onclick="runM()" class="btn btn-acc" style="padding:8px 16px">▶ Run</button>
+    <input id="m-code" type="text" placeholder="$O(^FARMA(\"\"))" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:#22d3ee;font-family:JetBrains Mono,monospace;font-size:12px" onkeydown="if(event.key==='Enter')runM()">
+    <button onclick="runM()" class="btn btn-acc" style="padding:8px 16px">Run</button>
   </div>
-  <pre id="m-output" style="margin-top:8px;padding:12px;background:var(--slate800);border-radius:8px;color:var(--acc);font-family:JetBrains Mono,monospace;font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap">M-Light ready...</pre>
+  <pre id="m-output" style="margin-top:8px;padding:12px;background:#0a0a0f;border:1px solid #22d3ee33;border-radius:8px;color:#22d3ee;font-family:JetBrains Mono,monospace;font-size:12px;min-height:100px;max-height:400px;overflow-y:auto;white-space:pre-wrap">%SS 09:04:47  LUMEN M-Light v1.0
+------------------------------------------------------------
+Type MUMPS commands. Enter to execute.
+  D ^%GL      - List globals
+  D ^%SS      - System status
+  $O(^GLOB)   - First subscript
+Examples:
+> $L("hello")
+5
+> $O(^FARMA(""))
+MAD-100
+------------------------------------------------------------</pre>
 </div>
 <script>
 var _mh=[];
+function mOut(t){
+  var el=document.getElementById('m-output');
+  el.textContent+=t;
+  el.scrollTop=el.scrollHeight;
+}
 async function runM(){
-  var c=document.getElementById('m-code').value.trim();
+  var el=document.getElementById('m-code');
+  var c=el.value.trim();
   if(!c)return;
+  mOut('\n> '+c+'\n');
+  el.value='';
   try{
     var r=await fetch('/m',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})});
     var d=await r.json();
-    var o='> '+c+'
-'+(d.error?'! '+d.error:d.result)+'
-';
-    _mh.push(o);
-    document.getElementById('m-output').textContent=_mh.slice(-20).join('');
-    document.getElementById('m-code').value='';
+    if(d.error) mOut('! '+d.error+'\n');
+    else mOut(d.result+'\n');
   }catch(e){
-    _mh.push('> '+c+'
-! '+e.message+'
-');
-    document.getElementById('m-output').textContent=_mh.slice(-20).join('');
+    mOut('! '+e.message+'\n');
   }
 }
 </script>
