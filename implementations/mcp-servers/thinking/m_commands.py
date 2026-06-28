@@ -14,9 +14,18 @@ def gl_handler(code):
     _dbp = os.path.join(_pd, 'lumen-pdb.db')
     _cx = sqlite3.connect(_dbp)
     _arg = code.strip()
-    _matches = re.findall(r'\^?(\w+)', _arg)
-    _all_globals = [m for m in _matches if m.upper() not in ('%GL', '%SS', 'D', '') and not m.startswith('%')]
-    _ns = _all_globals[0].upper() if _all_globals else ''
+    # Match all potential global names: ^GL, ^%GL, FARMACIAS, ^FARMACIAS
+    _matches = re.findall(r'(?:\^?%?\w+)', _arg)
+    _all_globals = []
+    for m in _matches:
+        m = m.strip()
+        if not m: continue
+        um = m.upper()
+        if um in ('%GL', '%SS', 'D', '^%GL', '^%SS', 'GL', 'SS'): continue
+        if um.startswith('%'): continue
+        if m.startswith('^'): m = m[1:]
+        _all_globals.append(m.upper())
+    _ns = _all_globals[0] if _all_globals else ''
     _m2 = re.search(r'\(([^)]+)\)', _arg)
     _subs_str = _m2.group(1) if _m2 else ''
     _subs_list = [s.strip() for s in _subs_str.split(',')] if _subs_str else []
