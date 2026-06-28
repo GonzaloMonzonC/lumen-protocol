@@ -4187,60 +4187,8 @@ def _start_dashboard(port: int = 9876) -> None:
                     # Special MSM-style commands
                     if code.upper() in ("D ^%GL", "^%GL", "%GL") or code.upper().startswith("D ^%GL ") or code.upper().startswith("^%GL "):
                         try:
-                            import sqlite3, os as _osx
-                            # Extract optional global name filter
-                            _parts = code.strip().split()
-                            _filter = None
-                            for p in _parts:
-                                if p.upper() in ("^%GL", "D", "%GL"): continue
-                                if p.startswith("^"): p = p[1:]
-                                _filter = p.upper().strip()
-                                break
-                            _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
-                            _cx = sqlite3.connect(_dbp)
-                            if _filter and _filter != "*":
-                                # Show details for specific global
-                                _cur = _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", [_filter])
-                                _cnt = _cur.fetchone()[0]
-                                _cur2 = _cx.execute("SELECT count(*) as s FROM (SELECT 1 FROM _globals WHERE ns=? GROUP BY substr(subkey,1,20) LIMIT 10)", [_filter])
-                                _subs = _cur2.fetchone()[0]
-                                _cur3 = _cx.execute("SELECT MIN(LENGTH(value)) as mi, MAX(LENGTH(value)) as mx FROM _globals WHERE ns=? AND value IS NOT NULL", [_filter])
-                                _mi, _mx = _cur3.fetchone()
-                                result = f"^{_filter}: {_cnt} nodes, ~{_subs} subkeys, value sizes {_mi}-{_mx} bytes"
-                                # Show first few rows
-                                _cur4 = _cx.execute("SELECT subkey, substr(value,1,80) FROM _globals WHERE ns=? LIMIT 5", [_filter])
-                                import sys as _sys
-                                if not _osx.path.exists(_osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "pdb_tools.py")):
-                                    _pdb_dec = None
-                                else:
-                                    try:
-                                        _sys.path.insert(0, _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb"))
-                                        import importlib.util as _iu
-                                        _pdb_s = _iu.spec_from_file_location('_pdb_dec', _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "pdb_tools.py"))
-                                        _pdb_m = _iu.module_from_spec(_pdb_s)
-                                        _pdb_s.loader.exec_module(_pdb_m)
-                                        _pdb_dec = _pdb_m.decode_subkey
-                                    except:
-                                        _pdb_dec = None
-                                for sk, val in _cur4.fetchall():
-                                    if isinstance(val, bytes): val = val.decode('utf-8','replace')[:80]
-                                    try: val = json.loads(val) if val and val[0] == '"' else val
-                                    except: pass
-                                    if _pdb_dec and isinstance(sk, bytes):
-                                        try:
-                                            _d = _pdb_dec(sk)
-                                            sk_str = ",".join(str(s) for s in _d)
-                                        except:
-                                            sk_str = sk.hex()[:40]
-                                    else:
-                                        sk_str = sk.hex()[:40] if isinstance(sk, bytes) else str(sk)[:40]
-                                    result += f"\n  {sk_str} = {val}"
-                            else:
-                                _cur = _cx.execute("SELECT ns, COUNT(*) as c FROM _globals GROUP BY ns ORDER BY ns")
-                                _lines = [ns + ": " + str(c) + " nodes" for ns, c in _cur.fetchall() if ns and len(ns) < 30 and not ns.startswith("<")]
-                                result = chr(10).join(_lines) if _lines else "No globals found"
-                                result += chr(10) + chr(10) + "Total: " + str(len(_lines)) + " namespaces"
-                                result += chr(10) + 'Usage: D ^%GL <GLOBAL>  — details for a specific global'
+                            from m_commands import gl_handler as _gl
+                            result = _gl(code)
                             self.send_response(200)
                             self.send_header("Content-Type", "application/json")
                             self.end_headers()
