@@ -121,6 +121,14 @@ def gl_handler(code):
     if _m2:
         _typed_subs_str = _m2.group(1).strip()
     
+    # Parse range: sub1:sub2
+    _range_from = None
+    _range_to = None
+    if _typed_subs_str and ':' in _typed_subs_str:
+        _parts = _typed_subs_str.split(':', 1)
+        _range_from = _parts[0].strip() if _parts[0] else None
+        _range_to = _parts[1].strip() if len(_parts) > 1 and _parts[1] else None
+    
     if not _typed_ns:
         if _GL_STATE and _GL_STATE.get('mode') == 'browse':
             result = _show_next_page(_cx)
@@ -139,6 +147,34 @@ def gl_handler(code):
     _cnt = _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", [_ns]).fetchone()[0]
     if _cnt == 0:
         result = '^' + _ns + ': namespace not found'
+        _cx.close()
+        return result
+    
+    if _range_from is not None:
+        # Range query: sub1:sub2 or sub1: or :sub2
+        _skey_from = _enc([_range_from]) if _range_from else b''
+        _skey_to = _enc([_range_to]) + b'\xff' if _range_to else b'\xff'
+        _cur = _cx.execute("SELECT subkey, value FROM _globals WHERE ns=? AND subkey >= ? AND subkey < ? LIMIT 20", [_ns, _skey_from, _skey_to])
+        _rows = _cur.fetchall()
+        _range_desc = _typed_subs_str
+        _total_in_range = _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=? AND subkey >= ? AND subkey < ?", [_ns, _skey_from, _skey_to]).fetchone()[0]
+        result = '^' + _ns + '(' + _range_desc + '): ' + str(_total_in_range) + ' entries\n'
+        for sk, val in _rows:
+            if isinstance(val, bytes): val = val.decode('utf-8','replace')[:60]
+            try: val = json.loads(val) if isinstance(val, str) and val and val[0] == '"' else val
+            except: pass
+            if isinstance(sk, bytes):
+                try:
+                    _d = _dec(sk)
+                    sk_str = ','.join(str(s) for s in _d)
+                except:
+                    sk_str = sk.hex()[:40]
+            else:
+                sk_str = str(sk)[:40]
+            result += '  ' + sk_str + ' = ' + str(val) + '\n'
+        if _total_in_range > 20:
+            result += '... (' + str(_total_in_range - 20) + ' more)'
+        _GL_STATE = None
         _cx.close()
         return result
     
