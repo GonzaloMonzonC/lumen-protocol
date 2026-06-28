@@ -4191,7 +4191,7 @@ def _start_dashboard(port: int = 9876) -> None:
                             _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
                             _cx = sqlite3.connect(_dbp)
                             _cur = _cx.execute("SELECT DISTINCT ns, COUNT(*) as c FROM _globals GROUP BY ns ORDER BY ns")
-                            _lines = [ns + ": " + str(c) + " nodes" for ns, c in _cur.fetchall() if ns and not ns.startswith("BEN") and not "<" in ns]
+                            _lines = [ns + ": " + str(c) + " nodes" for ns, c in _cur.fetchall() if ns and len(ns) < 30 and not ns.startswith("<")]
                             result = chr(10).join(_lines) if _lines else "No globals found"
                             result += chr(10) + chr(10) + "Total: " + str(len(_lines)) + " namespaces"
                             self.send_response(200)
