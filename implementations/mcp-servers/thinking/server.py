@@ -4208,11 +4208,33 @@ def _start_dashboard(port: int = 9876) -> None:
                                 _mi, _mx = _cur3.fetchone()
                                 result = f"^{_filter}: {_cnt} nodes, ~{_subs} subkeys, value sizes {_mi}-{_mx} bytes"
                                 # Show first few rows
-                                _cur4 = _cx.execute("SELECT substr(subkey,1,40), substr(value,1,60) FROM _globals WHERE ns=? LIMIT 5", [_filter])
+                                _cur4 = _cx.execute("SELECT subkey, substr(value,1,80) FROM _globals WHERE ns=? LIMIT 5", [_filter])
+                                import sys as _sys
+                                if not _osx.path.exists(_osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "pdb_tools.py")):
+                                    _pdb_dec = None
+                                else:
+                                    try:
+                                        _sys.path.insert(0, _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb"))
+                                        import importlib.util as _iu
+                                        _pdb_s = _iu.spec_from_file_location('_pdb_dec', _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "pdb_tools.py"))
+                                        _pdb_m = _iu.module_from_spec(_pdb_s)
+                                        _pdb_s.loader.exec_module(_pdb_m)
+                                        _pdb_dec = _pdb_m.decode_subkey
+                                    except:
+                                        _pdb_dec = None
                                 for sk, val in _cur4.fetchall():
-                                    if isinstance(sk, bytes): sk = sk.hex()[:40]
-                                    if isinstance(val, bytes): val = val.decode('utf-8','replace')[:60]
-                                    result += f"\n  {sk} = {val}"
+                                    if isinstance(val, bytes): val = val.decode('utf-8','replace')[:80]
+                                    try: val = json.loads(val) if val and val[0] == '"' else val
+                                    except: pass
+                                    if _pdb_dec and isinstance(sk, bytes):
+                                        try:
+                                            _d = _pdb_dec(sk)
+                                            sk_str = ",".join(str(s) for s in _d)
+                                        except:
+                                            sk_str = sk.hex()[:40]
+                                    else:
+                                        sk_str = sk.hex()[:40] if isinstance(sk, bytes) else str(sk)[:40]
+                                    result += f"\n  {sk_str} = {val}"
                             else:
                                 _cur = _cx.execute("SELECT ns, COUNT(*) as c FROM _globals GROUP BY ns ORDER BY ns")
                                 _lines = [ns + ": " + str(c) + " nodes" for ns, c in _cur.fetchall() if ns and len(ns) < 30 and not ns.startswith("<")]
