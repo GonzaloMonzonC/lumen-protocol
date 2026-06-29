@@ -434,7 +434,7 @@ window.renderData = function renderData(d) {
   // Patterns (from /metrics)
   const patterns=d.patterns||[];
   const pt=document.getElementById("patterns-list");
-  if(pt)pt.innerHTML=patterns.slice(0,20).map(p=>'<div class="chain-row" style="cursor:pointer" onclick="showPattern(''+p.name+'')"><span class="mono" style="font-size:9px;color:var(--purp)">'+p.name.slice(0,20)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.description||'').slice(0,40)+'</span></div>").join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No patterns</div>';
+  if(pt)pt.innerHTML=patterns.slice(0,20).map(p=>`<div class="chain-row" style="cursor:pointer" onclick="showPattern('${p.name}')"><span class="mono" style="font-size:9px;color:var(--purp)">${p.name.slice(0,20)}</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(p.description||'').slice(0,40)}</span></div>`).join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No patterns</div>';
 
   // Q&A (from /metrics)
   const qaPairs=d.qa_pairs||[];
