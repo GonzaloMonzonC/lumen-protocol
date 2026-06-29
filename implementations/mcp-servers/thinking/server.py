@@ -234,7 +234,7 @@ def _save_state() -> None:
             **get_objective_state(),
         }
         # Persist to PDB so dashboard and restarts find fresh data
-        _pdb_save_all()
+        # _pdb_save_all()  # DISABLED for debugging
     except Exception:
         pass  # Never let save break the main flow
 
@@ -333,6 +333,10 @@ def _pdb_load_all() -> bool:
     global _file_touches, _file_claims, _agent_messages, _global_patterns
     global _web_snapshots, _qa_pairs, _niches, _tasks, _next_niche_id, _next_task_id
     try:
+        _safe_print(f"[lumen-thinking] PDB path: {_PDB_PATH}")
+        _safe_print(f"[lumen-thinking] PDB exists: {_PDB_PATH.exists()}")
+        if _PDB_PATH.exists():
+            _safe_print(f"[lumen-thinking] PDB size: {_PDB_PATH.stat().st_size}")
         if not _PDB_PATH.exists():
             return False
         conn = sqlite3.connect(str(_PDB_PATH))
