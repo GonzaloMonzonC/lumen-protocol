@@ -143,7 +143,7 @@ def kanban_tool_task_list(args: dict) -> dict:
         if r.get("chains"): refs += f" 🔗{len(r['chains'])}"
         if r.get("patterns"): refs += f" 🐞{len(r['patterns'])}"
         tag_str = f" [{', '.join(t.get('tags',[]))}]" if t.get("tags") else ""
-        lines.append(f"  {pi} {ci} #{tid} [{niche_name}] {t.get('title','?')[:50]}{tag_str}{refs}")
+        lines.append(f"  {pi} {ci} #{t['id']} [{niche_name}] {t.get('title','?')[:50]}{tag_str}{refs}")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
@@ -181,7 +181,7 @@ def kanban_tool_task_search(args: dict) -> dict:
     for t in items:
         pi = prio_map.get(t.get("priority", ""), "•")
         nname = _niches.get(t.get("niche_id", ""), {}).get("name", "?")
-        lines.append(f"  {pi} #{tid} [{nname}] {t.get('title','?')[:50]}")
+        lines.append(f"  {pi} #{t['id']} [{nname}] {t.get('title','?')[:50]}")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
