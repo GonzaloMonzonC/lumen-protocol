@@ -433,8 +433,8 @@ window.renderData = function renderData(d) {
   if(mo)mo.innerHTML=Object.entries(model).slice(0,25).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
   // Patterns (from /metrics)
   const patterns=d.patterns||[];
-  const pl=document.getElementById("patterns-list");
-  if(pl)pl.innerHTML=patterns.slice(0,20).map(p=>'<div class="chain-row" style="cursor:pointer" onclick="showPattern(''+p.name+'')"><span class="mono" style="font-size:9px;color:var(--purp)">'+p.name.slice(0,20)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.description||'').slice(0,40)+'</span></div>").join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No patterns</div>';
+  const pt=document.getElementById("patterns-list");
+  if(pt)pt.innerHTML=patterns.slice(0,20).map(p=>'<div class="chain-row" style="cursor:pointer" onclick="showPattern(''+p.name+'')"><span class="mono" style="font-size:9px;color:var(--purp)">'+p.name.slice(0,20)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.description||'').slice(0,40)+'</span></div>").join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No patterns</div>';
 
   // Q&A (from /metrics)
   const qaPairs=d.qa_pairs||[];
