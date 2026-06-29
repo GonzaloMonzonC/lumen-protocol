@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 import sqlite3
 import threading
+from socketserver import ThreadingMixIn
 
 # ── Windows: force UTF-8 on stdout so emoji don't break MCP pipes ──
 if hasattr(sys.stdout, "reconfigure"):
@@ -3638,13 +3639,7 @@ def _start_dashboard(port: int = 9876) -> None:
     except Exception:
         pass
     import threading, http.server as _http
-from socketserver import ThreadingMixIn
-
-class _ThreadedHTTPServer(ThreadingMixIn, _http.HTTPServer):
-    """Threaded HTTP server for dashboard — prevents blocking on concurrent requests."""
-    daemon_threads = True
-    
-    global _lumen_ws
+global _lumen_ws
     try:
         from lumen_transport import LumenWS
         _lumen_ws = LumenWS(port=port + 1)
@@ -4602,6 +4597,10 @@ class _ThreadedHTTPServer(ThreadingMixIn, _http.HTTPServer):
                 for o in _objectives.values()],
         }
     
+    import http.server as _hs
+    class _ThreadedHTTPServer(ThreadingMixIn, _hs.HTTPServer):
+        """Threaded HTTP server for dashboard — prevents blocking on concurrent requests."""
+        daemon_threads = True
     server = _ThreadedHTTPServer(("127.0.0.1", port), MetricsHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="lumen-dashboard")
     thread.start()
