@@ -766,6 +766,15 @@ class MEvaluator:
                     elif op == '#': result = int(lv % rv) if rv != 0 else 0
                     return int(result) if result == int(result) else result
 
+        # ^ns(subs) — referencia directa a global (sin $GET)
+        m = re.match(r'\^(\w+)\(([^)]+)\)', token)
+        if m and self.pdb:
+            ns = m.group(1)
+            subs = self._parse_subs(m.group(2))
+            self._last_ref = ns
+            r = self.pdb.tool_get({"ns": ns, "subs": subs})
+            return r.get("value")
+
         # Literal
         if token.startswith('"') and token.endswith('"'):
             return token[1:-1]
