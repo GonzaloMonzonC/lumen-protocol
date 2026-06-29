@@ -3639,7 +3639,6 @@ def _start_dashboard(port: int = 9876) -> None:
     except Exception:
         pass
     import threading, http.server as _http
-global _lumen_ws
     try:
         from lumen_transport import LumenWS
         _lumen_ws = LumenWS(port=port + 1)
