@@ -4416,6 +4416,7 @@ def _start_dashboard(port: int = 9876) -> None:
     
     def _build_metrics():
         global _last_state_mtime
+        _pdb_load_all()  # reload from PDB every /metrics
         # Import objectives for dashboard (may not be available in all contexts)
         try:
             from objective_loop import _objectives
