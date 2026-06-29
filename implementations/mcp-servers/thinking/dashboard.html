@@ -439,7 +439,7 @@ window.renderData = function renderData(d) {
   // Q&A (from /metrics)
   const qaPairs=d.qa_pairs||[];
   const ql=document.getElementById("qa-list");
-  if(ql)ql.innerHTML=qaPairs.slice(0,20).map(q=>'<div class="chain-row" style="cursor:pointer" onclick="showQA(''+q.id+'')"><span class="dim" style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.question||'').slice(0,45)+'</span><span class="tag mono" style="font-size:8px">'+(q.tags||[]).slice(0,2).join(",")+'</span></div>').join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No Q&A</div>';
+  if(ql)ql.innerHTML=qaPairs.slice(0,20).map(q=>'<div class="chain-row" style="cursor:pointer" onclick="showQA(\''+q.id+'\')"><span class="dim" style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.question||'').slice(0,45)+'</span><span class="tag mono" style="font-size:8px">'+(q.tags||[]).slice(0,2).join(",")+'</span></div>').join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No Q&A</div>';
 
   // Decisions — fetch from /decisions endpoint
   fetch('/decisions').then(r=>r.json()).then(dd=>{
