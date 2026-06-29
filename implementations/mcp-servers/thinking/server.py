@@ -3638,6 +3638,11 @@ def _start_dashboard(port: int = 9876) -> None:
     except Exception:
         pass
     import threading, http.server as _http
+from socketserver import ThreadingMixIn
+
+class _ThreadedHTTPServer(ThreadingMixIn, _http.HTTPServer):
+    """Threaded HTTP server for dashboard — prevents blocking on concurrent requests."""
+    daemon_threads = True
     
     global _lumen_ws
     try:
@@ -4597,7 +4602,7 @@ def _start_dashboard(port: int = 9876) -> None:
                 for o in _objectives.values()],
         }
     
-    server = _http.HTTPServer(("127.0.0.1", port), MetricsHandler)
+    server = _ThreadedHTTPServer(("127.0.0.1", port), MetricsHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="lumen-dashboard")
     thread.start()
     _safe_print(f"[lumen-dashboard] Metrics server on http://127.0.0.1:{port}/metrics")
