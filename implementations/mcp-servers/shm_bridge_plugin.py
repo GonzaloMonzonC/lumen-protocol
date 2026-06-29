@@ -1938,3 +1938,36 @@ def _handle_pdb_backup(*args, **kwargs) -> str:
     if "path" in p: kw["path"] = p["path"]
     return _call_pdb("pdb_backup", kw)
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Eager startup + graceful shutdown
+# ═══════════════════════════════════════════════════════════════════════════
+
+import atexit as _atexit
+
+def _eager_start_servers():
+    """Start all SHM servers eagerly so dashboard is available immediately."""
+    for name in ["filesystem", "thinking", "web"]:
+        try:
+            _get_connection(name)
+        except Exception as e:
+            print(f"[lumen-shm-bridge] Eager start {name} failed: {e}", file=sys.stderr)
+
+def _cleanup_all_servers():
+    """Terminate all server processes on shutdown."""
+    with _conn_lock:
+        for name, conn in list(_connections.items()):
+            try:
+                conn.stop()
+            except Exception as e:
+                print(f"[lumen-shm-bridge] Cleanup {name} failed: {e}", file=sys.stderr)
+        _connections.clear()
+
+# Start servers in background thread so plugin load doesn't block
+_startup_thread = threading.Thread(target=_eager_start_servers, daemon=True, name="lumen-eager-start")
+_startup_thread.start()
+
+# Register cleanup on Hermes shutdown
+_atexit.register(_cleanup_all_servers)
+
+
