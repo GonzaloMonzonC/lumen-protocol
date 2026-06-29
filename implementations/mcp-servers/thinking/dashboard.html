@@ -478,7 +478,7 @@ function showPattern(name){
     if(!p){return}
     const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+p.name+'</div>',
       '<div class="dim" style="font-size:11px;margin-bottom:8px">'+(p.description||'')+'</div>'];
-    .innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
+    $('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
   });
 }
 function showQA(id){
@@ -488,7 +488,7 @@ function showQA(id){
     const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">❓ '+q.question+'</div>',
       '<div style="font-size:12px;padding:12px;background:rgba(34,211,238,.05);border-radius:8px;margin-bottom:8px">'+q.answer+'</div>',
       '<div class="dim" style="font-size:10px">Tags: '+(q.tags||[]).join(', ')+'</div>'];
-    .innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
+    $('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
   });
 }
 function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><pre style="font-size:11px;color:var(--text);white-space:pre-wrap;margin-top:12px;max-height:60vh;overflow-y:auto" id="wiki-content">Loading...</pre></div></div>`;
