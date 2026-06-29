@@ -155,6 +155,7 @@ _next_task_id: int = 1
 
 def _json_snapshot() -> None:
     """Periodic JSON snapshot for cross-process sync (dashboard)."""
+    import shutil
     try:
         state = {
             "sessions": {sid: s.to_dict() for sid, s in _sessions.items()},
@@ -172,7 +173,15 @@ def _json_snapshot() -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2, default=str)
         if os.path.exists(tmp):
-            os.replace(tmp, str(_STATE_FILE))
+            for attempt in range(5):
+                try:
+                    shutil.move(tmp, str(_STATE_FILE))
+                    return
+                except (OSError, PermissionError):
+                    if attempt < 4:
+                        time.sleep(0.2)
+                    else:
+                        pass  # silently skip — next snapshot will retry
     except Exception as e:
         _safe_print(f"[lumen] JSON snapshot failed: {e}")
 
@@ -227,6 +236,8 @@ def _save_state() -> None:
         # Write to disk in background thread -- don't block the tool call
         t = threading.Thread(target=_write_state_file, args=(state,), daemon=True)
         t.start()
+        # Also persist to PDB (async) so dashboard and restarts find fresh data
+        _pdb_save_all()
     except Exception:
         pass  # Never let save break the main flow
 
@@ -235,6 +246,7 @@ _state_file_lock = threading.Lock()
 
 def _write_state_file(state: dict) -> None:
     """Write state dict to JSON file atomically. Runs in background thread."""
+    import shutil
     with _state_file_lock:
         try:
             tmp = str(_STATE_FILE) + ".tmp"
@@ -243,15 +255,15 @@ def _write_state_file(state: dict) -> None:
                 except OSError: pass
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2, default=str)
-            for attempt in range(2):  # was 5 -- fewer retries = less blocking
+            for attempt in range(5):
                 try:
-                    os.replace(tmp, str(_STATE_FILE))
+                    shutil.move(tmp, str(_STATE_FILE))
                     return
                 except (OSError, PermissionError):
-                    if attempt == 0:
-                        time.sleep(0.05)
+                    if attempt < 4:
+                        time.sleep(0.2)
                     else:
-                        _safe_print("[lumen] State file write busy after retry")
+                        _safe_print(f"[lumen] State file write busy after {attempt+1} attempts (Win32 lock)")
         except Exception as e:
             _safe_print(f"[lumen] State file write failed: {e}")
 
@@ -335,9 +347,15 @@ def _pdb_load_all() -> bool:
             return False
         records = {}
         for sk, val in rows:
-            sk = sk.decode() if isinstance(sk, bytes) else sk
-            val = json.loads(val.decode() if isinstance(val, bytes) else val)
-            records[sk] = val
+            try:
+                sk_decoded = sk.decode() if isinstance(sk, bytes) else sk
+            except UnicodeDecodeError:
+                continue  # skip binary subkeys (e.g. MVM state)
+            try:
+                val_decoded = json.loads(val.decode() if isinstance(val, bytes) else val)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue  # skip values that aren't valid JSON
+            records[sk_decoded] = val_decoded
         sessions_data = {}
         globals_data = {}
         for sk, val in records.items():
@@ -3661,7 +3679,18 @@ def _start_dashboard(port: int = 9876) -> None:
     class MetricsHandler(_http.BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/" or self.path == "/index.html":
-                body = _DASHBOARD_HTML.encode("utf-8")
+                # Inject initial metrics into HTML so dashboard shows data immediately
+                # (before JS fetch('/metrics') completes)
+                try:
+                    metrics = _build_metrics()
+                    metrics_json = json.dumps(metrics, ensure_ascii=False)
+                    injected = _DASHBOARD_HTML.replace(
+                        "</body>",
+                        f"<script>window.__INITIAL_DATA__ = {metrics_json};</script>\n</body>"
+                    )
+                    body = injected.encode("utf-8")
+                except Exception:
+                    body = _DASHBOARD_HTML.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -4440,12 +4469,9 @@ def _start_dashboard(port: int = 9876) -> None:
             from objective_loop import _objectives
         except ImportError:
             _objectives = {}
-        # Reload state from PDB (primary store) — JSON no longer used for dashboard sync
-        try:
-            if _PDB_PATH.exists():
-                _pdb_load_all()
-        except Exception:
-            pass
+    # Reload state from PDB (primary store) — solo en fase inicial, no en cada /metrics
+    # para no sobreescribir estado en memoria con datos PDB posiblemente obsoletos.
+    # _pdb_load_all() se llama solo al arrancar via _load_state().
         
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())

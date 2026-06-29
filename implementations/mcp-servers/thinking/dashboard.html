@@ -299,6 +299,28 @@ function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x
 
 
 var _lumenWs=null;  // LUMEN WebSocket client (loaded from lumen-client.js)
+
+// ── HTTP fallback: fetch /metrics on page load + periodic poll ──
+function _fetchMetrics() {
+  fetch('/metrics')
+    .then(r => r.json())
+    .then(data => {
+      if (data && window.renderData) window.renderData(data);
+      const footer = document.getElementById('footer');
+      if (footer) footer.textContent = 'Metrics: /metrics  |  Updated: ' + new Date().toLocaleTimeString();
+    })
+    .catch(() => {});
+}
+// Initial load: use server-injected data first, then fetch for live updates
+if (window.__INITIAL_DATA__ && window.renderData) {
+  window.renderData(window.__INITIAL_DATA__);
+  const footer = document.getElementById('footer');
+  if (footer) footer.textContent = 'Metrics: PDB (server-side)  |  Updated: ' + new Date().toLocaleTimeString();
+}
+_fetchMetrics();
+// Then poll every 10 seconds (keeps dashboard live even without WebSocket)
+setInterval(_fetchMetrics, 10000);
+
 window.renderData = function renderData(d) {
   if(!d||!d.totals)return;
   const t=d.totals||{},sc=d.scores||{},ct=d.contradictions||{};
