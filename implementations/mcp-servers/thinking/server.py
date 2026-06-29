@@ -433,6 +433,8 @@ def _load_state() -> bool:
     """Restore state from PDB only (no JSON fallback)."""
     global _sessions, _next_session_num, _preserved, _loaded_from_disk
 
+    _safe_print(f"[lumen-thinking] _load_state() called. PDB path: {_PDB_PATH}")
+
     # PDB is the only storage
     if _pdb_load_all():
         _loaded_from_disk = True
