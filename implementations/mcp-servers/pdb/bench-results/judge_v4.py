@@ -28,7 +28,7 @@ spec.loader.exec_module(pdb)
 def get_models():
     """Discover all v4 models from ^BENCH_MODEL_V4."""
     models = set()
-    result = pdb.tool_order({"ns": "BENCH_MODEL_V4", "subs": []})
+    result = pdb.tool_order({"ns": "BENCH_MODEL_V4", "subs": [""]})
     if result.get("success"):
         key = result.get("value")
         while key:
@@ -176,10 +176,10 @@ def score_circuit2(model):
 
     # ^REPO_SCAN namespace exists with data
     scan_nodes = 0
-    scan_result = pdb.tool_data({"ns": "REPO_SCAN", "subs": []})
+    scan_result = pdb.tool_data({"ns": "REPO_SCAN", "subs": ["summary"]})
     if scan_result.get("success") and scan_result.get("value", 0) >= 10:
         # Has data
-        order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": []})
+        order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": ["summary"]})
         key = order_result.get("value") if order_result.get("success") else None
         while key:
             scan_nodes += 1

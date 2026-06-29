@@ -234,7 +234,7 @@ def _save_state() -> None:
             **get_objective_state(),
         }
         # Persist to PDB so dashboard and restarts find fresh data
-        # _pdb_save_all()  # DISABLED for debugging
+        _pdb_save_all()
     except Exception:
         pass  # Never let save break the main flow
 

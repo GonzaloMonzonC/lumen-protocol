@@ -1,0 +1,89 @@
+# New %GL handler - template to be inserted into server.py
+# This handles: D ^%GL, D ^%GL FARMACIAS, D ^%GL ^FARMACIAS(MAD-100,ciudad)
+
+                    if code.upper().startswith("D ^%GL") or code.upper() in ("^%GL", "%GL"):
+                        try:
+                            import sqlite3, os as _osx, re as _re, json as _json
+                            import importlib.util as _iu
+                            _sys.path.insert(0, _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb"))
+                            _pdb_s = _iu.spec_from_file_location("_pdb_dec", _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "pdb_tools.py"))
+                            _pdb_m = _iu.module_from_spec(_pdb_s)
+                            _pdb_s.loader.exec_module(_pdb_m)
+                            _enc = _pdb_m.encode_subkey
+                            _dec = _pdb_m.decode_subkey
+                            _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
+                            _cx = sqlite3.connect(_dbp)
+                            _arg = code.strip()
+                            _m = _re.search(r'\^(\w+)', _arg)
+                            _ns = _m.group(1).upper() if _m else ""
+                            _m2 = _re.search(r'\(([^)]+)\)', _arg)
+                            _subs_str = _m2.group(1) if _m2 else ""
+                            _subs = []
+                            if _subs_str:
+                                _subs = [s.strip() for s in _subs_str.split(",")]
+                            if not _ns or _ns in ("%GL", "D"):
+                                _cur = _cx.execute("SELECT ns, COUNT(*) as c FROM _globals GROUP BY ns ORDER BY ns")
+                                _lines = [ns + ": " + str(c) + " nodes" for ns, c in _cur.fetchall() if ns and len(ns) < 30 and not ns.startswith("<")]
+                                result = chr(10).join(_lines) if _lines else "No globals found"
+                                result += chr(10) + chr(10) + "Total: " + str(len(_lines)) + " namespaces"
+                            else:
+                                if not _subs:
+                                    _cur = _cx.execute("SELECT subkey, value FROM _globals WHERE ns=? LIMIT 5", [_ns])
+                                    _cnt = _cx.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", [_ns]).fetchone()[0]
+                                    result = "^" + _ns + ": " + str(_cnt) + " nodes"
+                                    for sk, val in _cur.fetchall():
+                                        if isinstance(val, bytes): val = val.decode("utf-8","replace")[:80]
+                                        try: val = _json.loads(val) if isinstance(val, str) and val and val[0] == '"' else val
+                                        except: pass
+                                        if isinstance(sk, bytes):
+                                            try:
+                                                _d = _dec(sk)
+                                                sk_str = ",".join(str(s) for s in _d)
+                                            except:
+                                                sk_str = sk.hex()[:40]
+                                        else:
+                                            sk_str = str(sk)[:40]
+                                        result += chr(10) + "  " + sk_str + " = " + str(val)
+                                else:
+                                    _skey = _enc(_subs)
+                                    _cur = _cx.execute("SELECT subkey, value FROM _globals WHERE ns=? AND subkey >= ? AND subkey < ? || x'ff' LIMIT 10", [_ns, _skey, _skey])
+                                    _rows = _cur.fetchall()
+                                    if not _rows:
+                                        _cur2 = _cx.execute("SELECT value FROM _globals WHERE ns=? AND subkey=?", [_ns, _skey])
+                                        _val = _cur2.fetchone()
+                                        if _val:
+                                            v = _val[0]
+                                            if isinstance(v, bytes): v = v.decode("utf-8","replace")
+                                            try: v = _json.loads(v) if isinstance(v, str) and v and v[0] == '"' else v
+                                            except: pass
+                                            result = "^" + _ns + "(" + _subs_str + ") = " + str(v)
+                                        else:
+                                            result = "^" + _ns + "(" + _subs_str + "): not found"
+                                    else:
+                                        result = "^" + _ns + "(" + _subs_str + "):"
+                                        for sk, val in _rows:
+                                            if isinstance(val, bytes): val = val.decode("utf-8","replace")[:80]
+                                            try: val = _json.loads(val) if isinstance(val, str) and val and val[0] == '"' else val
+                                            except: pass
+                                            if isinstance(sk, bytes):
+                                                try:
+                                                    _d = _dec(sk)
+                                                    _child = ",".join(str(s) for s in _d[len(_subs):])
+                                                except:
+                                                    _child = sk.hex()[:40]
+                                            else:
+                                                _child = str(sk)[:40]
+                                            result += chr(10) + "  " + _child + " = " + str(val)
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(_json.dumps({"code": code, "result": result}).encode())
+                            return
+                        except Exception as e:
+                            import json as _json
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(_json.dumps({"code": code, "result": "Error: " + str(e)}).encode())
+                            return
+
