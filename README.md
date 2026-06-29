@@ -3,9 +3,9 @@
   <h1 align="center">◆ LUMEN</h1>
   <p align="center"><strong>Lightweight Universal Model Exchange Network</strong></p>
   <p align="center">
-    A binary protocol for MCP that makes JSON-RPC feel like dial-up.
+    El asistente cognitivo definitivo para Hermes Agent.
     <br>
-    <em>Wire savings: 40–80%. Latency: sub-ms. Overhead: 3–6 bytes.</em>
+    <em>106 herramientas · memoria persistente · kanban · wiki · patrones · dashboard · RAG</em>
   </p>
   <br>
 </p>
@@ -132,6 +132,34 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 > **106 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
 > **🧠 PDB** — 40 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Incluye $LOCK, auto-indices ^IDX, triggers ON SET/ON KILL, global mapping ^GLOBAL→archivo, partitioning automático, journaling DELETE, DBFIX, y M REPL. Es donde el agente guarda su memoria persistente. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+
+---
+
+## 🧠 Tu Asistente Personal con Superpoderes Cognitivos
+
+LUMEN no es solo un protocolo rápido. Sobre Hermes Agent, se convierte en un **asistente personal con memoria, organización y consciencia de estado**:
+
+| Capacidad | Tools | ¿Qué hace por ti? |
+|-----------|-------|-------------------|
+| **📋 Kanban cognitivo** | `niche_create`, `task_create`, `task_move`, `task_list`, `task_search`, `kanban_stats` | Organiza proyectos en nichos, trackea tareas, mide velocidad |
+| **📚 Wiki persistente** | `wiki_create`, `wiki_read`, `wiki_update`, `wiki_delete`, `wiki_list` | Documenta decisiones, guarda conocimiento entre sesiones |
+| **🐞 Memoria de bugs** | `pattern_record`, `pattern_suggest`, `pattern_match` | Aprende de errores pasados, sugiere fixes conocidos |
+| **📋 Registro de decisiones** | `decision_log`, `decision_list` | Arquitectura con rationale, alternativas, triggers de revisión |
+| **❓ Q&A permanente** | `qa_ask`, `qa_list`, `qa_link` | Resuelve dudas una vez, reutiliza para siempre |
+| **🧠 Modelo mental** | `model_add`, `model_map`, `model_query`, `model_stats` | Construye un grafo de conceptos del dominio |
+| **🔗 Razonamiento estructurado** | `sequential_thinking`, `thought_evaluate`, `thought_to_plan`, `thought_bridge` | Descompone problemas, evalúa hipótesis, genera planes |
+| **🎯 Agent Loop** | `objective_create`, `objective_judge`, `objective_plan`, `objective_status` | Ciclo BUILD→TEST autónomo con criterios de aceptación |
+| **🩺 Auto-diagnóstico** | `cognitive_integrity`, `cognitive_pulse`, `state_snapshot`, `unified_search` | Detecta tareas huérfanas, patrones estancados, Q&A sin responder |
+| **📊 Dashboard en tiempo real** | `:9876` — métricas, kanban, chains, works, M Console | Monitoriza tu sesión como un piloto su cabina |
+| **💾 PDB — memoria persistente** | 40 tools: `pdb_set`, `pdb_get`, `pdb_order`, `pdb_query`, `pdb_m_eval`... | Jerárquico, ACID, sin esquemas, 15 μs/GET |
+| **🔍 Búsqueda semántica (RAG)** | `mcp_eb_embed`, `mcp_eb_embed_search` | Embeddings locales (fastembed), 0 tokens, 100ms/query |
+| **🌐 Web + research** | `web_search`, `web_extract`, `web_snapshot` | Busca, extrae, guarda snapshots para referencia |
+| **📁 Filesystem inteligente** | 13 tools: `read_file`, `search_files`, `disk_usage`, `find_duplicates`... | Zero-copy SHM, sin dependencia de shell |
+| **🔐 Multi-sesión** | `session_init`, `session_list`, `session_search`, `work_start`, `work_log` | Trabajo cross-session, recuperación de contexto, logs |
+
+> **106 herramientas. 0 API keys. 1 asistente que recuerda, aprende y se organiza contigo.**
+
+[TOOLS_GUIDE.md →](implementations/mcp-servers/TOOLS_GUIDE.md) para referencia completa con ejemplos.
 
 ---
 
