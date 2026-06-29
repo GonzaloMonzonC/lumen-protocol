@@ -814,7 +814,19 @@ def _execute(sql: str, params: list = None) -> list:
     try:
         cur = c.execute(sql, params or [])
         if sql.strip().upper().startswith("SELECT") or sql.strip().upper().startswith("WITH"):
-            return [dict(row) for row in cur.fetchall()]
+            rows = []
+            for row in cur.fetchall():
+                safe = {}
+                for k, v in dict(row).items():
+                    if isinstance(v, bytes):
+                        try:
+                            safe[k] = v.decode('utf-8')
+                        except UnicodeDecodeError:
+                            safe[k] = v.hex()
+                    else:
+                        safe[k] = v
+                rows.append(safe)
+            return rows
         else:
             c.commit()
             return [{"rows_affected": cur.rowcount}]
