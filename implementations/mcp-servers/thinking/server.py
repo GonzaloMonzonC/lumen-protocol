@@ -233,10 +233,7 @@ def _save_state() -> None:
             "saved_at": time.time(),
             **get_objective_state(),
         }
-        # Write to disk in background thread -- don't block the tool call
-        t = threading.Thread(target=_write_state_file, args=(state,), daemon=True)
-        t.start()
-        # Also persist to PDB (async) so dashboard and restarts find fresh data
+        # Persist to PDB so dashboard and restarts find fresh data
         _pdb_save_all()
     except Exception:
         pass  # Never let save break the main flow
@@ -433,63 +430,17 @@ def _pdb_load_all() -> bool:
 
 
 def _load_state() -> bool:
-    """Restore state from PDB first, then JSON fallback."""
+    """Restore state from PDB only (no JSON fallback)."""
     global _sessions, _next_session_num, _preserved, _loaded_from_disk
 
-    # PDB first (primary storage)
+    # PDB is the only storage
     if _pdb_load_all():
         _loaded_from_disk = True
         _safe_print("[lumen-thinking] State restored from PDB")
         return True
 
-    # JSON fallback
-    if not _STATE_FILE.exists():
-        _safe_print("[lumen-thinking] No saved state found — starting fresh.")
-        return False
-    try:
-        with open(_STATE_FILE, "r", encoding="utf-8") as f:
-            state = json.load(f)
-        _sessions = {sid: Session.from_dict(sd) for sid, sd in state.get("sessions", {}).items()}
-        _next_session_num = state.get("next_session_num", 1)
-        _preserved = state.get("preserved", [])
-        if "timeline" in state:
-            _call_timeline[:] = state["timeline"]
-        global _agent_messages, _global_patterns
-        global _niches, _tasks, _next_niche_id, _next_task_id
-        global _web_snapshots, _last_state_mtime
-        global _qa_pairs
-        _agent_messages = state.get("agent_messages", [])
-        _niches = state.get("niches", {})
-        _tasks = state.get("tasks", {})
-        _next_niche_id = state.get("next_niche_id", 1)
-        _next_task_id = state.get("next_task_id", 1)
-        _global_patterns = state.get("global_patterns", [])
-        _web_snapshots = state.get("web_snapshots", {})
-        _qa_pairs = state.get("qa_pairs", {})
-        _loaded_from_disk = True
-        global _file_claims
-        _file_claims = state.get("file_claims", {})
-        load_objective_state(state)
-        _last_state_mtime = _STATE_FILE.stat().st_mtime if _STATE_FILE.exists() else 0.0
-        total_chains = sum(len(s.chains) for s in _sessions.values())
-        total_patterns = sum(len(s.patterns) for s in _sessions.values())
-        saved_at = state.get("saved_at", "unknown")
-        # Recompute global assumption ID counter to avoid collisions after restore
-        max_id = 0
-        for s in _sessions.values():
-            for a in s.assumptions:
-                if a.get("id", 0) > max_id:
-                    max_id = a["id"]
-        global _next_assumption_id
-        _next_assumption_id = max_id + 1
-        _safe_print(f"[lumen-thinking] State restored: {total_chains} chains, {total_patterns} patterns, "
-                     f"{len(_preserved)} preserved items across {len(_sessions)} sessions "
-                     f"(saved {saved_at})")
-        return True
-    except Exception as e:
-        _safe_print(f"[lumen-thinking] Failed to load state: {e} — starting fresh.")
-        return False
-
+    _safe_print("[lumen-thinking] No saved state found — starting fresh.")
+    return False
 def _auto_save() -> None:
     """Called after each tool call. Saves every _SAVE_INTERVAL calls."""
     global _save_counter
