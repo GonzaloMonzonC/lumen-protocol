@@ -97,6 +97,9 @@ class ShmServerConnection:
         """Spawn server, perform PROBE handshake, set up SHM transport."""
         user_home = os.path.expanduser("~")
 
+        # On Windows, use CREATE_NEW_PROCESS_GROUP so we can kill the process tree
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+
         # Use binary pipes — plugin controls the subprocess!
         self._proc = subprocess.Popen(
             [_HERMES_VENV_PYTHON, "-u", self.server_path, "--dashboard", "9876"] if "thinking" in self.server_path else
@@ -105,6 +108,7 @@ class ShmServerConnection:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,  # ← BINARY PIPES! Plugin owns this.
+            creationflags=creationflags if sys.platform == "win32" else 0,
             cwd=user_home,
         )
 
@@ -1955,13 +1959,17 @@ def _eager_start_servers():
 
 def _cleanup_all_servers():
     """Terminate all server processes on shutdown."""
+    print("[lumen-shm-bridge] Cleaning up servers...", file=sys.stderr)
     with _conn_lock:
         for name, conn in list(_connections.items()):
             try:
+                print(f"[lumen-shm-bridge] Stopping {name}...", file=sys.stderr)
                 conn.stop()
+                print(f"[lumen-shm-bridge] {name} stopped", file=sys.stderr)
             except Exception as e:
                 print(f"[lumen-shm-bridge] Cleanup {name} failed: {e}", file=sys.stderr)
         _connections.clear()
+    print("[lumen-shm-bridge] All servers cleaned up", file=sys.stderr)
 
 # Start servers in background thread so plugin load doesn't block
 _startup_thread = threading.Thread(target=_eager_start_servers, daemon=True, name="lumen-eager-start")
