@@ -80,6 +80,23 @@ from lumen import (
 # Persistent server connections
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _kill_previous_server(server_path: str) -> None:
+    """Kill any existing process on the dashboard port (9876)."""
+    try:
+        import subprocess as _sp
+        if "thinking" not in server_path:
+            return
+        ps_cmd = (
+            "Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue | "
+            "ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+        )
+        _sp.run(["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True, timeout=10)
+        print(f"[lumen-shm-bridge] Killed previous dashboard on port 9876", file=sys.stderr)
+    except Exception as e:
+        print(f"[lumen-shm-bridge] Port cleanup failed: {e}", file=sys.stderr)
+
+
 class ShmServerConnection:
     """Manages a single LUMEN SHM server: spawn, PROBE handshake, SHM transport."""
 
@@ -96,6 +113,10 @@ class ShmServerConnection:
     def start(self) -> None:
         """Spawn server, perform PROBE handshake, set up SHM transport."""
         user_home = os.path.expanduser("~")
+
+        # Kill any previous instance
+        if sys.platform == "win32":
+            _kill_previous_server(self.server_path)
 
         # On Windows, use CREATE_NEW_PROCESS_GROUP so we can kill the process tree
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
