@@ -69,7 +69,7 @@ if __name__ == "__main__":
     else:
         # MCP mode: run SHM server loop (reads stdin for MCP JSON-RPC)
         server = ShmNativeServer(
-            "lumen-thinking-shm",
+            f"lumen-thinking-shm-{os.getpid()}",
             TOOLS,
             HANDLERS,
             shm_size=1024 * 1024,  # 1 MiB for large chains
