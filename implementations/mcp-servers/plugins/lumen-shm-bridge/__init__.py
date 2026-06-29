@@ -251,9 +251,23 @@ SERVER_CONFIGS = {
 
 
 def _get_connection(name: str) -> ShmServerConnection:
-    """Get or create a persistent SHM connection to a server."""
+    """Get or create a persistent SHM connection to a server.
+
+    Windows note: avoid resurrecting the server when `poll()` has not yet
+    transitioned out of zombie/transient state after a previous start. Use
+    `_proc` existence + a visible pid + a single non-blocking `poll()` as
+    the only alive signal; otherwise we restart before the server has finished
+    its handshake and trigger the SHM read timeout.
+    """
     with _conn_lock:
-        if name not in _connections or _connections[name]._proc is None or _connections[name]._proc.poll() is not None:
+        conn = _connections.get(name)
+        proc = conn._proc if conn else None
+        alive = (
+            proc is not None
+            and getattr(proc, 'pid', None)
+            and proc.poll() is None
+        )
+        if not alive:
             path, size = SERVER_CONFIGS[name]
             conn = ShmServerConnection(f"lumen-{name}-shm", path, size)
             conn.start()
