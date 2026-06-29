@@ -250,14 +250,55 @@ SERVER_CONFIGS = {
 }
 
 
+def _is_process_alive(proc) -> bool:
+    """Check if a subprocess is really alive (cross-platform)."""
+    if proc is None:
+        return False
+    # poll() returns None if still running, exit code if finished
+    if proc.poll() is not None:
+        return False
+    # On Windows, poll() can return None for zombie/transient processes.
+    # Additional check: verify PID still exists in the OS.
+    try:
+        if sys.platform == "win32":
+            # Windows: use ctypes to check if process handle is signaled
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            SYNCHRONIZE = 0x00100000
+            handle = kernel32.OpenProcess(SYNCHRONIZE, 0, proc.pid)
+            if handle:
+                ret = kernel32.WaitForSingleObject(handle, 0)
+                kernel32.CloseHandle(handle)
+                # WAIT_TIMEOUT (0x102) = process alive, WAIT_OBJECT_0 (0) = dead
+                return ret == 0x102
+            return False
+        else:
+            # Unix: check /proc/<pid> or kill -0
+            os.kill(proc.pid, 0)
+            return True
+    except (OSError, ProcessLookupError, Exception):
+        return False
+
+
 def _get_connection(name: str) -> ShmServerConnection:
     """Get or create a persistent SHM connection to a server."""
     with _conn_lock:
-        if name not in _connections or _connections[name]._proc is None or _connections[name]._proc.poll() is not None:
-            path, size = SERVER_CONFIGS[name]
-            conn = ShmServerConnection(f"lumen-{name}-shm", path, size)
-            conn.start()
-            _connections[name] = conn
+        existing = _connections.get(name)
+        if existing is not None and _is_process_alive(existing._proc):
+            return existing
+        
+        # Process is dead or never existed — respawn
+        if existing is not None:
+            print(f"[lumen-shm-bridge] {name}: process dead, respawning...", file=sys.stderr)
+            try:
+                existing.stop()
+            except Exception:
+                pass
+        
+        path, size = SERVER_CONFIGS[name]
+        conn = ShmServerConnection(f"lumen-{name}-shm", path, size)
+        conn.start()
+        _connections[name] = conn
         return _connections[name]
 
 
