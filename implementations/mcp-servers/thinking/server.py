@@ -3684,10 +3684,9 @@ def _start_dashboard(port: int = 9876) -> None:
                 try:
                     metrics = _build_metrics()
                     metrics_json = json.dumps(metrics, ensure_ascii=False)
-                    injected = _DASHBOARD_HTML.replace(
-                        "</body>",
-                        f"<script>window.__INITIAL_DATA__ = {metrics_json};</script>\n</body>"
-                    )
+                    # Replace LAST </body> (not first — HTML may contain "</body>" in strings)
+                    idx = _DASHBOARD_HTML.rindex("</body>")
+                    injected = _DASHBOARD_HTML[:idx] + f"<script>window.__INITIAL_DATA__ = {metrics_json};</script>\n" + _DASHBOARD_HTML[idx:]
                     body = injected.encode("utf-8")
                 except Exception:
                     body = _DASHBOARD_HTML.encode("utf-8")
