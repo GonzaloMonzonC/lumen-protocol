@@ -52,6 +52,7 @@ ROADMAP.md
 
 # Temp / scratch files
 temp/
+scripts/
 *.tgz
 *.tmp
 
