@@ -176,15 +176,13 @@ def score_circuit2(model):
 
     # ^REPO_SCAN namespace exists with data
     scan_nodes = 0
-    scan_result = pdb.tool_data({"ns": "REPO_SCAN", "subs": ["summary"]})
-    if scan_result.get("success") and scan_result.get("value", 0) >= 10:
-        # Has data
-        order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": ["summary", ""]})
-        key = order_result.get("value") if order_result.get("success") else None
-        while key:
-            scan_nodes += 1
-            order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": ["summary", key]})
-            key = order_result.get("value") if order_result.get("success") else None
+    # Use PDB query to count all entries in REPO_SCAN namespace
+    try:
+        query_result = pdb.tool_query({"sql": "SELECT COUNT(*) as cnt FROM _globals WHERE ns='REPO_SCAN'"})
+        if query_result.get("success") and query_result.get("rows"):
+            scan_nodes = int(query_result["rows"][0].get("cnt", 0))
+    except:
+        pass
     details["repo_scan_nodes"] = scan_nodes
     if scan_nodes >= 3:
         score += 10
@@ -215,11 +213,15 @@ def score_circuit3(model):
     details = {}
 
     # Persistence verified
-    if get_val(model, "persistence_verified") == "yes":
+    pv = get_val(model, "persistence_verified")
+    details["persistence_verified"] = pv
+    if pv == "yes":
         score += 8
 
     # Wiki updated
-    if get_val(model, "wiki_updated") == "yes":
+    wu = get_val(model, "wiki_updated")
+    details["wiki_updated"] = wu
+    if wu == "yes":
         score += 7
 
     # Tasks completed
