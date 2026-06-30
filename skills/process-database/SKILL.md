@@ -1,17 +1,64 @@
 ---
 name: process-database
-description: '👽 Design pattern for process databases — SQLite-backed KV stores with MUMPS-style hierarchical subscripts, dual SQL+KV interface for LLM agents. Covers subkey encoding, collation, $ORDER/$DATA semantics, SHM vs stdio decision, FASE 1 tools (batch, scratch, FTS5), and Hermes plugin integration.'
-version: 1.4.0
+description: '👽 PDB — SQLite-backed hierarchical KV with MUMPS heritage. 40 tools: $ORDER/$DATA/$GET, global mapping, partitioning, triggers, indices, $LOCK, M-Light evaluator, M REPL, MVM. Umbrella skill: carga pdb-kv + pdb-enterprise + mlight-cognitive-toolkit.'
+version: 2.0.0
 author: Cadences Lab
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [lumen, database, kv, mumps, sqlite]
+    tags: [lumen, database, kv, mumps, sqlite, composition]
 ---
 
-# Process Database (PDB) — Design Pattern
+# Process Database (PDB) — Umbrella
 
-A **process database** combines relational (SQL) and hierarchical key-value (MUMPS-style) access in a single SQLite backend. The LLM chooses SQL for flat/relational queries and KV tools for hierarchical tree navigation.
+**40 herramientas en 4 servidores.** Este skill es un paraguas que anida los skills atomicos. Para uso diario, carga solo el que necesites. Para todo, carga este.
+
+## Skills anidados
+
+| Skill | Contenido | Herramientas | Cuando cargarlo |
+|:------|:----------|:------------|:----------------|
+| `pdb-kv` | SET/GET/KILL/ORDER/DATA/MERGE + scratch + schema | 15 | Operaciones diarias |
+| `pdb-enterprise` | $LOCK, triggers, indices, mapping, partitioning, FTS, SQL | 13 | Features avanzadas |
+| `mlight-cognitive-toolkit` | M-Light patrones, M + Thinking, triggers cognitivos | 5 (eval/REPL/MVM) | Procesar datos con M |
+
+## Core Insight
+
+SQLite IS a B-tree. Una tabla `_globals(ns, subkey, value)` con PK `(ns, subkey)` es un KV ordenado. PDB anade semantica MUMPS ($ORDER, $DATA, $LOCK) sobre esa base.
+
+## Quick Start
+
+```python
+# Carga todo
+skill_view('process-database')
+
+# O carga solo lo que necesites
+skill_view('pdb-kv')              # Solo KV
+skill_view('pdb-enterprise')      # Solo enterprise
+skill_view('mlight-cognitive-toolkit')  # Solo M-Light
+```
+
+## Arquitectura
+
+```
+^GLOBAL(sub1, sub2, ...) = value
+   |
+   v
+SQLite _globals(ns, subkey BLOB, value BLOB)
+   |
+   v
+$ORDER / $DATA / $GET / $LOCK / triggers / indices
+```
+
+## Pitfalls
+
+- journal_mode DELETE: no crea .shm/.wal. Escribe directo al .db
+- No mezclar ns con subindices: `pdb_get("ns", [1])`
+- $ORDER retorna "" al final del arbol
+- Siempre inicializa variables M: `S I=""` antes de $O
+
+---
+
+# Design Reference (v1.4.0)
 
 ## Core Insight
 
@@ -357,27 +404,6 @@ for name, desc, props, req in new_pdb_tools:
 
 **24 tools total** (10 KV+SQL + 3 scratch + 1 batch + 1 fts + 2 lock + 3 indices + 4 triggers).
 
-## Project Structure
-
-```
-implementations/mcp-servers/pdb/
-├── pdb_tools.py        ← Core: encoding + 7 KV + 3 SQL
-├── server.py           ← JSON-RPC stdio (TRANSPORTE RECOMENDADO)
-├── server_native.py    ← LUMEN native binary (compresión wire)
-├── server_shm.py       ← SHM Level 2 (NO usar para PDB — 20× más lento)
-├── test_suite.py       ← 16 tests, todos OK
-├── test_native.py      ← Tests LUMEN transport
-├── BENCHMARK.md        ← Resultados benchmark con tabla comparativa (24 tools)
-└── README.md           ← Documentación completa (24 tools)
-
-implementations/mcp-servers/plugins/lumen-pdb-bridge/
-└── __init__.py
-
-lumen-shm-bridge (integrado como 4º server):
-├── __init__.py         ← PDB via stdio (no SHM) — 59 tools total (fs:13, thinking:29, web:2, pdb:15)
-└── plugin.yaml
-```
-
 ## Benchmark Summary
 
 | Operation | Direct (SQLite) | SHM (discarded) | Ratio |
@@ -428,6 +454,8 @@ This user (Gonzalo) prefers:
 - **SHM is NOT for PDB**. Benchmark-proven: SHM adds ~700μs per call (20× slower than stdio for μs-scale KV ops). Use `server.py` (stdio JSON-RPC).
 - **Handler convention**: `(args: dict)` not `**kwargs`. `ShmNativeServer` calls `handler(tool_args)` — named params don't work.
 - **Windows fixes**: `encoding='utf-8'` in Popen, `RLock` not `Lock` for subprocess init, `stderr=subprocess.DEVNULL`.
+
+## Pitfalls
 
 1. **Popen encoding**: `subprocess.Popen` with `text=True` defaults to 'charmap' on Windows. Always pass `encoding='utf-8'` or non-ASCII data triggers `UnicodeDecodeError`.
 2. **Deadlock with Lock vs RLock**: When `_get_server()` spawns a subprocess AND calls `_rpc()` internally, use `threading.RLock()` not `threading.Lock()`. Also set `stderr=subprocess.DEVNULL` to prevent pipe blocking.
