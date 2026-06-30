@@ -179,11 +179,11 @@ def score_circuit2(model):
     scan_result = pdb.tool_data({"ns": "REPO_SCAN", "subs": ["summary"]})
     if scan_result.get("success") and scan_result.get("value", 0) >= 10:
         # Has data
-        order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": ["summary"]})
+        order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": ["summary", ""]})
         key = order_result.get("value") if order_result.get("success") else None
         while key:
             scan_nodes += 1
-            order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": [key]})
+            order_result = pdb.tool_order({"ns": "REPO_SCAN", "subs": ["summary", key]})
             key = order_result.get("value") if order_result.get("success") else None
     details["repo_scan_nodes"] = scan_nodes
     if scan_nodes >= 3:
