@@ -3986,7 +3986,16 @@ def _start_dashboard(port: int = 9876) -> None:
                             self.send_response(404); self.end_headers()
                             self.wfile.write(_j.dumps({"error":"Niche not found"}).encode()); return
                         global _next_task_id
-                        new_id = "task_"+str(_next_task_id); _next_task_id += 1
+                        new_id = "task_" + str(_next_task_id)
+                        _next_task_id += 1
+                        _tasks[new_id] = {
+                            "id": new_id, "niche_id": niche_id, "title": title,
+                            "desc": desc, "priority": priority, "status": "backlog",
+                            "column": "backlog", "tags": [], "assignee": "",
+                            "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
+                            "urls": [], "created_at": time.time(), "updated_at": time.time(),
+                        }
+                        _save_state()
                         _tasks[new_id] = {"id":new_id,"niche_id":nid,"title":title,"desc":desc,
                             "status":_niches[nid]["columns"][0],"priority":"medium",
                             "tags":[],"assignee":None,
