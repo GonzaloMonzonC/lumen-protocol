@@ -195,14 +195,14 @@ def _prune_sessions() -> None:
     now = time.time()
     to_remove = []
     for sid, sess in _sessions.items():
-        age = now - getattr(sess, 'last_active', sess.created_at)
+        age = now - getattr(sess, 'updated_at', sess.created_at)
         # Remove sessions older than _SESSION_MAX_AGE
         if age > _SESSION_MAX_AGE:
             to_remove.append(sid)
     # Keep only _MAX_SESSIONS most recent
     if len(_sessions) - len(to_remove) > _MAX_SESSIONS:
         sorted_sessions = sorted(
-            [(sid, getattr(s, 'last_active', s.created_at)) for sid, s in _sessions.items() if sid not in to_remove],
+            [(sid, getattr(s, 'updated_at', s.created_at)) for sid, s in _sessions.items() if sid not in to_remove],
             key=lambda x: x[1], reverse=True
         )
         for sid, _ in sorted_sessions[_MAX_SESSIONS:]:
