@@ -38,7 +38,7 @@ Three transport modes per server:
 | Kernel copies | **0** (mmap) | 2 per call (pipes) | Zero-copy |
 | Errors (440 calls) | **0** | Variable (shell fragility) | Rock-solid |
 
-> Full benchmarks: `pdb/bench-results/INFORME_GLOBAL.md` (3 versions, 8 models)
+> Full benchmarks: `pdb/bench/results/INFORME_GLOBAL.md` (3 versions, 8 models)
 
 ## Cognitive Workflow Skills
 
@@ -47,15 +47,15 @@ for Lumen Thinking's 29 cognitive tools:
 
 | Skill | Description | Status |
 |-------|-------------|--------|
-| **[Lumen Control](skills/lumen-control/SKILL.md)** | Dashboard, benchmarks (filesystem/thinking/transport), superiority bar, troubleshooting | ✅ |
-| **[Cognitive Workflows](skills/lumen-cognitive-workflows/SKILL.md)** | 6 proven workflow patterns (Problem→Plan→Execute, Decision→Validation→Learning, Scientific Debugging, Structured Learning, Multi-Session Task) | ✅ |
-| **[Hermes Integration](skills/lumen-thinking-hermes-integration/SKILL.md)** | Deep Hermes Agent integration: auto-context hooks, plan bridge plugin, subagent usage, disabled_toolsets config | ✅ |
-| **[Cognitive Safety](skills/lumen-cognitive-safety/SKILL.md)** | SAFE vs UNSAFE tool taxonomy, 7-gate audit checklist, implementation rule, regression tests | ✅ |
-| **[Native Server Dev](skills/lumen-thinking-server-dev/SKILL.md)** | Build LUMEN-native thinking servers: STREAM_DATA token streaming, MUX parallel channels, Windows-safe frame I/O | ✅ |
-| **[Cognitive State Sync](skills/lumen-cognitive-state-sync/SKILL.md)** | Multi-agent shared mental models via MUX `cognitive-sync` channel 🚀 | 🔮 Experimental |
-| **[MCP Server](skills/lumen-mcp-server/SKILL.md)** | Server templates, architecture (Pattern A/B/C), benchmarking, safety principles | ✅ |
-| **[MCP Server Pattern](skills/lumen-mcp-server-pattern/SKILL.md)** | Proven patterns: shared_tools, session isolation, eval framework, security hardening | ✅ |
-| **[Server Development](skills/lumen-server-development/SKILL.md)** | Canonical guide: 3 server patterns, PROBE handshake, SHM transport, pitfall checklist | ✅ |
+| **[Lumen Control](../../skills/lumen-control/SKILL.md)** | Dashboard, benchmarks (filesystem/thinking/transport), superiority bar, troubleshooting | ✅ |
+| **[Cognitive Workflows](../../skills/lumen-cognitive-workflows/SKILL.md)** | 6 proven workflow patterns (Problem→Plan→Execute, Decision→Validation→Learning, Scientific Debugging, Structured Learning, Multi-Session Task) | ✅ |
+| **[Hermes Integration](../../skills/lumen-thinking-hermes-integration/SKILL.md)** | Deep Hermes Agent integration: auto-context hooks, plan bridge plugin, subagent usage, disabled_toolsets config | ✅ |
+| **[Cognitive Safety](../../skills/lumen-cognitive-safety/SKILL.md)** | SAFE vs UNSAFE tool taxonomy, 7-gate audit checklist, implementation rule, regression tests | ✅ |
+| **[Native Server Dev](../../skills/lumen-thinking-server-dev/SKILL.md)** | Build LUMEN-native thinking servers: STREAM_DATA token streaming, MUX parallel channels, Windows-safe frame I/O | ✅ |
+| **[Cognitive State Sync](../../skills/lumen-cognitive-state-sync/SKILL.md)** | Multi-agent shared mental models via MUX `cognitive-sync` channel 🚀 | 🔮 Experimental |
+| **[MCP Server](../../skills/lumen-mcp-server/SKILL.md)** | Server templates, architecture (Pattern A/B/C), benchmarking, safety principles | ✅ |
+| **[MCP Server Pattern](../../skills/lumen-mcp-server-pattern/SKILL.md)** | Proven patterns: shared_tools, session isolation, eval framework, security hardening | ✅ |
+| **[Server Development](../../skills/lumen-server-development/SKILL.md)** | Canonical guide: 3 server patterns, PROBE handshake, SHM transport, pitfall checklist | ✅ |
 
 ## 🆕 Cross-Session Cognition — LUMEN Cognitive OS
 

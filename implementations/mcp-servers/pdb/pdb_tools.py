@@ -1634,7 +1634,7 @@ def tool_embed(args: dict) -> dict:
             avg = sum(emb[start:start+16]) / 16.0
             ivf_items.append({"ns": "EMBED_IVF", "subs": [h, g], "value": str(round(float(avg), 6))})
         # Store as single JSON array for fast numpy loading
-        ivf_items.append({"ns": "EMBED_VEC", "subs": [h], "value": json.dumps([round(float(v), 6) for v in emb])})
+        ivf_items.append({"ns": "EMBED_VEC", "subs": [h], "value": [round(float(v), 6) for v in emb]})
         items += ivf_items
         tool_batch_set({"items": items})
         results.append({"hash": h, "dims": len(emb), "source": source})
@@ -1675,7 +1675,14 @@ def tool_embed_search(args: dict) -> dict:
             except:
                 continue
         _EMBED_HASHES = hashes
+        if not vecs:
+            _EMBED_MATRIX = None
+            return {"success": True, "results": [], "total": 0}
         _EMBED_MATRIX = __import__('numpy', fromlist=['']).array(vecs, dtype='float32')
+
+    # Early return if no vectors indexed
+    if _EMBED_MATRIX is None or len(_EMBED_HASHES) == 0:
+        return {"success": True, "results": [], "total": 0}
 
     # Vectorized cosine similarity
     import numpy as np

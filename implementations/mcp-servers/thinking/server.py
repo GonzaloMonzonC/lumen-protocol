@@ -135,6 +135,8 @@ _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
 _PDB_PATH = Path(__file__).parent.parent / "pdb" / "lumen-pdb.db"  # shared PDB database
 _SAVE_INTERVAL = 50  # auto-save every N tool calls (was 10 — saves were bottlenecking SHM)
 _JSON_SNAPSHOT_INTERVAL = 1  # JSON snapshot every save (no more lost kanban data)
+_MAX_SESSIONS = 5  # prune old sessions to prevent memory leak
+_SESSION_MAX_AGE = 7200  # 2h in seconds — auto-close stale sessions
 _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
@@ -184,6 +186,32 @@ def _json_snapshot() -> None:
                         pass  # silently skip — next snapshot will retry
     except Exception as e:
         _safe_print(f"[lumen] JSON snapshot failed: {e}")
+
+# ── Memory leak prevention ──
+def _prune_sessions() -> None:
+    """Remove old/inactive sessions to prevent memory leak."""
+    import gc
+    global _sessions
+    now = time.time()
+    to_remove = []
+    for sid, sess in _sessions.items():
+        age = now - getattr(sess, 'last_active', sess.created_at)
+        # Remove sessions older than _SESSION_MAX_AGE
+        if age > _SESSION_MAX_AGE:
+            to_remove.append(sid)
+    # Keep only _MAX_SESSIONS most recent
+    if len(_sessions) - len(to_remove) > _MAX_SESSIONS:
+        sorted_sessions = sorted(
+            [(sid, getattr(s, 'last_active', s.created_at)) for sid, s in _sessions.items() if sid not in to_remove],
+            key=lambda x: x[1], reverse=True
+        )
+        for sid, _ in sorted_sessions[_MAX_SESSIONS:]:
+            to_remove.append(sid)
+    for sid in to_remove:
+        del _sessions[sid]
+    if to_remove:
+        _safe_print(f"[lumen] Pruned {len(to_remove)} old sessions (now {len(_sessions)} active)")
+    gc.collect()
 
 def _save_state() -> None:
     """Persist all state to disk atomically."""
@@ -235,6 +263,8 @@ def _save_state() -> None:
         }
         # Persist to PDB so dashboard and restarts find fresh data
         _pdb_save_all()
+        # Prune old sessions to prevent memory leak
+        _prune_sessions()
     except Exception:
         pass  # Never let save break the main flow
 
