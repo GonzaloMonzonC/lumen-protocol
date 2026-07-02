@@ -80,6 +80,27 @@ from lumen import (
 # Persistent server connections
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _kill_previous_server(server_path: str) -> None:
+    """Kill any existing process on the dashboard port (9876)."""
+    if "thinking" not in server_path:
+        return
+    try:
+        import subprocess as _sp
+        # Find PID listening on port 9876
+        r = _sp.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            if ":9876" in line and "LISTENING" in line:
+                parts = line.strip().split()
+                pid = parts[-1]
+                if pid.isdigit():
+                    _sp.run(["taskkill", "/f", "/pid", pid], capture_output=True, timeout=5)
+                    print(f"[lumen-shm-bridge] Killed PID {pid} on port 9876", file=sys.stderr)
+                    return
+        print(f"[lumen-shm-bridge] No process found on port 9876", file=sys.stderr)
+    except Exception as e:
+        print(f"[lumen-shm-bridge] Port cleanup failed: {e}", file=sys.stderr)
+
+
 class ShmServerConnection:
     """Manages a single LUMEN SHM server: spawn, PROBE handshake, SHM transport."""
 
@@ -94,10 +115,36 @@ class ShmServerConnection:
         self._request_id = 0
 
     def start(self) -> None:
-        """Spawn server, perform PROBE handshake, set up SHM transport."""
+        """Spawn server, perform PROBE handshake, set up SHM transport.
+
+        Retries up to 3 times on Windows to handle transient port conflicts (TIME_WAIT).
+        """
+        max_attempts = 3 if sys.platform == "win32" else 1
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return self._try_start()
+            except Exception as e:
+                last_error = e
+                if attempt < max_attempts:
+                    import time as _t
+                    _t.sleep(1.0)
+                    print(f"[lumen-shm-bridge] {self.name}: start attempt {attempt} failed, retrying...",
+                          file=sys.stderr)
+        raise RuntimeError(f"[{self.name}] Failed to start after {max_attempts} attempts: {last_error}")
+
+    def _try_start(self) -> None:
+        """Spawn server, perform PROBE handshake, set up SHM transport (single attempt)."""
         user_home = os.path.expanduser("~")
 
-        # Use binary pipes — plugin controls the subprocess!
+        # ═══ Kill any previous instance of this server ═══
+        # This solves the "orphaned process" problem at the root.
+        if sys.platform == "win32":
+            _kill_previous_server(self.server_path)
+        
+        # On Windows, use CREATE_NEW_PROCESS_GROUP so we can kill the process tree
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+
         self._proc = subprocess.Popen(
             [_HERMES_VENV_PYTHON, "-u", self.server_path, "--dashboard", "9876"] if "thinking" in self.server_path else
             [_HERMES_VENV_PYTHON, "-u", self.server_path],
@@ -105,6 +152,7 @@ class ShmServerConnection:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,  # ← BINARY PIPES! Plugin owns this.
+            creationflags=creationflags if sys.platform == "win32" else 0,
             cwd=user_home,
         )
 
@@ -210,8 +258,16 @@ class ShmServerConnection:
         self._transport.send_frame(bytes(buf))
 
     def _read_shm(self) -> dict:
-        raw = self._transport.recv_frame()
-        if raw is None:
+        # Retry once on timeout — thinking server can be momentarily slow
+        for attempt in range(2):
+            raw = self._transport.recv_frame()
+            if raw is not None:
+                break
+            if attempt == 0:
+                import sys as _sys
+                _sys.stderr.write(f"[lumen-shm-bridge] {self.name}: SHM timeout, retrying...\n")
+                _sys.stderr.flush()
+        else:
             raise RuntimeError(f"[{self.name}] SHM read timeout")
         result = parse_frame(bytearray(raw), 0)
         if isinstance(result, ParseComplete):
@@ -250,28 +306,65 @@ SERVER_CONFIGS = {
 }
 
 
-def _get_connection(name: str) -> ShmServerConnection:
-    """Get or create a persistent SHM connection to a server.
+def _is_process_alive(proc) -> bool:
+    """Check if a subprocess is really alive (cross-platform)."""
+    if proc is None:
+        return False
+    # poll() returns None if still running, exit code if finished
+    if proc.poll() is not None:
+        return False
+    # On Windows, poll() can return None for zombie/transient processes.
+    # Additional check: verify PID still exists in the OS.
+    try:
+        if sys.platform == "win32":
+            # Windows: use ctypes to check if process handle is signaled
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            SYNCHRONIZE = 0x00100000
+            handle = kernel32.OpenProcess(SYNCHRONIZE, 0, proc.pid)
+            if handle:
+                ret = kernel32.WaitForSingleObject(handle, 0)
+                kernel32.CloseHandle(handle)
+                # WAIT_TIMEOUT (0x102) = process alive, WAIT_OBJECT_0 (0) = dead
+                return ret == 0x102
+            return False
+        else:
+            # Unix: check /proc/<pid> or kill -0
+            os.kill(proc.pid, 0)
+            return True
+    except (OSError, ProcessLookupError, Exception):
+        return False
 
-    Windows note: avoid resurrecting the server when `poll()` has not yet
-    transitioned out of zombie/transient state after a previous start. Use
-    `_proc` existence + a visible pid + a single non-blocking `poll()` as
-    the only alive signal; otherwise we restart before the server has finished
-    its handshake and trigger the SHM read timeout.
-    """
+
+def _get_connection(name: str) -> ShmServerConnection:
+    """Get or create a persistent SHM connection to a server."""
     with _conn_lock:
-        conn = _connections.get(name)
-        proc = conn._proc if conn else None
-        alive = (
-            proc is not None
-            and getattr(proc, 'pid', None)
-            and proc.poll() is None
-        )
-        if not alive:
-            path, size = SERVER_CONFIGS[name]
-            conn = ShmServerConnection(f"lumen-{name}-shm", path, size)
+        existing = _connections.get(name)
+        if existing is not None and _is_process_alive(existing._proc):
+            return existing
+        
+        # Process is dead or never existed — respawn
+        if existing is not None:
+            print(f"[lumen-shm-bridge] {name}: process dead, respawning...", file=sys.stderr)
+            try:
+                existing.stop()
+            except Exception:
+                pass
+        
+        path, size = SERVER_CONFIGS[name]
+        conn = ShmServerConnection(f"lumen-{name}-shm-{os.getpid()}", path, size)
+        try:
             conn.start()
             _connections[name] = conn
+        except Exception:
+            # Limpiar entrada stale para que el proximo intento no coja la conexion muerta
+            if name in _connections:
+                try:
+                    _connections[name].stop()
+                except Exception:
+                    pass
+                del _connections[name]
+            raise
         return _connections[name]
 
 
@@ -1175,6 +1268,34 @@ def register(ctx) -> None:
         schema={"name":"cognitive_integrity","description":"Check cognitive system health: unlinked tasks, unanswered Q&A, stale decisions [LUMEN SHM]","parameters":{"type":"object","properties":{}}},
         handler=_make_thinking_handler("cognitive_integrity"),
     )
+    ctx.register_tool(
+        name="state_feeling", toolset="lumen-shm",
+        schema={"name":"state_feeling","description":"Externalize cognitive state — mood, confidence, energy. [LUMEN SHM]","parameters":{"type":"object","properties":{"mood":{"type":"string","enum":["focused","frustrated","stuck","tired","confident","curious","overwhelmed","neutral"]},"confidence":{"type":"integer","minimum":0,"maximum":10},"energy":{"type":"integer","minimum":0,"maximum":10},"context":{"type":"string"}},"required":["mood","confidence","energy"]}},
+        handler=_make_thinking_handler("state_feeling"),
+    )
+    ctx.register_tool(
+        name="cognitive_pulse", toolset="lumen-shm",
+        schema={"name":"cognitive_pulse","description":"Check for stagnation in current work. Analyzes active works and time since last progress. [LUMEN SHM]","parameters":{"type":"object","properties":{"window_minutes":{"type":"integer"},"session_id":{"type":"string"}}}},
+        handler=_make_thinking_handler("cognitive_pulse"),
+    )
+    ctx.register_tool(
+        name="session_end", toolset="lumen-shm",
+        schema={"name":"session_end","description":"End-of-session ritual. Verifies open works, suggests closing, checks decisions and patterns. Creates final snapshot. [LUMEN SHM]","parameters":{"type":"object","properties":{"session_id":{"type":"string"}}}},
+        handler=_make_thinking_handler("session_end"),
+    )
+    ctx.register_tool(
+        name="pattern_suggest", toolset="lumen-shm",
+        schema={"name":"pattern_suggest","description":"Find recorded patterns relevant to current context. Uses TF-IDF similarity. Call when stuck or when a previous fix might apply. [LUMEN SHM]","parameters":{"type":"object","properties":{"context":{"type":"string"},"limit":{"type":"integer"},"min_score":{"type":"number"},"session_id":{"type":"string"}},"required":["context"]}},
+        handler=_make_thinking_handler("pattern_suggest"),
+    )
+
+
+
+
+
+
+
+
 
     ctx.register_tool(
         name="task_delete", toolset="lumen-shm",
@@ -1433,6 +1554,18 @@ def register(ctx) -> None:
         handler=_make_thinking_handler("objective_status"),
     )
 
+    ctx.register_tool(
+        name="objective_task_done", toolset="lumen-shm",
+        schema={"name":"objective_task_done","description":"Mark a task within an objective as completed. Required before objective_judge can detect progress in BUILDING phase.","inputSchema":{"type":"object","properties":{"goal_id":{"type":"string","description":"Objective ID (e.g. 'goal_2')"},"task_id":{"type":"string","description":"Task ID (e.g. 'goal_2_t1')"}},"required":["goal_id","task_id"]}},
+        handler=_make_thinking_handler("objective_task_done"),
+    )
+
+    ctx.register_tool(
+        name="checklist", toolset="lumen-shm",
+        schema={"name":"checklist","description":"Pilot checklist: get task checklist, mark tools as used, or view session compliance.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["get","mark","status"],"description":"get, mark, or status"},"task_type":{"type":"string","description":"Task type: bug_fix, feature, research, audit"},"tool":{"type":"string","description":"Tool name to mark as done (for action=mark)"},"session":{"type":"string","description":"Session identifier (default: default)"}},"required":["action"]}},
+        handler=_make_thinking_handler("checklist"),
+    )
+
     # ── Wiki tools (thinking server) ──
     ctx.register_tool(
         name="wiki_create", toolset="lumen-shm",
@@ -1520,6 +1653,35 @@ def register(ctx) -> None:
           "limit": {"type":"integer","default":10},
           "ns": {"type":"string","description":"Optional namespace filter"}},
          ["query"]),
+        # ── Enterprise tools ──
+        ("pdb_lock", "Acquire named lock with optional timeout.",
+         {"ns":{"type":"string"},"timeout":{"type":"integer"},"owner":{"type":"string"}},["ns"]),
+        ("pdb_unlock", "Release named lock.",{"ns":{"type":"string"}},["ns"]),
+        ("pdb_index_define", "Define auto-index for a namespace.",
+         {"ns":{"type":"string"},"idx_name":{"type":"string"},"sub_pos":{"type":"integer"}},["ns","idx_name"]),
+        ("pdb_index_list", "List indices for namespace.",{"ns":{"type":"string"}},[]),
+        ("pdb_index_drop", "Drop an index.",{"ns":{"type":"string"},"idx_name":{"type":"string"}},["ns","idx_name"]),
+        ("pdb_trigger_define", "Create trigger ON SET/ON KILL.",
+         {"ns":{"type":"string"},"event":{"type":"string"},"action":{"type":"string"},"trigger_id":{"type":"string"},"params":{"type":"object"}},["ns","event","action"]),
+        ("pdb_trigger_list", "List triggers for namespace.",{"ns":{"type":"string"}},[]),
+        ("pdb_trigger_drop", "Drop a trigger.",{"ns":{"type":"string"},"trigger_id":{"type":"string"}},["ns","trigger_id"]),
+        ("pdb_trigger", "Evaluate trigger manually.",{},[]),
+        ("pdb_map_set", "Map ^GLOBAL to a different DB file.",{"ns":{"type":"string"},"path":{"type":"string"}},["ns","path"]),
+        ("pdb_map_get", "Get mapping for namespace.",{"ns":{"type":"string"}},["ns"]),
+        ("pdb_map_list", "List all mappings.",{},[]),
+        ("pdb_map_drop", "Remove namespace mapping.",{"ns":{"type":"string"}},["ns"]),
+        ("pdb_partition_define", "Partition namespace into N files by key range.",{"ns":{"type":"string"},"ranges":{"type":"array"}},["ns"]),
+        ("pdb_partition_list", "List partitions.",{},[]),
+        ("pdb_partition_drop", "Drop partition config.",{"ns":{"type":"string"}},["ns"]),
+        ("pdb_m_eval", "Evaluate MUMPS expression via M-Light.",{"expression":{"type":"string"}},["expression"]),
+        ("pdb_m_repl", "Start M-Light REPL.",{},[]),
+        ("pdb_dbfix", "Repair/verify database.",{},[]),
+        ("pdb_mvm_spawn", "Spawn a new MVM process.",{"code":{"type":"string"},"name":{"type":"string"}},["code"]),
+        ("pdb_mvm_tick", "Run one tick of MVM scheduler.",{},[]),
+        ("pdb_mvm_list", "List all MVM processes.",{},[]),
+        ("pdb_mvm_kill", "Kill an MVM process by PID.",{"pid":{"type":"string"}},["pid"]),
+        ("pdb_mvm_mailbox_send", "Send message to MVM mailbox.",{"pid":{"type":"string"},"message":{"type":"string"}},["pid","message"]),
+        ("pdb_mvm_mailbox_read", "Read MVM mailbox messages.",{"pid":{"type":"string"}},["pid"]),
     ]
     for name, desc, props, req in new_pdb_tools:
         ctx.register_tool(
@@ -1529,7 +1691,7 @@ def register(ctx) -> None:
             handler=lambda *a, _n=name, **kw: _call_pdb(_n, a[0] if a else kw),
         )
 
-    print(f"[lumen-shm-bridge] Registered 68 tools (fs: 13, thinking: 38, web: 2, pdb: 15)")
+    print(f"[lumen-shm-bridge] Registered 96 tools (fs: 13, thinking: 38, web: 2, pdb: 43)")
 
 # DEBUG PATCH
 import traceback as _tb
@@ -1841,4 +2003,41 @@ def _handle_pdb_backup(*args, **kwargs) -> str:
     kw = {}
     if "path" in p: kw["path"] = p["path"]
     return _call_pdb("pdb_backup", kw)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Eager startup + graceful shutdown
+# ═══════════════════════════════════════════════════════════════════════════
+
+import atexit as _atexit
+
+def _eager_start_servers():
+    """Start all SHM servers eagerly so dashboard is available immediately."""
+    for name in ["filesystem", "thinking", "web"]:
+        try:
+            _get_connection(name)
+        except Exception as e:
+            print(f"[lumen-shm-bridge] Eager start {name} failed: {e}", file=sys.stderr)
+
+def _cleanup_all_servers():
+    """Terminate all server processes on shutdown."""
+    print("[lumen-shm-bridge] Cleaning up servers...", file=sys.stderr)
+    with _conn_lock:
+        for name, conn in list(_connections.items()):
+            try:
+                print(f"[lumen-shm-bridge] Stopping {name}...", file=sys.stderr)
+                conn.stop()
+                print(f"[lumen-shm-bridge] {name} stopped", file=sys.stderr)
+            except Exception as e:
+                print(f"[lumen-shm-bridge] Cleanup {name} failed: {e}", file=sys.stderr)
+        _connections.clear()
+    print("[lumen-shm-bridge] All servers cleaned up", file=sys.stderr)
+
+# Start servers in background thread so plugin load doesn't block
+_startup_thread = threading.Thread(target=_eager_start_servers, daemon=True, name="lumen-eager-start")
+_startup_thread.start()
+
+# Register cleanup on Hermes shutdown
+_atexit.register(_cleanup_all_servers)
+
 
