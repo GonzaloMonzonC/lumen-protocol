@@ -619,6 +619,17 @@ def _init_schema(c: sqlite3.Connection):
             PRIMARY KEY (ns, subkey)
         ) WITHOUT ROWID
     """)
+    c.execute("""CREATE TABLE IF NOT EXISTS _event_routes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ns TEXT NOT NULL,
+        subkey_pattern TEXT DEFAULT '',
+        event_type TEXT NOT NULL DEFAULT '*',
+        target_type TEXT NOT NULL DEFAULT 'mvm',
+        target_id TEXT NOT NULL,
+        active INTEGER DEFAULT 1,
+        created_at REAL NOT NULL,
+        UNIQUE(ns, subkey_pattern, event_type, target_type, target_id)
+    )""")
 
 # ---------------------------------------------------------------------------
 # Subkey encoding — sortable byte representation of subscript chains
@@ -2473,9 +2484,16 @@ def _refresh_event_route_cache():
         return _event_route_cache
     try:
         c = _get_conn()
-        rows = c.execute(
-            "SELECT id, ns, subkey_pattern, event_type, target_type, target_id, active FROM _event_routes WHERE active=1"
-        ).fetchall()
+        try:
+            rows = c.execute(
+                "SELECT id, ns, subkey_pattern, event_type, target_type, target_id, active FROM _event_routes WHERE active=1"
+            ).fetchall()
+        except Exception:
+            # Table may not exist in this connection (mapped/partitioned)
+            _init_event_routes()
+            rows = c.execute(
+                "SELECT id, ns, subkey_pattern, event_type, target_type, target_id, active FROM _event_routes WHERE active=1"
+            ).fetchall()
         _event_route_cache = [dict(r) for r in rows]
         _event_route_cache_time = now
         return _event_route_cache
