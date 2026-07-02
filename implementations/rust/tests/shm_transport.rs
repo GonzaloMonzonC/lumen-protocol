@@ -49,10 +49,10 @@ fn shm_roundtrip_single_frame() {
     let n2 = client.read(&mut buf2).expect("client read");
     assert_eq!(&buf2[..n2], resp);
 
-    // Don't drop the ShmRegions — they'd unmap. Leak them since
-    // the ShmTransport borrows the mapping.
-    std::mem::forget(server_region);
-    std::mem::forget(client_region);
+    // Regions drop AFTER the transports (reverse declaration order), so the
+    // mapping outlives every ring-buffer pointer and the server-side Drop
+    // runs shm_unlink — leaking the object would break the next test run
+    // with EEXIST (POSIX shm persists until unlink or reboot).
 }
 
 // ── Multiple frames ─────────────────────────────────────────────────────────
@@ -89,9 +89,6 @@ fn shm_multiple_frames() {
 
     // Verify no extra data — read_frame returns Err when ring empty.
     assert!(server.read(&mut buf).is_err());
-
-    std::mem::forget(server_region);
-    std::mem::forget(client_region);
 }
 
 // ── Large frame (bigger than ring capacity would allow in one shot) ─────────
@@ -121,9 +118,6 @@ fn shm_large_frame() {
     let n = server.read(&mut buf).expect("read");
     assert_eq!(n, large_msg.len());
     assert_eq!(&buf[..n], &large_msg[..]);
-
-    std::mem::forget(server_region);
-    std::mem::forget(client_region);
 }
 
 // ── Handshake test ──────────────────────────────────────────────────────────

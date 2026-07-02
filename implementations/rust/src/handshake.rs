@@ -372,12 +372,15 @@ pub fn client_encrypted_handshake(
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid public key length"))?;
 
             let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
-            // Validate peer public key before deriving shared secret — prevents
-            // low-order point attacks that would force a predictable shared secret.
+            // Cheap pre-check, then the contributory check inside
+            // derive_shared_secret rejects any low-order peer key that would
+            // force a predictable shared secret.
             if !crate::crypto::Keypair::validate_public_key(&pk_bytes) {
                 return Ok(None); // invalid peer key → fall back to unencrypted
             }
-            let shared_secret = kp.derive_shared_secret(&peer_public);
+            let Some(shared_secret) = kp.derive_shared_secret(&peer_public) else {
+                return Ok(None); // low-order peer key → fall back to unencrypted
+            };
             let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Initiator);
 
             Ok(Some(EncryptedHandshake {
@@ -437,18 +440,23 @@ pub fn server_encrypted_handshake(
         };
 
         let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
-        // Validate peer public key before deriving shared secret
-        if !crate::crypto::Keypair::validate_public_key(&pk_bytes) {
-            // Invalid peer key → fall back to unencrypted for this connection
-            (None, None)
+        // Cheap pre-check + contributory check in derive_shared_secret;
+        // either failure → fall back to unencrypted for this connection.
+        let shared_secret = if crate::crypto::Keypair::validate_public_key(&pk_bytes) {
+            kp.derive_shared_secret(&peer_public)
         } else {
-            let shared_secret = kp.derive_shared_secret(&peer_public);
-            let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
+            None
+        };
+        match shared_secret {
+            None => (None, None),
+            Some(shared_secret) => {
+                let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
 
-            use base64::Engine;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());
+                use base64::Engine;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());
 
-            (Some(EncryptedHandshake { cipher, peer_public_key: pk_bytes }), Some(b64))
+                (Some(EncryptedHandshake { cipher, peer_public_key: pk_bytes }), Some(b64))
+            }
         }
     } else {
         (None, None)
