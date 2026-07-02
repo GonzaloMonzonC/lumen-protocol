@@ -9,8 +9,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 import { compressValue, decompressValue } from "./compress.js";
@@ -27,8 +26,8 @@ import {
 } from "./index.js";
 import { encodeHyb128, decodeHyb128, encodedLen } from "./hyb128.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
+// This package compiles to CommonJS, so __dirname is available at runtime.
+// src/ and dist/ sit at the same depth, so the relative path works for both.
 const VECTORS_PATH = join(__dirname, "..", "..", "..", "tests", "e2e", "shared_vectors.json");
 const GOLDEN_DIR = join(__dirname, "..", "..", "..", "tests", "e2e", "golden");
 

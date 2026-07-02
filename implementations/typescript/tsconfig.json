@@ -14,5 +14,5 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/bench_2.ts", "src/bench_ad.ts", "src/cadencia.integration.test.ts", "src/e2e.test.ts", "src/transport.test.ts", "src/__test_echo__.ts"]
+  "exclude": ["node_modules", "dist", "src/bench_2.ts", "src/bench_ad.ts", "src/cadencia.integration.test.ts", "src/transport.test.ts", "src/__test_echo__.ts"]
 }
