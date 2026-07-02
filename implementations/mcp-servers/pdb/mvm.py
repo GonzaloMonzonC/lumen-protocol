@@ -34,7 +34,7 @@ class MProcess:
     """Un proceso M vivo. Cada Job en el sistema."""
 
     def __init__(self, pid: int, code: str, pdb_module, name: str = "",
-                 devices=None, owner: str = ""):
+                 devices=None, owner: str = "", gas_limit: int = 1000):
         self.pid = pid               # $J — entero secuencial
         self.name = name or f"job_{pid}"
         self.code = code
@@ -48,6 +48,9 @@ class MProcess:
         self._device_num = 0         # $IO — dispositivo actual
         self.owner = owner           # identificador de conexión
         self.error = ""
+        self.gas_limit = gas_limit   # max instrucciones por tick
+        self.gas_used = 0            # instrucciones en el tick actual (resetea cada tick)
+        self.gas_total = 0           # total acumulado (vida del proceso, para max_gas_global)
         self._load_state()
 
     def _load_state(self):
@@ -66,6 +69,12 @@ class MProcess:
             r = self.pdb.tool_get({"ns": "STATE", "subs": [str(self.pid), "io"]})
             if r.get("found"):
                 self._device_num = int(r.get("value", 0))
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [str(self.pid), "gas_limit"]})
+            if r.get("found"):
+                self.gas_limit = int(r.get("value", 1000))
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [str(self.pid), "gas_total"]})
+            if r.get("found"):
+                self.gas_total = int(r.get("value", 0))
         except Exception:
             pass
 
@@ -84,11 +93,18 @@ class MProcess:
                               "value": str(time.time())})
             self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "io"],
                               "value": str(self._device_num)})
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "gas_limit"],
+                              "value": str(self.gas_limit)})
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "gas_total"],
+                              "value": str(self.gas_total)})
         except Exception:
             pass
 
     def step(self, max_instructions: int = 100) -> bool:
-        """Ejecutar un slice del proceso. Retorna True si sigue vivo."""
+        """Ejecutar un slice del proceso. Retorna True si sigue vivo.
+        gas_used: instrucciones en este tick (resetea cada llamada).
+        gas_total: acumulado histórico. Yield si gas_used >= gas_limit.
+        El scheduler llama repetidamente; cada llamada resetea gas_used."""
         if self.status == DEAD:
             return False
         if self.status in (WAITING, BLOCKED, HALTED):
@@ -97,12 +113,13 @@ class MProcess:
 
         self.status = RUNNING
         self.last_run = time.time()
+        self.gas_used = 0  # reset por tick
 
         lines = [l.strip() for l in self.code.split("\n") if l.strip()]
         inst_count = 0
 
         from m_light import MEvaluator
-        m = MEvaluator(self.pdb)
+        m = MEvaluator(self.pdb, device_manager=self.devices, current_io=self._device_num)
         m.scope.vars = self.scope_vars.copy()
         m.scope.set('$J', str(self.pid))
         m.scope.set('$IO', str(self._device_num))
@@ -115,8 +132,16 @@ class MProcess:
                     continue
 
                 self._handle_device_ops(line)
+                m._current_io = self._device_num  # sync $IO from MProcess
                 m._exec_line(line)
                 inst_count += 1
+                self.gas_used += 1
+                self.gas_total += 1
+
+                # Yield si agotó el gas del tick
+                if self.gas_used >= self.gas_limit:
+                    self.status = READY
+                    break
 
                 if m._quit_flag:
                     m._quit_flag = False
@@ -133,6 +158,10 @@ class MProcess:
         # Preservar variables locales (no las $)
         self.scope_vars = {k: v for k, v in dict(m.scope.vars).items()
                           if not k.startswith('$')}
+
+        # Si salimos del loop por max_instructions (no gas ni quit), marcar READY
+        if self.status == RUNNING and self.pc < len(lines):
+            self.status = READY
 
         if self.pc >= len(lines):
             self.status = DEAD
@@ -151,7 +180,9 @@ class MProcess:
         if cmd == 'O':
             num = re.match(r'(\d+)', rest)
             if num:
-                self.devices.open(int(num.group(1)), rest[num.end():].strip())
+                params = rest[num.end():].strip().lstrip(':').strip().strip('"').strip("'")
+                params = params.replace('\\\\', '/').replace('\\', '/')  # normalize paths
+                self.devices.open(int(num.group(1)), params)
         elif cmd == 'U':
             num = re.match(r'(\d+)', rest)
             if num:
@@ -169,7 +200,7 @@ class MVM:
     El scheduler ejecuta round-robin sobre la ready queue.
     """
 
-    def __init__(self, pdb_module):
+    def __init__(self, pdb_module, max_gas_global: int = 10000):
         self.pdb = pdb_module
         self.processes: dict[str, MProcess] = {}
         self._ready_queue: list[str] = []  # PIDs en orden RR
@@ -178,6 +209,7 @@ class MVM:
         self.device_mgr = DeviceManager(pdb_module, self)
         self.cron = CronScheduler(self)
         self._cron_counter = 0
+        self.max_gas_global = max_gas_global  # límite global: si se excede → ABORT
         self._load_processes()
 
     def _load_processes(self):
@@ -248,6 +280,7 @@ class MVM:
 
         if proc and proc.status == READY:
             proc.step(max_per_process)
+            self._check_global_gas(proc)     # abortar si excede max_gas_global
             if proc.status == READY:
                 self._ready_queue.append(pid)  # sigue en RR
             elif proc.status == DEAD:
@@ -255,7 +288,6 @@ class MVM:
             elif proc.status in (WAITING, BLOCKED, HALTED):
                 pass  # no vuelve a RR hasta que cambie estado
         else:
-            # Reconstruir cola si el proceso ya no está
             pass
 
         return len([p for p in self.processes.values()
@@ -276,6 +308,7 @@ class MVM:
             proc = self.processes.get(pid)
             if proc and proc.status == READY:
                 proc.step(max_per_process)
+                self._check_global_gas(proc)   # abortar si excede max_gas_global
                 if proc.status == READY:
                     self._ready_queue.append(pid)
                     alive += 1
@@ -318,6 +351,19 @@ class MVM:
         if pid in self._ready_queue:
             self._ready_queue.remove(pid)
 
+    def _check_global_gas(self, proc: MProcess):
+        """Abortar proceso si excede el límite global de gas total.
+        Se ejecuta tras step(); si step() ya marcó DEAD, igual aplica."""
+        if proc.gas_total >= self.max_gas_global:
+            proc.status = DEAD
+            proc.error = f"ABORTED: gas_total={proc.gas_total} >= max_gas_global={self.max_gas_global}"
+            proc._save_state()
+            self._cleanup(str(proc.pid))
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(proc.pid), "status"],
+                              "value": "DEAD"})
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(proc.pid), "error"],
+                              "value": proc.error})
+
     def list_processes(self) -> list[dict]:
         """Listar todos los Jobs con su estado."""
         result = []
@@ -333,6 +379,8 @@ class MVM:
                 "vars": len(proc.scope_vars),
                 "owner": proc.owner,
                 "error": proc.error,
+                "gas_limit": proc.gas_limit,
+                "gas_total": proc.gas_total,
             })
         return result
 
@@ -585,6 +633,112 @@ class MailboxDevice(Device):
         return ""
 
 
+class FileDevice(Device):
+    """Device 5 — File I/O. OPEN con filepath, WRITE/READ/CLOSE."""
+    def __init__(self):
+        super().__init__(5, "FILE")
+        self._filepath = ""
+        self._mode = "w"
+        self._handle = None
+
+    def open(self, params=""):
+        """OPEN 5:"/path/to/file" o "w /path/to/file" o "r /path/to/file" """
+        params = params.strip().strip('"').strip("'")
+        parts = params.split(None, 1)
+        if len(parts) == 2:
+            self._mode = parts[0]
+            self._filepath = parts[1]
+        elif parts:
+            self._filepath = parts[0]
+        try:
+            if self._handle:
+                self._handle.close()
+            self._handle = open(self._filepath, self._mode)
+            self.is_open = True
+            return True
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.is_open = False
+            return False
+
+    def write(self, data):
+        if self._handle and self.is_open:
+            self._handle.write(str(data))
+            self._handle.flush()
+
+    def read(self):
+        if self._handle and self.is_open:
+            if self._mode == "r":
+                return self._handle.read()
+            self._handle.seek(0)
+            return self._handle.read()
+        return ""
+
+    def close(self):
+        if self._handle:
+            self._handle.close()
+            self._handle = None
+        self.is_open = False
+
+
+class SocketDevice(Device):
+    """Device 7 — TCP Socket client. OPEN "host:port", WRITE/READ, CLOSE."""
+    def __init__(self):
+        super().__init__(7, "SOCKET")
+        self._host = ""
+        self._port = 0
+        self._sock = None
+        self._buffer = ""
+
+    def open(self, params=""):
+        """OPEN 7:"localhost:8080" """
+        parts = params.strip().split(":", 1)
+        if len(parts) == 2:
+            self._host = parts[0]
+            try:
+                self._port = int(parts[1])
+            except ValueError:
+                return False
+            try:
+                import socket
+                self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._sock.settimeout(10)
+                self._sock.connect((self._host, self._port))
+                self.is_open = True
+                return True
+            except Exception:
+                self._sock = None
+                return False
+        return False
+
+    def write(self, data):
+        if self._sock and self.is_open:
+            try:
+                self._sock.sendall(str(data).encode())
+            except Exception:
+                self.is_open = False
+
+    def read(self):
+        if self._sock and self.is_open:
+            try:
+                self._sock.settimeout(0.5)
+                chunk = self._sock.recv(4096)
+                return chunk.decode('utf-8', errors='replace') if chunk else ""
+            except Exception:
+                return ""
+        return ""
+
+    def close(self):
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+        self.is_open = False
+
+
 class DeviceManager:
     """Gestor de dispositivos I/O. Cada proceso tiene acceso a todos."""
 
@@ -595,6 +749,8 @@ class DeviceManager:
 
     def _register_defaults(self, pdb, vm):
         self.register(ConsoleDevice())
+        self.register(FileDevice())
+        self.register(SocketDevice())
         self.register(DashboardDevice(pdb))
         self.register(LogDevice(pdb))
         self.register(PDBDevice(pdb))

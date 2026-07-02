@@ -34,7 +34,7 @@ class MScope:
 class MEvaluator:
     """Evalúa scripts M completos contra PDB real."""
 
-    def __init__(self, pdb_tools_module=None):
+    def __init__(self, pdb_tools_module=None, device_manager=None, current_io=0):
         self.pdb = pdb_tools_module
         self.scope = MScope()
         self._quit_flag = False
@@ -44,6 +44,8 @@ class MEvaluator:
         self._call_stack = []
         self._do_call = False
         self._last_ref = None  # naked reference: último ^GLOBAL accedido
+        self._device_manager = device_manager  # DeviceManager para I/O
+        self._current_io = current_io  # $IO — dispositivo activo
 
     # ── API pública ──
 
@@ -509,7 +511,7 @@ class MEvaluator:
     # ── WRITE ──
 
     def _exec_write(self, line: str, pos: int) -> int:
-        """WRITE — imprime expresiones separadas por coma."""
+        """WRITE — imprime expresiones al dispositivo activo ($IO)."""
         rest = line[pos:].strip()
         output = []
 
@@ -545,27 +547,42 @@ class MEvaluator:
             elif item.startswith('?'):
                 try:
                     col = int(self._resolve(item[1:]))
-                    output.append(f'[COL{col}]')
+                    output.append(' ' * max(0, col - len(''.join(output))))
                 except:
                     output.append(f'[{item}]')
             else:
                 val = self._resolve(item)
                 output.append(str(val) if val is not None else '')
-        print(f'[M-Light WRITE] {"".join(output)}')
+
+        text = ''.join(output)
+        # Rutear al dispositivo activo si hay DeviceManager
+        if self._device_manager:
+            self._device_manager.write(self._current_io, text)
+        else:
+            print(f'[M-Light WRITE] {text}')
         return len(line)
 
     def _exec_read(self, line: str, pos: int) -> int:
-        """READ prompt:var — lee entrada (simulado)"""
+        """READ prompt:var — lee del dispositivo activo ($IO)."""
         rest = line[pos:].strip()
         if ':' in rest:
             prompt, var = rest.split(':', 1)
             var = var.strip()
             if prompt:
-                print(f'[M-Light READ prompt] {self._resolve(prompt.strip())}')
-            # En modo demo, responder vacío
-            self.scope.set(var, '')
+                prompt_text = str(self._resolve(prompt.strip()))
+                # Write prompt to device
+                if self._device_manager:
+                    self._device_manager.write(self._current_io, prompt_text)
+            # Read from device
+            value = ''
+            if self._device_manager:
+                value = self._device_manager.read(self._current_io).strip()
+            self.scope.set(var, value)
         elif rest:
-            self.scope.set(rest.strip(), '')
+            value = ''
+            if self._device_manager:
+                value = self._device_manager.read(self._current_io).strip()
+            self.scope.set(rest.strip(), value)
         return len(line)
 
     def _exec_new(self, line, pos):
@@ -574,15 +591,38 @@ class MEvaluator:
         return len(line)
 
     def _exec_open(self, line, pos):
-        print(f'[M-Light OPEN] {line[pos:].strip()}')
+        """OPEN device:params — abre un dispositivo I/O."""
+        rest = line[pos:].strip()
+        # Parse "OPEN 8:params" or "OPEN 8"
+        if self._device_manager:
+            parts = rest.split(":", 1)
+            try:
+                dev_num = int(parts[0].strip())
+            except ValueError:
+                return len(line)
+            params = parts[1].strip() if len(parts) > 1 else ""
+            self._device_manager.open(dev_num, params)
         return len(line)
 
     def _exec_use(self, line, pos):
-        print(f'[M-Light USE] {line[pos:].strip()}')
+        """USE device — cambia $IO al dispositivo indicado."""
+        rest = line[pos:].strip()
+        try:
+            dev_num = int(rest)
+            self._current_io = dev_num
+        except ValueError:
+            pass
         return len(line)
 
     def _exec_close(self, line, pos):
-        print(f'[M-Light CLOSE] {line[pos:].strip()}')
+        """CLOSE device — cierra un dispositivo I/O."""
+        rest = line[pos:].strip()
+        if self._device_manager:
+            try:
+                dev_num = int(rest)
+                self._device_manager.close(dev_num)
+            except ValueError:
+                pass
         return len(line)
 
     # ── Evaluación de expresiones ──
