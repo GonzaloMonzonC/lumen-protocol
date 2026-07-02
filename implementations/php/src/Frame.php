@@ -23,14 +23,19 @@ final class Frame
     public const DISCOVER      = 0x08;
     public const MUX           = 0x09;
     public const HEARTBEAT     = 0x0A;
-    public const PROBE         = 0x0F;
-    public const PROBE_ACK     = 0x10;
+    public const TRANSPORT_INIT = 0x0B;
+    public const TRANSPORT_ACK  = 0x0C;
+    public const BATCH          = 0x0D;
+    public const FLOW_CTL       = 0x0E;
+    public const PROBE          = 0x0F;
+    public const PROBE_ACK      = 0x10;
 
     // Flags
     public const FLAG_COMPRESSED  = 0x01;
     public const FLAG_ENCRYPTED   = 0x02;
     public const FLAG_PRIORITY    = 0x04;
     public const FLAG_FRAGMENTED  = 0x08;
+    public const FLAG_FLOW_PAUSE  = 0x01; // bitshares COMPRESSED in FLOW_CTL context
 
     /** @var array<int, string> */
     public const TYPE_NAMES = [
@@ -44,6 +49,10 @@ final class Frame
         self::DISCOVER      => 'DISCOVER',
         self::MUX           => 'MUX',
         self::HEARTBEAT     => 'HEARTBEAT',
+        self::TRANSPORT_INIT => 'TRANSPORT_INIT',
+        self::TRANSPORT_ACK => 'TRANSPORT_ACK',
+        self::BATCH         => 'BATCH',
+        self::FLOW_CTL      => 'FLOW_CTL',
         self::PROBE         => 'PROBE',
         self::PROBE_ACK     => 'PROBE_ACK',
     ];

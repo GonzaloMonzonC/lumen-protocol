@@ -264,7 +264,15 @@ class ShmNativeServer:
                     continue
 
                 # Normal JSON-RPC processing
+                t0 = time.time()
                 response = self._process_message(msg)
+                elapsed = time.time() - t0
+                if elapsed > 0.05:  # log anything > 50ms
+                    tool_name = msg.get("params", {}).get("name", "?")
+                    sys.stderr.write(
+                        f"[lumen-shm] SLOW call: {tool_name} took {elapsed*1000:.0f}ms\n"
+                    )
+                    sys.stderr.flush()
                 send_frame(response)
 
             except Exception as e:

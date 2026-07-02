@@ -119,9 +119,22 @@ class MEvaluator:
         if not line or self._quit_flag:
             return None
 
-        # Eliminar comentarios
-        if ';' in line:
-            line = line.split(';')[0]
+        # Eliminar comentarios (respetando strings)
+        # ; dentro de comillas dobles NO es comentario
+        stripped_line = ''
+        in_str = False
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if ch == '"':
+                in_str = not in_str
+                stripped_line += ch
+            elif ch == ';' and not in_str:
+                break  # comment starts here
+            else:
+                stripped_line += ch
+            i += 1
+        line = stripped_line
 
         # Separar comandos en la misma línea
         # En M, los comandos se separan por espacio
@@ -314,6 +327,24 @@ class MEvaluator:
                     continue
                 break
 
+            # ^barename=value — global sin subíndices
+            b_match = re.match(r'\^(\w+)\s*=\s*(.+)', rest)
+            if b_match and self.pdb:
+                ns = b_match.group(1)
+                value_expr = b_match.group(2)
+                value_end = self._cmd_boundary(value_expr)
+                value = self._resolve(value_expr[:value_end].strip())
+                self._last_ref = ns
+                self.pdb.tool_set({"ns": ns, "subs": [], "value": value})
+                chunk = len(b_match.group(0)) - (len(value_expr) - value_end)
+                consumed += chunk
+                rest = rest[chunk:]
+                if rest.startswith(','):
+                    rest = rest[1:]
+                    consumed += 1
+                    continue
+                break
+
             # var=value
             v_match = re.match(r'(\w+)\s*=\s*(.+)', rest)
             if v_match:
@@ -356,9 +387,23 @@ class MEvaluator:
         return len(line)
 
     def _cmd_boundary(self, s: str) -> int:
-        """Encuentra dónde termina el valor (antes del siguiente comando M o coma)."""
+        """Encuentra dónde termina el valor (antes del siguiente comando M o coma).
+        Respeta strings con comillas dobles y simples, y paréntesis anidados."""
         depth = 0
+        in_dq = False  # inside double-quoted string
+        in_sq = False  # inside single-quoted string
         for i, ch in enumerate(s):
+            if ch == '"' and not in_sq:
+                # MUMPS: "" dentro de string es quote escapado
+                if in_dq and i + 1 < len(s) and s[i + 1] == '"':
+                    continue  # skip escaped quote
+                in_dq = not in_dq
+                continue
+            if ch == "'" and not in_dq:
+                in_sq = not in_sq
+                continue
+            if in_dq or in_sq:
+                continue  # inside string, don't interpret separators
             if ch == '(':
                 depth += 1
             elif ch == ')':
@@ -572,6 +617,14 @@ class MEvaluator:
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
+        # $GET(^barename) — $G con global sin subíndices
+        m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\)\s*', token)
+        if m and self.pdb:
+            ns = m.group(1)
+            self._last_ref = ns
+            r = self.pdb.tool_get({"ns": ns, "subs": []})
+            return r.get("value")
+
         # $GET(var) — $G con variable local
         m = re.match(r'\$(?:GET|G)\s*\((\w+)\)', token)
         if m:
@@ -708,6 +761,14 @@ class MEvaluator:
             subs = self._parse_subs(m.group(2))
             self._last_ref = ns  # para naked reference
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
+            return r.get("value")
+
+        # ^barename — acceso directo a global sin subíndices
+        m = re.match(r'\^(\w+)$', token)
+        if m and self.pdb:
+            ns = m.group(1)
+            self._last_ref = ns
+            r = self.pdb.tool_get({"ns": ns, "subs": []})
             return r.get("value")
 
         # @(expr) — indirección M (evalúa expr y usa el resultado como código)
