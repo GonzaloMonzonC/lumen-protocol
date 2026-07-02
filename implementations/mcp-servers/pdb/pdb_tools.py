@@ -1591,6 +1591,86 @@ def tool_batch_set(args: dict) -> dict:
         c.rollback()
         return {"success": False, "error": str(e)}
 
+
+def tool_context_gc(args: dict = None) -> dict:
+    """Cognitive GC — prune ^CONTEXT trees that exceed depth/volume.
+    
+    Scans ^CONTEXT(session_id, turn_id, ...) for sessions deeper than
+    max_depth. Summarizes the oldest N turns using deterministic heuristics
+    (no LLM), stores the summary at ^CONTEXT(session_id, "summary"),
+    and KILLs the old branches. Designed to run periodically as MVM cron.
+    
+    Returns stats on GC actions taken."""
+    import time as _gc_t
+    c = _get_conn()
+    max_depth = (args or {}).get("max_depth", 50)
+    max_age = (args or {}).get("max_age_secs", 3600)  # 1h
+    dry_run = (args or {}).get("dry_run", False)
+    
+    try:
+        # Find all sessions in ^CONTEXT
+        sessions = set()
+        rows = c.execute(
+            "SELECT DISTINCT substr(subkey, 2, instr(subkey, X'FF')-2) as session_id "
+            "FROM _globals WHERE ns='CONTEXT'"
+        ).fetchall()
+        
+        pruned = 0
+        summarized = 0
+        
+        for row in rows:
+            sid = row[0]
+            if isinstance(sid, bytes):
+                sid = sid.decode('utf-8', errors='replace')
+            
+            # Count turns in this session
+            prefix = chr(2) + sid + chr(255) + chr(2)  # {sid}ÿ
+            turns = c.execute(
+                "SELECT subkey, value FROM _globals WHERE ns='CONTEXT' "
+                "AND substr(subkey, 1, ?)=? AND value IS NOT NULL",
+                [len(prefix), prefix]
+            ).fetchall()
+            
+            if len(turns) > max_depth:
+                # Session too deep — summarise oldest turns
+                to_prune = turns[:len(turns) - max_depth]
+                keep = turns[len(turns) - max_depth:]
+                
+                # Build deterministic summary of pruned turns
+                summary_parts = []
+                for t in to_prune:
+                    val = t["value"]
+                    if val:
+                        try:
+                            text = val.decode('utf-8', errors='replace')
+                            if len(text) > 100:
+                                text = text[:100] + "..."
+                            summary_parts.append(text)
+                        except:
+                            pass
+                
+                summary = " | ".join(summary_parts) if summary_parts else "(summarized)"
+                summary = summary[:2000]  # cap length
+                
+                if not dry_run:
+                    # Store summary
+                    summary_key = chr(2) + sid + chr(255) + chr(2) + "summary" + chr(255)
+                    c.execute(
+                        "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                        ['CONTEXT', summary_key.encode() if isinstance(summary_key, str) else summary_key, summary]
+                    )
+                    # Kill old turns
+                    for t in to_prune:
+                        c.execute("DELETE FROM _globals WHERE ns='CONTEXT' AND subkey=?", [t["subkey"]])
+                    summarized += 1
+                    pruned += len(to_prune)
+        
+        c.commit()
+        return {"success": True, "pruned": pruned, "summarized": summarized,
+                "sessions_scanned": len(sessions)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 def tool_scratch_set(args: dict) -> dict:
     """Set a scratchpad value (temporary working memory for the LLM).
     Stored under ^SCRATCH(key). Survives context compressions."""
@@ -2356,3 +2436,86 @@ def tool_vec_search(args: dict) -> dict:
         return tool_embed_search(args)
 
 
+TOOLS = [
+    {
+        "name": "pdb_vec_search",
+        "description": "KNN vector search with hierarchical path filtering",
+        "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer", "default": 5},
+            "path": {"type": "string", "description": "Hierarchical path filter"}
+        }, "required": ["query"]}
+    },
+    {
+        "name": "pdb_context_gc",
+        "description": "Cognitive GC - prune CONTEXT trees",
+        "inputSchema": {"type": "object", "properties": {
+            "max_depth": {"type": "integer", "default": 50},
+            "dry_run": {"type": "boolean", "default": False}
+        }}
+    },
+    {
+        "name": "pdb_set",
+        "description": "SET ^ns(subs)=value",
+        "inputSchema": {"type": "object", "properties": {
+            "ns": {"type": "string"},
+            "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+            "value": {"description": "Value to store"}
+        }, "required": ["ns", "subs", "value"]}
+    },
+    {
+        "name": "pdb_get",
+        "description": "Get value by path",
+        "inputSchema": {"type": "object", "properties": {
+            "ns": {"type": "string"},
+            "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
+        }, "required": ["ns", "subs"]}
+    },
+]
+
+HANDLERS = {
+    "pdb_set": tool_set,
+    "pdb_get": tool_get,
+    "pdb_order": tool_order,
+    "pdb_data": tool_data,
+    "pdb_kill": tool_kill,
+    "pdb_incr": tool_incr,
+    "pdb_merge": tool_merge,
+    "pdb_query": tool_query,
+    "pdb_schema": tool_schema,
+    "pdb_backup": tool_backup,
+    "pdb_batch_set": tool_batch_set,
+    "pdb_scratch_set": tool_scratch_set,
+    "pdb_scratch_get": tool_scratch_get,
+    "pdb_scratch_del": tool_scratch_del,
+    "pdb_fts_search": tool_fts_search,
+    "pdb_vec_search": tool_vec_search,
+    "pdb_context_gc": tool_context_gc,
+    "pdb_lock": tool_lock,
+    "pdb_unlock": tool_unlock,
+    "pdb_index_define": tool_index_define,
+    "pdb_index_list": tool_index_list,
+    "pdb_index_drop": tool_index_drop,
+    "pdb_trigger_define": tool_trigger_define,
+    "pdb_trigger_list": tool_trigger_list,
+    "pdb_trigger_drop": tool_trigger_drop,
+    "pdb_trigger": tool_trigger,
+    "pdb_map_set": tool_map_set,
+    "pdb_map_get": tool_map_get,
+    "pdb_map_list": tool_map_list,
+    "pdb_map_drop": tool_map_drop,
+    "pdb_partition_define": tool_partition_define,
+    "pdb_partition_list": tool_partition_list,
+    "pdb_partition_drop": tool_partition_drop,
+    "pdb_m_eval": tool_m_eval,
+    "pdb_m_repl": tool_m_repl,
+    "pdb_dbfix": tool_dbfix,
+    "pdb_mvm_spawn": tool_mvm_spawn,
+    "pdb_mvm_tick": tool_mvm_tick,
+    "pdb_mvm_list": tool_mvm_list,
+    "pdb_mvm_kill": tool_mvm_kill,
+    "pdb_mvm_mailbox_send": tool_mvm_mailbox_send,
+    "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
+    "pdb_embed": tool_embed,
+    "pdb_embed_search": tool_embed_search,
+}
