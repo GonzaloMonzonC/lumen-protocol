@@ -112,7 +112,7 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | **Rust** | `implementations/rust/` | Reference impl, WASM target, FFI (C ABI) |
 | **TypeScript** | `npm i @gonzalomonzonc/mcp-transport` | Node.js + browser, zero-copy SHM via koffi |
 | **Python** | `pip install lumen-mcp` | Full protocol, session dict, MCP tools |
-| **PHP** | `implementations/php/` | Core protocol (Hyb128, compression, dict). E2E: 181/217 passing (binary compat test/golden mismatch) |
+| **PHP** | `implementations/php/` | Core protocol (Hyb128, compression, dict). E2E: 217/217 passing |
 | **C#** | `implementations/csharp/` | .NET 9, P/Invoke FFI to Rust |
 | **WASM** | `implementations/rust/src/wasm.rs` | Browser-ready, 22 KB gzipped |
 
@@ -218,7 +218,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | QUIC transport (L4) | ✅ | Rust: `quic.rs` — server/client endpoints, TLS 1.3, bidirectional streams, 7 tests |
 | Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
 | TypeScript impl | ✅ | Node.js + browser, zero-copy SHM via koffi |
-| PHP 8.1+ impl | ✅ | Core protocol. E2E: 181/217 (golden mismatch in progress) |
+| PHP 8.1+ impl | ✅ | Core protocol. E2E: 217/217 |
 | C#/.NET 9 impl | 🔶 | Hyb128 + compression + FFI. No frame layer yet (partial) |
 | WASM target | ✅ | 22 KB gzipped, browser-ready |
 
@@ -243,7 +243,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | 5 | TypeScript `src/crypto.ts` did not compile (5 TS errors) | **RESOLVED** — `isNode` boolean coercion + HKDF `Uint8Array` wrapping |
 | 6 | Python missing `TYPE_TRANSPORT_INIT`, `TYPE_TRANSPORT_ACK`, `TYPE_BATCH`, `TYPE_FLOW_CTL` | **RESOLVED** — constants added and exported |
 | 7 | `conformance.json` mixed `BATCH`/`FLOW_CTL` in core (`0x01..0x10` sweep) | **RESOLVED** — split into `frame_type_constants_core` + `frame_type_constants_ext_batch_flow` (`required_capability: batch_flow`) |
-| 8 | PHP e2e: 181/217 (36 failures in Frame Binary Compatibility) | **PENDING** — test emits JSON with spaces vs compact golden (`jsonDumpsPy()`); fix tracked |
+| 8 | PHP e2e: 181/217 (36 failures in Frame Binary Compatibility) | **RESOLVED** — test now emits compact JSON matching the golden generator (`jsonCompact()`); suite back to 217/217 |
 | 9 | PHP missing `TRANSPORT_INIT`, `TRANSPORT_ACK`, `BATCH`, `FLOW_CTL` | **RESOLVED** — constants added to `Frame.php` (+ `FLAG_FLOW_PAUSE`); remaining e2e failures are #8 |
 | 10 | C# no `Frame.cs` layer | **PENDING** — requires .NET SDK; currently compression/Hyb128/FFI only |
 | 11 | No capability manifest per binding | **RESOLVED** — embedded in `tests/e2e/conformance.json` under `implementations.<binding>.capabilities` (all 5 bindings) |

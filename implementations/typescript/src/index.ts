@@ -142,6 +142,23 @@ export {
 } from "./dgram.js";
 export type { DatagramTransportOptions } from "./dgram.js";
 
+// ═══ Wire Encryption (ChaCha20-Poly1305 + X25519, extension lumen-security) ═
+
+export {
+  Role,
+  Cipher,
+  DecryptError,
+  generateKeypair,
+  deriveSharedSecret,
+  encryptedLen,
+  NONCE_SIZE,
+  TAG_SIZE,
+  PUBLIC_KEY_SIZE,
+  SECRET_KEY_SIZE,
+  ENCRYPTION_OVERHEAD,
+} from "./crypto.js";
+export type { Keypair } from "./crypto.js";
+
 // ═══ Constants ═══════════════════════════════════════════════════════════════
 
 /** LUMEN protocol version implemented by this package. */
