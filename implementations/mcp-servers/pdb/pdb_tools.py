@@ -895,6 +895,19 @@ def tool_get(args: dict) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+def tool_has(args: dict) -> dict:
+    """pdb_has(ns, subs) — devuelve True/False sin ambigüedades."""
+    ns = args["ns"]; subs = args["subs"]
+    try:
+        key = encode_subkey(subs)
+        c = _get_conn(ns, subs)
+        row = c.execute(
+            "SELECT 1 FROM _globals WHERE ns=? AND subkey=?", [ns, key]
+        ).fetchone()
+        return {"success": True, "value": row is not None}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 def tool_order(args: dict) -> dict:
     ns = args["ns"]; subs = args["subs"]; direction = args.get("direction", 1)
     """$ORDER(^ns(subs), direction) — find next/prev subscript at last level."""
@@ -2870,6 +2883,14 @@ TOOLS = [
             "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
         }, "required": ["ns", "subs"]}
     },
+    {
+        "name": "pdb_has",
+        "description": "Check if key exists — returns True/False (no ambigüedad)",
+        "inputSchema": {"type": "object", "properties": {
+            "ns": {"type": "string"},
+            "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
+        }, "required": ["ns", "subs"]}
+    },
 
     {
         "name": "pdb_event_route_define",
@@ -2984,6 +3005,7 @@ TOOLS = [
 HANDLERS = {
     "pdb_set": tool_set,
     "pdb_get": tool_get,
+    "pdb_has": tool_has,
     "pdb_order": tool_order,
     "pdb_data": tool_data,
     "pdb_kill": tool_kill,
