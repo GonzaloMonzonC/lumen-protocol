@@ -4461,15 +4461,15 @@ def _start_dashboard(port: int = 9876) -> None:
     
     def _build_metrics():
         global _last_state_mtime
-        _pdb_load_all()  # reload from PDB every /metrics
-        # Import objectives for dashboard (may not be available in all contexts)
+        # DO NOT call _pdb_load_all() here — that overwrites in-memory state
+        # (objectives, sessions, works) with potentially stale PDB data.
+        # Memory is the source of truth for the current session.
+        # PDB is loaded once at startup via _load_state() -> _pdb_load_all().
+        # Import objectives for dashboard
         try:
             from objective_loop import _objectives
         except ImportError:
             _objectives = {}
-    # Reload state from PDB (primary store) — solo en fase inicial, no en cada /metrics
-    # para no sobreescribir estado en memoria con datos PDB posiblemente obsoletos.
-    # _pdb_load_all() se llama solo al arrancar via _load_state().
         
         total_chains = sum(len(s.chains) for s in _sessions.values())
         total_patterns = sum(len(s.patterns) for s in _sessions.values())
