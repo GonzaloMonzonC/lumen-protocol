@@ -2693,6 +2693,111 @@ def tool_mvm_state_restore(args: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+
+
+# ---- MVM App Platform (OBJ-8) ----
+
+
+def tool_mvm_app_define(args):
+    name = args.get("name", "")
+    if not name:
+        return {"success": False, "error": "name required"}
+    code = args.get("code", "")
+    if not code:
+        return {"success": False, "error": "code required"}
+    trig = args.get("triggers", {})
+    sched = args.get("schedule", "")
+    import time as _t
+    try:
+        tool_set({"ns": "APPS", "subs": [name, "code"], "value": code})
+        tool_set({"ns": "APPS", "subs": [name, "triggers"], "value": str(trig)})
+        tool_set({"ns": "APPS", "subs": [name, "schedule"], "value": sched})
+        tool_set({"ns": "APPS", "subs": [name, "created"], "value": str(_t.time())})
+        return {"success": True, "name": name, "lines": len(code.split(chr(10)))}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_mvm_app_list(args):
+    try:
+        apps = []
+        name = ""
+        while True:
+            r = tool_order({"ns": "APPS", "subs": [name], "direction": 1})
+            if r.get("value") is None:
+                break
+            name = r["value"]
+            if name in ("created",):
+                continue
+            cr = tool_get({"ns": "APPS", "subs": [name, "code"]})
+            tr = tool_get({"ns": "APPS", "subs": [name, "triggers"]})
+            sr = tool_get({"ns": "APPS", "subs": [name, "schedule"]})
+            apps.append({"name": name, "code_len": len(cr.get("value", "")),
+                        "triggers": tr.get("value", ""), "schedule": sr.get("value", "")})
+        return {"success": True, "apps": apps, "count": len(apps)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "apps": []}
+
+
+def tool_mvm_app_run(args):
+    name = args.get("name", "")
+    if not name:
+        return {"success": False, "error": "name required"}
+    try:
+        r = tool_get({"ns": "APPS", "subs": [name, "code"]})
+        code = r.get("value", "")
+        if not code:
+            return {"success": False, "error": "App not found or empty"}
+        vm_app = _get_mvm()
+        if not vm_app:
+            return {"success": False, "error": "MVM not available"}
+        pid = vm_app.spawn(code, name="app_" + name)
+        return {"success": True, "pid": pid, "name": name}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_mvm_app_generate(args):
+    desc = args.get("description", "").lower()
+    name = args.get("name", "myapp")
+    c = chr(10)
+    if "agenda" in desc or "cita" in desc or "appointment" in desc:
+        code = (
+            'S ^APPS("' + name + '","created")=$ZT' + c
+            + 'S ^APPS("' + name + '","desc")="Agenda de ' + name + '"' + c
+            + 'Q' + c
+            + 'add(d,t,desc) S id=$O(^APPS("' + name + '","citas",""),-1)+1' + c
+            + ' S ^APPS("' + name + '","citas",id,"date")=d' + c
+            + ' S ^APPS("' + name + '","citas",id,"time")=t' + c
+            + ' S ^APPS("' + name + '","citas",id,"desc")=desc' + c
+            + ' W "Cita #"_id_" creada",!' + c
+            + ' Q' + c
+            + 'list() S id="" F  S id=$O(^APPS("' + name + '","citas",id)) Q:id=""  D' + c
+            + ' . W id_": "_$G(^APPS("' + name + '","citas",id,"date"))' + c
+            + ' . W " "_$G(^APPS("' + name + '","citas",id,"time"))' + c
+            + ' . W " - "_$G(^APPS("' + name + '","citas",id,"desc")),!' + c
+            + ' Q'
+        )
+        return {"success": True, "code": code, "template": "agenda", "name": name}
+    code = (
+        'S ^APPS("' + name + '","created")=$ZT' + c
+        + 'S ^APPS("' + name + '","desc")="' + desc + '"' + c
+        + 'Q' + c
+        + 'add(item) S id=$O(^APPS("' + name + '","items",""),-1)+1' + c
+        + ' S ^APPS("' + name + '","items",id)=item' + c
+        + ' W "Added #"_id,! ' + c
+        + ' Q' + c
+        + 'list() S id="" F  S id=$O(^APPS("' + name + '","items",id)) Q:id=""  D' + c
+        + ' . W id_": "_$G(^APPS("' + name + '","items",id)),!' + c
+        + ' Q' + c
+        + 'delete(id) K ^APPS("' + name + '","items",id)' + c
+        + ' W "Deleted #"_id,! ' + c
+        + ' Q'
+    )
+    return {"success": True, "code": code, "template": "generic", "name": name}
+
+
+
 TOOLS = [
     {
         "name": "pdb_vec_search",
@@ -2783,6 +2888,37 @@ TOOLS = [
         }, "required": ["pid"]}
     },
 
+    {
+        "name": "pdb_mvm_app_define",
+        "description": "Register an MVM app in ^APPS",
+        "inputSchema": {"type": "object", "properties": {
+            "name": {"type": "string"},
+            "code": {"type": "string"},
+            "triggers": {"type": "object"},
+            "schedule": {"type": "string"}
+        }, "required": ["name"]}
+    },
+    {
+        "name": "pdb_mvm_app_list",
+        "description": "List registered MVM apps",
+        "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "pdb_mvm_app_run",
+        "description": "Run an app as an MVM process",
+        "inputSchema": {"type": "object", "properties": {
+            "name": {"type": "string"}
+        }, "required": ["name"]}
+    },
+    {
+        "name": "pdb_mvm_app_generate",
+        "description": "Generate MUMPS code from description",
+        "inputSchema": {"type": "object", "properties": {
+            "description": {"type": "string"},
+            "name": {"type": "string"}
+        }, "required": ["description"]}
+    },
+
 ]
 
 HANDLERS = {
@@ -2838,5 +2974,10 @@ HANDLERS = {
     "pdb_mvm_state_import": tool_mvm_state_import,
     "pdb_mvm_state_save": tool_mvm_state_save,
     "pdb_mvm_state_restore": tool_mvm_state_restore,
+
+    "pdb_mvm_app_define": tool_mvm_app_define,
+    "pdb_mvm_app_list": tool_mvm_app_list,
+    "pdb_mvm_app_run": tool_mvm_app_run,
+    "pdb_mvm_app_generate": tool_mvm_app_generate,
 
 }
