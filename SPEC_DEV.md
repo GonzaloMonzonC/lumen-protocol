@@ -258,49 +258,55 @@ Client                                Server
 
 ### 4.2 Multiplexing (MUX)
 
-Frame `0x09 MUX` wraps another LUMEN frame in a logical channel:
+Frame `0x09 MUX` wraps another LUMEN frame in a logical channel
+(normative definition: RFC §8; reference: `implementations/rust/src/mux.rs`):
 
 ```
 MUX Frame:
 ┌──────────────────────────────────────────────────────────────┐
 │ [LEN:Hyb128] [0x09] [FLAGS]                                  │
-│ [CHANNEL:1B] [CTRL:4b] [RESERVED:4b]                        │
-│ [INNER: complete LUMEN frame]                                │
+│ [SUB_COMMAND:1B] [CHANNEL_ID:2B LE]                          │
+│ [INNER: complete LUMEN frame — DATA only, empty for control] │
 └──────────────────────────────────────────────────────────────┘
 
-CTRL bits:
-  bit0: OPEN  — Create logical channel
-  bit1: CLOSE — Close logical channel
-  bit2: PAUSE — Backpressure (pause sending)
-  bit3: RESUME — Resume sending
+SUB_COMMAND:
+  0x00 = OPEN   — Create logical channel
+  0x01 = DATA   — Carry an inner LUMEN frame on the channel
+  0x02 = CLOSE  — Close logical channel
+  0x03 = PAUSE  — Backpressure (pause sending)
+  0x04 = RESUME — Resume sending
 ```
 
-- **No overhead on normal frames**: MUX is paid for only when used.
-- **256 logical channels** over a single physical connection.
+- **No overhead on normal frames**: MUX is paid for only when used
+  (3 bytes per wrapped frame).
+- **65535 logical channels** (u16 LE) over a single physical connection.
 - **Per-channel flow control**: Avoids head-of-line blocking.
 
 ### 4.3 TokenStream — Native streaming for LLMs
 
+Normative definition: RFC §7; reference: `implementations/rust/src/stream.rs`.
+
 ```
-Initialization:
-┌────────────────────────────────────────────┐
-│ [0x06] [FLAGS]                             │
-│ [STREAM_ID:2B] [TOKEN_TYPE:1B]             │
-└────────────────────────────────────────────┘
+Initialization (STREAM_INIT):
+┌──────────────────────────────────────────────────────┐
+│ [0x06] [FLAGS]                                       │
+│ [STREAM_ID:4B LE] [MAX_TOKENS:4B LE]                 │
+│ [TEMPERATURE:f32 LE] [MODEL_LEN:1B] [MODEL:UTF-8]    │
+└──────────────────────────────────────────────────────┘
+
+Data (STREAM_DATA, one token per frame):
+┌──────────────────────────────────────────────────────┐
+│ [0x04] [FLAGS]                                       │
+│ [STREAM_ID:4B LE] [TOKEN_SEQ:4B LE]                  │
+│ [TOKEN_TYPE:1B] [TOKEN_DATA:variable]                │
+└──────────────────────────────────────────────────────┘
 
 TOKEN_TYPE:
-  0x00 = UTF-8 text tokens
-  0x01 = u16 token IDs
-  0x02 = u32 token IDs
-  0x03 = f32 embeddings (4 bytes)
+  0x00 = UTF-8 text token
+  0x01 = raw binary token
+  0x02 = end-of-stream (no data; closes the stream)
 
-Data bursts:
-┌────────────────────────────────────────────┐
-│ [0x04] [FLAGS]                             │
-│ [STREAM_ID:2B] [BURST_LEN:Hyb128] [TOKENS] │
-└────────────────────────────────────────────┘
-
-Close: BURST_LEN = 0 in STREAM_DATA
+Close: TOKEN_TYPE = 0x02 (TOKEN_END) in STREAM_DATA
 ```
 
 ---
@@ -320,19 +326,13 @@ Compressed:    {0x00: "search", 0x01: {lookup("query"): "hola"}}
 
 ### 5.3 Session Dictionary (IDs `0x80–0xFE`)
 
-127 entries negotiated during handshake and updateable via `DICT_SYNC` (`0x07`):
+127 dynamic entries scoped to the connection.
 
-```
-DICT_SYNC payload:
-[OP:1B] [ENTRY_COUNT:1B] [ENTRIES...]
-
-OP:
-  0x00 = ADD
-  0x01 = REMOVE
-  0x02 = REPLACE
-
-ENTRY: [ID:1B] [KEY_LEN:1B] [KEY:N]
-```
+**Current state (v0.1)**: entries are registered through the local API in
+each binding — both peers must be configured with the same entries out of
+band. In-band wire synchronization via `DICT_SYNC` (`0x07`) is **[PLANNED]**
+and not implemented in any binding; its provisional payload format is
+defined in RFC §5.7.
 
 API available in all 5 languages: `register_session_key`, `unregister_session_key`,
 `init_session_dict`, `clear_session_dict`, `session_dict_size`.
