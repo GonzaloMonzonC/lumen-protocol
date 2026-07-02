@@ -9,9 +9,9 @@ pub mod frame;
 pub mod handshake;
 pub mod hyb128;
 pub mod macaroon;
+pub mod mux;
 #[cfg(feature = "quic")]
 pub mod quic;
-pub mod mux;
 pub mod shm;
 pub mod stream;
 pub mod transport;

@@ -407,7 +407,9 @@ impl SessionDict {
             return id;
         }
 
-        let id = self.evict_lru().expect("SessionDict should always have 127 slots");
+        let id = self
+            .evict_lru()
+            .expect("SessionDict should always have 127 slots");
         let _ = self.register(key_str, id);
         id
     }
@@ -575,7 +577,11 @@ mod tests {
     fn fast_lookup_matches_linear() {
         for id in 0..STATIC_MAX {
             if let Some(key) = resolve(id) {
-                assert_eq!(lookup_fast(key, None), Some(id), "mismatch for key '{key}' id {id}");
+                assert_eq!(
+                    lookup_fast(key, None),
+                    Some(id),
+                    "mismatch for key '{key}' id {id}"
+                );
             }
         }
     }
@@ -609,7 +615,10 @@ mod tests {
         // Static range
         assert_eq!(resolve_any(0x00, Some(&session)), Some("tool".to_string()));
         // Session range
-        assert_eq!(resolve_any(0x80, Some(&session)), Some("session_key".to_string()));
+        assert_eq!(
+            resolve_any(0x80, Some(&session)),
+            Some("session_key".to_string())
+        );
         // Session range without session
         assert_eq!(resolve_any(0x80, None), None);
     }
@@ -640,7 +649,10 @@ mod tests {
         s.lookup("hot_key");
 
         let gen_after_touch = s.lru_gen[0].load(Ordering::Relaxed);
-        assert!(gen_after_touch > gen_after_reg, "touch should bump generation");
+        assert!(
+            gen_after_touch > gen_after_reg,
+            "touch should bump generation"
+        );
     }
 
     #[test]

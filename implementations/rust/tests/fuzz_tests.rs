@@ -37,14 +37,23 @@ mod fuzz_hyb128 {
             let mut buf = [0u8; hyb128::MAX_ENCODED_LEN];
             let n = hyb128::encode(value, &mut buf);
             assert!(n >= 1, "encode({value}) returned {n} bytes");
-            assert!(n <= hyb128::MAX_ENCODED_LEN, "encode({value}) overflowed: {n}");
+            assert!(
+                n <= hyb128::MAX_ENCODED_LEN,
+                "encode({value}) overflowed: {n}"
+            );
 
             let decoded = hyb128::decode(&buf[..n])
                 .unwrap_or_else(|| panic!("decode failed on freshly-encoded value {value}"));
-            assert_eq!(decoded.value, value,
-                "roundtrip mismatch: encoded {value}, decoded {}", decoded.value);
-            assert_eq!(decoded.header_len, n,
-                "header_len mismatch: wrote {n}, read {}", decoded.header_len);
+            assert_eq!(
+                decoded.value, value,
+                "roundtrip mismatch: encoded {value}, decoded {}",
+                decoded.value
+            );
+            assert_eq!(
+                decoded.header_len, n,
+                "header_len mismatch: wrote {n}, read {}",
+                decoded.header_len
+            );
         }
     }
 
@@ -54,7 +63,9 @@ mod fuzz_hyb128 {
         // Deterministic pseudo-random via simple LCG
         let mut state: u64 = 0xDEAD_BEEF_CAFE_BABE;
         for _ in 0..10_000 {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let value = state;
             let mut buf = [0u8; hyb128::MAX_ENCODED_LEN];
             let n = hyb128::encode(value, &mut buf);
@@ -72,7 +83,9 @@ mod fuzz_hyb128 {
             for _ in 0..200 {
                 // Fill with pseudo-random bytes
                 for b in buf.iter_mut() {
-                    state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
                     *b = state as u8;
                 }
                 // Must not panic
@@ -90,8 +103,11 @@ mod fuzz_hyb128 {
             // Feed progressively shorter prefixes
             for trim in 1..=n {
                 let prefix = &buf[..n - trim];
-                assert!(hyb128::decode(prefix).is_none(),
-                    "decode({value}) should be None with {}-byte prefix", n - trim);
+                assert!(
+                    hyb128::decode(prefix).is_none(),
+                    "decode({value}) should be None with {}-byte prefix",
+                    n - trim
+                );
             }
         }
     }
@@ -101,13 +117,18 @@ mod fuzz_hyb128 {
     fn encoded_len_accurate() {
         let mut state: u64 = 1;
         for _ in 0..5_000 {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             let value = state;
             let mut buf = [0u8; hyb128::MAX_ENCODED_LEN];
             let n = hyb128::encode(value, &mut buf);
-            assert_eq!(hyb128::encoded_len(value), n,
+            assert_eq!(
+                hyb128::encoded_len(value),
+                n,
                 "encoded_len({value}) predicted {expected}, actual {n}",
-                expected = hyb128::encoded_len(value));
+                expected = hyb128::encoded_len(value)
+            );
         }
     }
 }
@@ -124,7 +145,9 @@ mod fuzz_frame {
             let mut buf = vec![0u8; len];
             for _ in 0..100 {
                 for b in buf.iter_mut() {
-                    state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
                     *b = state as u8;
                 }
                 let _ = frame::parse(&buf);
@@ -136,9 +159,14 @@ mod fuzz_frame {
     #[test]
     fn roundtrip_varied() {
         let types = [
-            frame::TYPE_REQUEST, frame::TYPE_RESPONSE, frame::TYPE_NOTIFY,
-            frame::TYPE_STREAM_DATA, frame::TYPE_MUX, frame::TYPE_HEARTBEAT,
-            frame::TYPE_PROBE, frame::TYPE_PROBE_ACK,
+            frame::TYPE_REQUEST,
+            frame::TYPE_RESPONSE,
+            frame::TYPE_NOTIFY,
+            frame::TYPE_STREAM_DATA,
+            frame::TYPE_MUX,
+            frame::TYPE_HEARTBEAT,
+            frame::TYPE_PROBE,
+            frame::TYPE_PROBE_ACK,
         ];
         let flags_combos = [0x00, 0x01, 0x02, 0x03, 0x04, 0x08, 0x0F];
 
@@ -177,12 +205,15 @@ mod fuzz_frame {
 
                 for trim in 1..=written {
                     let prefix = &buf[..written - trim];
-                    if prefix.is_empty() { break; }
+                    if prefix.is_empty() {
+                        break;
+                    }
                     let result = frame::parse(prefix);
                     // Must be Incomplete or IncompletePayload, never Complete with wrong data
                     match result {
                         frame::ParseResult::Error(_) => {} // also acceptable
-                        frame::ParseResult::Incomplete | frame::ParseResult::IncompletePayload { .. } => {}
+                        frame::ParseResult::Incomplete
+                        | frame::ParseResult::IncompletePayload { .. } => {}
                         frame::ParseResult::Complete { .. } => {
                             // Might be valid if trim didn't touch the payload
                             // (e.g., a zero-payload frame trimmed by 0 bytes)
@@ -216,7 +247,9 @@ mod fuzz_compress {
             let mut buf = vec![0u8; len];
             for _ in 0..100 {
                 for b in buf.iter_mut() {
-                    state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
                     *b = state as u8;
                 }
                 let _ = compress::decompress(&buf, None);
@@ -244,7 +277,10 @@ mod fuzz_compress {
             (json!([1, 2, 3]), "int array"),
             (json!([null, true, "mix"]), "mixed array"),
             (Value::Object(serde_json::Map::new()), "empty object"),
-            (json!({"tool": "search", "arguments": {"query": "rust"}}), "nested object"),
+            (
+                json!({"tool": "search", "arguments": {"query": "rust"}}),
+                "nested object",
+            ),
             (json!({"tool": "search"}), "dict key"),
         ];
 
@@ -253,15 +289,20 @@ mod fuzz_compress {
 
             // Compressed size must match estimate
             let estimated = compress::compressed_size(val, None);
-            assert_eq!(estimated, compressed.len(),
+            assert_eq!(
+                estimated,
+                compressed.len(),
                 "case {i} ({desc}): compressed_size mismatch: estimated {estimated}, actual {}",
-                compressed.len());
+                compressed.len()
+            );
 
             // Decompress must recover original
             let recovered = compress::decompress(&compressed, None)
                 .unwrap_or_else(|| panic!("case {i} ({desc}): decompress returned None"));
-            assert_eq!(&recovered, val,
-                "case {i} ({desc}): roundtrip mismatch.\nExpected: {val}\nGot: {recovered}");
+            assert_eq!(
+                &recovered, val,
+                "case {i} ({desc}): roundtrip mismatch.\nExpected: {val}\nGot: {recovered}"
+            );
         }
     }
 

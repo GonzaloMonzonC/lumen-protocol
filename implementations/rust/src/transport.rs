@@ -90,7 +90,10 @@ impl ShmTransport {
     ///
     /// `write_ring` is the ring this side writes into (Ring A for client,
     /// Ring B for server). `read_ring` is the ring this side reads from.
-    pub fn new(write_ring: crate::shm::ShmRingBuffer, read_ring: crate::shm::ShmRingBuffer) -> Self {
+    pub fn new(
+        write_ring: crate::shm::ShmRingBuffer,
+        read_ring: crate::shm::ShmRingBuffer,
+    ) -> Self {
         Self {
             write_ring,
             read_ring,

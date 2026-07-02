@@ -1,4 +1,4 @@
-﻿//! LUMEN Level 2 — Zero-Copy Shared Memory Transport
+//! LUMEN Level 2 — Zero-Copy Shared Memory Transport
 //!
 //! Two unidirectional lock-free SPSC ring buffers in a single shared
 //! memory region (512 KiB default). Header (128B) contains magic,
@@ -47,9 +47,9 @@ impl From<ShmError> for io::Error {
 struct ShmHeader {
     magic: u32,
     version: u32,
-    data_offset: u64,   // = HEADER_SIZE
-    data_len: u64,       // total data region size
-    mid: u64,            // split point between ring A and B
+    data_offset: u64, // = HEADER_SIZE
+    data_len: u64,    // total data region size
+    mid: u64,         // split point between ring A and B
 
     // Ring A — Client→Server
     write_a: AtomicU64,
@@ -59,7 +59,7 @@ struct ShmHeader {
     write_b: AtomicU64,
     read_b: AtomicU64,
 
-    _pad: [u8; 40],      // to 128 bytes cache-line aligned
+    _pad: [u8; 40], // to 128 bytes cache-line aligned
 }
 
 unsafe impl Send for ShmHeader {}
@@ -96,7 +96,10 @@ impl ShmHeader {
 // ── Ring side ────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum RingSide { A, B }
+pub enum RingSide {
+    A,
+    B,
+}
 
 // ── Ring buffer ──────────────────────────────────────────────────────
 
@@ -134,7 +137,9 @@ impl ShmRingBuffer {
     }
 
     // ── helpers ──
-    fn hdr(&self) -> &ShmHeader { unsafe { &*self.header } }
+    fn hdr(&self) -> &ShmHeader {
+        unsafe { &*self.header }
+    }
 
     fn wcur(&self) -> &AtomicU64 {
         match self.side {
@@ -152,15 +157,23 @@ impl ShmRingBuffer {
 
     fn rng_start(&self) -> u64 {
         let h = self.hdr();
-        match self.side { RingSide::A => h.data_offset, RingSide::B => h.mid }
+        match self.side {
+            RingSide::A => h.data_offset,
+            RingSide::B => h.mid,
+        }
     }
 
     fn rng_end(&self) -> u64 {
         let h = self.hdr();
-        match self.side { RingSide::A => h.mid, RingSide::B => h.data_offset + h.data_len }
+        match self.side {
+            RingSide::A => h.mid,
+            RingSide::B => h.data_offset + h.data_len,
+        }
     }
 
-    fn rng_len(&self) -> u64 { self.rng_end() - self.rng_start() }
+    fn rng_len(&self) -> u64 {
+        self.rng_end() - self.rng_start()
+    }
     // ── Write ────────────────────────────────────────────────────
     /// Write data. Spins if ring is full (up to MAX_SPIN iterations).
     /// Returns `Ok(bytes_written)` or `Err(ShmError)` on timeout.
@@ -226,7 +239,9 @@ impl ShmRingBuffer {
         let len = self.rng_len();
         let w = self.wcur().load(Ordering::Acquire);
         let r = self.rcur().load(Ordering::Acquire);
-        if w == r { return 0; }
+        if w == r {
+            return 0;
+        }
         let avail = if w > r { w - r } else { w + len - r };
         let n = avail.min(buf.len() as u64);
         let rabs = start + (r % len);
@@ -236,7 +251,11 @@ impl ShmRingBuffer {
             std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), c1 as usize);
             if c1 < n {
                 let src2 = self.data_base.offset((start - HEADER_SIZE as u64) as isize);
-                std::ptr::copy_nonoverlapping(src2, buf.as_mut_ptr().add(c1 as usize), (n - c1) as usize);
+                std::ptr::copy_nonoverlapping(
+                    src2,
+                    buf.as_mut_ptr().add(c1 as usize),
+                    (n - c1) as usize,
+                );
             }
         }
         let nr = if r + n >= len { r + n - len } else { r + n };
@@ -258,7 +277,9 @@ impl ShmRingBuffer {
             } else {
                 hdr_spins += 1;
                 if hdr_spins >= MAX_SPIN {
-                    return Err(ShmError("SHM ring buffer timeout: header never arrived".into()));
+                    return Err(ShmError(
+                        "SHM ring buffer timeout: header never arrived".into(),
+                    ));
                 }
                 std::hint::spin_loop();
                 if hdr_spins.is_multiple_of(YIELD_INTERVAL) {
@@ -306,7 +327,11 @@ impl ShmRingBuffer {
         let w = self.wcur().load(Ordering::Acquire);
         let r = self.rcur().load(Ordering::Acquire);
         let len = self.rng_len();
-        if w >= r { w - r } else { w + len - r }
+        if w >= r {
+            w - r
+        } else {
+            w + len - r
+        }
     }
 }
 
@@ -349,8 +374,12 @@ impl ShmRegion {
         Self::open_impl(name, size.unwrap_or(DEFAULT_REGION_SIZE))
     }
 
-    pub fn as_ptr(&self) -> *mut u8 { self.ptr }
-    pub fn size(&self) -> usize { self.size }
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.ptr
+    }
+    pub fn size(&self) -> usize {
+        self.size
+    }
 
     /// Initialize header for a freshly-created region.
     pub fn init_header(&self) {
@@ -374,12 +403,27 @@ impl ShmRegion {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         let wide: Vec<u16> = match name {
-            Some(n) => { let mut v: Vec<u16> = OsStr::new(n).encode_wide().collect(); v.push(0); v }
+            Some(n) => {
+                let mut v: Vec<u16> = OsStr::new(n).encode_wide().collect();
+                v.push(0);
+                v
+            }
             None => vec![0u16],
         };
-        let name_ptr = if name.is_some() { wide.as_ptr() } else { std::ptr::null() };
+        let name_ptr = if name.is_some() {
+            wide.as_ptr()
+        } else {
+            std::ptr::null()
+        };
         extern "system" {
-            fn CreateFileMappingW(f: isize, a: *const u8, p: u32, h: u32, l: u32, n: *const u16) -> isize;
+            fn CreateFileMappingW(
+                f: isize,
+                a: *const u8,
+                p: u32,
+                h: u32,
+                l: u32,
+                n: *const u16,
+            ) -> isize;
             fn MapViewOfFile(h: isize, a: u32, oh: u32, ol: u32, s: usize) -> *mut u8;
             fn CloseHandle(h: isize) -> i32;
         }
@@ -387,19 +431,38 @@ impl ShmRegion {
         const FILE_MAP_WRITE: u32 = 0x02;
         const INVALID_HANDLE_VALUE: isize = -1;
         let h = unsafe {
-            CreateFileMappingW(INVALID_HANDLE_VALUE, std::ptr::null(), PAGE_READWRITE, 0, region_size as u32, name_ptr)
+            CreateFileMappingW(
+                INVALID_HANDLE_VALUE,
+                std::ptr::null(),
+                PAGE_READWRITE,
+                0,
+                region_size as u32,
+                name_ptr,
+            )
         };
-        if h == 0 || h == INVALID_HANDLE_VALUE { return Err(io::Error::last_os_error()); }
+        if h == 0 || h == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
         let ptr = unsafe { MapViewOfFile(h, FILE_MAP_WRITE, 0, 0, region_size) };
-        if ptr.is_null() { unsafe { CloseHandle(h); }; return Err(io::Error::last_os_error()); }
-        Ok(Self { ptr, size: region_size, inner: ShmInner::Windows { map_handle: h } })
+        if ptr.is_null() {
+            unsafe {
+                CloseHandle(h);
+            };
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            ptr,
+            size: region_size,
+            inner: ShmInner::Windows { map_handle: h },
+        })
     }
 
     #[cfg(windows)]
     fn open_impl(name: &str, region_size: usize) -> io::Result<Self> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        let mut wide: Vec<u16> = OsStr::new(name).encode_wide().collect(); wide.push(0);
+        let mut wide: Vec<u16> = OsStr::new(name).encode_wide().collect();
+        wide.push(0);
         extern "system" {
             fn OpenFileMappingW(a: u32, i: i32, n: *const u16) -> isize;
             fn MapViewOfFile(h: isize, a: u32, oh: u32, ol: u32, s: usize) -> *mut u8;
@@ -407,10 +470,21 @@ impl ShmRegion {
         }
         const FILE_MAP_WRITE: u32 = 0x02;
         let h = unsafe { OpenFileMappingW(FILE_MAP_WRITE, 0, wide.as_ptr()) };
-        if h == 0 { return Err(io::Error::last_os_error()); }
+        if h == 0 {
+            return Err(io::Error::last_os_error());
+        }
         let ptr = unsafe { MapViewOfFile(h, FILE_MAP_WRITE, 0, 0, region_size) };
-        if ptr.is_null() { unsafe { CloseHandle(h); }; return Err(io::Error::last_os_error()); }
-        Ok(Self { ptr, size: region_size, inner: ShmInner::Windows { map_handle: h } })
+        if ptr.is_null() {
+            unsafe {
+                CloseHandle(h);
+            };
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            ptr,
+            size: region_size,
+            inner: ShmInner::Windows { map_handle: h },
+        })
     }
 
     // ──  Unix (Linux / macOS)  ─────────────────────────────────────
@@ -422,23 +496,51 @@ impl ShmRegion {
         let shm_name = name.unwrap_or("/lumen-shm").to_string();
         let cname = CString::new(shm_name.as_str()).unwrap();
 
-        let fd = unsafe { libc::shm_open(cname.as_ptr(), libc::O_CREAT | libc::O_RDWR | libc::O_EXCL, 0o600) };
-        if fd < 0 { return Err(io::Error::last_os_error()); }
+        let fd = unsafe {
+            libc::shm_open(
+                cname.as_ptr(),
+                libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
+                0o600,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
 
         if unsafe { libc::ftruncate(fd, region_size as libc::off_t) } < 0 {
-            unsafe { libc::close(fd); libc::shm_unlink(cname.as_ptr()); }
+            unsafe {
+                libc::close(fd);
+                libc::shm_unlink(cname.as_ptr());
+            }
             return Err(io::Error::last_os_error());
         }
 
         let ptr = unsafe {
-            libc::mmap(std::ptr::null_mut(), region_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0)
+            libc::mmap(
+                std::ptr::null_mut(),
+                region_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
         };
         if ptr == libc::MAP_FAILED {
-            unsafe { libc::close(fd); libc::shm_unlink(cname.as_ptr()); }
+            unsafe {
+                libc::close(fd);
+                libc::shm_unlink(cname.as_ptr());
+            }
             return Err(io::Error::last_os_error());
         }
 
-        Ok(Self { ptr: ptr as *mut u8, size: region_size, inner: ShmInner::Unix { shm_fd: fd, shm_name: Some(shm_name) } })
+        Ok(Self {
+            ptr: ptr as *mut u8,
+            size: region_size,
+            inner: ShmInner::Unix {
+                shm_fd: fd,
+                shm_name: Some(shm_name),
+            },
+        })
     }
 
     #[cfg(all(unix, not(target_arch = "wasm32")))]
@@ -448,7 +550,9 @@ impl ShmRegion {
         let cname = CString::new(name).unwrap();
 
         let fd = unsafe { libc::shm_open(cname.as_ptr(), libc::O_RDWR, 0o600) };
-        if fd < 0 { return Err(io::Error::last_os_error()); }
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
 
         // The object must be at least region_size bytes — mmap happily maps
         // past the end of a smaller object and the first access SIGBUSes.
@@ -456,37 +560,66 @@ impl ShmRegion {
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
         if unsafe { libc::fstat(fd, &mut st) } < 0 {
             let err = io::Error::last_os_error();
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
             return Err(err);
         }
         if (st.st_size as u64) < region_size as u64 {
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("shm object '{name}' is {} bytes, expected at least {region_size}", st.st_size),
+                format!(
+                    "shm object '{name}' is {} bytes, expected at least {region_size}",
+                    st.st_size
+                ),
             ));
         }
 
         let ptr = unsafe {
-            libc::mmap(std::ptr::null_mut(), region_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0)
+            libc::mmap(
+                std::ptr::null_mut(),
+                region_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
         };
         if ptr == libc::MAP_FAILED {
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
             return Err(io::Error::last_os_error());
         }
 
-        Ok(Self { ptr: ptr as *mut u8, size: region_size, inner: ShmInner::Unix { shm_fd: fd, shm_name: None } })
+        Ok(Self {
+            ptr: ptr as *mut u8,
+            size: region_size,
+            inner: ShmInner::Unix {
+                shm_fd: fd,
+                shm_name: None,
+            },
+        })
     }
 
     // ──  WASM stub  ─────────────────────────────────────────────────
     #[cfg(target_arch = "wasm32")]
     fn create_impl(_name: Option<&str>, _size: usize) -> io::Result<Self> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "Level 2 shm not supported on wasm32"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Level 2 shm not supported on wasm32",
+        ))
     }
 
     #[cfg(target_arch = "wasm32")]
     fn open_impl(_name: &str, _size: usize) -> io::Result<Self> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "Level 2 shm not supported on wasm32"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Level 2 shm not supported on wasm32",
+        ))
     }
 }
 

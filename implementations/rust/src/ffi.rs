@@ -22,8 +22,8 @@
 // `unsafe` on the Rust signature would not be visible across the FFI anyway.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use std::os::raw::c_char;
 use std::cell::RefCell;
+use std::os::raw::c_char;
 
 use crate::compress;
 
@@ -34,7 +34,11 @@ thread_local! {
 }
 
 fn set_error(msg: String) {
-    let truncated = if msg.len() > 512 { msg[..512].to_string() } else { msg };
+    let truncated = if msg.len() > 512 {
+        msg[..512].to_string()
+    } else {
+        msg
+    };
     LAST_ERROR.with(|e| *e.borrow_mut() = Some(truncated));
 }
 
@@ -67,7 +71,8 @@ pub extern "C" fn lumen_error_message() -> *const c_char {
     let msg = take_error();
     let ptr: *const c_char = match &msg {
         Some(s) => {
-            let cs = CString::new(s.as_str()).unwrap_or_else(|_| CString::new("encoding error").unwrap());
+            let cs = CString::new(s.as_str())
+                .unwrap_or_else(|_| CString::new("encoding error").unwrap());
             let p = cs.as_ptr();
             LAST_MSG.with(|cell| *cell.borrow_mut() = Some(cs));
             p
@@ -260,11 +265,7 @@ pub extern "C" fn lumen_shm_create(
 ///
 /// Validates that the region's magic and version match LUMEN.
 #[no_mangle]
-pub extern "C" fn lumen_shm_open(
-    name_ptr: *const u8,
-    name_len: u32,
-    size: u32,
-) -> *mut ShmOpaque {
+pub extern "C" fn lumen_shm_open(name_ptr: *const u8, name_len: u32, size: u32) -> *mut ShmOpaque {
     if name_ptr.is_null() || name_len == 0 {
         set_error("lumen_shm_open: null or empty name".into());
         return std::ptr::null_mut();
@@ -282,7 +283,9 @@ pub extern "C" fn lumen_shm_open(
     match ShmRegion::open(name, Some(sz)) {
         Ok(region) => {
             if !region.validate() {
-                set_error("lumen_shm_open: invalid magic or version — region not initialised".into());
+                set_error(
+                    "lumen_shm_open: invalid magic or version — region not initialised".into(),
+                );
                 return std::ptr::null_mut();
             }
             Box::into_raw(Box::new(ShmOpaque::new(region)))
@@ -355,7 +358,11 @@ pub extern "C" fn lumen_shm_read_frame(
         return -1;
     }
     let h = unsafe { &*handle };
-    let (rs, side_idx) = if side == 0 { (RingSide::A, 0) } else { (RingSide::B, 1) };
+    let (rs, side_idx) = if side == 0 {
+        (RingSide::A, 0)
+    } else {
+        (RingSide::B, 1)
+    };
 
     let mut pending = h.pending[side_idx]
         .lock()
@@ -443,11 +450,9 @@ mod tests {
         assert!(!json_out.is_null());
         assert!(json_len > 0);
 
-        let decompressed =
-            unsafe { std::slice::from_raw_parts(json_out, json_len) };
+        let decompressed = unsafe { std::slice::from_raw_parts(json_out, json_len) };
         let original: serde_json::Value = serde_json::from_slice(json).unwrap();
-        let roundtripped: serde_json::Value =
-            serde_json::from_slice(decompressed).unwrap();
+        let roundtripped: serde_json::Value = serde_json::from_slice(decompressed).unwrap();
         assert_eq!(original, roundtripped);
 
         // Clean up
@@ -489,14 +494,8 @@ mod tests {
         let mut out_len: usize = 0;
 
         // Null input — should not crash
-        assert_eq!(
-            lumen_compress(ptr::null(), 0, &mut out, &mut out_len),
-            -1
-        );
-        assert_eq!(
-            lumen_decompress(ptr::null(), 0, &mut out, &mut out_len),
-            -1
-        );
+        assert_eq!(lumen_compress(ptr::null(), 0, &mut out, &mut out_len), -1);
+        assert_eq!(lumen_decompress(ptr::null(), 0, &mut out, &mut out_len), -1);
     }
 
     #[test]
@@ -548,9 +547,17 @@ mod tests {
     fn ffi_golden_binary_compat() {
         // Validate FFI compress matches Python golden files byte-for-byte.
         let golden_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..").join("..").join("tests").join("e2e").join("golden");
+            .join("..")
+            .join("..")
+            .join("tests")
+            .join("e2e")
+            .join("golden");
         let vectors_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..").join("..").join("tests").join("e2e").join("shared_vectors.json");
+            .join("..")
+            .join("..")
+            .join("tests")
+            .join("e2e")
+            .join("shared_vectors.json");
 
         let raw = std::fs::read_to_string(&vectors_path).expect("shared_vectors.json not found");
         let data: serde_json::Value = serde_json::from_str(&raw).unwrap();
@@ -590,8 +597,10 @@ mod tests {
 
             let ffi_bytes = unsafe { std::slice::from_raw_parts(out, out_len) };
             assert_eq!(
-                ffi_bytes, golden.as_slice(),
-                "FFI binary mismatch for \"{}\"", name
+                ffi_bytes,
+                golden.as_slice(),
+                "FFI binary mismatch for \"{}\"",
+                name
             );
 
             lumen_free(out, out_len);

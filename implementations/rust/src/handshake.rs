@@ -1,4 +1,4 @@
-﻿//! LUMEN Transport Negotation (LTA Level 2 handshake).
+//! LUMEN Transport Negotation (LTA Level 2 handshake).
 //!
 //! Enables in-band capability negotiation so a Level 2 (Zero-Copy)
 //! transport can be established automatically when both peers support it.
@@ -68,7 +68,10 @@ pub fn server_negotiate(
     let frame = match frame::parse(&frame_buf) {
         frame::ParseResult::Complete { frame, .. } => frame,
         frame::ParseResult::Incomplete | frame::ParseResult::IncompletePayload { .. } => {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete TRANSPORT_INIT"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "incomplete TRANSPORT_INIT",
+            ));
         }
         frame::ParseResult::Error(e) => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
@@ -81,7 +84,10 @@ pub fn server_negotiate(
         // the frame has already been consumed and we cannot recover.
         // The caller should implement a PROBE-detection interceptor
         // before calling server_negotiate. Tracked as #17 in plan-mejoras-2.
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected TRANSPORT_INIT"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "expected TRANSPORT_INIT",
+        ));
     }
 
     let init: InitMsg = serde_json::from_slice(frame.payload)
@@ -89,7 +95,11 @@ pub fn server_negotiate(
 
     // 2. Pick best common capability
     let chosen = pick_capability(&init.caps, capabilities);
-    let mut ack = AckMsg { cap: chosen.to_string(), shm_path: None, shm_size: None };
+    let mut ack = AckMsg {
+        cap: chosen.to_string(),
+        shm_path: None,
+        shm_size: None,
+    };
 
     let negotiated = if chosen == "mmap" {
         // Create shared memory region
@@ -101,7 +111,7 @@ pub fn server_negotiate(
         ack.shm_size = Some(region.size());
 
         let write_ring = region.ring_buffer(RingSide::B); // server→client
-        let read_ring = region.ring_buffer(RingSide::A);  // client→server
+        let read_ring = region.ring_buffer(RingSide::A); // client→server
 
         // Keep the ShmRegion alive via Arc — the transport holds a ref.
         // When the NegotiatedTransport is dropped, the region is freed.
@@ -114,8 +124,8 @@ pub fn server_negotiate(
     };
 
     // 3. Build ACK frame
-    let ack_json = serde_json::to_vec(&ack)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let ack_json =
+        serde_json::to_vec(&ack).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let ack_size = frame::build_size(ack_json.len());
     let mut ack_buf = vec![0u8; ack_size];
     frame::build(frame::TYPE_TRANSPORT_ACK, 0, &ack_json, &mut ack_buf);
@@ -136,9 +146,11 @@ pub fn client_negotiate(
     capabilities: &[&str],
 ) -> io::Result<NegotiatedTransport> {
     // 1. Send TYPE_TRANSPORT_INIT
-    let init = InitMsg { caps: capabilities.iter().map(|s| s.to_string()).collect() };
-    let init_json = serde_json::to_vec(&init)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let init = InitMsg {
+        caps: capabilities.iter().map(|s| s.to_string()).collect(),
+    };
+    let init_json =
+        serde_json::to_vec(&init).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let init_size = frame::build_size(init_json.len());
     let mut init_buf = vec![0u8; init_size];
     frame::build(frame::TYPE_TRANSPORT_INIT, 0, &init_json, &mut init_buf);
@@ -150,7 +162,10 @@ pub fn client_negotiate(
     let ack_frame = match frame::parse(&frame_buf) {
         frame::ParseResult::Complete { frame, .. } => frame,
         frame::ParseResult::Incomplete | frame::ParseResult::IncompletePayload { .. } => {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete TRANSPORT_ACK"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "incomplete TRANSPORT_ACK",
+            ));
         }
         frame::ParseResult::Error(e) => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
@@ -158,7 +173,10 @@ pub fn client_negotiate(
     };
 
     if ack_frame.frame_type != frame::TYPE_TRANSPORT_ACK {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected TRANSPORT_ACK"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "expected TRANSPORT_ACK",
+        ));
     }
 
     let ack: AckMsg = serde_json::from_slice(ack_frame.payload)
@@ -166,16 +184,20 @@ pub fn client_negotiate(
 
     // 3. If mmap, open the shared memory region
     if ack.cap == "mmap" {
-        let shm_path = ack.shm_path
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "mmap ack missing shm_path"))?;
+        let shm_path = ack.shm_path.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "mmap ack missing shm_path")
+        })?;
         let region = ShmRegion::open(&shm_path, ack.shm_size)?;
 
         if !region.validate() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "shm region validation failed"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "shm region validation failed",
+            ));
         }
 
         let write_ring = region.ring_buffer(RingSide::A); // client→server
-        let read_ring = region.ring_buffer(RingSide::B);  // server→client
+        let read_ring = region.ring_buffer(RingSide::B); // server→client
 
         // Keep the ShmRegion alive via Arc — see server_negotiate for rationale.
         Ok(NegotiatedTransport::Shm(
@@ -191,7 +213,8 @@ pub fn client_negotiate(
 
 /// Pick the best common capability. "mmap" > anything else.
 fn pick_capability<'a>(client_caps: &[String], server_caps: &[&'a str]) -> &'a str {
-    let client_set: std::collections::HashSet<&str> = client_caps.iter().map(|s| s.as_str()).collect();
+    let client_set: std::collections::HashSet<&str> =
+        client_caps.iter().map(|s| s.as_str()).collect();
 
     // Prefer mmap if both sides support it
     if client_set.contains("mmap") && server_caps.contains(&"mmap") {
@@ -224,7 +247,10 @@ fn read_exact(stream: &mut dyn Transport, buf: &mut [u8]) -> io::Result<()> {
     while offset < buf.len() {
         let n = stream.read(&mut buf[offset..])?;
         if n == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unexpected EOF",
+            ));
         }
         offset += n;
     }
@@ -242,7 +268,10 @@ fn read_frame(stream: &mut dyn Transport) -> io::Result<Vec<u8>> {
     let mut header_len = 0;
     let decoded = loop {
         if header_len >= header.len() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Hyb128 header exceeds max length"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Hyb128 header exceeds max length",
+            ));
         }
         read_exact(stream, &mut header[header_len..header_len + 1])?;
         header_len += 1;
@@ -329,7 +358,10 @@ pub fn client_encrypted_handshake(
     };
 
     // 1. Build and send PROBE
-    let mut caps = capabilities.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let mut caps = capabilities
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
     if keypair.is_some() {
         caps.push("encryption".into());
     }
@@ -339,9 +371,13 @@ pub fn client_encrypted_handshake(
         base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes())
     });
 
-    let probe = ProbeMsg { v: 1, caps, pk: pk_b64 };
-    let probe_json = serde_json::to_vec(&probe)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let probe = ProbeMsg {
+        v: 1,
+        caps,
+        pk: pk_b64,
+    };
+    let probe_json =
+        serde_json::to_vec(&probe).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let probe_size = crate::frame::build_size(probe_json.len());
     let mut probe_buf = vec![0u8; probe_size];
     crate::frame::build(crate::frame::TYPE_PROBE, 0, &probe_json, &mut probe_buf);
@@ -352,11 +388,19 @@ pub fn client_encrypted_handshake(
     let frame_buf = read_frame(stream)?;
     let ack_frame = match crate::frame::parse(&frame_buf) {
         crate::frame::ParseResult::Complete { frame, .. } => frame,
-        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid PROBE_ACK")),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid PROBE_ACK",
+            ))
+        }
     };
 
     if ack_frame.frame_type != crate::frame::TYPE_PROBE_ACK {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected PROBE_ACK"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "expected PROBE_ACK",
+        ));
     }
 
     let ack: ProbeAckMsg = serde_json::from_slice(ack_frame.payload)
@@ -370,7 +414,9 @@ pub fn client_encrypted_handshake(
                 .decode(&pk_b64)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
                 .try_into()
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid public key length"))?;
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid public key length")
+                })?;
 
             let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
             // Cheap pre-check, then the contributory check inside
@@ -434,10 +480,16 @@ pub fn server_encrypted_handshake(
                 let bytes: Vec<u8> = base64::engine::general_purpose::STANDARD
                     .decode(pk_b64)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                bytes.try_into()
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid public key length"))?
+                bytes.try_into().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid public key length")
+                })?
             }
-            None => return Err(io::Error::new(io::ErrorKind::InvalidData, "encryption cap without pk")),
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "encryption cap without pk",
+                ))
+            }
         };
 
         let peer_public = x25519_dalek::PublicKey::from(pk_bytes);
@@ -451,12 +503,19 @@ pub fn server_encrypted_handshake(
         match shared_secret {
             None => (None, None),
             Some(shared_secret) => {
-                let cipher = crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
+                let cipher =
+                    crate::crypto::Cipher::new(&shared_secret, crate::crypto::Role::Responder);
 
                 use base64::Engine;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(kp.public.as_bytes());
 
-                (Some(EncryptedHandshake { cipher, peer_public_key: pk_bytes }), Some(b64))
+                (
+                    Some(EncryptedHandshake {
+                        cipher,
+                        peer_public_key: pk_bytes,
+                    }),
+                    Some(b64),
+                )
             }
         }
     } else {
@@ -464,7 +523,10 @@ pub fn server_encrypted_handshake(
     };
 
     // 3. Build ACK
-    let mut ack_caps = capabilities.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let mut ack_caps = capabilities
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
     if server_supports_encryption
         && client_wants_encryption
         && !ack_caps.contains(&"encryption".to_string())
@@ -472,9 +534,13 @@ pub fn server_encrypted_handshake(
         ack_caps.push("encryption".into());
     }
 
-    let ack = ProbeAckMsg { v: 1, caps: ack_caps, pk: server_pk_b64 };
-    let ack_json = serde_json::to_vec(&ack)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let ack = ProbeAckMsg {
+        v: 1,
+        caps: ack_caps,
+        pk: server_pk_b64,
+    };
+    let ack_json =
+        serde_json::to_vec(&ack).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let ack_size = crate::frame::build_size(ack_json.len());
     let mut ack_buf = vec![0u8; ack_size];
     crate::frame::build(crate::frame::TYPE_PROBE_ACK, 0, &ack_json, &mut ack_buf);
