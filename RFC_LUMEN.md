@@ -26,12 +26,15 @@ Status of This Document
    implementation: payloads are compressed JSON-RPC 2.0 messages,
    with native binary headers planned for v2.
 
-   Remaining unimplemented features: None. All sections marked [PLANNED]
-   in previous revisions have been implemented or updated to match the
-   current codebase.
+   All planned core features (0x01-0x03 REQUEST/RESPONSE/NOTIFY,
+   0x0A HEARTBEAT, 0x0F-0x10 PROBE/PROBE_ACK) are implemented in the
+   Rust reference implementation.  Extension frame types (0x04-0x09
+   streaming/MUX, 0x0B-0x0C transport negotiation, 0x0D-0x0E BATCH/FLOW_CTL)
+   are implemented in Rust with varying support in other bindings.
+   See README.md §Implementation Status for the per-binding capability matrix.
 
    The authoritative reference for what IS implemented is the project
-   README.md §Status & Roadmap and the source code in implementations/.
+   README.md and the source code in implementations/.
 
    Sections marked [PLANNED] describe features designed for future
    versions. Currently, no sections carry this marker — all planned
@@ -66,17 +69,14 @@ Abstract
 
 Status of This Memo
 
-   This is an Internet Standards Track document.
+   This document is an independent specification for the LUMEN binary
+   protocol.  It is not an Internet Standards Track document and is not
+   a product of the Internet Engineering Task Force (IETF).  It is
+   published as a project reference for implementors.
 
-   This document is a product of the Internet Engineering Task Force
-   (IETF).  It represents the consensus of the IETF community.  It has
-   received public review and has been approved for publication by the
-   Internet Engineering Steering Group (IESG).  Further information on
-   Internet Standards is available in Section 2 of RFC 7841.
-
-   Information about the current status of this document, any errata,
-   and how to provide feedback on it may be obtained at
-   https://www.rfc-editor.org/info/rfcXXXX.
+   Information about the current status of this protocol, any errata,
+   and how to provide feedback may be obtained at
+   https://github.com/nousresearch/lumen-protocol.
 
 
 Copyright Notice
@@ -369,7 +369,7 @@ Table of Contents
 5.  Frame Types
 
    This section defines all currently registered LUMEN frame types.
-   The authoritative registry is maintained by IANA (Section 10.1).
+   The authoritative registry is maintained by the LUMEN project (Section 10.1).
 
    +======+==============+===========================================+
    | Type | Mnemonic     | Purpose                                   |
@@ -400,9 +400,9 @@ Table of Contents
    +------+--------------+-------------------------------------------+
    | 0x0C | TRANSPORT_ACK | Transport negotiation (responder)         |
    +------+--------------+-------------------------------------------+
-   | 0x0D |             | Unassigned                                |
+   | 0x0D | BATCH         | Batch frames (extension: lumen-batch-flow) |
    +------+--------------+-------------------------------------------+
-   | 0x0E |             | Unassigned                                |
+   | 0x0E | FLOW_CTL      | Flow control (extension: lumen-batch-flow)|
    +------+--------------+-------------------------------------------+
    | 0x0F | PROBE        | Capability/liveness probe                 |
    +------+--------------+-------------------------------------------+
@@ -1083,16 +1083,17 @@ Table of Contents
    execute the same request_id more than once within a session.
 
 
-10.  IANA Considerations
+10.  Registry Considerations
 
-   This document establishes three registries to be maintained by IANA.
+   This document establishes three registries maintained by the LUMEN
+   project.
 
 10.1.  Frame Type Registry
 
-   IANA has created the "LUMEN Frame Types" registry.  Values 0x00
-   and 0xFF are permanently reserved.  Values 0x01–0x10 are assigned
-   as listed in Table 3 of this document.  Values 0x11–0xFE are
-   available for allocation via the "IETF Review" policy [RFC8126].
+   The "LUMEN Frame Types" registry is maintained by the project.
+   Values 0x00 and 0xFF are permanently reserved.  Values 0x01–0x10 are
+   assigned as listed in Table 3 of this document.  Values 0x11–0xFE are
+   available for future allocation via project review.
 
    Registration template:
 
@@ -1107,7 +1108,7 @@ Table of Contents
 
 10.2.  Flag Bit Registry
 
-   IANA has created the "LUMEN Frame Flags" registry.  Bit positions
+   The "LUMEN Frame Flags" registry is maintained by the project.  Bit positions
    4–7 are unassigned and available via "IETF Review".  Initial
    assignments:
 
@@ -1123,7 +1124,7 @@ Table of Contents
 
 10.3.  Compression Dictionary Registry
 
-   IANA has created the "LUMEN Static Dictionary" registry.  Entries
+   The "LUMEN Static Dictionary" registry is maintained by the project.  Entries
    0x00–0x7F are defined by this document.  Future additions require
    "Standards Action" [RFC8126] and a new protocol version.
 

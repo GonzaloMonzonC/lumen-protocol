@@ -491,13 +491,13 @@ def tool_mvm_spawn(args: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 def tool_mvm_tick(args: dict) -> dict:
-    """Execute one tick of the MVM dispatcher. Runs all processes."""
+    """Execute one tick of the MVM dispatcher. Runs all ready processes."""
     vm = _get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
         max_per = args.get("max_per_process", 100)
-        alive = vm.tick(max_per_process=max_per)
+        alive = vm.tick_all(max_per_process=max_per)
         procs = vm.list_processes()
         procs_info = [{"pid": p["pid"], "name": p["name"], "status": p["status"], "pc": p["pc"]} for p in procs]
         return {"success": True, "alive": alive, "total": len(procs_info), "processes": procs_info}
@@ -843,12 +843,19 @@ def tool_set(args: dict) -> dict:
     try:
         key = encode_subkey(subs)
         c = _get_conn(ns, subs)
+        # Time-travel: save old value before overwriting
+        row = c.execute(
+            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
+        ).fetchone()
+        if row and row["value"] is not None:
+            _save_to_history(ns, subs, _decode_value(row["value"]), "SET", c)
         c.execute(
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
             [ns, key, _encode_value(value)]
         )
         _auto_index_on_set(ns, subs, c)
         _fire_triggers("ON_SET", ns, subs, value, c)
+        _schema_auto_index_on_set(ns, subs, value, c)
         c.commit()
         return {"success": True}
     except Exception as e:
@@ -1030,8 +1037,18 @@ def tool_kill(args: dict) -> dict:
     try:
         key = encode_subkey(subs)
         c = _get_conn(ns, subs)
+        # Time-travel: save nodes before deleting
+        rows = c.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=? AND (subkey=? OR (subkey > ? AND subkey < ?))",
+            [ns, key, key, key + b'\xff\xff\xff\xff']
+        ).fetchall()
+        for r in rows:
+            child_subs = decode_subkey(r[0])
+            if child_subs:
+                _save_to_history(ns, child_subs, _decode_value(r[1]), "KILL", c)
         _auto_index_on_kill(ns, subs, c)
         _fire_triggers("ON_KILL", ns, subs, None, c)
+        _schema_auto_index_on_kill(ns, subs, c)
         # Delete the node itself
         c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [ns, key])
         # Delete all children (keys that start with key and are longer)
@@ -1111,6 +1128,71 @@ def tool_merge(args: dict) -> dict:
         return {"success": True, "nodes_copied": 1 + len(child_rows)}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Time-travel — history & rollback
+# ---------------------------------------------------------------------------
+
+def tool_history(args: dict) -> dict:
+    """Retrieve version history for a key. Returns list of {timestamp, value, op}."""
+    ns = args["ns"]; subs = args["subs"]; limit = args.get("limit", 50)
+    try:
+        conn = _get_conn()
+        # Find all history entries for this ns+subs path
+        hist_ns = "HISTORY"
+        hist_prefix = encode_subkey([ns] + subs)
+        rows = conn.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=? AND subkey >= ? "
+            "AND subkey < ? ORDER BY subkey DESC LIMIT ?",
+            [hist_ns, hist_prefix, hist_prefix + b'\xff\xff\xff\xff', limit]
+        ).fetchall()
+        versions = []
+        for r in rows:
+            val = _decode_value(r["value"]) if r["value"] else {}
+            if isinstance(val, str):
+                try: val = json.loads(val)
+                except: val = {"value": val}
+            child_subs = decode_subkey(r["subkey"])
+            ts = child_subs[-1] if len(child_subs) > len(subs) + 1 else ""
+            versions.append({
+                "timestamp": ts,
+                "value": val.get("value"),
+                "op": val.get("op", "SET"),
+            })
+        return {"success": True, "versions": versions, "count": len(versions)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_rollback(args: dict) -> dict:
+    """Rollback a key to a previous version by timestamp."""
+    ns = args["ns"]; subs = args["subs"]; timestamp = args["timestamp"]
+    try:
+        conn = _get_conn()
+        hist_ns = "HISTORY"
+        key = encode_subkey([ns] + subs + [timestamp])
+        row = conn.execute(
+            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [hist_ns, key]
+        ).fetchone()
+        if not row or row["value"] is None:
+            return {"success": False, "error": f"No history entry found at {timestamp}"}
+        val = _decode_value(row["value"])
+        if isinstance(val, str):
+            val = json.loads(val)
+        if val.get("op") == "KILL":
+            # Key was killed at this point — restore means KILL the current value
+            key_current = encode_subkey(subs)
+            conn.execute(
+                "DELETE FROM _globals WHERE ns=? AND subkey=?", [ns, key_current]
+            )
+        else:
+            # Restore old value
+            old_ns = ns; old_subs = subs
+            tool_set({"ns": old_ns, "subs": old_subs, "value": val.get("value")})
+        return {"success": True, "restored": val}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 
 # ---------------------------------------------------------------------------
 # SQL tools
@@ -1269,6 +1351,24 @@ def tool_fts_search(args: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 # ---------------------------------------------------------------------------
+# Time-travel — value history
+# ---------------------------------------------------------------------------
+
+_HISTORY_NS = "HISTORY"
+
+def _save_to_history(ns: str, subs: list, old_value, op: str, conn):
+    """Save old value to ^HISTORY before SET/KILL mutates it.
+    Key: ^HISTORY(ns, sub1, ..., timestamp) = {value, op}"""
+    ts = f"t{int(time.time()*1000000)}"
+    hist_key = encode_subkey([ns] + subs + [ts])
+    entry = json.dumps({"value": old_value, "op": op, "ns": ns, "subs": subs})
+    conn.execute(
+        "INSERT INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+        [_HISTORY_NS, hist_key, entry.encode()]
+    )
+
+
+# ---------------------------------------------------------------------------
 # Auto-indices — MUMPS-style ^IDX maintained automatically
 # ---------------------------------------------------------------------------
 # Define an index: ^INDEX_CFG(ns, idx_name) = {"sub_pos": N}
@@ -1278,6 +1378,7 @@ def tool_fts_search(args: dict) -> dict:
 
 _INDEX_CFG_NS = "INDEX_CFG"
 _INDEX_DATA_NS_PREFIX = "_IDX"
+_SCHEMA_NS = "SCHEMA"
 
 def _load_index_configs() -> dict:
     """Load all index definitions from PDB. Returns {ns: {idx_name: sub_pos}}."""
@@ -1353,6 +1454,75 @@ def _auto_index_on_kill(ns: str, orig_subs: list, conn):
                 stored_subs = val.get("orig_subs", [])
                 # Check if killed path is a PREFIX of stored subs
                 if len(stored_subs) >= len(orig_subs) and stored_subs[:len(orig_subs)] == orig_subs:
+                    conn.execute(
+                        "DELETE FROM _globals WHERE ns=? AND subkey=?",
+                        [idx_ns, r[0]]
+                    )
+            except Exception:
+                continue
+
+# ── Schema-based auto-index (flat-mapping pattern) ──
+# ^SCHEMA("ENTRY") = "campo1,campo2,campo3" defines fields for ^ENTRY(id)="val1^val2^val3"
+# On SET: auto-creates ^_IDX_ENTRY_campo1("val1", id) = "" for each field
+# On KILL: auto-deletes matching index entries
+
+def _load_schema(ns: str) -> list[str] | None:
+    """Load flat-map schema for a namespace from ^SCHEMA(ns).
+    Returns list of field names or None if no schema defined."""
+    conn = _get_conn()
+    key = encode_subkey([ns])
+    row = conn.execute(
+        "SELECT value FROM _globals WHERE ns=? AND subkey=?", [_SCHEMA_NS, key]
+    ).fetchone()
+    if row and row["value"] is not None:
+        fields = _decode_value(row["value"])
+        if isinstance(fields, str):
+            return [f.strip() for f in fields.split(",")]
+    return None
+
+def _schema_auto_index_on_set(ns: str, subs: list, value, conn):
+    """Create reverse indexes from flat-mapped values based on ^SCHEMA."""
+    schema = _load_schema(ns)
+    if not schema or not isinstance(value, str) or "^" not in value:
+        return
+    parts = value.split("^")
+    if len(parts) != len(schema):
+        return  # Schema mismatch — skip indexing
+    for i, field_name in enumerate(schema):
+        field_val = parts[i].strip()
+        if not field_val:
+            continue
+        idx_ns = f"{_INDEX_DATA_NS_PREFIX}_{ns}_{field_name}"
+        # Index: field_value + orig_subs (id as tiebreaker for duplicates)
+        idx_key = encode_subkey([field_val] + subs)
+        subs_hash = abs(hash(str(subs))) % 10_000_000
+        idx_val = f"{subs_hash}:{json.dumps({'orig_subs': subs})}".encode()
+        conn.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [idx_ns, idx_key, idx_val]
+        )
+
+def _schema_auto_index_on_kill(ns: str, subs: list, conn):
+    """Clean up schema-based reverse indexes on KILL."""
+    schema = _load_schema(ns)
+    if not schema:
+        return
+    for field_name in schema:
+        idx_ns = f"{_INDEX_DATA_NS_PREFIX}_{ns}_{field_name}"
+        rows = conn.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=?", [idx_ns]
+        ).fetchall()
+        for r in rows:
+            if r[1] is None:
+                continue
+            try:
+                colon_pos = r[1].find(b':')
+                if colon_pos < 0:
+                    continue
+                payload = r[1][colon_pos+1:]
+                val = json.loads(payload.decode("utf-8", errors="replace"))
+                stored_subs = val.get("orig_subs", [])
+                if len(stored_subs) >= len(subs) and stored_subs[:len(subs)] == subs:
                     conn.execute(
                         "DELETE FROM _globals WHERE ns=? AND subkey=?",
                         [idx_ns, r[0]]
@@ -2255,4 +2425,6 @@ HANDLERS = {
     "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
     "pdb_embed": tool_embed,
     "pdb_embed_search": tool_embed_search,
+    "pdb_history": tool_history,
+    "pdb_rollback": tool_rollback,
 }

@@ -8,12 +8,34 @@
     "rust": {
       "path": "implementations/rust/",
       "version": "0.1.0",
-      "test_runner": "cargo test"
+      "test_runner": "cargo test",
+      "capabilities": {
+        "core": true,
+        "batch_flow": true,
+        "stream": true,
+        "mux": true,
+        "security_crypto": true,
+        "security_macaroons": true,
+        "shm": true,
+        "datagram": true,
+        "quic": "feature"
+      }
     },
     "typescript": {
       "path": "implementations/typescript/",
       "version": "0.1.0",
-      "test_runner": "npm test"
+      "test_runner": "npm test",
+      "capabilities": {
+        "core": true,
+        "batch_flow": false,
+        "stream": false,
+        "mux": false,
+        "security_crypto": true,
+        "security_macaroons": false,
+        "shm": "ffi",
+        "datagram": true,
+        "quic": false
+      }
     }
   },
   "categories": {
@@ -74,12 +96,15 @@
     "frame": {
       "description": "Frame building, parsing, type constants — the LUMEN wire format.",
       "tests": [
-        {"name": "frame_type_constants", "types": {
+        {"name": "frame_type_constants_core", "types": {
           "0x01":"REQUEST","0x02":"RESPONSE","0x03":"NOTIFY","0x04":"STREAM_DATA",
           "0x05":"SCHEMA_PATCH","0x06":"STREAM_INIT","0x07":"DICT_SYNC","0x08":"DISCOVER",
           "0x09":"MUX","0x0A":"HEARTBEAT","0x0B":"TRANSPORT_INIT","0x0C":"TRANSPORT_ACK",
-          "0x0D":"BATCH","0x0E":"FLOW_CTL","0x0F":"PROBE","0x10":"PROBE_ACK"
+          "0x0F":"PROBE","0x10":"PROBE_ACK"
         }},
+        {"name": "frame_type_constants_ext_batch_flow", "types": {
+          "0x0D":"BATCH","0x0E":"FLOW_CTL"
+        }, "required_capability": "batch_flow"},
         {"name": "frame_flag_constants", "flags": {
           "0x01":"COMPRESSED","0x02":"ENCRYPTED","0x04":"PRIORITY","0x08":"FRAGMENTED"
         }},
@@ -87,7 +112,8 @@
         {"name": "frame_build_size_consistency", "type": "invariant", "payload_lengths": [0,1,63,64,1000,65535,65536]},
         {"name": "frame_parse_incomplete", "inputs_hex": ["","01","0100"], "expected": "Incomplete"},
         {"name": "frame_parse_incomplete_payload", "type": "behavioral"},
-        {"name": "frame_type_name_coverage", "type": "sweep", "range": "0x01..0x10"},
+        {"name": "frame_type_name_coverage_core", "type": "sweep", "range": "0x01..0x0C,0x0F..0x10"},
+        {"name": "frame_type_name_coverage_ext", "type": "sweep", "range": "0x0D..0x0E", "required_capability": "batch_flow"},
         {"name": "frame_flags_accessors", "type": "behavioral"}
       ]
     }

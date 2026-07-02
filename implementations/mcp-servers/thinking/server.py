@@ -261,10 +261,10 @@ def _save_state() -> None:
             "saved_at": time.time(),
             **get_objective_state(),
         }
-        # Persist to PDB so dashboard and restarts find fresh data
-        _pdb_save_all()
-        # Prune old sessions to prevent memory leak
-        _prune_sessions()
+        # Persist to PDB in background thread — never block a handler
+        threading.Thread(target=_pdb_save_all, daemon=True).start()
+        # Prune old sessions in background
+        threading.Thread(target=_prune_sessions, daemon=True).start()
     except Exception:
         pass  # Never let save break the main flow
 
@@ -1623,7 +1623,9 @@ def tool_thought_bridge(args: dict) -> dict:
 
     connections = []
     for cid, chain in session.chains.items():
-        thoughts = chain["thoughts"]
+        if not isinstance(chain, dict):
+            continue
+        thoughts = chain.get("thoughts")
         if not thoughts:
             continue
 
