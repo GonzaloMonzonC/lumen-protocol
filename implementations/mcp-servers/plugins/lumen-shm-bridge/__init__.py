@@ -24,6 +24,14 @@ Usage:
 
 from __future__ import annotations
 
+import os as _os
+# PROBE: escrita cuando el plugin se importa
+try:
+    with open(_os.path.join(_os.environ.get("TEMP", "/tmp"), "shm_loaded.txt"), "w") as _f:
+        _f.write("loaded at " + __file__ + "\n")
+except Exception:
+    pass  # probe no debe romper la carga
+
 import json
 import os
 import subprocess
@@ -1630,6 +1638,7 @@ def register(ctx) -> None:
             schema={"name": name, "description": desc,
                     "parameters": {"type": "object", "properties": props, "required": req}},
             handler=handler,
+            override=True,
         )
 
     _PDB_HANDLER_CACHE: dict[str, Any] = {}
@@ -1689,6 +1698,7 @@ def register(ctx) -> None:
             schema={"name": name, "description": desc,
                     "parameters": {"type": "object", "properties": props, "required": req}},
             handler=lambda *a, _n=name, **kw: _call_pdb(_n, a[0] if a else kw),
+            override=True,
         )
 
     print(f"[lumen-shm-bridge] Registered 96 tools (fs: 13, thinking: 38, web: 2, pdb: 43)")
@@ -1945,6 +1955,8 @@ def _pdb_ensure():
                 [_HERMES_VENV_PYTHON, "-u", _PDB_STDIO],
                 stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
                 text=True, encoding='utf-8', bufsize=1,
+                cwd=os.path.dirname(_PDB_STDIO),
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
             )
             _pdb_rpc({"method": "initialize", "params": {}})
     return _PDB_PROC
@@ -1965,6 +1977,9 @@ def _pdb_rpc(msg: dict) -> dict:
     return resp.get("result", {})
 
 def _call_pdb(tool_name: str, params: dict) -> str:
+    import os as _os
+    with open(_os.path.join(_os.environ.get("TEMP", "/tmp"), "pdb_handler.log"), "a") as _f:
+        _f.write("_call_pdb INVOKED: " + tool_name + " " + str(params)[:100] + "\n")
     _pdb_ensure()
     result = _pdb_rpc({
         "method": "tools/call",
@@ -1976,6 +1991,9 @@ def _call_pdb(tool_name: str, params: dict) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 def _handle_pdb_set(*args, **kwargs) -> str:
+    import os as _os
+    with open(_os.path.join(_os.environ.get("TEMP", "/tmp"), "pdb_handler.log"), "a") as _f:
+        _f.write("SHM_BRIDGE _handle_pdb_set called\n")
     p = args[0] if args else kwargs; return _call_pdb("pdb_set", {"ns": p["ns"], "subs": p["subs"], "value": p["value"]})
 def _handle_pdb_get(*args, **kwargs) -> str:
     p = args[0] if args else kwargs
