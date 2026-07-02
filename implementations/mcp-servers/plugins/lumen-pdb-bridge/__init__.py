@@ -4,7 +4,7 @@ PDBM-Lumen Plugin for Hermes Agent.
 Spawns PDBM-Lumen server via persistent subprocess (JSON-RPC stdio).
 The server_shm.py variant is available for MCP config direct connection.
 
-10 tools: pdb_set/get/order/data/kill/incr/merge/query/schema/backup.
+43 tools: pdb_set/get/order/data/kill/incr/merge/query/schema/backup + batch/scratch/fts + lock/unlock + index_define/list/drop + trigger_define/list/drop/trigger + map_set/get/list/drop + partition_define/list/drop + m_eval/m_repl + dbfix + mvm_spawn/tick/list/kill/mailbox_send/mailbox_read.
 
 Usage:
   Place in ~/.hermes/plugins/ and add to config.yaml:
@@ -16,6 +16,14 @@ Usage:
 """
 
 from __future__ import annotations
+
+import os as _os
+# PROBE: escrita cuando el plugin se importa
+try:
+    with open(_os.path.join(_os.environ.get("TEMP", "/tmp"), "pdb_loaded.txt"), "w") as _f:
+        _f.write("loaded at " + __file__ + "\n")
+except Exception:
+    pass  # probe no debe romper la carga
 
 import json
 import os
@@ -71,6 +79,7 @@ def _get_server() -> subprocess.Popen[str]:
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, text=True, bufsize=1,
                 cwd=os.path.dirname(server_path),
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
             )
             # Init handshake
             _rpc({"method": "initialize", "params": {}})
@@ -97,19 +106,24 @@ def _rpc(msg: dict) -> dict:
     return resp.get("result", {})
 
 
-def _call_tool(name: str, args: dict) -> dict:
+def _call_tool(name: str, args: dict) -> str:
+    """Call tool and return serialized JSON string for Hermes content field."""
     result = _rpc({"method": "tools/call", "params": {"name": name, "arguments": args}})
     content = result.get("content", [])
     if content and content[0].get("type") == "text":
-        return json.loads(content[0]["text"])
-    return result
+        return content[0]["text"]  # raw JSON string — Hermes needs str, not dict
+    return json.dumps(result)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Handlers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _h_set(a, **kw): return _call_tool("pdb_set", a)
+def _h_set(a, **kw):
+    import os
+    with open(os.path.join(os.environ.get("TEMP", "/tmp"), "pdb_handler.log"), "a") as _f:
+        _f.write("PDB_BRIDGE _h_set called\n")
+    return _call_tool("pdb_set", a)
 def _h_get(a, **kw): return _call_tool("pdb_get", a)
 def _h_order(a, **kw): return _call_tool("pdb_order", a)
 def _h_data(a, **kw): return _call_tool("pdb_data", a)
@@ -155,6 +169,57 @@ _S = [
     _s("pdb_schema","Describe DB: namespaces, node counts, size.", {}),
     _s("pdb_backup","Backup DB file or show stats.",
        {"path":{"type":"string"}}),
+    # ── Batch & Scratch ──
+    _s("pdb_batch_set","Atomic batch insert. Multiple records in one transaction.",
+       {"items":{"type":"array","items":{"type":"object","properties":{"ns":{"type":"string"},"subs":{"type":"array"},"value":{}}}}},["items"]),
+    _s("pdb_scratch_set","Set scratchpad value (LLM working memory).",
+       {"key":{"type":"string"},"value":{}},["key","value"]),
+    _s("pdb_scratch_get","Get scratchpad value by key.",{"key":{"type":"string"}},["key"]),
+    _s("pdb_scratch_del","Delete scratchpad key.",{"key":{"type":"string"}},["key"]),
+    _s("pdb_fts_search","Full-text search across stored values (SQLite FTS5).",
+       {"query":{"type":"string"},"limit":{"type":"integer","default":10},"ns":{"type":"string"}},["query"]),
+    # ── Locks ──
+    _s("pdb_lock","Acquire named lock with optional timeout.",
+       {"ns":{"type":"string"},"timeout":{"type":"integer"},"owner":{"type":"string"}},["ns"]),
+    _s("pdb_unlock","Release named lock.",{"ns":{"type":"string"}},["ns"]),
+    # ── Indices ──
+    _s("pdb_index_define","Define auto-index for a namespace.",
+       {"ns":{"type":"string"},"idx_name":{"type":"string"},"sub_pos":{"type":"integer"}},["ns","idx_name"]),
+    _s("pdb_index_list","List indices for namespace.",{"ns":{"type":"string"}}),
+    _s("pdb_index_drop","Drop an index.",{"ns":{"type":"string"},"idx_name":{"type":"string"}},["ns","idx_name"]),
+    # ── Triggers ──
+    _s("pdb_trigger_define","Create trigger ON SET/ON KILL.",
+       {"ns":{"type":"string"},"event":{"type":"string"},"action":{"type":"string"},"trigger_id":{"type":"string"},"params":{"type":"object"}},["ns","event","action"]),
+    _s("pdb_trigger_list","List triggers for namespace.",{"ns":{"type":"string"}}),
+    _s("pdb_trigger_drop","Drop a trigger.",{"ns":{"type":"string"},"trigger_id":{"type":"string"}},["ns","trigger_id"]),
+    _s("pdb_trigger","Evaluate trigger manually.",{}),
+    # ── Global Mapping ──
+    _s("pdb_map_set","Map ^GLOBAL to a different DB file.",
+       {"ns":{"type":"string"},"path":{"type":"string"}},["ns","path"]),
+    _s("pdb_map_get","Get mapping for namespace.",{"ns":{"type":"string"}},["ns"]),
+    _s("pdb_map_list","List all mappings.",{}),
+    _s("pdb_map_drop","Remove namespace mapping.",{"ns":{"type":"string"}},["ns"]),
+    # ── Partitioning ──
+    _s("pdb_partition_define","Partition namespace into N files by key range.",
+       {"ns":{"type":"string"},"ranges":{"type":"array"}},["ns"]),
+    _s("pdb_partition_list","List partitions.",{}),
+    _s("pdb_partition_drop","Drop partition config.",{"ns":{"type":"string"}},["ns"]),
+    # ── M-Light ──
+    _s("pdb_m_eval","Evaluate MUMPS expression via M-Light. Supports $GET, $DATA, $PIECE, etc.",
+       {"expression":{"type":"string"}},["expression"]),
+    _s("pdb_m_repl","Start M-Light REPL. Returns REPL handle.",{}),
+    # ── Maintenance ──
+    _s("pdb_dbfix","Repair/verify database.",{}),
+    # ── MVM ──
+    _s("pdb_mvm_spawn","Spawn a new MVM process.",
+       {"code":{"type":"string"},"name":{"type":"string"}},["code"]),
+    _s("pdb_mvm_tick","Run one tick of MVM scheduler.",{}),
+    _s("pdb_mvm_list","List all MVM processes.",{}),
+    _s("pdb_mvm_kill","Kill an MVM process by PID.",{"pid":{"type":"string"}},["pid"]),
+    _s("pdb_mvm_mailbox_send","Send message to MVM mailbox.",
+       {"pid":{"type":"string"},"message":{"type":"string"}},["pid","message"]),
+    _s("pdb_mvm_mailbox_read","Read MVM mailbox messages.",
+       {"pid":{"type":"string"}},["pid"]),
 ]
 
 _H = {
@@ -162,6 +227,37 @@ _H = {
     "pdb_data":_h_data,"pdb_kill":_h_kill,"pdb_incr":_h_incr,
     "pdb_merge":_h_merge,"pdb_query":_h_query,
     "pdb_schema":_h_schema,"pdb_backup":_h_backup,
+    # Additional tools — generic handler
+    "pdb_batch_set": lambda a,**kw: _call_tool("pdb_batch_set",a),
+    "pdb_scratch_set": lambda a,**kw: _call_tool("pdb_scratch_set",a),
+    "pdb_scratch_get": lambda a,**kw: _call_tool("pdb_scratch_get",a),
+    "pdb_scratch_del": lambda a,**kw: _call_tool("pdb_scratch_del",a),
+    "pdb_fts_search": lambda a,**kw: _call_tool("pdb_fts_search",a),
+    "pdb_lock": lambda a,**kw: _call_tool("pdb_lock",a),
+    "pdb_unlock": lambda a,**kw: _call_tool("pdb_unlock",a),
+    "pdb_index_define": lambda a,**kw: _call_tool("pdb_index_define",a),
+    "pdb_index_list": lambda a,**kw: _call_tool("pdb_index_list",a),
+    "pdb_index_drop": lambda a,**kw: _call_tool("pdb_index_drop",a),
+    "pdb_trigger_define": lambda a,**kw: _call_tool("pdb_trigger_define",a),
+    "pdb_trigger_list": lambda a,**kw: _call_tool("pdb_trigger_list",a),
+    "pdb_trigger_drop": lambda a,**kw: _call_tool("pdb_trigger_drop",a),
+    "pdb_trigger": lambda a,**kw: _call_tool("pdb_trigger",a),
+    "pdb_map_set": lambda a,**kw: _call_tool("pdb_map_set",a),
+    "pdb_map_get": lambda a,**kw: _call_tool("pdb_map_get",a),
+    "pdb_map_list": lambda a,**kw: _call_tool("pdb_map_list",a),
+    "pdb_map_drop": lambda a,**kw: _call_tool("pdb_map_drop",a),
+    "pdb_partition_define": lambda a,**kw: _call_tool("pdb_partition_define",a),
+    "pdb_partition_list": lambda a,**kw: _call_tool("pdb_partition_list",a),
+    "pdb_partition_drop": lambda a,**kw: _call_tool("pdb_partition_drop",a),
+    "pdb_m_eval": lambda a,**kw: _call_tool("pdb_m_eval",a),
+    "pdb_m_repl": lambda a,**kw: _call_tool("pdb_m_repl",a),
+    "pdb_dbfix": lambda a,**kw: _call_tool("pdb_dbfix",a),
+    "pdb_mvm_spawn": lambda a,**kw: _call_tool("pdb_mvm_spawn",a),
+    "pdb_mvm_tick": lambda a,**kw: _call_tool("pdb_mvm_tick",a),
+    "pdb_mvm_list": lambda a,**kw: _call_tool("pdb_mvm_list",a),
+    "pdb_mvm_kill": lambda a,**kw: _call_tool("pdb_mvm_kill",a),
+    "pdb_mvm_mailbox_send": lambda a,**kw: _call_tool("pdb_mvm_mailbox_send",a),
+    "pdb_mvm_mailbox_read": lambda a,**kw: _call_tool("pdb_mvm_mailbox_read",a),
 }
 
 
@@ -173,4 +269,4 @@ def register(ctx) -> None:
     for s in _S:
         h = _H.get(s["name"])
         if h:
-            ctx.register_tool(name=s["name"], toolset="lumen-pdb", schema=s, handler=h)
+            ctx.register_tool(name=s["name"], toolset="lumen-pdb", schema=s, handler=h, override=True)
