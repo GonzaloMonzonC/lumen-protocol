@@ -1,114 +1,38 @@
-#!/usr/bin/env python3
-"""
-PDBM-Lumen MCP Server — JSON-RPC over stdio.
+import sys, json
+try:
+    with open(r'C:\Users\gonzalo\pdb_min_test.log', 'w') as f:
+        f.write('alive\n')
+except:
+    pass
 
-Start: python server.py
-Config in Hermes:
-    mcp_servers:
-      lumen-pdb:
-        command: python
-        args: ["path/to/server.py"]
-        transport: stdio   # or 'lumen' for LUMEN native
-"""
-
-from __future__ import annotations
-import sys, json, logging, os
-
-# Windows: reconfigure stdout for UTF-8
-if sys.platform == "win32":
-    sys.stdin.reconfigure(encoding="utf-8")
-    sys.stdout.reconfigure(encoding="utf-8")
-
+# Stick to ASCII to avoid any encoding issues
 from pdb_tools import TOOLS, HANDLERS
 
-logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
-logger = logging.getLogger(__name__)
-
-
-def send(msg: dict):
-    line = json.dumps(msg, ensure_ascii=False)
-    sys.stdout.write(line + "\n")
+def send(msg):
+    sys.stdout.write(json.dumps(msg) + "\n")
     sys.stdout.flush()
 
-
-def handle(msg: dict):
-    msg_id = msg.get("id")
-    method = msg.get("method", "")
-
-    if method == "initialize":
-        send({
-            "jsonrpc": "2.0", "id": msg_id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {
-                        "listChanged": False,
-                        "toolCount": len(TOOLS),
-                    }
-                },
-                "serverInfo": {
-                    "name": "lumen-pdb",
-                    "version": "0.1.0",
-                }
-            }
-        })
-
-    elif method == "tools/list":
-        send({"jsonrpc": "2.0", "id": msg_id, "result": {"tools": TOOLS}})
-
-    elif method == "tools/call":
-        params = msg.get("params", {})
-        name = params.get("name", "")
-        args = params.get("arguments", {})
-        handler = HANDLERS.get(name)
-        if handler:
-            try:
-                result = handler(args)
-                send({
-                    "jsonrpc": "2.0", "id": msg_id,
-                    "result": {"content": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False)}
-                    ]}
-                })
-            except Exception as e:
-                send({
-                    "jsonrpc": "2.0", "id": msg_id,
-                    "error": {"code": -32603, "message": str(e)}
-                })
-        else:
-            send({
-                "jsonrpc": "2.0", "id": msg_id,
-                "error": {"code": -32601, "message": f"Unknown tool: {name}"}
-            })
-
-    elif method == "notifications/initialized":
-        # No-op, just acknowledge
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+        mid = msg.get("id")
+        method = msg.get("method", "")
+        if method == "initialize":
+            send({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{"tools":{}}}})
+        elif method == "tools/call":
+            p = msg.get("params",{})
+            h = HANDLERS.get(p.get("name",""))
+            if h:
+                try:
+                    r = h(p.get("arguments",{}))
+                    send({"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text":json.dumps(r)}]}})
+                except Exception as e:
+                    send({"jsonrpc":"2.0","id":mid,"error":{"code":-32603,"message":str(e)}})
+    except Exception:
         pass
-
-    else:
-        send({
-            "jsonrpc": "2.0", "id": msg_id,
-            "error": {"code": -32601, "message": f"Unknown method: {method}"}
-        })
-
-
-def main():
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            break
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-            handle(msg)
-        except json.JSONDecodeError as e:
-            send({
-                "jsonrpc": "2.0",
-                "error": {"code": -32700, "message": f"Parse error: {e}"}
-            })
-
-
-if __name__ == "__main__":
-    main()

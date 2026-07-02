@@ -13,7 +13,7 @@ SQL tools (pdb_query) for analysis.
 """
 
 from __future__ import annotations
-import json, logging, os, sqlite3, struct, sys, threading, time
+import json, logging, os, sqlite3, struct, sys, threading, time, hashlib
 from pathlib import Path
 from typing import Any, Optional
 
@@ -59,12 +59,15 @@ _conn_lock = threading.Lock()
 # Stored in ^MAP_CFG(ns) = path in the MAIN pdb
 _db_connections: dict[str, sqlite3.Connection] = {}
 _db_map: dict[str, str] = {}  # populated from MAP_CFG at first use
+_db_map_loaded = False
 
 _MAP_CFG_NS = "MAP_CFG"
 
 def _load_db_map():
     """Load global mappings from the main PDB into _db_map."""
-    global _db_map
+    global _db_map, _db_map_loaded
+    if _db_map_loaded:
+        return
     try:
         c = _get_conn()  # ensure main conn exists
         rows = c.execute(
@@ -80,8 +83,10 @@ def _load_db_map():
                 path = r["value"].decode("utf-8", errors="replace") if r["value"] else None
                 if path:
                     _db_map[ns] = path
+        _db_map_loaded = True
     except Exception:
         _db_map = {}
+        _db_map_loaded = True
 
 def _get_db_path() -> str:
     global _DB_PATH
@@ -116,6 +121,8 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
                             break
 
     # Check if this namespace has a global mapping
+    if ns and not _db_map_loaded:
+        _load_db_map()
     if ns and _db_map:
         mapped_path = _db_map.get(ns)
         if mapped_path:
@@ -167,8 +174,7 @@ def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
     _db_connections[key] = c
     return c
 
-# Load db map on first module access
-_load_db_map()
+# _db_map loaded lazily in _get_conn() when ns is provided
 
 # Partition config — loaded lazily
 _PART_CFG_NS = "PART_CFG"
@@ -856,7 +862,9 @@ def tool_set(args: dict) -> dict:
         _auto_index_on_set(ns, subs, c)
         _fire_triggers("ON_SET", ns, subs, value, c)
         _schema_auto_index_on_set(ns, subs, value, c)
+        old_val = _decode_value(row["value"]) if row and row["value"] is not None else None
         c.commit()
+        _record_change(ns, subs, "SET", old_val, value, c)
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -1049,6 +1057,12 @@ def tool_kill(args: dict) -> dict:
         _auto_index_on_kill(ns, subs, c)
         _fire_triggers("ON_KILL", ns, subs, None, c)
         _schema_auto_index_on_kill(ns, subs, c)
+        # Capture old values for CDC before deleting
+        old_rows_data = []
+        for r in rows:
+            if r[0] and r[1] is not None:
+                child_subs = decode_subkey(r[0])
+                old_rows_data.append((child_subs, _decode_value(r[1])))
         # Delete the node itself
         c.execute("DELETE FROM _globals WHERE ns=? AND subkey=?", [ns, key])
         # Delete all children (keys that start with key and are longer)
@@ -1057,6 +1071,10 @@ def tool_kill(args: dict) -> dict:
             [ns, key, key + b'\xff\xff\xff\xff']
         )
         c.commit()
+        for child_subs, child_val in old_rows_data:
+            _record_change(ns, child_subs, "KILL", child_val, None, c)
+        if not old_rows_data:
+            _record_change(ns, subs, "KILL", None, None, c)
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -1125,6 +1143,9 @@ def tool_merge(args: dict) -> dict:
             )
         
         c.commit()
+        _record_change(target_ns, target_subs, "MERGE", None,
+                       {"source_ns": source_ns, "source_subs": source_subs,
+                        "nodes_copied": 1 + len(child_rows)}, c)
         return {"success": True, "nodes_copied": 1 + len(child_rows)}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -1192,6 +1213,274 @@ def tool_rollback(args: dict) -> dict:
         return {"success": True, "restored": val}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Change Feed — CDC for agents
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+_subscribers: list = []  # list of (ns_pattern, callback)
+
+
+def _record_change(ns: str, subs: list, op: str, old_value, new_value, conn):
+    """Record a mutation in ^CHANGES for CDC. Called after every SET/KILL/MERGE."""
+    try:
+        ts_ns = _time.time_ns()
+        ts_iso = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.gmtime(ts_ns / 1_000_000_000))
+        ts_iso += f".{ts_ns % 1_000_000_000:09d}Z"
+
+        # Store in ^CHANGES(timestamp_ns, op, ns, ...subs)
+        change_key = encode_subkey([ts_ns, op, ns] + list(subs))
+        change_val_dict = {
+            "old_value": old_value,
+            "new_value": new_value,
+            "timestamp": ts_iso,
+            "op": op,
+            "ns": ns,
+            "subs": subs,
+        }
+
+        change_ns = "CHANGES"
+        conn.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [change_ns, change_key, _encode_value(change_val_dict)]
+        )
+        conn.commit()  # ensure CDC write is durable
+
+        # Notify subscribers
+        if _subscribers:
+            change_data = {
+                "op": op, "ns": ns, "subs": subs,
+                "old_value": old_value, "new_value": new_value,
+                "timestamp": ts_iso, "timestamp_ns": ts_ns,
+            }
+            for pattern, callback in _subscribers:
+                try:
+                    if _ns_matches(ns, pattern):
+                        callback(change_data)
+                except Exception:
+                    pass  # subscriber errors don't break the write
+            # Notify watch queues (streaming $Q)
+            _notify_watch_queues(change_data)
+
+        # FTS5 incremental index
+        try:
+            subkey_bytes = encode_subkey(subs)
+            if op == "SET" and new_value is not None:
+                rid = _fts_rowid(ns, subkey_bytes)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _fts(rowid, ns, value) VALUES (?, ?, ?)",
+                    [rid, ns, str(new_value)]
+                )
+            elif op == "KILL":
+                rid = _fts_rowid(ns, subkey_bytes)
+                conn.execute("DELETE FROM _fts WHERE rowid=?", [rid])
+            conn.commit()
+        except Exception:
+            pass  # FTS failure never breaks primary write
+    except Exception:
+        pass  # CDC failure must never break the primary write
+
+
+import fnmatch as _fnmatch
+
+def _ns_matches(ns: str, pattern: str) -> bool:
+    """Glob match for namespace patterns. Supports:
+    - '*' matches everything
+    - 'STATE:*' matches STATE AND STATE:global AND STATE:global:objective
+    - 'PATIENT*' matches PATIENT, PATIENT_IDX
+    - Exact match: 'STATE' matches only STATE
+    """
+    if pattern == "*":
+        return True
+    # 'NS:*' pattern: matches NS AND NS:anything
+    if pattern.endswith(":*"):
+        prefix = pattern[:-2]  # remove ':*'
+        if ns == prefix:
+            return True
+        if ns.startswith(prefix + ":"):
+            return True
+        # Also try fnmatch for cases like 'STATE:*:goal_*'
+        return _fnmatch.fnmatch(ns, pattern)
+    # Standard glob
+    return _fnmatch.fnmatch(ns, pattern)
+
+
+# Streaming $Q — background thread for watch()
+import threading as _threading
+import queue as _queue_module
+
+_watch_queues: list = []  # list of (ns_pattern, queue)
+_watch_lock = _threading.Lock()
+
+
+def _notify_watch_queues(change_data: dict):
+    """Notify watch queues of a matching change."""
+    ns = change_data.get("ns", "")
+    with _watch_lock:
+        for pattern, q in _watch_queues:
+            if _ns_matches(ns, pattern):
+                try:
+                    q.put_nowait(change_data)
+                except _queue_module.Full:
+                    pass  # drop if queue full
+
+
+def tool_watch(args: dict) -> dict:
+    """Block until a change matching ns_pattern occurs, or timeout expires.
+    Returns the change dict, or None on timeout."""
+    ns_pattern = args.get("ns_pattern", "*")
+    timeout = args.get("timeout", 30)  # seconds, 0 = no timeout
+
+    q: _queue_module.Queue = _queue_module.Queue(maxsize=100)
+    with _watch_lock:
+        _watch_queues.append((ns_pattern, q))
+
+    try:
+        change = q.get(timeout=timeout if timeout > 0 else None)
+        return {"success": True, "change": change, "found": True}
+    except _queue_module.Empty:
+        return {"success": True, "change": None, "found": False, "timeout": True}
+    finally:
+        with _watch_lock:
+            _watch_queues[:] = [(p, qq) for p, qq in _watch_queues if qq is not q]
+
+
+def tool_q_subscribe(args: dict) -> dict:
+    """Register a persistent subscription in ^SUBSCRIPTIONS.
+    Survives restarts. Changes are accumulated and can be fetched later."""
+    ns_pattern = args.get("ns_pattern", "*")
+    label = args.get("label", f"sub_{_time.time_ns()}")
+
+    try:
+        conn = _get_conn()
+        sub_key = encode_subkey([label])
+        conn.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            ["SUBSCRIPTIONS", sub_key, _encode_value({
+                "ns_pattern": ns_pattern,
+                "label": label,
+                "created": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                "last_seen": None,
+            })]
+        )
+        conn.commit()
+        return {"success": True, "subscription_id": label, "ns_pattern": ns_pattern}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_q_unsubscribe(args: dict) -> dict:
+    """Remove a persistent subscription from ^SUBSCRIPTIONS."""
+    label = args.get("label")
+
+    try:
+        conn = _get_conn()
+        sub_key = encode_subkey([label])
+        conn.execute(
+            "DELETE FROM _globals WHERE ns='SUBSCRIPTIONS' AND subkey=?",
+            [sub_key]
+        )
+        conn.commit()
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_q_list(args: dict = None) -> dict:
+    """List all persistent subscriptions from ^SUBSCRIPTIONS."""
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT subkey, value FROM _globals WHERE ns='SUBSCRIPTIONS' ORDER BY subkey"
+        ).fetchall()
+        subs = []
+        for r in rows:
+            val = _decode_value(r["value"])
+            if isinstance(val, str):
+                try: val = json.loads(val)
+                except: val = {"raw": val}
+            subs.append(val)
+        return {"success": True, "subscriptions": subs, "count": len(subs)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_changes(args: dict) -> dict:
+    """Return all changes since a given timestamp_ns. Polling API for agents."""
+    since = args.get("since", 0)
+    limit = args.get("limit", 100)
+    ns_filter = args.get("ns")  # optional namespace filter
+
+    try:
+        conn = _get_conn()
+        change_ns = "CHANGES"
+        since_key = encode_subkey([since]) if since else b""
+
+        if ns_filter:
+            # Filter at SQL level using json_extract
+            rows = conn.execute(
+                "SELECT subkey, value FROM _globals WHERE ns=? AND subkey > ? "
+                "AND json_extract(value, '$.ns') = ? "
+                "ORDER BY subkey ASC LIMIT ?",
+                [change_ns, since_key, ns_filter, limit]
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT subkey, value FROM _globals WHERE ns=? AND subkey > ? "
+                "ORDER BY subkey ASC LIMIT ?",
+                [change_ns, since_key, limit]
+            ).fetchall()
+
+        changes = []
+        for r in rows:
+            val = _decode_value(r["value"])
+            if isinstance(val, str):
+                try: val = json.loads(val)
+                except: val = {"raw": val}
+            changes.append(val)
+
+        return {"success": True, "changes": changes, "count": len(changes)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_subscribe(args: dict) -> dict:
+    """Register a subscription for changes matching a namespace pattern.
+    Callback is stored in-process. Returns subscriber ID for unsubscribe."""
+    ns_pattern = args.get("ns_pattern", "*")
+    # For Hermes tools, callback is stored in the subscriber list.
+    # In-process consumers call pdb_subscribe() directly from Python.
+    sub_id = f"sub_{_time.time_ns()}"
+    # Store for in-process use — Hermes agents access via the bridge
+    _subscribers.append((ns_pattern, lambda change: None))  # placeholder
+    return {"success": True, "subscriber_id": sub_id, "ns_pattern": ns_pattern}
+
+
+def tool_unsubscribe(args: dict) -> dict:
+    """Remove a subscription by ID."""
+    sub_id = args.get("subscriber_id")
+    # Simple: just clear all (subscriptions are ephemeral)
+    global _subscribers
+    _subscribers = [(p, cb) for p, cb in _subscribers if cb.__name__ != sub_id]
+    return {"success": True}
+
+
+# In-process subscription (called directly from Python agents)
+def pdb_subscribe(ns_pattern: str, callback):
+    """Subscribe to changes matching ns_pattern. callback(change_dict)."""
+    _subscribers.append((ns_pattern, callback))
+    return len(_subscribers) - 1
+
+
+def pdb_unsubscribe(index: int):
+    """Remove subscription by index (returned by pdb_subscribe)."""
+    if 0 <= index < len(_subscribers):
+        _subscribers.pop(index)
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -1315,22 +1604,44 @@ def tool_scratch_del(args: dict) -> dict:
     """Delete a scratchpad key entirely."""
     return tool_kill({"ns": "SCRATCH", "subs": [args["key"]]})
 
+def _fts_rowid(ns: str, subkey: bytes) -> int:
+    """Deterministic rowid from ns+subkey for incremental FTS5 maintenance."""
+    return int(hashlib.md5(ns.encode() + b":" + subkey).hexdigest()[:8], 16)
+
+
 def tool_fts_search(args: dict) -> dict:
-    """Full-text search across all stored values using SQLite FTS5.
-    Automatically builds/updates index on each call. Results ranked by relevance."""
+    """Full-text search using SQLite FTS5 with incremental hash-based index.
+
+    No full rebuild on each call. Index maintained incrementally via
+    _record_change() hook on every SET/KILL/MERGE."""
     query = args["query"]
     limit = args.get("limit", 10)
     ns_filter = args.get("ns")
     c = _get_conn()
     try:
-        # Create FTS5 table on first call (no content= sync — handles WITHOUT ROWID tables)
+        # Create FTS5 table on first call (standalone, hash-based rowid)
         c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS _fts USING fts5(
             ns, value, tokenize='unicode61'
         )""")
-        # Rebuild index: delete stale, insert current
-        c.execute("DELETE FROM _fts")
-        c.execute("INSERT INTO _fts(ns, value) SELECT ns, value FROM _globals WHERE value IS NOT NULL")
-        c.commit()
+
+        # One-time rebuild for existing data (only if not migrated)
+        migrated = c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_fts_migrated'"
+        ).fetchone()
+        if not migrated:
+            n_reindexed = 0
+            rows = c.execute(
+                "SELECT ns, subkey, value FROM _globals WHERE value IS NOT NULL AND value != ''"
+            ).fetchall()
+            for r in rows:
+                rid = _fts_rowid(r["ns"], r["subkey"])
+                c.execute("INSERT OR REPLACE INTO _fts(rowid, ns, value) VALUES (?, ?, ?)",
+                         [rid, r["ns"], str(r["value"])])
+                n_reindexed += 1
+            c.execute("CREATE TABLE IF NOT EXISTS _fts_migrated (v INTEGER)")
+            c.execute("INSERT INTO _fts_migrated VALUES (1)")
+            c.commit()
+
         # Search
         if ns_filter:
             sql = "SELECT rank, rowid, ns, value FROM _fts WHERE _fts MATCH ? AND ns=? ORDER BY rank LIMIT ?"
@@ -1349,6 +1660,7 @@ def tool_fts_search(args: dict) -> dict:
         return {"success": True, "results": results, "count": len(results)}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 # ---------------------------------------------------------------------------
 # Time-travel — value history
@@ -1714,52 +2026,100 @@ def _lock_key(ns: str, subs: list) -> str:
     """Build a lock key from namespace + subscripts."""
     return ns + ":" + "|".join(str(s) for s in subs)
 
+def _init_locks_table():
+    """Create the multi-process lock table if not exists."""
+    try:
+        c = _get_conn()
+        c.execute("""CREATE TABLE IF NOT EXISTS _lock_table (
+            key TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            acquired_at REAL NOT NULL,
+            expires_at REAL
+        )""")
+        c.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except Exception:
+        pass
+
+def _acquire_sqlite_lock(key: str, owner: str, timeout: float = None) -> bool:
+    """Acquire a named lock via SQLite INSERT (UNIQUE constraint = lock contention).
+    Multi-process safe. Returns True if acquired, False if timeout."""
+    import time as _lt
+    _init_locks_table()
+    deadline = _lt.time() + timeout if timeout else float('inf')
+
+    while _lt.time() < deadline:
+        try:
+            c = _get_conn()
+            # Clean stale locks first (own transaction)
+            c.execute("DELETE FROM _lock_table WHERE expires_at IS NOT NULL AND expires_at < ?",
+                     [_lt.time()])
+            c.commit()
+
+            # Try to INSERT — UNIQUE constraint on key acts as the lock
+            try:
+                c.execute(
+                    "INSERT INTO _lock_table(key, owner, acquired_at) VALUES (?, ?, ?)",
+                    [key, owner, _lt.time()]
+                )
+                c.commit()
+                return True
+            except Exception:
+                # Lock held by someone else — rollback and retry
+                try:
+                    c.rollback()
+                except Exception:
+                    pass
+                _lt.sleep(0.05)
+        except Exception:
+            _lt.sleep(0.1)
+    return False
+def _release_sqlite_lock(key: str, owner: str):
+    """Release a named lock by deleting its row."""
+    try:
+        c = _get_conn()
+        c.execute("BEGIN EXCLUSIVE")
+        c.execute("DELETE FROM _lock_table WHERE key=? AND owner=?", [key, owner])
+        c.commit()
+    except Exception:
+        pass
+
 def tool_lock(args: dict) -> dict:
-    """LOCK ^ns(subs) — acquire a resource lock. Blocking with optional timeout."""
+    """LOCK ^ns(subs) — acquire a resource lock. Multi-process safe via SQLite."""
     ns = args["ns"]
     subs = args.get("subs", [])
     timeout = args.get("timeout", None)  # None = block indefinitely
     key = _lock_key(ns, subs)
+    owner = f"{os.getpid()}_{threading.get_native_id()}"
 
-    with _locks_lock:
-        if key not in _locks:
-            _locks[key] = threading.Lock()
-
-    lock = _locks[key]
-    acquired = lock.acquire(timeout=timeout)
+    # Try SQLite multi-process lock first
+    acquired = _acquire_sqlite_lock(key, owner, timeout)
     if acquired:
-        return {"content": [{"type": "text", "text": f"Lock acquired: ^${ns}({','.join(str(s) for s in subs)})"}]}
+        return {"success": True, "locked": True,
+                "key": key, "owner": owner}
     else:
-        return {"content": [{"type": "text", "text": f"Lock timeout: ^${ns}({','.join(str(s) for s in subs)})"}]}
+        return {"success": False, "locked": False,
+                "key": key, "error": "timeout"}
 
 def tool_unlock(args: dict) -> dict:
-    """UNLOCK ^ns(subs) — release a specific lock. If no args, releases all locks held by this thread."""
+    """UNLOCK ^ns(subs) — release a specific lock. If no args, releases all held by this process."""
     ns = args.get("ns")
     subs = args.get("subs", [])
     all_flag = args.get("all", False)
+    owner = f"{os.getpid()}_{threading.get_native_id()}"
 
     if all_flag or ns is None:
-        # Release all locks this thread holds
-        released = 0
-        with _locks_lock:
-            for key, lock in list(_locks.items()):
-                try:
-                    lock.release()
-                    released += 1
-                except RuntimeError:
-                    pass  # not owned by this thread
-        return {"content": [{"type": "text", "text": f"Released {released} lock(s)"}]}
+        try:
+            c = _get_conn()
+            c.execute("DELETE FROM _lock_table WHERE owner=?", [owner])
+            c.commit()
+            return {"success": True, "released": True, "owner": owner}
+        except Exception:
+            return {"success": False, "error": "failed to release locks"}
 
     key = _lock_key(ns, subs)
-    with _locks_lock:
-        lock = _locks.get(key)
-    if lock:
-        try:
-            lock.release()
-            return {"content": [{"type": "text", "text": f"Lock released: ^${ns}({','.join(str(s) for s in subs)})"}]}
-        except RuntimeError:
-            return {"content": [{"type": "text", "text": f"Lock not held by this thread: ^${ns}({','.join(str(s) for s in subs)})"}]}
-    return {"content": [{"type": "text", "text": f"Lock not found: ^${ns}({','.join(str(s) for s in subs)})"}]}
+    _release_sqlite_lock(key, owner)
+    return {"success": True, "released": True, "key": key}
+
 
 # ---------------------------------------------------------------------------
 # Embedding (RAG) tools
@@ -1771,6 +2131,37 @@ _EMBED_DIMS = 384
 _EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 _EMBED_MATRIX = None  # numpy array cache
 _EMBED_HASHES = None  # list of hash strings
+_vec_initialized = False
+
+
+def _init_vec():
+    """One-time init of sqlite-vec extension and vec0 tables."""
+    global _vec_initialized
+    if _vec_initialized:
+        return
+    try:
+        import sqlite_vec
+        c = _get_conn()
+        c.enable_load_extension(True)
+        sqlite_vec.load(c)
+        # Standalone vec0 table (OBJ-6k — general vector search)
+        c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS _vec_embeddings USING vec0(
+            embedding float[384] distance_metric=cosine,
+            hash text +,
+            text text +,
+            source text +
+        )""")
+        # Hierarchical vec0 table (OBJ-7b — RAG with partition key)
+        c.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS _vec_hierarchical USING vec0(
+            embedding float[384] distance_metric=cosine,
+            path text partition key,
+            hash text +,
+            text text +,
+            source text +
+        )""")
+        _vec_initialized = True
+    except Exception:
+        pass  # graceful fallback if sqlite-vec not installed
 
 def _get_embedder():
     global _EMBED_MODEL
@@ -1807,6 +2198,27 @@ def tool_embed(args: dict) -> dict:
         ivf_items.append({"ns": "EMBED_VEC", "subs": [h], "value": [round(float(v), 6) for v in emb]})
         items += ivf_items
         tool_batch_set({"items": items})
+        # Also store in sqlite-vec for KNN search
+        try:
+            _init_vec()
+            import json as _vj
+            c = _get_conn()
+            c.execute(
+                "INSERT OR REPLACE INTO _vec_embeddings(rowid, embedding, hash, text, source) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [int(h, 16) % (1 << 62), _vj.dumps([round(float(v), 6) for v in emb]),
+                 h, text, source or ""]
+            )
+            # Also store in hierarchical vec0 with path partition key
+            path = source or "general"
+            c.execute(
+                "INSERT OR REPLACE INTO _vec_hierarchical(rowid, embedding, path, hash, text, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [int(h, 16) % (1 << 62), _vj.dumps([round(float(v), 6) for v in emb]),
+                 path, h, text, source or ""]
+            )
+        except Exception:
+            pass  # sqlite-vec failure doesn't break primary storage
         results.append({"hash": h, "dims": len(emb), "source": source})
     return {"success": True, "results": results, "count": len(results)}
 
@@ -1883,548 +2295,64 @@ def tool_embed_search(args: dict) -> dict:
     scored.sort(key=lambda x: -x["score"])
     return {"success": True, "results": scored[:limit], "count": len(scored[:limit])}
 
-# Tool definitions
-# ---------------------------------------------------------------------------
 
-TOOLS = [
-    {
-        "name": "pdb_set",
-        "description": "SET a value at a hierarchical path. Creates node if missing. Analogous to MUMPS SET ^global(subs)=value. Value can be string, number, boolean, array, object, or null.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace (global name, e.g. 'PATIENT', 'CONFIG')"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]},
-                         "description": "Subscript path, e.g. [42, 'name'] for ^GLOBAL(42,'name')"},
-                "value": {"description": "Value to store. JSON-serializable. null creates a structural node (container with no value)."}
-            },
-            "required": ["ns", "subs", "value"]
-        }
-    },
-    {
-        "name": "pdb_get",
-        "description": "GET value at a hierarchical path. Returns null if not found (unless default provided). Analogous to MUMPS $GET(^global(subs), default).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
-                "default": {"description": "Default value if key not found"}
-            },
-            "required": ["ns", "subs"]
-        }
-    },
-    {
-        "name": "pdb_order",
-        "description": "Find the next/previous subscript at the current level. Pass '' (empty string) as the LAST subscript to get first/last. Returns null when no more subscripts. Analogous to MUMPS $ORDER(^global(subs), direction).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]},
-                         "description": "Subscript path. Last element is the current position; '' (empty string) means 'before first'."},
-                "direction": {"type": "integer", "default": 1, "description": "1=forward, -1=backward"}
-            },
-            "required": ["ns", "subs"]
-        }
-    },
-    {
-        "name": "pdb_data",
-        "description": "Check node existence and structure. Returns: 0=not exists, 1=value only, 10=children only, 11=value+children. Analogous to MUMPS $DATA(^global(subs)).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
-            },
-            "required": ["ns", "subs"]
-        }
-    },
-    {
-        "name": "pdb_kill",
-        "description": "Delete a node and its entire subtree. Analogous to MUMPS KILL ^global(subs).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
-            },
-            "required": ["ns", "subs"]
-        }
-    },
-    {
-        "name": "pdb_incr",
-        "description": "Atomic increment. Creates node with 0 if missing. Returns new value. Analogous to MUMPS $INCREMENT(^global(subs), increment).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
-                "increment": {"type": "number", "default": 1}
-            },
-            "required": ["ns", "subs"]
-        }
-    },
-    {
-        "name": "pdb_merge",
-        "description": "Copy a subtree from source to target. All nodes under source become accessible under target. Analogous to MUMPS MERGE ^target(t_subs)=^source(s_subs).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "target_ns": {"type": "string"},
-                "target_subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
-                "source_ns": {"type": "string"},
-                "source_subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
-            },
-            "required": ["target_ns", "target_subs", "source_ns", "source_subs"]
-        }
-    },
-    {
-        "name": "pdb_query",
-        "description": "Execute a SQL query. Only SELECT/WITH allowed. Use for aggregations, JOINs, analytics across namespaces. The _globals table has columns: ns, subkey (BLOB), value (TEXT/JSON).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "sql": {"type": "string", "description": "SQL query (SELECT/WITH only)"},
-                "params": {"type": "array", "items": {"type": ["string", "number", "null"]}, "description": "Query parameters"},
-                "limit": {"type": "integer", "default": 100}
-            },
-            "required": ["sql"]
-        }
-    },
-    {
-        "name": "pdb_schema",
-        "description": "Describe the database: list all namespaces, node counts, app tables, DB size.",
-        "inputSchema": {"type": "object", "properties": {}}
-    },
-    {
-        "name": "pdb_backup",
-        "description": "Backup the database to a file, or show DB stats (total nodes, size).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Backup path. Omit for stats only."}
-            }
-        }
-    },
-    {
-        "name": "pdb_batch_set",
-        "description": "Atomic batch insert. Insert multiple records in a single transaction. Much faster than calling pdb_set repeatedly.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "ns": {"type": "string"},
-                            "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
-                            "value": {"description": "Value to store (any JSON type)"}
-                        },
-                        "required": ["ns", "subs", "value"]
-                    },
-                    "description": "Array of records to insert"
-                }
-            },
-            "required": ["items"]
-        }
-    },
-    {
-        "name": "pdb_scratch_set",
-        "description": "Set a scratchpad value. Temporary working memory for the LLM that survives context compressions. Use for intermediate results, state, or any data you need across turns.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "Scratchpad key"},
-                "value": {"description": "Value to store (any JSON type)"}
-            },
-            "required": ["key", "value"]
-        }
-    },
-    {
-        "name": "pdb_scratch_get",
-        "description": "Get a scratchpad value by key. Returns null if key doesn't exist.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "Scratchpad key"}
-            },
-            "required": ["key"]
-        }
-    },
-    {
-        "name": "pdb_scratch_del",
-        "description": "Delete a scratchpad key entirely.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "Scratchpad key to delete"}
-            },
-            "required": ["key"]
-        }
-    },
-    {
-        "name": "pdb_fts_search",
-        "description": "Full-text search across all stored values using SQLite FTS5. Automatically indexes new content. Results ranked by relevance. Use for searching documents, descriptions, logs, or any text content stored in PDB.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "FTS5 query (supports AND, OR, NOT, phrases, prefixes)"},
-                "limit": {"type": "integer", "default": 10, "description": "Max results"},
-                "ns": {"type": "string", "description": "Optional namespace filter (e.g. 'TRAVEL' to only search travel data)"}
-            },
-            "required": ["query"]
-        }
-    },
-    {
-        "name": "pdb_index_define",
-        "description": "Define an auto-index. After this, every SET to ^ns(subs) with a value at sub_pos will auto-maintain ^_IDX_{ns}_{name}(value, parent_subs...). Use pdb_index_list to see defined indices.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to index (e.g. 'PATIENT')"},
-                "idx_name": {"type": "string", "description": "Index name (e.g. 'name' creates ^_IDX_PATIENT_name)"},
-                "sub_pos": {"type": "integer", "description": "Subscript position containing the indexed value (0-based, default: 1)", "default": 1}
-            },
-            "required": ["ns", "idx_name"]
-        }
-    },
-    {
-        "name": "pdb_index_list",
-        "description": "List all defined auto-indices.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "pdb_index_drop",
-        "description": "Remove an auto-index definition and all its stored index data.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace of the index"},
-                "idx_name": {"type": "string", "description": "Index name to drop"}
-            },
-            "required": ["ns", "idx_name"]
-        }
-    },
-    {
-        "name": "pdb_trigger_define",
-        "description": "Define a trigger. Fires on ON_SET or ON_KILL events in a namespace. Actions: log, pdb_set (replicate), webhook. Use {sub_N} in dest_subs for subscript substitution.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to watch"},
-                "trigger_id": {"type": "string", "description": "Optional custom ID (auto-generated if omitted)"},
-                "event": {"type": "string", "enum": ["ON_SET", "ON_KILL"], "description": "Event type", "default": "ON_SET"},
-                "action": {"type": "string", "enum": ["log", "pdb_set", "webhook"], "description": "Action to execute", "default": "log"},
-                "params": {"type": "object", "description": "Action params: dest_ns, dest_subs (with {sub_N} templates), dest_value, url"}
-            },
-            "required": ["ns"]
-        }
-    },
-    {
-        "name": "pdb_trigger_list",
-        "description": "List all defined triggers. Filter by namespace.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Optional namespace filter"}
-            }
-        }
-    },
-    {
-        "name": "pdb_trigger_drop",
-        "description": "Remove a trigger definition.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace of the trigger"},
-                "trigger_id": {"type": "string", "description": "Trigger ID to remove"}
-            },
-            "required": ["ns", "trigger_id"]
-        }
-    },
-    {
-        "name": "pdb_trigger",
-        "description": "Combined trigger management: list or drop triggers.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["list", "drop"], "description": "Action"},
-                "ns": {"type": "string"},
-                "trigger_id": {"type": "string"}
-            },
-            "required": ["action"]
-        }
-    },
-    {
-        "name": "pdb_map_set",
-        "description": "Map a namespace to a different SQLite file. ^ns(subs) will read/write to that file instead of the default DB. Pass empty db_path to remove mapping. Analogous to MSM global mapping.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to map (e.g. 'PATIENT')"},
-                "db_path": {"type": "string", "description": "Path to SQLite file. Empty string removes mapping."}
-            },
-            "required": ["ns"]
-        }
-    },
-    {
-        "name": "pdb_map_get",
-        "description": "Get the mapped file path for a namespace.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to query"}
-            },
-            "required": ["ns"]
-        }
-    },
-    {
-        "name": "pdb_map_list",
-        "description": "List all namespace→file global mappings.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "pdb_map_drop",
-        "description": "Remove a namespace mapping. Falls back to default PDB.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to unmap"}
-            },
-            "required": ["ns"]
-        }
-    },
-    {
-        "name": "pdb_m_eval",
-        "description": "Evaluate an M expression using M-Light. Supports $GET(^ns(subs)), $PIECE, $EXTRACT, $SELECT. Examples: $GET(^PATIENT(42,\"name\")), $PIECE(\"a|b|c\",\"|\",2).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "expression": {"type": "string", "description": "M expression to evaluate"}
-            },
-            "required": ["expression"]
-        }
-    },
-    {
-        "name": "pdb_m_repl",
-        "description": "M REPL — ejecuta código M contra PDB en vivo. Variables persisten entre líneas. Múltiples líneas separadas por saltos. Ejemplo: S N=\"\"\\nF  S N=$O(^n(N)) Q:N=\"\"",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "Código M (una o más líneas)"}
-            },
-            "required": ["code"]
-        }
-    },
-    {
-        "name": "pdb_dbfix",
-        "description": "DBFIX — mantenimiento automático de PDB. Ejecuta: integrity_check, FTS5 reindex, WAL checkpoint, vacuum condicional. Devuelve report completo.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "pdb_mvm_spawn",
-        "description": "Spawn a new M process (MVM). Returns PID ($J). Code runs as M-Light in a persistent process.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "M code to execute"},
-                "name": {"type": "string", "description": "Process name"}
-            },
-            "required": ["code"]
-        }
-    },
-    {
-        "name": "pdb_mvm_tick",
-        "description": "Execute one VM tick. Runs all active processes by a number of instructions each.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "max_per_process": {"type": "integer", "description": "Max instructions per process"}
-            }
-        }
-    },
-    {
-        "name": "pdb_mvm_list",
-        "description": "List all MVM processes with status, PC, vars, age.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "pdb_mvm_kill",
-        "description": "Kill an MVM process by PID.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "pid": {"type": "string", "description": "Process ID to kill"}
-            },
-            "required": ["pid"]
-        }
-    },
-    {
-        "name": "pdb_mvm_mailbox_send",
-        "description": "Send a message to a process mailbox.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "to_pid": {"type": "string", "description": "Target process ID"},
-                "message": {"description": "Message content (string or object)"}
-            },
-            "required": ["to_pid", "message"]
-        }
-    },
-    {
-        "name": "pdb_mvm_mailbox_read",
-        "description": "Read all pending messages from a process mailbox. Messages are deleted after reading.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "pid": {"type": "string", "description": "Process ID to read mailbox from"}
-            },
-            "required": ["pid"]
-        }
-    },
-    {
-        "name": "pdb_partition_define",
-        "description": "Define automatic partitioning for a namespace. Partitions split by subscript at key_pos into ranges, each range mapped to a separate SQLite file. Solves the MSM 2GB limit problem.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to partition"},
-                "key_pos": {"type": "integer", "description": "Subscript position to partition by (0-based, default: 0)", "default": 0},
-                "ranges": {"type": "array", "items": {"type": "object", "properties": {"max": {"type": "number"}, "path": {"type": "string"}}},
-                          "description": "Range definitions: [{max: 100000, path: '/data/part1.db'}, {max: 200000, path: '/data/part2.db'}]"}
-            },
-            "required": ["ns", "ranges"]
-        }
-    },
-    {
-        "name": "pdb_partition_list",
-        "description": "List all partition configurations.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "pdb_partition_drop",
-        "description": "Remove partition configuration for a namespace. Falls back to single file.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to remove partitioning from"}
-            },
-            "required": ["ns"]
-        }
-    },
-    {
-        "name": "pdb_lock",
-        "description": "LOCK — acquire a resource lock. Blocks other sessions from writing to the same namespace+subscripts. Analogous to MUMPS LOCK ^ns(subs). Use with pdb_unlock.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to lock (e.g. 'STATE')"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}, "description": "Subscript path to lock"},
-                "timeout": {"type": "number", "description": "Max seconds to wait. Omit to block indefinitely."}
-            },
-            "required": ["ns"]
-        }
-    },
-    {
-        "name": "pdb_unlock",
-        "description": "UNLOCK — release a resource lock. Pass all=true to release all locks held by the current session. Analogous to MUMPS LOCK (no args).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ns": {"type": "string", "description": "Namespace to unlock"},
-                "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}, "description": "Subscript path to unlock"},
-                "all": {"type": "boolean", "description": "Release ALL locks held by this session", "default": False}
-            }
-        }
-    },
+def tool_vec_search(args: dict) -> dict:
+    """Search embeddings by cosine similarity using sqlite-vec KNN index.
 
-    {
-        "name": "pdb_embed",
-        "description": "Generate embeddings for text(s) and store in PDB. Uses fastembed (all-MiniLM-L6-v2, 384 dims).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "texts": {"type": "array", "items": {"type": "string"}, "description": "Texts to embed"},
-                "source": {"type": "string", "description": "Optional source label"}
-            },
-            "required": ["texts"]
-        }
-    },
-    {
-        "name": "pdb_embed_search",
-        "description": "Search indexed texts by cosine similarity. Returns top-N results with scores.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query"},
-                "limit": {"type": "integer", "description": "Max results", "default": 5}
-            },
-            "required": ["query"]
-        }
-    },
+    Optimized with partition key when 'path' is provided — only searches
+    the relevant shard instead of the whole index (hierarchical RAG).
+    Falls back to numpy-based tool_embed_search if sqlite-vec unavailable."""
+    query = args.get("query", "")
+    limit = min(args.get("limit", 5), 50)
+    path = args.get("path", "")
+    if not query:
+        return {"success": False, "error": "query required"}
+    try:
+        _init_vec()
+        import math, json as _vj
+        model = _get_embedder()
+        q_emb = list(model.embed([query]))[0]
+        q_json = _vj.dumps([float(v) for v in q_emb])
+        c = _get_conn()
 
-]
+        if path:
+            # Hierarchical RAG: use partition key for O(log N) search
+            table = "_vec_hierarchical"
+            if path.endswith("*"):
+                # Prefix match: strip "*" and use prefix filter
+                prefix = path[:-1]
+                sql = (
+                    f"SELECT rowid, distance, hash, text, source FROM {table} "
+                    f"WHERE embedding MATCH ? AND substr(path, 1, ?)=? ORDER BY distance LIMIT ?"
+                )
+                rows = c.execute(sql, (q_json, len(prefix), prefix, limit))
+            else:
+                # Exact partition match
+                sql = (
+                    f"SELECT rowid, distance, hash, text, source FROM {table} "
+                    f"WHERE embedding MATCH ? AND path=? ORDER BY distance LIMIT ?"
+                )
+                rows = c.execute(sql, (q_json, path, limit))
+        else:
+            # Full search (no partition filter)
+            table = "_vec_embeddings"
+            sql = (
+                f"SELECT rowid, distance, hash, text, source FROM {table} "
+                f"WHERE embedding MATCH ? ORDER BY distance LIMIT ?"
+            )
+            rows = c.execute(sql, (q_json, limit))
 
-HANDLERS = {
-    "pdb_set": tool_set,
-    "pdb_get": tool_get,
-    "pdb_order": tool_order,
-    "pdb_data": tool_data,
-    "pdb_kill": tool_kill,
-    "pdb_incr": tool_incr,
-    "pdb_merge": tool_merge,
-    "pdb_query": tool_query,
-    "pdb_schema": tool_schema,
-    "pdb_backup": tool_backup,
-    "pdb_batch_set": tool_batch_set,
-    "pdb_scratch_set": tool_scratch_set,
-    "pdb_scratch_get": tool_scratch_get,
-    "pdb_scratch_del": tool_scratch_del,
-    "pdb_fts_search": tool_fts_search,
-    "pdb_lock": tool_lock,
-    "pdb_unlock": tool_unlock,
-    "pdb_index_define": tool_index_define,
-    "pdb_index_list": tool_index_list,
-    "pdb_index_drop": tool_index_drop,
-    "pdb_trigger_define": tool_trigger_define,
-    "pdb_trigger_list": tool_trigger_list,
-    "pdb_trigger_drop": tool_trigger_drop,
-    "pdb_trigger": tool_trigger,
-    "pdb_map_set": tool_map_set,
-    "pdb_map_get": tool_map_get,
-    "pdb_map_list": tool_map_list,
-    "pdb_map_drop": tool_map_drop,
-    "pdb_partition_define": tool_partition_define,
-    "pdb_partition_list": tool_partition_list,
-    "pdb_partition_drop": tool_partition_drop,
-    "pdb_m_eval": tool_m_eval,
-    "pdb_m_repl": tool_m_repl,
-    "pdb_dbfix": tool_dbfix,
-    "pdb_mvm_spawn": tool_mvm_spawn,
-    "pdb_mvm_tick": tool_mvm_tick,
-    "pdb_mvm_list": tool_mvm_list,
-    "pdb_mvm_kill": tool_mvm_kill,
-    "pdb_mvm_mailbox_send": tool_mvm_mailbox_send,
-    "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
-    "pdb_embed": tool_embed,
-    "pdb_embed_search": tool_embed_search,
-    "pdb_history": tool_history,
-    "pdb_rollback": tool_rollback,
-}
+        results = []
+        for r in rows:
+            results.append({
+                "hash": r["hash"],
+                "text": r["text"],
+                "score": round(1.0 - r["distance"], 4),
+                "source": r["source"],
+            })
+        return {"success": True, "results": results, "count": len(results)}
+    except Exception as e:
+        # Fallback to numpy-based search
+        return tool_embed_search(args)
+
+

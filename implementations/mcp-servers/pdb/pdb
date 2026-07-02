@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# PDB CLI wrapper for git-bash / MSYS
+PDB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python "$PDB_DIR/pdb_cli.py" "$@"
