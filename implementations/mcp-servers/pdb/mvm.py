@@ -25,9 +25,10 @@ RUNNING  = "RUNNING"
 WAITING  = "WAITING"   # esperando mailbox/mensaje
 BLOCKED  = "BLOCKED"   # esperando I/O (dispositivo ocupado)
 HALTED   = "HALTED"    # pausado externamente
+HIBERNATE= "HIBERNATE" # dormido, se despierta solo via ^SCHEDULE
 DEAD     = "DEAD"
 
-_ALL_STATES = [READY, RUNNING, WAITING, BLOCKED, HALTED, DEAD]
+_ALL_STATES = [READY, RUNNING, WAITING, BLOCKED, HALTED, HIBERNATE, DEAD]
 
 
 class MProcess:
@@ -113,7 +114,7 @@ class MProcess:
         El scheduler llama repetidamente; cada llamada resetea gas_used."""
         if self.status == DEAD:
             return False
-        if self.status in (WAITING, BLOCKED, HALTED):
+        if self.status in (WAITING, BLOCKED, HALTED, HIBERNATE):
             self._save_state()
             return True
 
@@ -299,7 +300,7 @@ class MVM:
                 self._ready_queue.append(pid)  # sigue en RR
             elif proc.status == DEAD:
                 self._cleanup(pid)
-            elif proc.status in (WAITING, BLOCKED, HALTED):
+            elif proc.status in (WAITING, BLOCKED, HALTED, HIBERNATE):
                 pass  # no vuelve a RR hasta que cambie estado
         else:
             pass
@@ -309,7 +310,9 @@ class MVM:
 
     def tick_all(self, max_per_process: int = 100) -> int:
         """Ejecutar TODOS los procesos READY (un ciclo completo RR).
-        También revisa cron jobs cada 10 ticks."""
+        También revisa cron jobs cada 10 ticks y ^SCHEDULE cada tick."""
+        # Check ^SCHEDULE: despertar procesos HIBERNATE cuyo wake_time haya llegado
+        self._check_schedule()
         alive = 0
         seen = set()
         for _ in range(len(self._ready_queue)):
@@ -328,7 +331,7 @@ class MVM:
                     alive += 1
                 elif proc.status == DEAD:
                     self._cleanup(pid)
-            elif proc and proc.status in (WAITING, BLOCKED, HALTED):
+            elif proc and proc.status in (WAITING, BLOCKED, HALTED, HIBERNATE):
                 pass
         self._cron_counter += 1
         if self._cron_counter % 10 == 0:
@@ -336,6 +339,54 @@ class MVM:
         if self._cron_counter % 5 == 0:
             self.llm_worker_tick()
         return alive
+
+    def _check_schedule(self):
+        """Revisar ^SCHEDULE y despertar procesos cuyo wake_time haya llegado."""
+        now = time.time()
+        pid = ""
+        while True:
+            r = self.pdb.tool_order({"ns": "SCHEDULE", "subs": [pid], "direction": 1})
+            if r.get("value") is None:
+                break
+            pid = str(r["value"])
+            val = self.pdb.tool_get({"ns": "SCHEDULE", "subs": [pid]})
+            try:
+                wake_time = float(val.get("value", 0))
+            except (ValueError, TypeError):
+                continue
+            if wake_time <= now:
+                # Wake this process
+                self.wake_process(pid, from_schedule=True)
+                self.pdb.tool_kill({"ns": "SCHEDULE", "subs": [pid]})
+
+    def sleep_process(self, pid: int, seconds: float):
+        """Dormir un proceso por N segundos (HIBERNATE)."""
+        pid_str = str(pid)
+        proc = self.processes.get(pid_str)
+        if not proc:
+            return False
+        wake_time = time.time() + seconds
+        self.pdb.tool_set({"ns": "SCHEDULE", "subs": [pid_str], "value": str(wake_time)})
+        proc.status = HIBERNATE
+        proc._save_state()
+        return True
+
+    def wake_process(self, pid, from_schedule=False):
+        """Despertar un proceso HIBERNATE manualmente."""
+        pid_str = str(pid) if not isinstance(pid, str) else pid
+        proc = self.processes.get(pid_str)
+        if not proc:
+            return False
+        if proc.status != HIBERNATE and not from_schedule:
+            return False
+        proc.status = READY
+        proc.last_run = time.time()
+        if pid_str not in self._ready_queue:
+            self._ready_queue.append(pid_str)
+        proc._save_state()
+        # Clean up schedule entry
+        self.pdb.tool_kill({"ns": "SCHEDULE", "subs": [pid_str]})
+        return True
 
     def llm_worker_tick(self, max_per_tick: int = 3):
         """Worker: poll ^LLM_PENDING, call LLM API, write ^LLM_RESULT, wake process."""
@@ -442,9 +493,11 @@ class MVM:
         return False
 
     def _cleanup(self, pid):
-        """Limpiar un proceso muerto de las colas."""
+        """Limpiar un proceso muerto de las colas y ^SCHEDULE."""
         if pid in self._ready_queue:
             self._ready_queue.remove(pid)
+        # Clean up any pending schedule entry
+        self.pdb.tool_kill({"ns": "SCHEDULE", "subs": [str(pid)]})
 
     def _check_global_gas(self, proc: MProcess):
         """Abortar proceso si excede el límite global de gas total.
