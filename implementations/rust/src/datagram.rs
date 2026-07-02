@@ -35,8 +35,6 @@
 use std::io;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
 
 /// Maximum UDP datagram payload size (65535 - 8B UDP header - 20B IP header).
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
@@ -119,7 +117,7 @@ impl DatagramTransport {
     /// Returns the number of bytes sent.
     pub fn send_frame_to(&self, frame: &[u8], addr: SocketAddr) -> io::Result<usize> {
         if frame.len() > MAX_DATAGRAM_SIZE {
-            return Err(io::Error::new(io::ErrorKind::Other, "datagram too large"));
+            return Err(io::Error::other("datagram too large"));
         }
         self.socket.send_to(frame, addr)
     }
@@ -127,7 +125,7 @@ impl DatagramTransport {
     /// Send to the connected peer (requires `connect()`).
     pub fn send_frame(&self, frame: &[u8]) -> io::Result<usize> {
         if frame.len() > MAX_DATAGRAM_SIZE {
-            return Err(io::Error::new(io::ErrorKind::Other, "datagram too large"));
+            return Err(io::Error::other("datagram too large"));
         }
         self.socket.send(frame)
     }
@@ -237,7 +235,7 @@ mod tests {
     use std::time::Duration;
 
     fn ephemeral() -> String {
-        format!("127.0.0.1:0")
+        "127.0.0.1:0".to_string()
     }
 
     #[test]
@@ -323,7 +321,16 @@ mod tests {
         let rx_addr = rx.local_addr().unwrap();
         let tx = DatagramTransport::bind(&ephemeral()).unwrap();
 
-        tx.send_frame_to(&frame, rx_addr).unwrap();
+        if let Err(e) = tx.send_frame_to(&frame, rx_addr) {
+            // macOS caps UDP datagrams at net.inet.udp.maxdgram (9216 by
+            // default) — a platform send-size limit, not a protocol bug.
+            #[cfg(unix)]
+            if e.raw_os_error() == Some(libc::EMSGSIZE) {
+                eprintln!("skipping: OS rejects {}-byte datagrams (EMSGSIZE)", frame.len());
+                return;
+            }
+            panic!("send_frame_to failed: {e}");
+        }
         thread::sleep(Duration::from_millis(50));
 
         let result = rx.recv_frame().unwrap();

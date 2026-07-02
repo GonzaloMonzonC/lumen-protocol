@@ -63,7 +63,7 @@ fn utf8_truncate(data: &[u8], max_bytes: usize) -> usize {
     while boundary > 0 {
         boundary -= 1;
         let b = data[boundary];
-        if b < 0x80 || b >= 0xC0 {
+        if !(0x80..0xC0).contains(&b) {
             // This is a character start byte.
             // Check if the full character fits within max_bytes
             let char_len = if b < 0x80 {
@@ -299,14 +299,14 @@ pub struct StreamRegistry {
     streams: HashMap<u32, StreamState>,
 }
 
+/// State of an active token stream (returned by [`StreamRegistry::remove`]).
 #[derive(Debug)]
-struct StreamState {
-    model: String,
-    max_tokens: u32,
-    #[allow(dead_code)]
-    temperature: f32,
-    next_seq: u32,
-    token_count: u32,
+pub struct StreamState {
+    pub model: String,
+    pub max_tokens: u32,
+    pub temperature: f32,
+    pub next_seq: u32,
+    pub token_count: u32,
 }
 
 impl StreamRegistry {

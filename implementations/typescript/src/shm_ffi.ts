@@ -255,6 +255,8 @@ export class ShmTransportFFI {
    * Returns a `Buffer` with the frame payload on success.
    *
    * Maximum frame size is 64 KiB by default (configurable via `maxFrameSize`).
+   * If a larger frame arrives, the native side retains it (rc -2) and reports
+   * the required size, so we retry once with a buffer that fits.
    */
   readFrame(maxFrameSize: number = 65536): Buffer | null {
     const buf = Buffer.allocUnsafe(maxFrameSize);
@@ -271,6 +273,15 @@ export class ShmTransportFFI {
     if (rc === 0) {
       const actualLen = outLenBuf.readUInt32LE(0);
       return buf.slice(0, actualLen);
+    }
+    if (rc === -2) {
+      // Frame too large for our buffer — retained natively; out_len holds
+      // the required size. Retry with exactly that capacity (depth 1: the
+      // retained frame is always delivered first on the next call).
+      const required = outLenBuf.readUInt32LE(0);
+      if (required > maxFrameSize) {
+        return this.readFrame(required);
+      }
     }
     return null;
   }

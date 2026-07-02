@@ -153,7 +153,7 @@ fn binary_stability() {
         ("null", Value::Null),
         ("bool", Value::Bool(true)),
         ("int", serde_json::json!(42)),
-        ("float", serde_json::json!(3.14)),
+        ("float", serde_json::json!(1.25)),
         ("string", Value::String("hello".into())),
         ("array", serde_json::json!([1, 2, 3])),
         ("object", serde_json::json!({"key": "value"})),

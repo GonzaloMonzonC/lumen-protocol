@@ -205,7 +205,7 @@ const fn leb128_max_len(value: u64) -> usize {
         return 1;
     }
     let bits = 64 - value.leading_zeros() as usize;
-    (bits + 6) / 7
+    bits.div_ceil(7)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

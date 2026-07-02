@@ -9,7 +9,6 @@ use lumen::compress;
 use lumen::fixtures;
 use lumen::frame;
 use lumen::hyb128;
-use serde_json;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU64, Ordering};
 

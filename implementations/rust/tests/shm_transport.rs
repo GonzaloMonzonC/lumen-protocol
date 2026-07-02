@@ -122,51 +122,12 @@ fn shm_large_frame() {
 
 // ── Handshake test ──────────────────────────────────────────────────────────
 
-/// Simulates a handshake using two in-memory buffers as the "stream" transport.
+/// Verifies the transport-negotiation frame types.
+///
+/// A full handshake integration test would need separate processes; the
+/// protocol serialization itself is covered by the handshake unit tests.
 #[test]
 fn handshake_mmap_negotiation() {
-    // Use a simple in-memory stream for the handshake
-    use std::sync::{Arc, Mutex};
-
-    struct MemStream {
-        buf: Arc<Mutex<Vec<u8>>>,
-        read_pos: usize,
-    }
-
-    impl MemStream {
-        fn new_pair() -> (Self, Self) {
-            let client_buf = Arc::new(Mutex::new(Vec::new()));
-            let server_buf = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self { buf: client_buf, read_pos: 0 },
-                Self { buf: server_buf, read_pos: 0 },
-            )
-        }
-    }
-
-    impl lumen::transport::Transport for MemStream {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let data = self.buf.lock().unwrap();
-            let remaining = &data[self.read_pos..];
-            let n = remaining.len().min(buf.len());
-            buf[..n].copy_from_slice(&remaining[..n]);
-            self.read_pos += n;
-            Ok(n)
-        }
-
-        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-            self.buf.lock().unwrap().extend_from_slice(buf);
-            Ok(())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
-    }
-
-    // NOTE: The handshake test requires the shm region to exist. The
-    // handshake functions create/open it. This test verifies the protocol
-    // serialization is correct — full integration would need separate processes.
-
-    // For now, just verify frame types exist and are correct:
     assert_eq!(lumen::frame::TYPE_TRANSPORT_INIT, 0x0B);
     assert_eq!(lumen::frame::TYPE_TRANSPORT_ACK, 0x0C);
 }

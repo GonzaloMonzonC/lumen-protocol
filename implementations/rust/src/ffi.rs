@@ -17,6 +17,10 @@
 //!     lumen_free(out, out_len);
 //! }
 //! ```
+// These are C ABI entry points: pointer validity is the C caller's contract
+// (documented per function), every function null-checks its arguments, and
+// `unsafe` on the Rust signature would not be visible across the FFI anyway.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use std::os::raw::c_char;
 use std::cell::RefCell;
@@ -58,7 +62,7 @@ pub extern "C" fn lumen_error_message() -> *const c_char {
 
     thread_local! {
         static LAST_MSG: std::cell::RefCell<Option<CString>> =
-            std::cell::RefCell::new(None);
+            const { std::cell::RefCell::new(None) };
     }
     let msg = take_error();
     let ptr: *const c_char = match &msg {
@@ -173,7 +177,7 @@ pub extern "C" fn lumen_free(ptr: *mut u8, len: usize) {
     }
     unsafe {
         // Reconstruct the Box<[u8]> so Rust drops it properly.
-        let _ = Box::from_raw(std::slice::from_raw_parts_mut(ptr, len));
+        let _ = Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len));
     }
 }
 
@@ -187,6 +191,20 @@ use crate::shm::{RingSide, ShmRegion};
 /// Freed by `lumen_shm_close`.
 pub struct ShmOpaque {
     region: ShmRegion,
+    /// Frame read from the ring but not yet delivered because the caller's
+    /// buffer was too small (one slot per ring side). Retaining it here
+    /// means an undersized buffer never loses data — the next read with
+    /// enough capacity returns the same frame.
+    pending: [std::sync::Mutex<Option<Vec<u8>>>; 2],
+}
+
+impl ShmOpaque {
+    fn new(region: ShmRegion) -> Self {
+        Self {
+            region,
+            pending: [std::sync::Mutex::new(None), std::sync::Mutex::new(None)],
+        }
+    }
 }
 
 /// Create a new named shared memory region (server side).
@@ -223,8 +241,7 @@ pub extern "C" fn lumen_shm_create(
     match ShmRegion::create(Some(name), Some(sz)) {
         Ok(region) => {
             region.init_header();
-            let handle = Box::new(ShmOpaque { region });
-            Box::into_raw(handle)
+            Box::into_raw(Box::new(ShmOpaque::new(region)))
         }
         Err(e) => {
             set_error(format!("lumen_shm_create: {e}"));
@@ -268,8 +285,7 @@ pub extern "C" fn lumen_shm_open(
                 set_error("lumen_shm_open: invalid magic or version — region not initialised".into());
                 return std::ptr::null_mut();
             }
-            let handle = Box::new(ShmOpaque { region });
-            Box::into_raw(handle)
+            Box::into_raw(Box::new(ShmOpaque::new(region)))
         }
         Err(e) => {
             set_error(format!("lumen_shm_open: {e}"));
@@ -319,8 +335,13 @@ pub extern "C" fn lumen_shm_write_frame(
 /// - `buf_cap`: capacity of the caller's buffer in bytes.
 /// - `out_len`: receives the actual payload length written.
 ///
-/// Returns 0 on success, -1 if no complete frame is available.
-/// If the frame is larger than `buf_cap`, returns -1 and sets error.
+/// Returns:
+/// - `0` on success (`*out_len` = payload length written to `buf_ptr`).
+/// - `-2` if the frame is larger than `buf_cap`. The frame is NOT lost:
+///   it is retained inside the handle and `*out_len` is set to the required
+///   size — call again with a buffer of at least that capacity.
+/// - `-1` on any other error, including timeout waiting for a frame
+///   (call `lumen_error_message()` for details).
 #[no_mangle]
 pub extern "C" fn lumen_shm_read_frame(
     handle: *mut ShmOpaque,
@@ -330,34 +351,49 @@ pub extern "C" fn lumen_shm_read_frame(
     out_len: *mut u32,
 ) -> i32 {
     if handle.is_null() || buf_ptr.is_null() || out_len.is_null() {
+        set_error("lumen_shm_read_frame: null pointer argument".into());
         return -1;
     }
     let h = unsafe { &*handle };
-    let rs = if side == 0 { RingSide::A } else { RingSide::B };
+    let (rs, side_idx) = if side == 0 { (RingSide::A, 0) } else { (RingSide::B, 1) };
 
-    let ring = h.region.ring_buffer(rs);
-    let mut frame = Vec::new();
-    match ring.read_frame(&mut frame) {
-        Ok(flen) => {
-            if flen > buf_cap as usize {
-                set_error(format!(
-                    "lumen_shm_read_frame: frame length {} exceeds buffer capacity {}",
-                    flen, buf_cap
-                ));
-                // Drain the frame so we don't get stuck on it
-                return -1;
+    let mut pending = h.pending[side_idx]
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // Deliver a previously retained frame first, otherwise read a new one.
+    let frame = match pending.take() {
+        Some(f) => f,
+        None => {
+            let ring = h.region.ring_buffer(rs);
+            let mut f = Vec::new();
+            match ring.read_frame(&mut f) {
+                Ok(_) => f,
+                Err(e) => {
+                    set_error(format!("lumen_shm_read_frame: {e}"));
+                    return -1;
+                }
             }
-            unsafe {
-                std::ptr::copy_nonoverlapping(frame.as_ptr(), buf_ptr, flen);
-                *out_len = flen as u32;
-            }
-            0
         }
-        Err(e) => {
-            set_error(format!("lumen_shm_read_frame: {e}"));
-            -1
-        }
+    };
+
+    let flen = frame.len();
+    if flen > buf_cap as usize {
+        // Keep the frame for the next call instead of destroying it.
+        unsafe { *out_len = flen as u32 };
+        *pending = Some(frame);
+        set_error(format!(
+            "lumen_shm_read_frame: frame length {flen} exceeds buffer capacity {buf_cap}; \
+             frame retained — call again with a buffer of at least {flen} bytes"
+        ));
+        return -2;
     }
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(frame.as_ptr(), buf_ptr, flen);
+        *out_len = flen as u32;
+    }
+    0
 }
 
 /// Close and free a shared memory handle.
@@ -461,6 +497,40 @@ mod tests {
             lumen_decompress(ptr::null(), 0, &mut out, &mut out_len),
             -1
         );
+    }
+
+    #[test]
+    fn ffi_shm_undersized_buffer_retains_frame() {
+        let name = format!("/lumen-ffi-retain-{}", std::process::id());
+        let h = lumen_shm_create(name.as_ptr(), name.len() as u32, 0);
+        assert!(!h.is_null());
+
+        let payload = vec![0xABu8; 1000];
+        assert_eq!(
+            lumen_shm_write_frame(h, 0, payload.as_ptr(), payload.len() as u32),
+            0
+        );
+
+        // Undersized buffer → -2, out_len reports the required size,
+        // and the frame is retained instead of destroyed.
+        let mut small = [0u8; 16];
+        let mut out_len: u32 = 0;
+        assert_eq!(
+            lumen_shm_read_frame(h, 0, small.as_mut_ptr(), small.len() as u32, &mut out_len),
+            -2
+        );
+        assert_eq!(out_len as usize, payload.len());
+
+        // Retry with enough capacity → the same frame is delivered intact.
+        let mut big = vec![0u8; 1024];
+        assert_eq!(
+            lumen_shm_read_frame(h, 0, big.as_mut_ptr(), big.len() as u32, &mut out_len),
+            0
+        );
+        assert_eq!(out_len as usize, payload.len());
+        assert_eq!(&big[..payload.len()], payload.as_slice());
+
+        lumen_shm_close(h);
     }
 
     #[test]
