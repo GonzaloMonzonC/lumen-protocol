@@ -333,7 +333,88 @@ class MVM:
         self._cron_counter += 1
         if self._cron_counter % 10 == 0:
             self.cron.tick()
+        if self._cron_counter % 5 == 0:
+            self.llm_worker_tick()
         return alive
+
+    def llm_worker_tick(self, max_per_tick: int = 3):
+        """Worker: poll ^LLM_PENDING, call LLM API, write ^LLM_RESULT, wake process."""
+        import json, urllib.request, urllib.error, os, time
+        processed = 0
+        pid = ""
+        while processed < max_per_tick:
+            r = self.pdb.tool_order({"ns": "STATE", "subs": [pid], "direction": 1})
+            if r.get("value") is None:
+                break
+            pid = str(r["value"])
+            if pid in ("heartbeat",):
+                continue
+
+            # Get first pending seq for this pid
+            seq = ""
+            r2 = self.pdb.tool_order({"ns": "STATE", "subs": [pid, "llm_pending", ""], "direction": 1})
+            if r2.get("value") is None:
+                pid += "\xff"
+                continue
+            seq = str(r2["value"])
+            if seq in ("heartbeat",):
+                continue
+
+            # Read the pending request
+            data_r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "llm_pending", seq]})
+            if data_r.get("value") is None:
+                pid += "\xff"
+                continue
+
+            try:
+                pending = json.loads(str(data_r["value"]))
+            except Exception:
+                self.pdb.tool_kill({"ns": "STATE", "subs": [pid, "llm_pending", seq]})
+                pid += "\xff"
+                continue
+
+            prompt = pending.get("prompt", "")
+            config = pending.get("config", {})
+
+            # Call LLM API (OpenAI-compatible)
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+            endpoint = os.environ.get("LLM_ENDPOINT", "https://api.openai.com/v1/chat/completions")
+
+            response_text = ""
+            if not api_key:
+                response_text = "LLM_ERROR: No API key configured (set OPENAI_API_KEY)"
+            else:
+                body = json.dumps({
+                    "model": config.get("model", "gpt-4"),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": config.get("temperature", 0.7),
+                    "max_tokens": config.get("max_tokens", 1024)
+                }).encode()
+
+                try:
+                    req = urllib.request.Request(endpoint, data=body,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {api_key}"
+                        },
+                        method="POST")
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        resp_data = json.loads(resp.read())
+                        response_text = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                except Exception as e:
+                    response_text = f"LLM_ERROR: {e}"
+
+            # Write result to PDB
+            self.pdb.tool_set({
+                "ns": "STATE",
+                "subs": [pid, "llm_result", seq],
+                "value": json.dumps({"response": response_text, "completed": time.time()})
+            })
+
+            # Wake the waiting process
+            self.wake(pid)
+
+            processed += 1
 
     def wake(self, pid):
         """Despertar un proceso en WAITING (ej: le llegó un mailbox)."""
@@ -901,6 +982,123 @@ class MailboxDevice(Device):
         return ""
 
 
+
+class LLMDevice(Device):
+    """Device 77 -- LLM Engine Stream. Storage-based async inference.
+    OPEN 77:"model=gpt-4&temp=0.7&max_tokens=2048"
+    WRITE: accumulate prompt in buffer
+    READ: submit to ^LLM_PENDING(pid,seq), WAIT, later return result
+    CLOSE: cleanup buffer"""
+
+    def __init__(self, vm=None, pid=None):
+        super().__init__(77, "LLM")
+        self.vm = vm
+        self._pid = pid
+        self.buffer = []
+        self.config = {"model": "gpt-4", "temperature": 0.7, "max_tokens": 1024}
+        self._seq = 0
+        self._pending = False
+        self._result = None
+
+    def open(self, params=""):
+        """OPEN 77:"model=gpt-4&temp=0.7&max_tokens=2048" """
+        for pair in params.strip().split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                if k == "model":
+                    self.config["model"] = v
+                elif k in ("temp", "temperature"):
+                    self.config["temperature"] = float(v)
+                elif k in ("max", "max_tokens"):
+                    self.config["max_tokens"] = int(v)
+        self.buffer = []
+        self._pending = False
+        self._result = None
+        self.is_open = True
+        return True
+
+    def write(self, data):
+        self.buffer.append(str(data))
+
+    def read(self):
+        # If we have a cached result from a previous check, return it
+        if self._result is not None:
+            r = self._result
+            self._result = None
+            self._pending = False
+            return r
+
+        # If no pending request and buffer has data, submit
+        if not self._pending and self.buffer:
+            prompt = "\n".join(self.buffer)
+            self.buffer = []
+            self._seq += 1
+            seq = self._seq
+
+            if self.vm and self._pid:
+                import json, time
+                self.vm.pdb.tool_set({
+                    "ns": "STATE",
+                    "subs": [str(self._pid), "llm_pending", str(seq)],
+                    "value": json.dumps({
+                        "prompt": prompt,
+                        "config": dict(self.config),
+                        "created": time.time()
+                    })
+                })
+                self._pending = True
+
+                # Mark process as WAITING
+                proc = self.vm.get_process(self._pid)
+                if proc:
+                    proc.status = "WAITING"
+                    proc.wait_reason = "LLM_INFERENCE"
+                    proc._save_state()
+
+            return ""  # No result yet, retry next tick
+
+        # Check for result from worker
+        if self._pending and self.vm and self._pid:
+            import json
+            result = self.vm.pdb.tool_get({
+                "ns": "STATE",
+                "subs": [str(self._pid), "llm_result", str(self._seq)]
+            })
+            if result.get("value") is not None:
+                try:
+                    data = json.loads(result.get("value", "{}"))
+                    self._result = data.get("response", "")
+                    # Cleanup pending entries
+                    self.vm.pdb.tool_kill({
+                        "ns": "STATE",
+                        "subs": [str(self._pid), "llm_pending", str(self._seq)]
+                    })
+                    self.vm.pdb.tool_kill({
+                        "ns": "STATE",
+                        "subs": [str(self._pid), "llm_result", str(self._seq)]
+                    })
+                    return ""  # Return cached result on next read() call
+                except Exception:
+                    pass
+
+        return ""
+
+    def close(self):
+        self.buffer = []
+        self._pending = False
+        self._result = None
+        if self._pid and self.vm:
+            self.vm.pdb.tool_kill({
+                "ns": "STATE",
+                "subs": [str(self._pid), "llm_pending"]
+            })
+            self.vm.pdb.tool_kill({
+                "ns": "STATE",
+                "subs": [str(self._pid), "llm_result"]
+            })
+        self.is_open = False
+
+
 class FileDevice(Device):
     """Device 5 — File I/O. OPEN con filepath, WRITE/READ/CLOSE."""
     def __init__(self):
@@ -1024,6 +1222,7 @@ class DeviceManager:
         self.register(PDBDevice(pdb))
         self.register(HTTPDevice())
         self.register(WebhookDevice())
+        self.register(LLMDevice())
 
     def register(self, device: Device):
         self.devices[device.num] = device
@@ -1056,6 +1255,10 @@ class DeviceManager:
 
     def attach_mailbox(self, pid: str, vm):
         self.devices[99] = MailboxDevice(vm, pid)
+        if 77 in self.devices:
+            dev = self.devices[77]
+            dev.vm = vm
+            dev._pid = pid
 
 
 # ══════════════════════════════════════════════════════════════════
