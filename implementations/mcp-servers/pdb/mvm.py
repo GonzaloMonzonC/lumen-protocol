@@ -338,6 +338,8 @@ class MVM:
             self.cron.tick()
         if self._cron_counter % 5 == 0:
             self.llm_worker_tick()
+        if self._cron_counter % 20 == 0:
+            self.device_pool_tick()
         return alive
 
     def _check_schedule(self):
@@ -388,7 +390,7 @@ class MVM:
         self.pdb.tool_kill({"ns": "SCHEDULE", "subs": [pid_str]})
         return True
 
-    def llm_worker_tick(self, max_per_tick: int = 3):
+    def llm_worker_tick(self, max_per_tick: int = 3):  # updated: context field
         """Worker: poll ^LLM_PENDING, call LLM API, write ^LLM_RESULT, wake process."""
         import json, urllib.request, urllib.error, os, time
         processed = 0
@@ -424,7 +426,7 @@ class MVM:
                 pid += "\xff"
                 continue
 
-            prompt = pending.get("prompt", "")
+            context = pending.get("context", pending.get("prompt", ""))
             config = pending.get("config", {})
 
             # Call LLM API (OpenAI-compatible)
@@ -437,7 +439,7 @@ class MVM:
             else:
                 body = json.dumps({
                     "model": config.get("model", "gpt-4"),
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": context}],
                     "temperature": config.get("temperature", 0.7),
                     "max_tokens": config.get("max_tokens", 1024)
                 }).encode()
@@ -467,6 +469,21 @@ class MVM:
 
             processed += 1
 
+
+    def device_pool_tick(self, max_idle: float = 120):
+        """Clean up idle Device 77 sessions. Workers idle > max_idle get closed.
+        Device 77 is shared via device_mgr, no per-process iteration needed."""
+        dev = self.device_mgr.devices.get(77)
+        if dev and dev.is_open and dev.idle_secs >= max_idle:
+            # Log which processes had it open (for debugging)
+            open_for = [str(p) for p, proc in self.processes.items()
+                       if proc.devices.devices.get(77) is dev and dev.is_open]
+            dev.close()
+            if open_for:
+                self.pdb.tool_set({
+                    "ns": "STATE", "subs": [open_for[0], "llm_device_cleanup"],
+                    "value": json.dumps({"idle_secs": dev.idle_secs, "cleaned": time.time()})
+})
     def wake(self, pid):
         """Despertar un proceso en WAITING (ej: le llegó un mailbox)."""
         pid = str(pid)
@@ -1137,9 +1154,11 @@ class MailboxDevice(Device):
 class LLMDevice(Device):
     """Device 77 -- LLM Engine Stream. Storage-based async inference.
     OPEN 77:"model=gpt-4&temp=0.7&max_tokens=2048"
-    WRITE: accumulate prompt in buffer
-    READ: submit to ^LLM_PENDING(pid,seq), WAIT, later return result
-    CLOSE: cleanup buffer"""
+    WRITE: accumulate prompt in persistent buffer (stays across reads)
+    READ: submit accumulated context to ^LLM_PENDING, wait for ^LLM_RESULT,
+          then APPEND response to buffer for next turn
+    CLOSE: cleanup buffer and pending state
+    POOL: workers use HIBERNATE while idle, cleaned up after timeout"""
 
     def __init__(self, vm=None, pid=None):
         super().__init__(77, "LLM")
@@ -1150,6 +1169,8 @@ class LLMDevice(Device):
         self._seq = 0
         self._pending = False
         self._result = None
+        self._last_activity = time.time()
+        self._active_workers = set()  # pool of worker pids using this device
 
     def open(self, params=""):
         """OPEN 77:"model=gpt-4&temp=0.7&max_tokens=2048" """
@@ -1165,13 +1186,21 @@ class LLMDevice(Device):
         self.buffer = []
         self._pending = False
         self._result = None
+        self._last_activity = time.time()
         self.is_open = True
         return True
 
     def write(self, data):
+        """WRITE: accumulate in persistent buffer (survives READ cycles).
+        The buffer holds the full conversation context."""
         self.buffer.append(str(data))
+        self._last_activity = time.time()
 
     def read(self):
+        """READ: submit buffer to worker, wait for response, append to buffer.
+        Buffer stays intact for the next WRITE cycle (conversational context)."""
+        self._last_activity = time.time()
+
         # If we have a cached result from a previous check, return it
         if self._result is not None:
             r = self._result
@@ -1181,20 +1210,19 @@ class LLMDevice(Device):
 
         # If no pending request and buffer has data, submit
         if not self._pending and self.buffer:
-            prompt = "\n".join(self.buffer)
-            self.buffer = []
+            full_context = "\n".join(self.buffer)
             self._seq += 1
             seq = self._seq
 
             if self.vm and self._pid:
-                import json, time
                 self.vm.pdb.tool_set({
                     "ns": "STATE",
                     "subs": [str(self._pid), "llm_pending", str(seq)],
                     "value": json.dumps({
-                        "prompt": prompt,
+                        "context": full_context,
                         "config": dict(self.config),
-                        "created": time.time()
+                        "created": time.time(),
+                        "turn": seq
                     })
                 })
                 self._pending = True
@@ -1210,7 +1238,6 @@ class LLMDevice(Device):
 
         # Check for result from worker
         if self._pending and self.vm and self._pid:
-            import json
             result = self.vm.pdb.tool_get({
                 "ns": "STATE",
                 "subs": [str(self._pid), "llm_result", str(self._seq)]
@@ -1218,7 +1245,11 @@ class LLMDevice(Device):
             if result.get("value") is not None:
                 try:
                     data = json.loads(result.get("value", "{}"))
-                    self._result = data.get("response", "")
+                    response = data.get("response", "")
+
+                    # APPEND response to buffer for conversational context
+                    self.buffer.append(response)
+
                     # Cleanup pending entries
                     self.vm.pdb.tool_kill({
                         "ns": "STATE",
@@ -1228,6 +1259,9 @@ class LLMDevice(Device):
                         "ns": "STATE",
                         "subs": [str(self._pid), "llm_result", str(self._seq)]
                     })
+
+                    self._result = response
+                    self._pending = False
                     return ""  # Return cached result on next read() call
                 except Exception:
                     pass
@@ -1235,6 +1269,7 @@ class LLMDevice(Device):
         return ""
 
     def close(self):
+        """CLOSE: cleanup buffer, pending state, and worker pool."""
         self.buffer = []
         self._pending = False
         self._result = None
@@ -1247,7 +1282,13 @@ class LLMDevice(Device):
                 "ns": "STATE",
                 "subs": [str(self._pid), "llm_result"]
             })
+        self._active_workers.clear()
         self.is_open = False
+
+    @property
+    def idle_secs(self) -> float:
+        """Seconds since last activity (WRITE/READ)."""
+        return time.time() - self._last_activity
 
 
 class FileDevice(Device):
