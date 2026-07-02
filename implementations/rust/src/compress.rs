@@ -95,7 +95,11 @@ pub fn compressed_size(value: &Value, session: Option<&SessionDict>) -> usize {
             9 // TAG_FLOAT + f64
         }
         Value::String(s) => {
-            if dict::lookup_fast(s, session).is_some() { 2 } else { 1 + hyb128::encoded_len(s.len() as u64) + s.len() }
+            if dict::lookup_fast(s, session).is_some() {
+                2
+            } else {
+                1 + hyb128::encoded_len(s.len() as u64) + s.len()
+            }
         }
         Value::Array(arr) => {
             let mut sz = 1 + hyb128::encoded_len(arr.len() as u64); // TAG + count
@@ -116,7 +120,11 @@ pub fn compressed_size(value: &Value, session: Option<&SessionDict>) -> usize {
 }
 
 fn key_size(key: &str, session: Option<&SessionDict>) -> usize {
-    if dict::lookup_fast(key, session).is_some() { 1 } else { 1 + hyb128::encoded_len(key.len() as u64) + key.len() }
+    if dict::lookup_fast(key, session).is_some() {
+        1
+    } else {
+        1 + hyb128::encoded_len(key.len() as u64) + key.len()
+    }
 }
 
 /// Estimate LEB128 byte count for an i64 (zigzag-encoded).
@@ -127,7 +135,9 @@ fn i64_leb128_len(v: i64) -> usize {
     loop {
         len += 1;
         n >>= 7;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
     }
     len
 }
@@ -265,7 +275,12 @@ const MAX_DEPTH: usize = 32;
 const PREALLOC_CAP: usize = 1024;
 
 /// Internal decode with depth tracking for DoS protection.
-fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict>, depth: usize) -> Option<Value> {
+fn decode_value_inner(
+    data: &[u8],
+    pos: &mut usize,
+    session: Option<&SessionDict>,
+    depth: usize,
+) -> Option<Value> {
     if depth > MAX_DEPTH {
         return None; // reject excessively nested payloads
     }
@@ -279,7 +294,9 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
         TAG_NULL => Some(Value::Null),
 
         TAG_BOOL => {
-            if *pos >= data.len() { return None; }
+            if *pos >= data.len() {
+                return None;
+            }
             let b = match data[*pos] {
                 0 => false,
                 1 => true,
@@ -290,7 +307,9 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
         }
 
         TAG_FLOAT => {
-            if *pos + 8 > data.len() { return None; }
+            if *pos + 8 > data.len() {
+                return None;
+            }
             let bytes: [u8; 8] = data[*pos..*pos + 8].try_into().ok()?;
             *pos += 8;
             let f = f64::from_le_bytes(bytes);
@@ -303,7 +322,9 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
         }
 
         TAG_STR_DICT => {
-            if *pos >= data.len() { return None; }
+            if *pos >= data.len() {
+                return None;
+            }
             let id = data[*pos];
             *pos += 1;
             dict::resolve_any(id, session).map(Value::String)
@@ -315,7 +336,9 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
             let v = len.value as usize;
             // `v > remaining` instead of `*pos + v > len`: the addition can
             // wrap for forged LEB128 lengths near usize::MAX (panic, not None).
-            if v > data.len() - *pos { return None; }
+            if v > data.len() - *pos {
+                return None;
+            }
             let bytes = &data[*pos..*pos + v];
             *pos += v;
             let s = String::from_utf8(bytes.to_vec()).ok()?;
@@ -378,7 +401,9 @@ fn decode_key(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Op
         let len = hyb128::decode(&data[*pos..])?;
         *pos += len.header_len;
         let v = len.value as usize;
-        if v > data.len() - *pos { return None; }
+        if v > data.len() - *pos {
+            return None;
+        }
         let bytes = &data[*pos..*pos + v];
         *pos += v;
         String::from_utf8(bytes.to_vec()).ok()
@@ -475,26 +500,28 @@ mod tests {
 
     #[test]
     fn compression_on_tools_list() {
-        let tools: Vec<Value> = (0..100).map(|i| {
-            json!({
-                "name": format!("tool_{i}"),
-                "description": format!("Tool number {i} for doing things"),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The search query"
+        let tools: Vec<Value> = (0..100)
+            .map(|i| {
+                json!({
+                    "name": format!("tool_{i}"),
+                    "description": format!("Tool number {i} for doing things"),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The search query"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "default": 20
+                            }
                         },
-                        "limit": {
-                            "type": "integer",
-                            "default": 20
-                        }
-                    },
-                    "required": ["query"]
-                }
+                        "required": ["query"]
+                    }
+                })
             })
-        }).collect();
+            .collect();
         let response = json!({
             "tools": tools,
             "total": 100
@@ -580,8 +607,10 @@ mod tests {
 
         // Decompress WITHOUT session dict should fail (session-range keys unknown)
         let decomp_no_session = decompress(&comp, None);
-        assert!(decomp_no_session.is_none(),
-            "should fail without session dict for custom keys");
+        assert!(
+            decomp_no_session.is_none(),
+            "should fail without session dict for custom keys"
+        );
     }
 
     #[test]

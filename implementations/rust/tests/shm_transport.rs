@@ -1,4 +1,4 @@
-﻿//! Integration tests for LUMEN Level 2 (Shared Memory Transport).
+//! Integration tests for LUMEN Level 2 (Shared Memory Transport).
 
 use lumen::shm::{RingSide, ShmRegion};
 use lumen::transport::{ShmTransport, Transport};
@@ -8,13 +8,12 @@ use lumen::transport::{ShmTransport, Transport};
 #[test]
 fn shm_roundtrip_single_frame() {
     // Server creates the region
-    let server_region = ShmRegion::create(Some("test-roundtrip-1"), None)
-        .expect("create shm region");
+    let server_region =
+        ShmRegion::create(Some("test-roundtrip-1"), None).expect("create shm region");
     server_region.init_header();
 
     // Client opens the same region
-    let client_region = ShmRegion::open("test-roundtrip-1", None)
-        .expect("open shm region");
+    let client_region = ShmRegion::open("test-roundtrip-1", None).expect("open shm region");
     assert!(client_region.validate());
 
     // Server: writes on Ring B, reads from Ring A
@@ -59,8 +58,7 @@ fn shm_roundtrip_single_frame() {
 
 #[test]
 fn shm_multiple_frames() {
-    let server_region = ShmRegion::create(Some("test-multi"), None)
-        .expect("create");
+    let server_region = ShmRegion::create(Some("test-multi"), None).expect("create");
     server_region.init_header();
     let client_region = ShmRegion::open("test-multi", None).expect("open");
 
@@ -95,8 +93,7 @@ fn shm_multiple_frames() {
 
 #[test]
 fn shm_large_frame() {
-    let server_region = ShmRegion::create(Some("test-large"), None)
-        .expect("create");
+    let server_region = ShmRegion::create(Some("test-large"), None).expect("create");
     server_region.init_header();
     let client_region = ShmRegion::open("test-large", None).expect("open");
 

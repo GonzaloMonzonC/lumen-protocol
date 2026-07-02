@@ -1,4 +1,4 @@
-﻿//! LUMEN Level 2 — Shared Memory Shootout Benchmark
+//! LUMEN Level 2 — Shared Memory Shootout Benchmark
 //!
 //! Benchmarks the ShmRingBuffer and ShmTransport:
 //!   1. Raw ring buffer throughput (MB/s) for various payload sizes
@@ -7,8 +7,8 @@
 //!   4. STREAM-like large sequential throughput
 //!   5. Cache-line ping-pong (64B payloads)
 
-use std::time::Instant;
 use lumen::transport::Transport;
+use std::time::Instant;
 
 const WARMUP: usize = 200;
 const ITERS: usize = 2000;
@@ -28,12 +28,16 @@ struct MemChannel {
 
 impl MemChannel {
     fn new() -> Self {
-        Self { buf: Vec::new(), read_pos: 0 }
+        Self {
+            buf: Vec::new(),
+            read_pos: 0,
+        }
     }
 
     fn write_frame(&mut self, data: &[u8]) {
         self.buf.clear();
-        self.buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        self.buf
+            .extend_from_slice(&(data.len() as u32).to_le_bytes());
         self.buf.extend_from_slice(data);
         self.read_pos = 0;
     }
@@ -54,7 +58,11 @@ fn bench_ring_throughput(region_size: usize) {
     println!();
     let data_len = region_size - 128; // header
     let ring_cap = (data_len / 2) - 1; // half per ring, minus 1 for full/empty
-    println!("═══ S1: Ring Buffer Frame Throughput (region={} KiB, ring_cap={}B) ═══", region_size / 1024, ring_cap);
+    println!(
+        "═══ S1: Ring Buffer Frame Throughput (region={} KiB, ring_cap={}B) ═══",
+        region_size / 1024,
+        ring_cap
+    );
 
     let mut region: Vec<u8> = vec![0u8; region_size];
     unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
@@ -64,8 +72,20 @@ fn bench_ring_throughput(region_size: usize) {
     println!("  payload      write_ns     read_ns    throughput    batch");
 
     for &psize in &payload_sizes {
-        let wring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
-        let rring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
+        let wring = unsafe {
+            lumen::shm::ShmRingBuffer::from_raw(
+                region.as_mut_ptr(),
+                region_size,
+                lumen::shm::RingSide::A,
+            )
+        };
+        let rring = unsafe {
+            lumen::shm::ShmRingBuffer::from_raw(
+                region.as_mut_ptr(),
+                region_size,
+                lumen::shm::RingSide::A,
+            )
+        };
         let payload = vec![0x42u8; psize];
         let frame_size = 4 + psize;
         let batch = (ring_cap / frame_size).clamp(1, ITERS);
@@ -82,7 +102,9 @@ fn bench_ring_throughput(region_size: usize) {
         let mut remaining = ITERS;
         while remaining > 0 {
             let n = batch.min(remaining);
-            for _ in 0..n { wring.write_frame(&payload).unwrap(); }
+            for _ in 0..n {
+                wring.write_frame(&payload).unwrap();
+            }
             for _ in 0..n {
                 frame_buf.clear();
                 let got = rring.read_frame(&mut frame_buf);
@@ -98,8 +120,14 @@ fn bench_ring_throughput(region_size: usize) {
         let bytes_total = frame_size * ITERS;
         let tput = throughput_mbps(bytes_total, per_op_ns);
 
-        println!("  {:>6}B   {:>10.0}ns  {:>10.0}ns  {:>8.1} MB/s    {:>5}",
-            psize, per_op_ns * 0.4, per_op_ns * 0.6, tput, batch);
+        println!(
+            "  {:>6}B   {:>10.0}ns  {:>10.0}ns  {:>8.1} MB/s    {:>5}",
+            psize,
+            per_op_ns * 0.4,
+            per_op_ns * 0.6,
+            tput,
+            batch
+        );
     }
 }
 
@@ -113,13 +141,37 @@ fn bench_shm_echo(region_size: usize) {
     unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
 
     // Client: writes to A, reads from B
-    let cw = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
-    let cr = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::B) };
+    let cw = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::A,
+        )
+    };
+    let cr = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::B,
+        )
+    };
     let mut client = lumen::transport::ShmTransport::new(cw, cr);
 
     // Server: writes to B, reads from A
-    let sr = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
-    let sw = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::B) };
+    let sr = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::A,
+        )
+    };
+    let sw = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::B,
+        )
+    };
     let mut server = lumen::transport::ShmTransport::new(sw, sr);
 
     let payload_sizes = [16, 64, 256, 1024, 4096, 16384, 65536];
@@ -133,12 +185,16 @@ fn bench_shm_echo(region_size: usize) {
             client.write_all(&payload).unwrap();
             let mut tmp = [0u8; 65536 + 4];
             let n = server.read(&mut tmp).unwrap();
-            if n > 0 { server.write_all(&tmp[..n]).unwrap(); }
+            if n > 0 {
+                server.write_all(&tmp[..n]).unwrap();
+            }
             let mut rbuf = [0u8; 65536 + 4];
             let mut total = 0;
             while total < psize + 4 {
                 let n = client.read(&mut rbuf[total..]).unwrap();
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 total += n;
             }
         }
@@ -150,12 +206,16 @@ fn bench_shm_echo(region_size: usize) {
             client.write_all(&payload).unwrap();
             let mut tmp = [0u8; 65536 + 4];
             let n = server.read(&mut tmp).unwrap();
-            if n > 0 { server.write_all(&tmp[..n]).unwrap(); }
+            if n > 0 {
+                server.write_all(&tmp[..n]).unwrap();
+            }
             let mut rbuf = [0u8; 65536 + 4];
             let mut total = 0;
             while total < psize + 4 {
                 let n = client.read(&mut rbuf[total..]).unwrap();
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 total += n;
             }
             latencies.push(t0.elapsed().as_nanos() as f64);
@@ -166,7 +226,10 @@ fn bench_shm_echo(region_size: usize) {
         let p99 = latencies[(ITERS as f64 * 0.99) as usize];
         let avg = latencies.iter().sum::<f64>() / ITERS as f64;
 
-        println!("  {:>6}B   {:>10.0}ns  {:>10.0}ns  {:>10.0}ns", psize, p50, p99, avg);
+        println!(
+            "  {:>6}B   {:>10.0}ns  {:>10.0}ns  {:>10.0}ns",
+            psize, p50, p99, avg
+        );
     }
 }
 
@@ -210,8 +273,20 @@ fn bench_stream_throughput(region_size: usize) {
     let mut region: Vec<u8> = vec![0u8; region_size];
     unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
 
-    let wring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
-    let rring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
+    let wring = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::A,
+        )
+    };
+    let rring = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::A,
+        )
+    };
 
     let total_mb: usize = 10;
     let chunk_size: usize = 32768;
@@ -232,7 +307,9 @@ fn bench_stream_throughput(region_size: usize) {
     let mut i = 0;
     while i < chunks {
         let end = (i + batch_size).min(chunks);
-        for _ in i..end { wring.write_frame(&payload).unwrap(); }
+        for _ in i..end {
+            wring.write_frame(&payload).unwrap();
+        }
         for _ in i..end {
             frame_buf.clear();
             let got = rring.read_frame(&mut frame_buf);
@@ -245,7 +322,10 @@ fn bench_stream_throughput(region_size: usize) {
     let bytes_total = chunks * chunk_size;
     let tput = throughput_mbps(bytes_total, elapsed.as_nanos() as f64 / chunks as f64);
 
-    println!("  total {} MB, {} chunks, chunk {}B, batch {}", total_mb, chunks, chunk_size, batch_size);
+    println!(
+        "  total {} MB, {} chunks, chunk {}B, batch {}",
+        total_mb, chunks, chunk_size, batch_size
+    );
     println!("  write+read time: {:?}  ->  {:.1} MB/s", elapsed, tput);
 }
 
@@ -258,10 +338,34 @@ fn bench_ping_pong(region_size: usize) {
     let mut region: Vec<u8> = vec![0u8; region_size];
     unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
 
-    let cw = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
-    let cr = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::B) };
-    let sr = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
-    let sw = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::B) };
+    let cw = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::A,
+        )
+    };
+    let cr = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::B,
+        )
+    };
+    let sr = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::A,
+        )
+    };
+    let sw = unsafe {
+        lumen::shm::ShmRingBuffer::from_raw(
+            region.as_mut_ptr(),
+            region_size,
+            lumen::shm::RingSide::B,
+        )
+    };
 
     let payload = vec![0xABu8; 64];
 
@@ -270,7 +374,9 @@ fn bench_ping_pong(region_size: usize) {
         cw.write_frame(&payload).unwrap();
         let mut tmp = vec![0u8; 68];
         let n = sr.read(&mut tmp);
-        if n >= 68 { sw.write_frame(&payload).unwrap(); }
+        if n >= 68 {
+            sw.write_frame(&payload).unwrap();
+        }
         let mut out = vec![0u8; 68];
         let _ = cr.read(&mut out);
     }
@@ -282,7 +388,9 @@ fn bench_ping_pong(region_size: usize) {
         cw.write_frame(&payload).unwrap();
         let mut tmp = vec![0u8; 68];
         let n = sr.read(&mut tmp);
-        if n >= 68 { sw.write_frame(&payload).unwrap(); }
+        if n >= 68 {
+            sw.write_frame(&payload).unwrap();
+        }
         let mut out = vec![0u8; 68];
         let _ = cr.read(&mut out);
         latencies.push(t0.elapsed().as_nanos() as f64);
@@ -302,7 +410,10 @@ fn bench_ping_pong(region_size: usize) {
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════╗");
     println!("║   LUMEN Level 2 — Shared Memory (SHM) Transport Shootout        ║");
-    println!("║   {} warmup, {} iterations per benchmark                         ║", WARMUP, ITERS);
+    println!(
+        "║   {} warmup, {} iterations per benchmark                         ║",
+        WARMUP, ITERS
+    );
     println!("╚══════════════════════════════════════════════════════════════════╝");
 
     let region_size = 512 * 1024;

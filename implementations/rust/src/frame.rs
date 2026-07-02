@@ -183,7 +183,11 @@ pub fn build_batch(frames: &[&[u8]], flags: u8, buf: &mut [u8]) -> usize {
     let payload_len = batch_payload_size(frames);
     let header_len = hyb128::encoded_len(payload_len as u64);
     let total = header_len + 2 + payload_len;
-    assert!(buf.len() >= total, "buffer too small: need {total}, have {}", buf.len());
+    assert!(
+        buf.len() >= total,
+        "buffer too small: need {total}, have {}",
+        buf.len()
+    );
 
     // Write Hyb128 length header
     let n = hyb128::encode(payload_len as u64, buf);
@@ -318,7 +322,11 @@ pub fn parse_flow_ctl(frame: &Frame<'_>) -> Option<FlowCtl> {
     let stream_id = u16::from_le_bytes([payload[0], payload[1]]);
     let window = u32::from_le_bytes([payload[2], payload[3], payload[4], payload[5]]);
     let is_pause = frame.flags & FLAG_FLOW_PAUSE != 0;
-    Some(FlowCtl { stream_id, window, is_pause })
+    Some(FlowCtl {
+        stream_id,
+        window,
+        is_pause,
+    })
 }
 
 // ── Parser ──────────────────────────────────────────────────────────────────
@@ -671,9 +679,12 @@ mod tests {
         let batch = parse_batch_payload(truncated_payload).unwrap();
         assert!(batch.truncated, "should be truncated");
         // Should have parsed at most 2 complete frames (the 3rd is incomplete)
-        assert!(batch.frames.len() <= 2,
+        assert!(
+            batch.frames.len() <= 2,
             "expected <=2 frames, got {} [trunc_at={}, inner_frame_len={inner_frame_len}]",
-            batch.frames.len(), trunc_at);
+            batch.frames.len(),
+            trunc_at
+        );
     }
 
     #[test]

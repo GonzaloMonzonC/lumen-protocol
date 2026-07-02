@@ -25,10 +25,40 @@ struct WorkspaceFile {
 fn scan_workspace(root: &str) -> Vec<WorkspaceFile> {
     let mut files = Vec::new();
     let text_extensions = [
-        "rs", "toml", "md", "json", "ts", "js", "tsx", "jsx", "py", "go",
-        "c", "cpp", "h", "hpp", "java", "kt", "swift", "rb", "php", "css",
-        "html", "xml", "yaml", "yml", "sh", "bat", "ps1", "gitignore",
-        "dockerfile", "env", "cfg", "ini", "txt", "lock",
+        "rs",
+        "toml",
+        "md",
+        "json",
+        "ts",
+        "js",
+        "tsx",
+        "jsx",
+        "py",
+        "go",
+        "c",
+        "cpp",
+        "h",
+        "hpp",
+        "java",
+        "kt",
+        "swift",
+        "rb",
+        "php",
+        "css",
+        "html",
+        "xml",
+        "yaml",
+        "yml",
+        "sh",
+        "bat",
+        "ps1",
+        "gitignore",
+        "dockerfile",
+        "env",
+        "cfg",
+        "ini",
+        "txt",
+        "lock",
     ];
 
     fn walk(dir: &std::path::Path, files: &mut Vec<WorkspaceFile>, extensions: &[&str]) {
@@ -38,23 +68,30 @@ fn scan_workspace(root: &str) -> Vec<WorkspaceFile> {
                 if path.is_dir() {
                     // Skip common noise directories
                     let name = path.file_name().unwrap_or_default().to_str().unwrap_or("");
-                    if name == "target" || name == "node_modules" || name == ".git"
-                        || name == "__pycache__" || name == "dist" || name == "build"
+                    if name == "target"
+                        || name == "node_modules"
+                        || name == ".git"
+                        || name == "__pycache__"
+                        || name == "dist"
+                        || name == "build"
                     {
                         continue;
                     }
                     walk(&path, files, extensions);
                 } else if path.is_file() {
-                    let ext = path.extension()
+                    let ext = path
+                        .extension()
                         .and_then(|e| e.to_str())
                         .unwrap_or("")
                         .to_lowercase();
-                    let name = path.file_name()
+                    let name = path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("")
                         .to_lowercase();
                     if extensions.contains(&ext.as_str())
-                        || name == "dockerfile" || name == "makefile"
+                        || name == "dockerfile"
+                        || name == "makefile"
                         || name == "license"
                     {
                         if let Ok(content) = std::fs::read(&path) {
@@ -178,15 +215,9 @@ fn main() {
     // ── Results ──────────────────────────────────────────────────────────
 
     println!();
-    println!(
-        "╔══════════════════════╤══════════════╤══════════════╤═══════════════╗"
-    );
-    println!(
-        "║ Metric               │ JSON-RPC     │ LUMEN        │ Advantage      ║"
-    );
-    println!(
-        "╠══════════════════════╪══════════════╪══════════════╪═══════════════╣"
-    );
+    println!("╔══════════════════════╤══════════════╤══════════════╤═══════════════╗");
+    println!("║ Metric               │ JSON-RPC     │ LUMEN        │ Advantage      ║");
+    println!("╠══════════════════════╪══════════════╪══════════════╪═══════════════╣");
 
     let json_mb = json_total_bytes as f64 / 1_048_576.0;
     let lumen_mb = lumen_total_bytes as f64 / 1_048_576.0;
@@ -224,9 +255,7 @@ fn main() {
         json_ms_per_file / lumen_ms_per_file,
     );
 
-    println!(
-        "╚══════════════════════╧══════════════╧══════════════╧═══════════════╝"
-    );
+    println!("╚══════════════════════╧══════════════╧══════════════╧═══════════════╝");
 
     println!();
     println!("─── Per-file breakdown (largest 5) ───");

@@ -177,11 +177,7 @@ const WINDOW_SIZE: u64 = 64;
 ///
 /// Returns `Ok(())` if the nonce passes anti-replay checks, or
 /// `Err(DecryptError::NonceReuse)` if it's a replay or outside window.
-fn check_nonce_candidate(
-    window: u64,
-    bitmap: u64,
-    nonce: u64,
-) -> Result<(), DecryptError> {
+fn check_nonce_candidate(window: u64, bitmap: u64, nonce: u64) -> Result<(), DecryptError> {
     // Sentinel: u64::MAX means "no nonces received yet" — accept any.
     if window == u64::MAX {
         return Ok(());
@@ -217,7 +213,11 @@ fn commit_nonce(window: &mut u64, bitmap: &mut u64, nonce: u64) {
         // Cap at WINDOW_SIZE since that's all we can track.
         if nonce > 0 {
             let gap = nonce.min(WINDOW_SIZE);
-            *bitmap = if gap >= 64 { u64::MAX } else { (1u64 << gap) - 1 };
+            *bitmap = if gap >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << gap) - 1
+            };
         }
         return;
     }
@@ -451,7 +451,9 @@ mod tests {
         // The initiator's encrypted output should NOT be decryptable by
         // another initiator (they'd both use c2s for sending, but the
         // receiver would use its recv_aead=s2c, which doesn't match).
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
 
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec_wrong = Cipher::new(&shared, Role::Initiator); // same role!
@@ -480,8 +482,12 @@ mod tests {
 
     #[test]
     fn wrong_key_fails_authentication() {
-        let shared1 = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
-        let shared2 = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared1 = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
+        let shared2 = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
 
         let mut enc = Cipher::new(&shared1, Role::Initiator);
         let mut dec = Cipher::new(&shared2, Role::Responder);
@@ -495,7 +501,9 @@ mod tests {
 
     #[test]
     fn tampered_ciphertext_fails() {
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
@@ -511,7 +519,9 @@ mod tests {
 
     #[test]
     fn nonce_reuse_detected() {
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
@@ -527,7 +537,9 @@ mod tests {
 
     #[test]
     fn out_of_order_delivery_with_gap() {
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
@@ -553,7 +565,9 @@ mod tests {
 
     #[test]
     fn replay_window_survives_large_gap() {
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
@@ -587,18 +601,22 @@ mod tests {
         // The order-8 point (from RFC 7748 / libsodium's blocklist) must
         // also be rejected — this one passes the all-zero pre-check.
         let order8: [u8; 32] = [
-            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae,
-            0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f, 0xc4, 0x6a,
-            0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd,
-            0x86, 0x62, 0x05, 0x16, 0x5f, 0x49, 0xb8, 0x00,
+            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f,
+            0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16,
+            0x5f, 0x49, 0xb8, 0x00,
         ];
-        assert!(Keypair::validate_public_key(&order8), "pre-check alone cannot catch this point");
+        assert!(
+            Keypair::validate_public_key(&order8),
+            "pre-check alone cannot catch this point"
+        );
         assert!(kp.derive_shared_secret(&PublicKey::from(order8)).is_none());
     }
 
     #[test]
     fn build_encrypted_frame_roundtrip() {
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
@@ -632,7 +650,9 @@ mod tests {
     #[test]
     fn aad_type_mismatch_detected() {
         // Verify that AAD protects frame type: changing type fails decrypt
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 
@@ -647,7 +667,9 @@ mod tests {
     #[test]
     fn aad_flags_mismatch_detected() {
         // Verify that AAD protects flags: changing flags fails decrypt
-        let shared = Keypair::generate().derive_shared_secret(&Keypair::generate().public).unwrap();
+        let shared = Keypair::generate()
+            .derive_shared_secret(&Keypair::generate().public)
+            .unwrap();
         let mut enc = Cipher::new(&shared, Role::Initiator);
         let mut dec = Cipher::new(&shared, Role::Responder);
 

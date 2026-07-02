@@ -252,8 +252,7 @@ impl MuxRegistry {
                 if self.channels.contains_key(&frame.channel_id) {
                     return Err(MuxError::DuplicateChannel(frame.channel_id));
                 }
-                self.channels
-                    .insert(frame.channel_id, ChannelState::Active);
+                self.channels.insert(frame.channel_id, ChannelState::Active);
                 Ok(None)
             }
 
@@ -277,8 +276,7 @@ impl MuxRegistry {
                 if *state == ChannelState::Closed {
                     return Err(MuxError::AlreadyClosed(frame.channel_id));
                 }
-                self.channels
-                    .insert(frame.channel_id, ChannelState::Closed);
+                self.channels.insert(frame.channel_id, ChannelState::Closed);
                 Ok(None)
             }
 
@@ -434,9 +432,7 @@ mod tests {
         assert_eq!(reg.active_count(), 1);
 
         // Send data
-        let inner = reg
-            .accept(&MuxFrame::data(1, b"hello".to_vec()))
-            .unwrap();
+        let inner = reg.accept(&MuxFrame::data(1, b"hello".to_vec())).unwrap();
         assert_eq!(inner, Some(b"hello".to_vec()));
     }
 

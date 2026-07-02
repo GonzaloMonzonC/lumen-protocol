@@ -6,8 +6,8 @@
 //! Run: cargo test --test e2e_test
 
 use lumen::compress::{compress, decompress};
-use lumen::hyb128::{encode as hyb128_encode, decode as hyb128_decode};
 use lumen::frame::{self, build, build_size, parse, ParseResult};
+use lumen::hyb128::{decode as hyb128_decode, encode as hyb128_encode};
 
 use serde_json::Value;
 use std::fs;
@@ -17,22 +17,31 @@ use std::path::PathBuf;
 
 fn vectors_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..").join("..")
-        .join("tests").join("e2e").join("shared_vectors.json")
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("e2e")
+        .join("shared_vectors.json")
 }
 
 fn golden_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..").join("..")
-        .join("tests").join("e2e").join("golden")
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("e2e")
+        .join("golden")
 }
 
 fn load_vectors() -> Vec<(String, Value)> {
     let raw = fs::read_to_string(vectors_path()).expect("shared_vectors.json not found");
     let data: Value = serde_json::from_str(&raw).expect("Invalid JSON");
-    data["vectors"].as_array().unwrap().iter().map(|v| {
-        (v["name"].as_str().unwrap().to_string(), v["value"].clone())
-    }).collect()
+    data["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| (v["name"].as_str().unwrap().to_string(), v["value"].clone()))
+        .collect()
 }
 
 fn load_golden(name: &str) -> Option<Vec<u8>> {
@@ -54,14 +63,17 @@ fn skip(_name: &str) -> bool {
 #[test]
 fn compress_roundtrip_all() {
     for (name, value) in load_vectors() {
-        if skip(&name) { continue; }
+        if skip(&name) {
+            continue;
+        }
         let compressed = compress(&value, None);
         let decompressed = decompress(&compressed, None)
             .unwrap_or_else(|| panic!("decompress returned None for {}", name));
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
             serde_json::to_string(&decompressed).unwrap(),
-            "roundtrip mismatch for {}", name
+            "roundtrip mismatch for {}",
+            name
         );
     }
 }
@@ -74,7 +86,9 @@ fn compress_roundtrip_all() {
 #[test]
 fn binary_golden_match() {
     for (name, value) in load_vectors() {
-        if skip(&name) { continue; }
+        if skip(&name) {
+            continue;
+        }
         let golden = match load_golden(&name) {
             Some(g) => g,
             None => continue,
@@ -95,7 +109,9 @@ fn binary_golden_match() {
 #[test]
 fn semantic_compat_python_golden() {
     for (name, value) in load_vectors() {
-        if skip(&name) { continue; }
+        if skip(&name) {
+            continue;
+        }
         let golden = match load_golden(&name) {
             Some(g) => g,
             None => continue,
@@ -111,12 +127,14 @@ fn semantic_compat_python_golden() {
         assert_eq!(
             serde_json::to_string(&py_decoded).unwrap(),
             serde_json::to_string(&our_decoded).unwrap(),
-            "Semantic mismatch \"{}\": Python and Rust decodes differ", name
+            "Semantic mismatch \"{}\": Python and Rust decodes differ",
+            name
         );
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
             serde_json::to_string(&py_decoded).unwrap(),
-            "Semantic mismatch \"{}\": Python golden doesn't roundtrip to original", name
+            "Semantic mismatch \"{}\": Python golden doesn't roundtrip to original",
+            name
         );
     }
 }
@@ -128,7 +146,9 @@ fn semantic_compat_python_golden() {
 #[test]
 fn decode_python_golden() {
     for (name, value) in load_vectors() {
-        if skip(&name) { continue; }
+        if skip(&name) {
+            continue;
+        }
         let golden = match load_golden(&name) {
             Some(g) => g,
             None => continue,
@@ -138,7 +158,8 @@ fn decode_python_golden() {
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
             serde_json::to_string(&decompressed).unwrap(),
-            "decode Python golden mismatch for {}", name
+            "decode Python golden mismatch for {}",
+            name
         );
     }
 }
@@ -157,7 +178,10 @@ fn binary_stability() {
         ("string", Value::String("hello".into())),
         ("array", serde_json::json!([1, 2, 3])),
         ("object", serde_json::json!({"key": "value"})),
-        ("mcp_init", serde_json::json!({"jsonrpc": "2.0", "method": "initialize"})),
+        (
+            "mcp_init",
+            serde_json::json!({"jsonrpc": "2.0", "method": "initialize"}),
+        ),
     ];
     for (name, value) in &cases {
         let c1 = compress(value, None);
@@ -172,13 +196,27 @@ fn binary_stability() {
 
 #[test]
 fn hyb128_roundtrip() {
-    let cases = [(0u64, 1usize), (1, 1), (42, 1), (63, 1),
-                 (64, 3), (255, 3), (1000, 3), (65535, 3),
-                 (65536, 5), (100000, 5), (1000000, 5)];
+    let cases = [
+        (0u64, 1usize),
+        (1, 1),
+        (42, 1),
+        (63, 1),
+        (64, 3),
+        (255, 3),
+        (1000, 3),
+        (65535, 3),
+        (65536, 5),
+        (100000, 5),
+        (1000000, 5),
+    ];
     for (value, expected) in cases {
         let mut buf = [0u8; 11];
         let n = hyb128_encode(value, &mut buf);
-        assert_eq!(n, expected, "encode({}) = {}, expected {}", value, n, expected);
+        assert_eq!(
+            n, expected,
+            "encode({}) = {}, expected {}",
+            value, n, expected
+        );
         let dec = hyb128_decode(&buf[..n]).expect("decode returned None");
         assert_eq!(dec.value, value);
         assert_eq!(dec.header_len, expected);
@@ -195,7 +233,8 @@ fn frame_roundtrip() {
     let json_mcp = serde_json::to_vec(&serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"initialize",
         "params":{"protocolVersion":"2025-06-18"}
-    })).unwrap();
+    }))
+    .unwrap();
 
     let payloads: Vec<(&str, &[u8])> = vec![
         ("empty", &[]),
@@ -245,7 +284,8 @@ fn frame_semantic_match_python() {
     let json_mcp = serde_json::to_vec(&serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"initialize",
         "params":{"protocolVersion":"2025-06-18"}
-    })).unwrap();
+    }))
+    .unwrap();
 
     let payloads: Vec<(&str, &[u8])> = vec![
         ("empty", &[]),
@@ -276,54 +316,80 @@ fn frame_semantic_match_python() {
 
                 // Parse Python golden frame
                 match parse(&golden) {
-                    ParseResult::Complete { frame: py_frame, .. } => {
-                        assert_eq!(py_frame.frame_type, *ftype,
-                            "type mismatch parsing Python golden {}", name);
-                        assert_eq!(py_frame.flags, *flags,
-                            "flags mismatch parsing Python golden {}", name);
+                    ParseResult::Complete {
+                        frame: py_frame, ..
+                    } => {
+                        assert_eq!(
+                            py_frame.frame_type, *ftype,
+                            "type mismatch parsing Python golden {}",
+                            name
+                        );
+                        assert_eq!(
+                            py_frame.flags, *flags,
+                            "flags mismatch parsing Python golden {}",
+                            name
+                        );
 
                         // For compressed JSON payloads, decompress and compare semantically
-                        if py_frame.flags & frame::FLAG_COMPRESSED != 0 && pname.starts_with("json") {
+                        if py_frame.flags & frame::FLAG_COMPRESSED != 0 && pname.starts_with("json")
+                        {
                             // Check if payload is actually compressed LUMEN (starts with tag 0xE0-0xE7)
                             let is_compressed = !py_frame.payload.is_empty()
                                 && (py_frame.payload[0] & 0xF8) == 0xE0;
                             if is_compressed {
-                                let py_val = decompress(py_frame.payload, None)
-                                    .unwrap_or_else(|| panic!("{}: Python compressed payload failed to decompress", name));
+                                let py_val =
+                                    decompress(py_frame.payload, None).unwrap_or_else(|| {
+                                        panic!(
+                                            "{}: Python compressed payload failed to decompress",
+                                            name
+                                        )
+                                    });
                                 let our_val: Value = serde_json::from_slice(payload)
-                                    .unwrap_or_else(|e| panic!("{}: Our payload not JSON: {}", name, e));
+                                    .unwrap_or_else(|e| {
+                                        panic!("{}: Our payload not JSON: {}", name, e)
+                                    });
                                 assert_eq!(
                                     serde_json::to_string(&py_val).unwrap(),
                                     serde_json::to_string(&our_val).unwrap(),
-                                    "compressed payload semantic mismatch for {}", name
+                                    "compressed payload semantic mismatch for {}",
+                                    name
                                 );
                             } else {
                                 // Flag set but payload is raw JSON — compare semantically
                                 let py_val: Value = serde_json::from_slice(py_frame.payload)
-                                    .unwrap_or_else(|e| panic!("{}: Python payload not JSON: {}", name, e));
+                                    .unwrap_or_else(|e| {
+                                        panic!("{}: Python payload not JSON: {}", name, e)
+                                    });
                                 let our_val: Value = serde_json::from_slice(payload)
-                                    .unwrap_or_else(|e| panic!("{}: Our payload not JSON: {}", name, e));
+                                    .unwrap_or_else(|e| {
+                                        panic!("{}: Our payload not JSON: {}", name, e)
+                                    });
                                 assert_eq!(
                                     serde_json::to_string(&py_val).unwrap(),
                                     serde_json::to_string(&our_val).unwrap(),
-                                    "payload semantic mismatch for {}", name
+                                    "payload semantic mismatch for {}",
+                                    name
                                 );
                             }
                         } else if pname.starts_with("json") {
                             // Uncompressed JSON payloads — normalize and compare
                             let py_val: Value = serde_json::from_slice(py_frame.payload)
-                                .unwrap_or_else(|e| panic!("{}: Python payload not JSON: {}", name, e));
-                            let our_val: Value = serde_json::from_slice(payload)
-                                .unwrap_or_else(|e| panic!("{}: Our payload not JSON: {}", name, e));
+                                .unwrap_or_else(|e| {
+                                    panic!("{}: Python payload not JSON: {}", name, e)
+                                });
+                            let our_val: Value =
+                                serde_json::from_slice(payload).unwrap_or_else(|e| {
+                                    panic!("{}: Our payload not JSON: {}", name, e)
+                                });
                             assert_eq!(
                                 serde_json::to_string(&py_val).unwrap(),
                                 serde_json::to_string(&our_val).unwrap(),
-                                "payload semantic mismatch for {}", name
+                                "payload semantic mismatch for {}",
+                                name
                             );
                         } else {
                             // Non-JSON payloads should match exactly
-                            assert_eq!(py_frame.payload, *payload,
-                                "payload mismatch for {}", name);
+                            assert_eq!(py_frame.payload, *payload, "payload mismatch for {}", name);
                         }
                     }
                     other => panic!("parse Python golden {}: {:?}", name, other),
@@ -340,16 +406,22 @@ fn frame_semantic_match_python() {
 #[test]
 fn compressed_frame_integration() {
     let payloads: Vec<(&str, Value)> = vec![
-        ("initialize", serde_json::json!({
-            "jsonrpc":"2.0","id":1,"method":"initialize",
-            "params":{"protocolVersion":"2025-06-18"}
-        })),
-        ("tools_list", serde_json::json!({
-            "jsonrpc":"2.0","id":2,"result":{"tools":[{
-                "name":"search","description":"Search code",
-                "inputSchema":{"type":"object","properties":{"query":{"type":"string"}}}
-            }]}
-        })),
+        (
+            "initialize",
+            serde_json::json!({
+                "jsonrpc":"2.0","id":1,"method":"initialize",
+                "params":{"protocolVersion":"2025-06-18"}
+            }),
+        ),
+        (
+            "tools_list",
+            serde_json::json!({
+                "jsonrpc":"2.0","id":2,"result":{"tools":[{
+                    "name":"search","description":"Search code",
+                    "inputSchema":{"type":"object","properties":{"query":{"type":"string"}}}
+                }]}
+            }),
+        ),
     ];
 
     for (pname, payload) in &payloads {
@@ -357,7 +429,12 @@ fn compressed_frame_integration() {
 
         let compressed = compress(payload, None);
         let mut buf = vec![0u8; build_size(compressed.len())];
-        build(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, &compressed, &mut buf);
+        build(
+            frame::TYPE_REQUEST,
+            frame::FLAG_COMPRESSED,
+            &compressed,
+            &mut buf,
+        );
 
         // Parse + decompress own frame
         match parse(&buf) {
@@ -368,7 +445,8 @@ fn compressed_frame_integration() {
                 assert_eq!(
                     serde_json::to_string(payload).unwrap(),
                     serde_json::to_string(&dec).unwrap(),
-                    "integration decompress mismatch for {}", name
+                    "integration decompress mismatch for {}",
+                    name
                 );
             }
             other => panic!("parse {}: {:?}", name, other),
@@ -378,14 +456,19 @@ fn compressed_frame_integration() {
         if let Some(py_golden) = load_golden_frame(&name) {
             match parse(&py_golden) {
                 ParseResult::Complete { frame, .. } => {
-                    assert_eq!(frame.flags, frame::FLAG_COMPRESSED,
-                        "Python golden flags mismatch for {}", name);
+                    assert_eq!(
+                        frame.flags,
+                        frame::FLAG_COMPRESSED,
+                        "Python golden flags mismatch for {}",
+                        name
+                    );
                     let dec = decompress(frame.payload, None)
                         .unwrap_or_else(|| panic!("decompress Python golden failed for {}", name));
                     assert_eq!(
                         serde_json::to_string(payload).unwrap(),
                         serde_json::to_string(&dec).unwrap(),
-                        "integration: decompress Python golden mismatch for {}", name
+                        "integration: decompress Python golden mismatch for {}",
+                        name
                     );
                 }
                 other => panic!("parse Python golden {}: {:?}", name, other),
@@ -426,8 +509,16 @@ fn streaming_frame_parse() {
     // Truncated frame → IncompletePayload (header parsed, payload missing)
     let payload = b"chunked_test";
     let mut buf = vec![0u8; build_size(payload.len())];
-    build(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, payload, &mut buf);
+    build(
+        frame::TYPE_REQUEST,
+        frame::FLAG_COMPRESSED,
+        payload,
+        &mut buf,
+    );
     let mid = buf.len() / 2;
-    assert!(matches!(parse(&buf[..mid]), ParseResult::IncompletePayload { .. }));
+    assert!(matches!(
+        parse(&buf[..mid]),
+        ParseResult::IncompletePayload { .. }
+    ));
     assert!(matches!(parse(&buf), ParseResult::Complete { .. }));
 }
