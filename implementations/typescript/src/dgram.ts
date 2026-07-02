@@ -102,21 +102,35 @@ export class DatagramTransport {
    */
   bind(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.socket = dgram.createSocket(this.socketType);
+      const socket = dgram.createSocket(this.socketType);
+      this.socket = socket;
 
-      this.socket.on("message", (data: Buffer, rinfo: dgram.RemoteInfo) => {
+      socket.on("message", (data: Buffer, rinfo: dgram.RemoteInfo) => {
         if (this.onMessage) {
           this.onMessage(data, rinfo);
         }
       });
 
-      this.socket.on("error", (err: Error) => {
-        if (this.onError) {
-          this.onError(err);
+      // An 'error' before the bind callback (e.g. EADDRINUSE) must reject,
+      // otherwise the returned promise never settles and callers hang.
+      const onBindError = (err: Error) => {
+        this.socket = null;
+        try {
+          socket.close();
+        } catch {
+          // already closed
         }
-      });
+        reject(err);
+      };
+      socket.once("error", onBindError);
 
-      this.socket.bind(this.bindPort, this.bindAddr, () => {
+      socket.bind(this.bindPort, this.bindAddr, () => {
+        socket.removeListener("error", onBindError);
+        socket.on("error", (err: Error) => {
+          if (this.onError) {
+            this.onError(err);
+          }
+        });
         resolve();
       });
     });

@@ -31,14 +31,14 @@ describe("DatagramTransport", () => {
     }
   });
 
-  function makeTx(): DatagramTransport {
-    const t = new DatagramTransport();
+  function makeTx(options?: ConstructorParameters<typeof DatagramTransport>[0]): DatagramTransport {
+    const t = new DatagramTransport(options);
     transports.push(t);
     return t;
   }
 
-  function makeRx(): DatagramTransport {
-    const t = new DatagramTransport();
+  function makeRx(options?: ConstructorParameters<typeof DatagramTransport>[0]): DatagramTransport {
+    const t = new DatagramTransport(options);
     transports.push(t);
     return t;
   }
@@ -46,7 +46,7 @@ describe("DatagramTransport", () => {
   // ── bind / address ─────────────────────────────────────────────
 
   it("binds and returns local address", async () => {
-    const t = new DatagramTransport({ bindPort: 0 });
+    const t = makeRx({ bindPort: 0 });
     await t.bind();
     const addr = t.address();
     assert.ok(addr);
@@ -55,7 +55,7 @@ describe("DatagramTransport", () => {
   });
 
   it("binds on specified port", async () => {
-    const t = new DatagramTransport({ bindPort: 9998 });
+    const t = makeRx({ bindPort: 9998 });
     await t.bind();
     const addr = t.address();
     assert.ok(addr);
@@ -142,7 +142,7 @@ describe("DatagramTransport", () => {
   // ── Close ───────────────────────────────────────────────────────
 
   it("close releases the socket", async () => {
-    const t = new DatagramTransport();
+    const t = makeRx();
     await t.bind();
     assert.ok(t.address());
     await t.close();
@@ -150,14 +150,14 @@ describe("DatagramTransport", () => {
   });
 
   it("close is idempotent", async () => {
-    const t = new DatagramTransport();
+    const t = makeRx();
     await t.bind();
     await t.close();
     await t.close(); // should not throw
   });
 
   it("send after close rejects", async () => {
-    const t = new DatagramTransport();
+    const t = makeRx();
     await t.bind();
     await t.close();
 

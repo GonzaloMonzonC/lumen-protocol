@@ -60,15 +60,14 @@ function jsonEqual(mixed $a, mixed $b): bool {
     return json_encode($a, JSON_UNESCAPED_UNICODE) === json_encode($b, JSON_UNESCAPED_UNICODE);
 }
 
-/** Encode JSON matching Python's json.dumps default format (spaces after : and ,). */
-function jsonDumpsPy(mixed $value): string {
-    $json = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    // Python's json.dumps uses separators=(', ', ': ') — add space after : and ,
-    // Match ':' not followed by whitespace (covers "key":"val", "key":1, "key":{)
-    $json = preg_replace('/":(?!\s)/', '": ', $json);
-    // Match ',' not followed by whitespace (covers ...",... and ...1,... and ...},...)
-    $json = preg_replace('/,(?!\s)/', ', ', $json);
-    return $json;
+/**
+ * Encode JSON matching the golden generator (run_e2e.py):
+ * json.dumps(value, ensure_ascii=False, separators=(',', ':')) — compact,
+ * no spaces. Compact JSON is the canonical format for uncompressed
+ * payloads in golden frame tests.
+ */
+function jsonCompact(mixed $value): string {
+    return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
 
 function valueEquals(mixed $a, mixed $b): bool {
@@ -196,8 +195,8 @@ echo "\n5. Frame Roundtrip\n";
 $payloads = [
     ['empty', ''],
     ['hello', 'hello'],
-    ['json_small', jsonDumpsPy(['method' => 'ping'])],
-    ['json_mcp', jsonDumpsPy([
+    ['json_small', jsonCompact(['method' => 'ping'])],
+    ['json_mcp', jsonCompact([
         'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
         'params' => ['protocolVersion' => '2025-06-18'],
     ])],
