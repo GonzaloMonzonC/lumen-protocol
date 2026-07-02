@@ -606,7 +606,64 @@ def tool_mvm_schedule_list(args: dict) -> dict:
             entries.append({"pid": pid, "wake_time": val.get("value", "?"), "remaining": -1})
     return {"success": True, "entries": entries, "count": len(entries)}
 
-# ── DBFIX — Mantenimiento automático ──
+# ── Agent Outbox ─────────────────────────────────────────────────────────
+
+def tool_mvm_outbox(args: dict) -> dict:
+    """Read pending outbox messages from MVM processes."""
+    limit = args.get("limit", 10)
+    priority = args.get("priority", "")
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        messages = vm.outbox_read(limit=limit, priority=priority)
+        return {"success": True, "messages": messages, "count": len(messages)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_outbox_ack(args: dict) -> dict:
+    """Acknowledge an outbox message (mark as read)."""
+    msg_id = args.get("msg_id")
+    if msg_id is None:
+        return {"success": False, "error": "msg_id required"}
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        ok = vm.outbox_ack(msg_id)
+        return {"success": ok, "msg_id": msg_id,
+                "message": "Acknowledged" if ok else "Message not found"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_outbox_send(args: dict) -> dict:
+    """Send a message to the agent outbox from an MVM process."""
+    pid = args.get("pid")
+    payload = args.get("payload", "")
+    priority = args.get("priority", "normal")
+    msg_type = args.get("type", "text")
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        msg_id = vm.outbox_send(pid, payload, priority=priority, msg_type=msg_type)
+        return {"success": True, "msg_id": msg_id}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def tool_mvm_outbox_cleanup(args: dict) -> dict:
+    """Clean up acknowledged messages older than max_age."""
+    max_age = args.get("max_age_secs", 86400)
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        vm.outbox_cleanup(max_age_secs=max_age)
+        return {"success": True, "message": f"Cleaned up messages older than {max_age}s"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ── DBFIX ────────────────────────────────────────────────────────────────
 
 def tool_dbfix(args: dict) -> dict:
     """DBFIX — mantenimiento automático de PDB.
@@ -3095,6 +3152,10 @@ HANDLERS = {
     "pdb_mvm_sleep": tool_mvm_sleep,
     "pdb_mvm_wake": tool_mvm_wake,
     "pdb_mvm_schedule_list": tool_mvm_schedule_list,
+    "pdb_mvm_outbox": tool_mvm_outbox,
+    "pdb_mvm_outbox_ack": tool_mvm_outbox_ack,
+    "pdb_mvm_outbox_send": tool_mvm_outbox_send,
+    "pdb_mvm_outbox_cleanup": tool_mvm_outbox_cleanup,
     "pdb_mvm_mailbox_send": tool_mvm_mailbox_send,
     "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
     "pdb_embed": tool_embed,
