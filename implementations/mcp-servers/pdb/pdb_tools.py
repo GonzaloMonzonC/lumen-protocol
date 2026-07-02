@@ -1280,6 +1280,7 @@ def _record_change(ns: str, subs: list, op: str, old_value, new_value, conn):
             conn.commit()
         except Exception:
             pass  # FTS failure never breaks primary write
+        _check_event_routes(ns, subs, op, new_value if op == "SET" or op == "MERGE" else None, conn)
     except Exception:
         pass  # CDC failure must never break the primary write
 
@@ -2436,6 +2437,175 @@ def tool_vec_search(args: dict) -> dict:
         return tool_embed_search(args)
 
 
+
+# ── Event Routes — PDB → MVM event-driven cognition (OBJ-7d) ──
+
+def _init_event_routes():
+    """Create _event_routes table if not exists."""
+    try:
+        c = _get_conn()
+        c.execute("""CREATE TABLE IF NOT EXISTS _event_routes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ns TEXT NOT NULL,
+            subkey_pattern TEXT DEFAULT '',
+            event_type TEXT NOT NULL DEFAULT '*',
+            target_type TEXT NOT NULL DEFAULT 'mvm',
+            target_id TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            created_at REAL NOT NULL,
+            UNIQUE(ns, subkey_pattern, event_type, target_type, target_id)
+        )""")
+        c.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except Exception:
+        pass
+
+# Cache of active routes: refreshed on each call, not per SET
+_event_route_cache = None  # list of dicts or None = needs refresh
+_event_route_cache_time = 0.0
+_EVENT_CACHE_TTL = 2.0  # seconds before refresh
+
+def _refresh_event_route_cache():
+    """Refresh the event route cache from DB."""
+    global _event_route_cache, _event_route_cache_time
+    import time as _t
+    now = _t.time()
+    if _event_route_cache is not None and now - _event_route_cache_time < _EVENT_CACHE_TTL:
+        return _event_route_cache
+    try:
+        c = _get_conn()
+        rows = c.execute(
+            "SELECT id, ns, subkey_pattern, event_type, target_type, target_id, active FROM _event_routes WHERE active=1"
+        ).fetchall()
+        _event_route_cache = [dict(r) for r in rows]
+        _event_route_cache_time = now
+        return _event_route_cache
+    except Exception:
+        return _event_route_cache or []
+
+_in_event_delivery = False  # anti-reentrance flag
+
+def _check_event_routes(ns: str, subs: list, op: str, value, conn):
+    """Check active event routes and deliver matching events to MVM mailbox.
+    Called from _record_change() after CDC write.
+    Designed to be fast: uses cached routes, no SQL per event.
+    """
+    global _in_event_delivery
+    if _in_event_delivery:
+        return  # prevent re-entrant loops
+    _in_event_delivery = True
+    try:
+        routes = _refresh_event_route_cache()
+        if not routes:
+            return
+        import time as _t
+        import json as _j
+
+        # Build event payload once
+        payload = _j.dumps({
+            "__pdb_event__": True,
+            "op": op,
+            "ns": ns,
+            "subs": list(subs),
+            "value": str(value) if value is not None else None,
+            "timestamp": _t.time(),
+        })
+
+        for route in routes:
+            try:
+                # NS match: exact or '*'
+                if route["ns"] != "*" and route["ns"] != ns:
+                    continue
+                # Event type match
+                if route["event_type"] != "*" and route["event_type"] != op:
+                    continue
+                # Subkey pattern match (fnmatch on stringified subs)
+                if route["subkey_pattern"]:
+                    sub_str = "/".join(str(s) for s in subs)
+                    import fnmatch as _fn
+                    if not _fn.fnmatch(sub_str, route["subkey_pattern"]):
+                        continue
+                # Deliver to target
+                if route["target_type"] == "mvm":
+                    vm = _get_mvm()
+                    if vm:
+                        vm.mailbox_send(route["target_id"], payload)
+                # (future: webhook, log, etc.)
+            except Exception:
+                pass  # single route failure never breaks others
+    finally:
+        _in_event_delivery = False
+
+
+# ── Tool: pdb_event_route_define ──
+
+def tool_event_route_define(args: dict) -> dict:
+    """Define an event route: ns changes → MVM mailbox delivery."""
+    import time as _t
+    ns = args.get("ns", "*")
+    subkey_pattern = args.get("subkey_pattern", "")
+    event_type = args.get("event_type", "*")
+    target_type = args.get("target_type", "mvm")
+    target_id = args.get("target_id", "")
+    if not target_id:
+        return {"success": False, "error": "target_id required"}
+    _init_event_routes()
+    try:
+        c = _get_conn()
+        c.execute(
+            "INSERT OR IGNORE INTO _event_routes(ns, subkey_pattern, event_type, target_type, target_id, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
+            [ns, subkey_pattern, event_type, target_type, target_id, _t.time()]
+        )
+        c.commit()
+        # Get the inserted id
+        row = c.execute("SELECT last_insert_rowid()").fetchone()
+        rid = row[0] if row else 0
+        # Invalidate cache
+        global _event_route_cache
+        _event_route_cache = None
+        return {"success": True, "route_id": rid, "ns": ns}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_event_route_remove(args: dict) -> dict:
+    """Remove an event route by id."""
+    rid = args.get("route_id", 0)
+    if not rid:
+        return {"success": False, "error": "route_id required"}
+    _init_event_routes()
+    try:
+        c = _get_conn()
+        c.execute("DELETE FROM _event_routes WHERE id=?", [rid])
+        c.commit()
+        global _event_route_cache
+        _event_route_cache = None
+        return {"success": True, "route_id": rid}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_event_route_list(args: dict) -> dict:
+    """List event routes, optionally filtered by ns."""
+    ns = args.get("ns", None)
+    _init_event_routes()
+    try:
+        c = _get_conn()
+        if ns:
+            rows = c.execute("SELECT * FROM _event_routes WHERE ns=? ORDER BY id", [ns]).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM _event_routes ORDER BY id").fetchall()
+        routes_list = []
+        for r in rows:
+            d = dict(r)
+            # Convert bytes/Decimal if present
+            for k, v in list(d.items()):
+                if hasattr(v, 'iso_format'):  # pragma: no cover
+                    d[k] = str(v)
+            routes_list.append(d)
+        return {"success": True, "routes": routes_list, "count": len(routes_list)}
+    except Exception as e:
+        return {"success": False, "error": str(e), "routes": []}
+
 TOOLS = [
     {
         "name": "pdb_vec_search",
@@ -2470,6 +2640,32 @@ TOOLS = [
             "ns": {"type": "string"},
             "subs": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}}
         }, "required": ["ns", "subs"]}
+    },
+
+    {
+        "name": "pdb_event_route_define",
+        "description": "Define an event route: PDB mutations -> MVM mailbox delivery",
+        "inputSchema": {"type": "object", "properties": {
+            "ns": {"type": "string", "description": "Namespace to watch (* = all)"},
+            "subkey_pattern": {"type": "string", "description": "Glob pattern for subs"},
+            "event_type": {"type": "string", "description": "'SET', 'KILL', '*' (both)"},
+            "target_type": {"type": "string", "description": "'mvm' (default)"},
+            "target_id": {"type": "string", "description": "MVM PID to deliver to"}
+        }, "required": ["target_id"]}
+    },
+    {
+        "name": "pdb_event_route_remove",
+        "description": "Remove an event route by id",
+        "inputSchema": {"type": "object", "properties": {
+            "route_id": {"type": "number", "description": "Route ID to remove"}
+        }, "required": ["route_id"]}
+    },
+    {
+        "name": "pdb_event_route_list",
+        "description": "List event routes, optionally filtered by ns",
+        "inputSchema": {"type": "object", "properties": {
+            "ns": {"type": "string", "description": "Filter by namespace"}
+        }}
     },
 ]
 
@@ -2518,4 +2714,8 @@ HANDLERS = {
     "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
     "pdb_embed": tool_embed,
     "pdb_embed_search": tool_embed_search,
+    "pdb_event_route_define": tool_event_route_define,
+    "pdb_event_route_remove": tool_event_route_remove,
+    "pdb_event_route_list": tool_event_route_list,
+
 }
