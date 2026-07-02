@@ -53,7 +53,7 @@ fn scan_workspace(root: &str) -> Vec<WorkspaceFile> {
                         .and_then(|n| n.to_str())
                         .unwrap_or("")
                         .to_lowercase();
-                    if extensions.iter().any(|e| *e == ext.as_str())
+                    if extensions.contains(&ext.as_str())
                         || name == "dockerfile" || name == "makefile"
                         || name == "license"
                     {

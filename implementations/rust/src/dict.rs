@@ -345,7 +345,7 @@ impl SessionDict {
     /// read-lock on the outer `RwLock<SessionDict>`.
     #[inline]
     pub fn touch(&self, id: u8) {
-        if id < STATIC_MAX || id >= SESSION_MAX {
+        if !(STATIC_MAX..SESSION_MAX).contains(&id) {
             return;
         }
         let idx = (id - STATIC_MAX) as usize;
@@ -419,7 +419,7 @@ impl SessionDict {
     ///
     /// Returns `Ok(())` on success, or `Err(msg)` if the ID is out of range.
     pub fn register(&mut self, key: impl Into<String>, id: u8) -> Result<(), String> {
-        if id < STATIC_MAX || id >= SESSION_MAX {
+        if !(STATIC_MAX..SESSION_MAX).contains(&id) {
             return Err(format!(
                 "session ID {id:#04x} out of range ({:#04x}..{:#04x})",
                 STATIC_MAX, SESSION_MAX
@@ -454,7 +454,7 @@ impl SessionDict {
 
     /// Remove a slot from the session dictionary.
     pub fn unregister(&mut self, id: u8) {
-        if id < STATIC_MAX || id >= SESSION_MAX {
+        if !(STATIC_MAX..SESSION_MAX).contains(&id) {
             return;
         }
         let idx = (id - STATIC_MAX) as usize;
@@ -469,7 +469,7 @@ impl SessionDict {
 
     /// Resolve a session dictionary ID to its key string.
     pub fn resolve(&self, id: u8) -> Option<&str> {
-        if id < STATIC_MAX || id >= SESSION_MAX {
+        if !(STATIC_MAX..SESSION_MAX).contains(&id) {
             return None;
         }
         self.forward[(id - STATIC_MAX) as usize].as_deref()
@@ -560,10 +560,10 @@ mod tests {
 
     #[test]
     fn static_dict_no_overlaps() {
-        for i in 0..STATIC_MAX as usize {
-            if let Some(key) = STATIC_DICT[i] {
-                for j in (i + 1)..STATIC_MAX as usize {
-                    if let Some(other) = STATIC_DICT[j] {
+        for (i, key) in STATIC_DICT.iter().enumerate() {
+            if let Some(key) = key {
+                for (j, other) in STATIC_DICT.iter().enumerate().skip(i + 1) {
+                    if let Some(other) = other {
                         assert_ne!(key, other, "duplicate key '{}' at {} and {}", key, i, j);
                     }
                 }
@@ -663,7 +663,7 @@ mod tests {
         // Fill all 127 slots
         for i in 0..127u8 {
             let id = 0x80 + i;
-            s.register(&format!("key_{id:02x}"), id).unwrap();
+            s.register(format!("key_{id:02x}"), id).unwrap();
             // Touch each one so they have different generations
             s.lookup(&format!("key_{id:02x}"));
         }
@@ -687,14 +687,14 @@ mod tests {
         // Fill all 127 slots
         for i in 0..127u8 {
             let id = 0x80 + i;
-            s.register(&format!("key_{id:02x}"), id).unwrap();
+            s.register(format!("key_{id:02x}"), id).unwrap();
             s.lookup(&format!("key_{id:02x}"));
         }
         assert_eq!(s.len(), 127);
 
         // Now auto-register a new key — should evict the LRU (0x80)
         let new_id = s.register_lru("brand_new_key");
-        assert!(new_id >= 0x80 && new_id < 0xFF);
+        assert!((0x80..0xFF).contains(&new_id));
         assert_eq!(s.len(), 127); // still full
 
         // The new key should resolve

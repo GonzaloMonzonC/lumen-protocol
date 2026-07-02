@@ -29,6 +29,15 @@ fn make_frame(ftype: u8, payload: &[u8]) -> Vec<u8> {
     datagram::build_dgram(ftype, 0, payload)
 }
 
+/// Check whether the OS will send a UDP datagram of `len` bytes on loopback.
+/// macOS caps datagrams at net.inet.udp.maxdgram (9216 by default), so the
+/// larger benchmark sizes are skipped there instead of erroring out.
+fn os_can_send_dgram(len: usize) -> bool {
+    let Ok(probe) = std::net::UdpSocket::bind("127.0.0.1:0") else { return false };
+    let Ok(addr) = probe.local_addr() else { return false };
+    probe.send_to(&vec![0u8; len], addr).is_ok()
+}
+
 /// Parse a received frame, returning (frame_type, payload_len).
 fn parse_frame(data: &[u8]) -> Option<(u8, usize)> {
     match frame::parse(data) {
@@ -56,6 +65,10 @@ fn bench_roundtrip() -> io::Result<()> {
         let payload = vec![0xAAu8; psize];
         let frame = make_frame(frame::TYPE_HEARTBEAT, &payload);
         let mut lost = 0usize;
+        if !os_can_send_dgram(frame.len()) {
+            println!("  {:>6}B   skipped (exceeds OS datagram limit)", psize);
+            continue;
+        }
 
         // Spawn echo server on ephemeral port, get address via channel
         let (addr_tx, addr_rx) = mpsc::channel();
@@ -143,6 +156,10 @@ fn bench_unidirectional() -> io::Result<()> {
     for &psize in &payload_sizes {
         let payload = vec![0xBBu8; psize];
         let frame = make_frame(frame::TYPE_NOTIFY, &payload);
+        if !os_can_send_dgram(frame.len()) {
+            println!("  {:>6}B   skipped (exceeds OS datagram limit)", psize);
+            continue;
+        }
 
         // Warmup
         for _ in 0..WARMUP {
@@ -274,6 +291,10 @@ fn bench_parse_overhead() -> io::Result<()> {
 
     for &psize in &payload_sizes {
         let payload = vec![0xCCu8; psize];
+        if !os_can_send_dgram(make_frame(frame::TYPE_NOTIFY, &payload).len()) {
+            println!("  {:>6}B   skipped (exceeds OS datagram limit)", psize);
+            continue;
+        }
 
         // Build + send + recv + parse
         // Warmup
@@ -330,6 +351,10 @@ fn bench_max_payload() -> io::Result<()> {
 
     println!("  frame_size: {} bytes", frame.len());
     println!("  udp_size:   {} bytes (datagram)", frame.len() + 28);
+    if !os_can_send_dgram(frame.len()) {
+        println!("  skipped: OS datagram limit below frame size");
+        return Ok(());
+    }
 
     // Warmup
     for _ in 0..10 {
