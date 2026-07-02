@@ -255,7 +255,14 @@ fn decode_i64_leb128(data: &[u8], pos: &mut usize) -> Option<i64> {
 
 /// Maximum nesting depth for containers (arrays and objects).
 /// Prevents stack overflow DoS from deeply nested payloads.
+/// Aligned across all LUMEN implementations (Rust/TS/PHP/Python).
 const MAX_DEPTH: usize = 32;
+
+/// Cap on container pre-allocation. NOT a limit on container size — counts
+/// are only bounded by the input length (each element costs ≥1 byte, so a
+/// count exceeding the remaining bytes is malformed). This cap just stops a
+/// forged count from ballooning memory before any element is parsed.
+const PREALLOC_CAP: usize = 1024;
 
 /// Internal decode with depth tracking for DoS protection.
 fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict>, depth: usize) -> Option<Value> {
@@ -306,7 +313,9 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
             let len = hyb128::decode(&data[*pos..])?;
             *pos += len.header_len;
             let v = len.value as usize;
-            if *pos + v > data.len() { return None; }
+            // `v > remaining` instead of `*pos + v > len`: the addition can
+            // wrap for forged LEB128 lengths near usize::MAX (panic, not None).
+            if v > data.len() - *pos { return None; }
             let bytes = &data[*pos..*pos + v];
             *pos += v;
             let s = String::from_utf8(bytes.to_vec()).ok()?;
@@ -317,11 +326,13 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
             let len = hyb128::decode(&data[*pos..])?;
             *pos += len.header_len;
             let count = len.value as usize;
-            const MAX_ITEMS: usize = 1024;
-            if count > MAX_ITEMS {
-                return None; // reject oversized containers
+            // Each element needs at least 1 input byte (its tag), so a count
+            // beyond the remaining bytes is malformed. No hard item limit —
+            // the other LUMEN implementations impose none (interop).
+            if count > data.len() - *pos {
+                return None;
             }
-            let mut arr = Vec::with_capacity(count);
+            let mut arr = Vec::with_capacity(count.min(PREALLOC_CAP));
             for _ in 0..count {
                 arr.push(decode_value_inner(data, pos, session, depth + 1)?);
             }
@@ -332,12 +343,12 @@ fn decode_value_inner(data: &[u8], pos: &mut usize, session: Option<&SessionDict
             let len = hyb128::decode(&data[*pos..])?;
             *pos += len.header_len;
             let count = len.value as usize;
-            const MAX_ITEMS: usize = 1024;
-            if count > MAX_ITEMS {
-                return None; // reject oversized containers
+            // Each entry needs at least 2 input bytes (key id + value tag).
+            if count > (data.len() - *pos) / 2 {
+                return None;
             }
-            let mut map = serde_json::Map::with_capacity(count);
-            for _ in 0..len.value {
+            let mut map = serde_json::Map::with_capacity(count.min(PREALLOC_CAP));
+            for _ in 0..count {
                 let key = decode_key(data, pos, session)?;
                 let val = decode_value_inner(data, pos, session, depth + 1)?;
                 map.insert(key, val);
@@ -367,7 +378,7 @@ fn decode_key(data: &[u8], pos: &mut usize, session: Option<&SessionDict>) -> Op
         let len = hyb128::decode(&data[*pos..])?;
         *pos += len.header_len;
         let v = len.value as usize;
-        if *pos + v > data.len() { return None; }
+        if v > data.len() - *pos { return None; }
         let bytes = &data[*pos..*pos + v];
         *pos += v;
         String::from_utf8(bytes.to_vec()).ok()
@@ -427,7 +438,7 @@ mod tests {
     #[test]
     fn roundtrip_number() {
         roundtrip(json!(42));
-        roundtrip(json!(-3.14));
+        roundtrip(json!(-2.75));
         roundtrip(json!(0));
     }
 
@@ -510,6 +521,36 @@ mod tests {
     #[test]
     fn decompress_garbage_is_none() {
         assert_eq!(decompress(&[0xFF, 0xFF, 0xFF, 0xFF], None), None);
+    }
+
+    #[test]
+    fn large_array_roundtrip_no_item_cap() {
+        // >1024 items must roundtrip — TS/PHP/Python impose no item limit
+        // and a large tools/list response is legitimate.
+        let v = Value::Array((0..5000).map(|i| json!(i)).collect());
+        roundtrip(v);
+    }
+
+    #[test]
+    fn forged_container_count_rejected() {
+        // TAG_ARRAY claiming u32::MAX elements with an empty body: the
+        // count exceeds the remaining bytes → malformed, not an allocation.
+        let mut data = vec![TAG_ARRAY];
+        let mut len_buf = [0u8; hyb128::MAX_ENCODED_LEN];
+        let n = hyb128::encode(u32::MAX as u64, &mut len_buf);
+        data.extend_from_slice(&len_buf[..n]);
+        assert_eq!(decompress(&data, None), None);
+    }
+
+    #[test]
+    fn forged_huge_string_length_rejected() {
+        // TAG_STR_RAW with a LEB128 length of u64::MAX — the old
+        // `*pos + v > data.len()` check wrapped and panicked; must be None.
+        let mut data = vec![TAG_STR_RAW];
+        let mut len_buf = [0u8; hyb128::MAX_ENCODED_LEN];
+        let n = hyb128::encode(u64::MAX, &mut len_buf);
+        data.extend_from_slice(&len_buf[..n]);
+        assert_eq!(decompress(&data, None), None);
     }
 
     #[test]

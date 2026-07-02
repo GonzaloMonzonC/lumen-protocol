@@ -8,7 +8,6 @@
 use lumen::compress;
 use lumen::fixtures;
 use lumen::frame;
-use serde_json;
 use std::time::Instant;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -428,12 +427,6 @@ fn main() {
     println!("║   WARMUP={WARMUP} iters,  MEASURE={ITERS} iters                 ║");
     println!("╚══════════════════════════════════════════════════════╝");
 
-    let mut rows = Vec::new();
-    rows.push(run_s1());
-    rows.push(run_s2());
-    rows.push(run_s3());
-    rows.push(run_s4());
-    rows.push(run_s5());
-    rows.push(run_s6());
+    let rows = vec![run_s1(), run_s2(), run_s3(), run_s4(), run_s5(), run_s6()];
     print_summary(&rows);
 }

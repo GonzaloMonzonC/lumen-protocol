@@ -236,8 +236,7 @@ fn commit_nonce(window: &mut u64, bitmap: &mut u64, nonce: u64) {
         };
         *window = nonce;
     } else if nonce == *window {
-        // Should've been caught by check_nonce_candidate
-        return;
+        // Should've been caught by check_nonce_candidate — nothing to do.
     } else {
         let offset = *window - nonce;
         let mask = 1u64 << (offset - 1);

@@ -58,7 +58,7 @@ impl Workload {
             }
             Workload::FileChunk => {
                 let code = fixtures::generate_source_code(
-                    &["rust", "python", "typescript", "go"][seed % 4],
+                    ["rust", "python", "typescript", "go"][seed % 4],
                     5, // 5 KB each
                 );
                 serde_json::json!({"file": format!("/src/module_{}.rs", seed), "content": code})

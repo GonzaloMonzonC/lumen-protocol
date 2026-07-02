@@ -183,7 +183,7 @@ impl ShmRingBuffer {
                     ));
                 }
                 std::hint::spin_loop();
-                if spins % YIELD_INTERVAL == 0 {
+                if spins.is_multiple_of(YIELD_INTERVAL) {
                     std::thread::yield_now();
                 }
                 continue;
@@ -261,7 +261,7 @@ impl ShmRingBuffer {
                     return Err(ShmError("SHM ring buffer timeout: header never arrived".into()));
                 }
                 std::hint::spin_loop();
-                if hdr_spins % YIELD_INTERVAL == 0 {
+                if hdr_spins.is_multiple_of(YIELD_INTERVAL) {
                     std::thread::yield_now();
                 }
             }
@@ -290,7 +290,7 @@ impl ShmRingBuffer {
                     ));
                 }
                 std::hint::spin_loop();
-                if spins % YIELD_INTERVAL == 0 {
+                if spins.is_multiple_of(YIELD_INTERVAL) {
                     std::thread::yield_now();
                 }
                 continue;
@@ -318,6 +318,13 @@ pub struct ShmRegion {
     size: usize,
     inner: ShmInner,
 }
+
+// Safety: the mapping is valid for the whole process regardless of thread,
+// the fd/handle are plain values, and all shared-memory access is
+// synchronized via the atomic cursors in ShmHeader (same contract as the
+// Send/Sync impls on ShmRingBuffer).
+unsafe impl Send for ShmRegion {}
+unsafe impl Sync for ShmRegion {}
 
 enum ShmInner {
     #[cfg(windows)]

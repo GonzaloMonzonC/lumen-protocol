@@ -13,13 +13,13 @@ use lumen::transport::Transport;
 const WARMUP: usize = 200;
 const ITERS: usize = 2000;
 
-/// ── Helpers ──────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────
 
 fn throughput_mbps(bytes_per_op: usize, ns_per_op: f64) -> f64 {
     (bytes_per_op as f64 / 1_000_000.0) / (ns_per_op / 1_000_000_000.0)
 }
 
-/// ── Baseline: in-memory Vec channel ──────────────────────────────
+// ── Baseline: in-memory Vec channel ──────────────────────────────
 
 struct MemChannel {
     buf: Vec<u8>,
@@ -48,7 +48,7 @@ impl MemChannel {
     }
 }
 
-/// ── Scenario 1: Ring Buffer Frame Throughput ─────────────────────
+// ── Scenario 1: Ring Buffer Frame Throughput ─────────────────────
 
 fn bench_ring_throughput(region_size: usize) {
     println!();
@@ -68,7 +68,7 @@ fn bench_ring_throughput(region_size: usize) {
         let rring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
         let payload = vec![0x42u8; psize];
         let frame_size = 4 + psize;
-        let batch = (ring_cap / frame_size).max(1).min(ITERS);
+        let batch = (ring_cap / frame_size).clamp(1, ITERS);
 
         // Warmup
         for _ in 0..WARMUP {
@@ -103,7 +103,7 @@ fn bench_ring_throughput(region_size: usize) {
     }
 }
 
-/// ── Scenario 2: Frame Roundtrip (Echo) ───────────────────────────
+// ── Scenario 2: Frame Roundtrip (Echo) ───────────────────────────
 
 fn bench_shm_echo(region_size: usize) {
     println!();
@@ -170,7 +170,7 @@ fn bench_shm_echo(region_size: usize) {
     }
 }
 
-/// ── Scenario 3: Baseline Memory Channel ──────────────────────────
+// ── Scenario 3: Baseline Memory Channel ──────────────────────────
 
 fn bench_mem_baseline() {
     println!();
@@ -199,7 +199,7 @@ fn bench_mem_baseline() {
     }
 }
 
-/// ── Scenario 4: STREAM benchmark — large payload throughput ──────
+// ── Scenario 4: STREAM benchmark — large payload throughput ──────
 
 fn bench_stream_throughput(region_size: usize) {
     println!();
@@ -249,7 +249,7 @@ fn bench_stream_throughput(region_size: usize) {
     println!("  write+read time: {:?}  ->  {:.1} MB/s", elapsed, tput);
 }
 
-/// ── Scenario 5: Cache-line ping-pong ─────────────────────────────
+// ── Scenario 5: Cache-line ping-pong ─────────────────────────────
 
 fn bench_ping_pong(region_size: usize) {
     println!();
@@ -297,7 +297,7 @@ fn bench_ping_pong(region_size: usize) {
     println!("  -> {:.0} roundtrips/sec", 1_000_000_000.0 / avg);
 }
 
-/// ── Main ──────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════╗");

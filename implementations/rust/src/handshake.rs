@@ -47,7 +47,8 @@ struct AckMsg {
 /// The negotiated transport after handshake.
 pub enum NegotiatedTransport {
     /// Level 2 zero-copy transport established with region kept alive via Arc.
-    Shm(ShmTransport, Arc<ShmRegion>),
+    /// Boxed so the enum stays small when the fallback variant is used.
+    Shm(Box<ShmTransport>, Arc<ShmRegion>),
     /// Fallback: stay on Level 1 (the caller keeps the existing stream).
     Stream,
 }
@@ -105,7 +106,7 @@ pub fn server_negotiate(
         // Keep the ShmRegion alive via Arc — the transport holds a ref.
         // When the NegotiatedTransport is dropped, the region is freed.
         NegotiatedTransport::Shm(
-            ShmTransport::new(write_ring, read_ring),
+            Box::new(ShmTransport::new(write_ring, read_ring)),
             Arc::new(region),
         )
     } else {
@@ -178,7 +179,7 @@ pub fn client_negotiate(
 
         // Keep the ShmRegion alive via Arc — see server_negotiate for rationale.
         Ok(NegotiatedTransport::Shm(
-            ShmTransport::new(write_ring, read_ring),
+            Box::new(ShmTransport::new(write_ring, read_ring)),
             Arc::new(region),
         ))
     } else {
@@ -464,10 +465,11 @@ pub fn server_encrypted_handshake(
 
     // 3. Build ACK
     let mut ack_caps = capabilities.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    if server_supports_encryption && client_wants_encryption {
-        if !ack_caps.contains(&"encryption".to_string()) {
-            ack_caps.push("encryption".into());
-        }
+    if server_supports_encryption
+        && client_wants_encryption
+        && !ack_caps.contains(&"encryption".to_string())
+    {
+        ack_caps.push("encryption".into());
     }
 
     let ack = ProbeAckMsg { v: 1, caps: ack_caps, pk: server_pk_b64 };
@@ -488,42 +490,6 @@ pub fn server_encrypted_handshake(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::Transport;
-    use std::io;
-
-    /// A simple in-memory transport for testing handshakes.
-    struct MemTransport {
-        buf: Vec<u8>,
-        pos: usize,
-    }
-
-    impl MemTransport {
-        fn new() -> Self {
-            Self { buf: Vec::new(), pos: 0 }
-        }
-    }
-
-    impl Transport for MemTransport {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let remaining = self.buf.len() - self.pos;
-            if remaining == 0 {
-                return Err(io::Error::new(io::ErrorKind::WouldBlock, "no data"));
-            }
-            let n = buf.len().min(remaining);
-            buf[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
-            self.pos += n;
-            Ok(n)
-        }
-
-        fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-            self.buf.extend_from_slice(buf);
-            Ok(())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
 
     #[test]
     fn encrypted_handshake_end_to_end() {

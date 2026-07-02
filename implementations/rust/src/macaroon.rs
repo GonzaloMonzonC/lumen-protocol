@@ -31,8 +31,7 @@
 //!   ok = m.verify(root_key, |caveat| check_caveat(caveat))
 //! ```
 
-#[allow(unused_imports)]
-use sha2::{Sha256, Digest};
+use sha2::Sha256;
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -261,48 +260,14 @@ impl Macaroon {
 
 // ── Crypto helpers ──────────────────────────────────────────────────────────
 
-/// HMAC-SHA256 as defined in RFC 2104.
-///
-/// HMAC(K, m) = H((K' ⊕ opad) || H((K' ⊕ ipad) || m))
-/// where K' is K zero-padded to 64 bytes (SHA-256 block size),
-/// ipad = 0x36 repeated, opad = 0x5C repeated.
+/// HMAC-SHA256 (RFC 2104) via the `hmac` crate — verified against the
+/// RFC 4231 test vectors in this module's tests.
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; SIGNATURE_SIZE] {
-    #[allow(unused_imports)]
-    use sha2::{Sha256, Digest};
-
-    const BLOCK_SIZE: usize = 64;
-    let mut k_prime = [0u8; BLOCK_SIZE];
-
-    // If key is longer than block size, hash it first
-    if key.len() > BLOCK_SIZE {
-        let mut hasher = Sha256::new();
-        hasher.update(key);
-        let hashed = hasher.finalize();
-        k_prime[..32].copy_from_slice(&hashed);
-    } else {
-        let len = key.len().min(BLOCK_SIZE);
-        k_prime[..len].copy_from_slice(key);
-    }
-
-    // Inner hash: H((K' ⊕ ipad) || message)
-    let mut inner = Sha256::new();
-    for b in &k_prime {
-        inner.update([b ^ 0x36]);
-    }
-    inner.update(message);
-    let inner_hash = inner.finalize();
-
-    // Outer hash: H((K' ⊕ opad) || inner_hash)
-    let mut outer = Sha256::new();
-    for b in &k_prime {
-        outer.update([b ^ 0x5C]);
-    }
-    outer.update(inner_hash);
-    let result = outer.finalize();
-
-    let mut tag = [0u8; SIGNATURE_SIZE];
-    tag.copy_from_slice(&result);
-    tag
+    use hmac::{Hmac, Mac};
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key)
+        .expect("HMAC-SHA256 accepts keys of any length");
+    mac.update(message);
+    mac.finalize().into_bytes().into()
 }
 
 /// Constant-time comparison of two 32-byte slices.
@@ -323,10 +288,10 @@ fn parse_iso8601_to_unix(s: &str) -> Option<u64> {
     let year: u32 = s[0..4].parse().ok()?;
     let month: u32 = s[5..7].parse().ok()?;
     let day: u32 = s[8..10].parse().ok()?;
-    if month < 1 || month > 12 || day < 1 || day > 31 { return None; }
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
     // Simplified: use day-of-year approximation (good enough for expiry checks)
     let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let is_leap = |y: u32| y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let is_leap = |y: u32| y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
     let feb_days = if is_leap(year) { 29 } else { 28 };
     if month == 2 && day > feb_days { return None; }
     if day > days_in_month[month as usize] { return None; }
@@ -465,11 +430,7 @@ mod tests {
         assert!(mac.verify(&root_key, |c| {
             if let Some(m) = caveats::parse_method(c) {
                 methods.contains(&m)
-            } else if caveats::is_read_only(c) {
-                true
-            } else {
-                false
-            }
+            } else { caveats::is_read_only(c) }
         }));
 
         // Fail with wrong method
@@ -477,11 +438,7 @@ mod tests {
         assert!(!mac.verify(&root_key, |c| {
             if let Some(m) = caveats::parse_method(c) {
                 methods2.contains(&m)
-            } else if caveats::is_read_only(c) {
-                true
-            } else {
-                false
-            }
+            } else { caveats::is_read_only(c) }
         }));
     }
 
@@ -519,9 +476,9 @@ mod tests {
 
         // Decoded macaroon should still verify
         assert!(decoded.verify(&root_key, |c| {
-            caveats::parse_method(c).map_or(true, |m| m == "tools/call")
-                && caveats::parse_tool(c).map_or(true, |t| t == "search")
-                && caveats::parse_expiry(c).map_or(true, |_| true)
+            caveats::parse_method(c).is_none_or(|m| m == "tools/call")
+                && caveats::parse_tool(c).is_none_or(|t| t == "search")
+                && caveats::parse_expiry(c).is_none_or(|_| true)
         }));
     }
 
@@ -577,7 +534,7 @@ mod tests {
         let write_only = base.attenuate(&caveats::method("tools/call"));
 
         // Both verify with the base conditions
-        assert!(read_only.verify(&root_key, |c| caveats::is_read_only(c)));
+        assert!(read_only.verify(&root_key, caveats::is_read_only));
         assert!(write_only.verify(&root_key, |c| {
             caveats::parse_method(c) == Some("tools/call")
         }));
