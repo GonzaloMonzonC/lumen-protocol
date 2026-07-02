@@ -543,6 +543,104 @@ class MVM:
                 return proc
         return None
 
+    # ── Agent Outbox ────────────────────────────────────────────────────
+    def outbox_send(self, pid, payload: str, priority: str = "normal",
+                    msg_type: str = "text") -> int:
+        """Send a structured message to the agent's outbox from a MVM process.
+        No sub-subkeys — JSON entry includes status field.
+        Returns message ID. Thread-safe via COUNTER."""
+        pid_str = str(pid)
+        msg_id = self.pdb.tool_incr({
+            "ns": "AGENT_OUTBOX_COUNTER", "subs": [0]
+        })
+        entry = {
+            "msg_id": int(msg_id.get("new_value", msg_id.get("value", 1))),
+            "pid": int(pid) if pid_str.isdigit() else pid_str,
+            "timestamp": time.time(),
+            "type": msg_type,
+            "payload": payload,
+            "priority": priority,
+            "status": "pending"
+        }
+        mid = str(entry["msg_id"])
+        self.pdb.tool_set({
+            "ns": "AGENT_OUTBOX", "subs": [mid],
+            "value": json.dumps(entry)
+        })
+        return entry["msg_id"]
+
+    def outbox_read(self, limit: int = 10, priority: str = "") -> list[dict]:
+        """Read pending outbox messages. Ordered by priority DESC, time ASC.
+        No sub-subkeys — $ORDER walks level-1 keys only."""
+        messages = []
+        mid = ""
+        while True:
+            r = self.pdb.tool_order({"ns": "AGENT_OUTBOX", "subs": [mid], "direction": 1})
+            if r.get("value") is None:
+                break
+            mid = str(r["value"])
+            # Skip counter entry
+            if mid == "COUNTER" or not mid.isdigit():
+                continue
+            val = self.pdb.tool_get({"ns": "AGENT_OUTBOX", "subs": [mid]})
+            if not val.get("value"):
+                continue
+            try:
+                entry = json.loads(val["value"])
+            except (json.JSONDecodeError, TypeError, KeyError):
+                continue
+            if entry.get("status") == "pending":
+                if priority and entry.get("priority") != priority:
+                    continue
+                messages.append(entry)
+                if len(messages) >= limit:
+                    break
+        priority_order = {"high": 0, "normal": 1, "low": 2}
+        messages.sort(key=lambda m: (
+            priority_order.get(m.get("priority", "normal"), 9),
+            m.get("timestamp", 0)
+        ))
+        return messages
+
+    def outbox_ack(self, msg_id) -> bool:
+        """Mark an outbox message as acknowledged (update JSON in-place)."""
+        msg_id_str = str(msg_id)
+        val = self.pdb.tool_get({"ns": "AGENT_OUTBOX", "subs": [msg_id_str]})
+        if not val.get("value"):
+            return False
+        try:
+            entry = json.loads(val["value"])
+        except (json.JSONDecodeError, TypeError):
+            return False
+        entry["status"] = "acknowledged"
+        entry["acknowledged_at"] = time.time()
+        self.pdb.tool_set({
+            "ns": "AGENT_OUTBOX", "subs": [msg_id_str],
+            "value": json.dumps(entry)
+        })
+        return True
+
+    def outbox_cleanup(self, max_age_secs: float = 86400):
+        """Remove acknowledged messages older than max_age_secs."""
+        now = time.time()
+        mid = ""
+        while True:
+            r = self.pdb.tool_order({"ns": "AGENT_OUTBOX", "subs": [mid], "direction": 1})
+            if r.get("value") is None:
+                break
+            mid = str(r["value"])
+            if mid == "COUNTER" or not mid.isdigit():
+                continue
+            val = self.pdb.tool_get({"ns": "AGENT_OUTBOX", "subs": [mid]})
+            if not val.get("value"):
+                continue
+            try:
+                entry = json.loads(val["value"])
+                if entry.get("status") == "acknowledged" and \
+                   (now - entry.get("timestamp", 0)) > max_age_secs:
+                    self.pdb.tool_kill({"ns": "AGENT_OUTBOX", "subs": [mid]})
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
 
     # ── Fork Cognitivo ──────────────────────────────────────────────────
     def fork(self, pid: int, name: str = "") -> int:
