@@ -112,7 +112,7 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | **Rust** | `implementations/rust/` | Reference impl, WASM target, FFI (C ABI) |
 | **TypeScript** | `npm i @gonzalomonzonc/mcp-transport` | Node.js + browser, zero-copy SHM via koffi |
 | **Python** | `pip install lumen-mcp` | Full protocol, session dict, MCP tools |
-| **PHP** | `implementations/php/` | PHP 8.5+, 217/217 e2e passing |
+| **PHP** | `implementations/php/` | Core protocol (Hyb128, compression, dict). E2E: 181/217 passing (binary compat test/golden mismatch) |
 | **C#** | `implementations/csharp/` | .NET 9, P/Invoke FFI to Rust |
 | **WASM** | `implementations/rust/src/wasm.rs` | Browser-ready, 22 KB gzipped |
 
@@ -166,11 +166,10 @@ LUMEN no es solo un protocolo rápido. Sobre Hermes Agent, se convierte en un **
 ## Transport levels
 
 ```
-Level 1 — stdio/Binary     (local, Hyb128 frames, 55-80% savings)
+Level 1 — Stream           (stdio, TCP, WebSocket; Hyb128 frames, 55-80% savings)
 Level 2 — SHM/mmap 🔥      (local IPC, zero-copy ring buffers, sub-ms latency)
-Level 3 — TCP              (LAN, Hyb128 framing)
-Level 4 — UDP + Multicast  (service discovery, fire-and-forget)
-Level 5 — QUIC             (WAN, HTTP/3, production)
+Level 3 — Datagram         (UDP + multicast, service discovery, fire-and-forget)
+Level 4 — QUIC             (WAN, HTTP/3, production)
 ```
 
 ---
@@ -219,8 +218,8 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | QUIC transport (L4) | ✅ | Rust: `quic.rs` — server/client endpoints, TLS 1.3, bidirectional streams, 7 tests |
 | Python 3.10+ impl | ✅ | Full protocol, MCP servers, e2e suite (89/89) |
 | TypeScript impl | ✅ | Node.js + browser, zero-copy SHM via koffi |
-| PHP 8.5+ impl | ✅ | 217/217 e2e passing |
-| C#/.NET 9 impl | ✅ | P/Invoke FFI to Rust |
+| PHP 8.1+ impl | ✅ | Core protocol. E2E: 181/217 (golden mismatch in progress) |
+| C#/.NET 9 impl | 🔶 | Hyb128 + compression + FFI. No frame layer yet (partial) |
 | WASM target | ✅ | 22 KB gzipped, browser-ready |
 
 ### 🚧 Planned / Under Development
@@ -233,19 +232,22 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Multi-machine mesh (Phase E) | 🚧 Planned | Distributed LUMEN-over-WebSocket across Cloudflare |
 | Universal protocol docs | 🚧 Planned | Publish as open standard, JS + Python libraries |
 
-### 📐 Known Spec/Code Mismatches — RESOLVED
+### 📐 Known Spec/Code Mismatches
 
-All mismatches identified in the initial audit have been resolved.
-The [RFC_LUMEN.md](RFC_LUMEN.md) now matches the implementation exactly:
-
-| Original mismatch | Resolution |
-|-------------------|------------|
-| Big-endian → Little-endian | RFC §2 corrected (LE is canonical). Code was always correct. |
-| Frame `DICT_REF` field | Removed from RFC §3.1. Dict lookups are handled by Hyb128 STR_DICT tag. |
-| Hyb128 Extended diagram | RFC Appendix A rewritten with accurate LE frames + mode-byte tables. |
-| §5 "binary headers" | §5.1-5.6 rewritten to describe actual JSON-RPC opaque blobs with v2 notes. |
-| CBOR references | Replaced with "LUMEN binary format (TAGs 0xE0-0xE7)" throughout. |
-| Static dictionary table | Updated to match DICTIONARY.md (128 field keys, not method names). |
+| # | Mismatch | Status |
+|---|----------|--------|
+| 1 | `RFC_LUMEN.md` claimed "Remaining unimplemented: None" while `0x0D/0x0E` were Unassigned | **RESOLVED** — now says "implementation status varies by binding", `0x0D/0x0E` → BATCH/FLOW_CTL |
+| 2 | IETF boilerplate ("Internet Standards Track", "IANA has created") incompatible with independent project | **RESOLVED** — replaced with project registry, independent status |
+| 3 | Transport levels: README had 5 levels (TCP=L3), RFC had 4 | **RESOLVED** — unified to L1 Stream, L2 SHM, L3 Datagram, L4 QUIC |
+| 4 | `SPEC_DEV.md` claimed AEAD protects against active MITM | **RESOLVED** — corrected: wire encryption protects passive only; MITM requires TLS/PSK |
+| 5 | TypeScript `src/crypto.ts` did not compile (5 TS errors) | **RESOLVED** — `isNode` boolean coercion + HKDF `Uint8Array` wrapping |
+| 6 | Python missing `TYPE_TRANSPORT_INIT`, `TYPE_TRANSPORT_ACK`, `TYPE_BATCH`, `TYPE_FLOW_CTL` | **RESOLVED** — constants added and exported |
+| 7 | `conformance.json` mixed `BATCH`/`FLOW_CTL` in core (`0x01..0x10` sweep) | **IN PROGRESS** — separating into `core.frame_type_constants` + `extensions.batch_flow` |
+| 8 | PHP e2e: 181/217 (36 failures in Frame Binary Compatibility) | **PENDING** — needs PHP runtime; golden/test JSON compact vs spaces |
+| 9 | PHP missing `TRANSPORT_INIT`, `TRANSPORT_ACK`, `BATCH`, `FLOW_CTL` | **IN PROGRESS** — constants being added (no PHP runtime to test) |
+| 10 | C# no `Frame.cs` layer | **PENDING** — requires .NET SDK; currently compression/Hyb128/FFI only |
+| 11 | No capability manifest per binding | **IN PROGRESS** — creating `tests/e2e/capabilities.json` |
+| 12 | Rust tests not runnable in this environment | **PENDING** — requires `cargo`; reference implementation presumed complete |
 
 ---
 

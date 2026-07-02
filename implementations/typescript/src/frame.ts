@@ -43,6 +43,15 @@ export const TYPE_TRANSPORT_INIT = 0x0b;
 /** Transport capability negotiation ack (server → client). */
 export const TYPE_TRANSPORT_ACK = 0x0c;
 
+// ── Extensions: batch / flow control ────────────────────────────────────
+
+/** Batch: multiple complete frames in one outer frame (extension). */
+export const TYPE_BATCH = 0x0d;
+/** Flow control: pause/resume or credit-based window update (extension). */
+export const TYPE_FLOW_CTL = 0x0e;
+/** Flag reused in FLOW_CTL context: pause signal (bitshare with COMPRESSED). */
+export const FLAG_FLOW_PAUSE = 0x01;
+
 // ── Protocol-level negotiation ──────────────────────────────────────────
 
 /** Protocol probe (negotiation handshake). */
@@ -187,6 +196,8 @@ export function typeName(frameType: number): string {
     [TYPE_HEARTBEAT]: "HEARTBEAT",
     [TYPE_TRANSPORT_INIT]: "TRANSPORT_INIT",
     [TYPE_TRANSPORT_ACK]: "TRANSPORT_ACK",
+    [TYPE_BATCH]: "BATCH",
+    [TYPE_FLOW_CTL]: "FLOW_CTL",
     [TYPE_PROBE]: "PROBE",
     [TYPE_PROBE_ACK]: "PROBE_ACK",
   };

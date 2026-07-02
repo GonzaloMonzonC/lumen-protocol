@@ -221,7 +221,8 @@ Immediately after Hyb128:
 | `0x0A` | `HEARTBEAT` | ↔ | Keep-alive |
 | `0x0B` | `TRANSPORT_INIT` | C→S | Transport capability negotiation init (§2.2) |
 | `0x0C` | `TRANSPORT_ACK` | S→C | Transport capability negotiation ack (§2.2) |
-| `0x0D–0x0E` | *Reserved* | — | For future expansion |
+| `0x0D` | `BATCH`     | C↔S | Batch frames (extension: lumen-batch-flow)        |
+| `0x0E` | `FLOW_CTL`  | C↔S | Flow control (extension: lumen-batch-flow)        |
 | `0x0F` | `PROBE` | C→S | Protocol negotiation probe (may carry X25519 public key) |
 | `0x10` | `PROBE_ACK` | S→C | Protocol negotiation ack (may carry X25519 public key) |
 | `0x11+` | *Reserved* | — | For future expansion |
@@ -500,8 +501,11 @@ const plaintext = await cipher.decrypt(encryptedPayload);
 | **Forward secrecy** | Ephemeral X25519 keypairs (not perfect PFS, but ephemeral per session) |
 | **No certificates** | Trust-on-first-use (TOFU) via PROBE/PROBE_ACK |
 
-> ⚠️ **Current limitation:** There is no PKI or identity verification. Encryption protects
-> against passive eavesdropping and active MITM (thanks to AEAD), but it does not authenticate
+> ⚠️ **Current limitation:** There is no PKI or identity verification. Wire encryption (AEAD)
+> protects against passive eavesdropping and ensures integrity of messages within an
+> established session, but it does NOT protect against active man-in-the-middle attacks
+> during key exchange.  For active MITM protection, use QUIC/TLS, pre-shared keys,
+> Ed25519 signatures, or an external authentication mechanism.
 > peer identity. For mutual authentication, combine with Macaroons (§7.2).
 
 ### 7.5 Implementations

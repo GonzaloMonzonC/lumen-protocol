@@ -207,8 +207,16 @@ class ShmServerConnection:
         self._transport.send_frame(bytes(buf))
 
     def _read_shm(self) -> dict:
-        raw = self._transport.recv_frame()
-        if raw is None:
+        # Retry once on timeout — thinking server can be momentarily slow
+        for attempt in range(2):
+            raw = self._transport.recv_frame()
+            if raw is not None:
+                break
+            if attempt == 0:
+                import sys as _sys
+                _sys.stderr.write(f"[lumen-shm-bridge] {self.name}: SHM timeout, retrying...\n")
+                _sys.stderr.flush()
+        else:
             raise RuntimeError(f"[{self.name}] SHM read timeout")
         result = parse_frame(bytearray(raw), 0)
         if isinstance(result, ParseComplete):

@@ -39,7 +39,7 @@ SHM_VERSION: int = 1
 DEFAULT_REGION_SIZE: int = 512 * 1024  # 512 KiB
 HEADER_SIZE: int = 128
 
-MAX_SPIN: int = 10_000_000      # 10M — was 50M. Reduced since async saves reduce server latency
+MAX_SPIN: int = 50_000_000      # 50M — handles thinking server cognitive ops + state saves
 YIELD_INTERVAL: int = 50        # yield every 50 spins (was 100)
 MAX_FRAME_SIZE: int = 16 * 1024 * 1024  # 16 MiB
 
