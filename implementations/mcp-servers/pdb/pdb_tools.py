@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 # MVM — singleton global (VM de procesos M)
 _mvm_instance = None
-def _get_mvm():
+def __get_mvm():
     global _mvm_instance
     if _mvm_instance is None:
         import importlib.util
@@ -485,7 +485,7 @@ def tool_mvm_spawn(args: dict) -> dict:
     """Spawn a new M process. Returns PID ($J)."""
     code = args.get("code", "")
     name = args.get("name", f"proc_{time.time()}")
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -498,7 +498,7 @@ def tool_mvm_spawn(args: dict) -> dict:
 
 def tool_mvm_tick(args: dict) -> dict:
     """Execute one tick of the MVM dispatcher. Runs all ready processes."""
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -512,7 +512,7 @@ def tool_mvm_tick(args: dict) -> dict:
 
 def tool_mvm_list(args: dict) -> dict:
     """List all MVM processes and their status."""
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -524,7 +524,7 @@ def tool_mvm_list(args: dict) -> dict:
 def tool_mvm_kill(args: dict) -> dict:
     """Kill an MVM process by PID."""
     pid = str(args.get("pid", ""))
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -537,7 +537,7 @@ def tool_mvm_mailbox_send(args: dict) -> dict:
     """Send a message to a process mailbox."""
     to_pid = str(args.get("to_pid", ""))
     message = args.get("message", "")
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -549,7 +549,7 @@ def tool_mvm_mailbox_send(args: dict) -> dict:
 def tool_mvm_mailbox_read(args: dict) -> dict:
     """Read all pending messages from a process mailbox."""
     pid = str(args.get("pid", ""))
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -2544,7 +2544,7 @@ def _check_event_routes(ns: str, subs: list, op: str, value, conn):
                         continue
                 # Deliver to target
                 if route["target_type"] == "mvm":
-                    vm = _get_mvm()
+                    vm = __get_mvm()
                     if vm:
                         vm.mailbox_send(route["target_id"], payload)
                 # (future: webhook, log, etc.)
@@ -2632,7 +2632,7 @@ def tool_mvm_state_export(args: dict) -> dict:
     pid = args.get("pid", "")
     if not pid:
         return {"success": False, "error": "pid required"}
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -2649,7 +2649,7 @@ def tool_mvm_state_import(args: dict) -> dict:
     state_data = args.get("state", {})
     if not state_data:
         return {"success": False, "error": "state dict required"}
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -2666,7 +2666,7 @@ def tool_mvm_state_save(args: dict) -> dict:
     pid = args.get("pid", "")
     if not pid:
         return {"success": False, "error": "pid required"}
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -2681,7 +2681,7 @@ def tool_mvm_state_restore(args: dict) -> dict:
     pid = args.get("pid", "")
     if not pid:
         return {"success": False, "error": "pid required"}
-    vm = _get_mvm()
+    vm = __get_mvm()
     if not vm:
         return {"success": False, "error": "MVM not available"}
     try:
@@ -2748,7 +2748,7 @@ def tool_mvm_app_run(args):
         code = r.get("value", "")
         if not code:
             return {"success": False, "error": "App not found or empty"}
-        vm_app = _get_mvm()
+        vm_app = __get_mvm()
         if not vm_app:
             return {"success": False, "error": "MVM not available"}
         pid = vm_app.spawn(code, name="app_" + name)
@@ -2797,6 +2797,43 @@ def tool_mvm_app_generate(args):
     return {"success": True, "code": code, "template": "generic", "name": name}
 
 
+
+
+# ── MVM Fork Cognitivo ──────────────────────────────────────────
+def tool_mvm_fork(args: dict) -> dict:
+    pid = args.get("pid")
+    if pid is None:
+        return {"error": "pid required"}
+    try:
+        mvm = __get_mvm()
+        new_pid = mvm.fork(int(pid))
+        if new_pid > 0:
+            return {"success": True, "pid": new_pid}
+        return {"error": f"No se pudo forkear pid={pid}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def tool_mvm_diff(args: dict) -> dict:
+    pid_a = args.get("pid_a")
+    pid_b = args.get("pid_b")
+    if pid_a is None or pid_b is None:
+        return {"error": "pid_a and pid_b required"}
+    try:
+        mvm = __get_mvm()
+        return mvm.diff_processes(int(pid_a), int(pid_b))
+    except Exception as e:
+        return {"error": str(e)}
+
+def tool_mvm_promote(args: dict) -> dict:
+    source = args.get("source_pid")
+    target = args.get("target_pid")
+    if source is None:
+        return {"error": "source_pid required"}
+    try:
+        mvm = __get_mvm()
+        return mvm.promote(int(source), int(target) if target is not None else None)
+    except Exception as e:
+        return {"error": str(e)}
 
 TOOLS = [
     {
@@ -2919,6 +2956,29 @@ TOOLS = [
         }, "required": ["description"]}
     },
 
+    {
+        "name": "pdb_mvm_fork",
+        "description": "Fork (clone) an MVM process — atomic copy for Tree-of-Thought",
+        "inputSchema": {"type": "object", "properties": {
+            "pid": {"type": "number", "description": "Process PID to clone"}
+        }, "required": ["pid"]}
+    },
+    {
+        "name": "pdb_mvm_diff",
+        "description": "Compare state between two forked MVM processes",
+        "inputSchema": {"type": "object", "properties": {
+            "pid_a": {"type": "number"},
+            "pid_b": {"type": "number"}
+        }, "required": ["pid_a", "pid_b"]}
+    },
+    {
+        "name": "pdb_mvm_promote",
+        "description": "Promote a forked process — copy state to target, kill source",
+        "inputSchema": {"type": "object", "properties": {
+            "source_pid": {"type": "number"},
+            "target_pid": {"type": "number", "description": "Optional target PID (default: auto-assign)"}
+        }, "required": ["source_pid"]}
+    },
 ]
 
 HANDLERS = {
@@ -2979,5 +3039,9 @@ HANDLERS = {
     "pdb_mvm_app_list": tool_mvm_app_list,
     "pdb_mvm_app_run": tool_mvm_app_run,
     "pdb_mvm_app_generate": tool_mvm_app_generate,
+
+    "pdb_mvm_fork": tool_mvm_fork,
+    "pdb_mvm_diff": tool_mvm_diff,
+    "pdb_mvm_promote": tool_mvm_promote,
 
 }

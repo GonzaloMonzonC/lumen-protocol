@@ -34,7 +34,7 @@ class MProcess:
     """Un proceso M vivo. Cada Job en el sistema."""
 
     def __init__(self, pid: int, code: str, pdb_module, name: str = "",
-                 devices=None, owner: str = "", gas_limit: int = 1000):
+                 devices=None, owner: str = "", gas_limit: int = 1000, gas_budget: int = 0):
         self.pid = pid               # $J — entero secuencial
         self.name = name or f"job_{pid}"
         self.code = code
@@ -49,7 +49,8 @@ class MProcess:
         self.owner = owner           # identificador de conexión
         self.error = ""
         self.gas_limit = gas_limit   # max instrucciones por tick
-        self.gas_used = 0            # instrucciones en el tick actual (resetea cada tick)
+        self.gas_budget = gas_budget    # 0 = ilimitado (legacy). >0 = total lifetime gas
+        self.gas_used = 0            # instrucciones acumuladas (no resetea por tick)
         self.gas_total = 0           # total acumulado (vida del proceso, para max_gas_global)
         self._load_state()
 
@@ -72,6 +73,9 @@ class MProcess:
             r = self.pdb.tool_get({"ns": "STATE", "subs": [str(self.pid), "gas_limit"]})
             if r.get("found"):
                 self.gas_limit = int(r.get("value", 1000))
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [str(self.pid), "gas_budget"]})
+            if r.get("found"):
+                self.gas_budget = int(r.get("value", 0))
             r = self.pdb.tool_get({"ns": "STATE", "subs": [str(self.pid), "gas_total"]})
             if r.get("found"):
                 self.gas_total = int(r.get("value", 0))
@@ -95,6 +99,8 @@ class MProcess:
                               "value": str(self._device_num)})
             self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "gas_limit"],
                               "value": str(self.gas_limit)})
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "gas_budget"],
+                              "value": str(self.gas_budget)})
             self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "gas_total"],
                               "value": str(self.gas_total)})
         except Exception:
@@ -113,7 +119,7 @@ class MProcess:
 
         self.status = RUNNING
         self.last_run = time.time()
-        self.gas_used = 0  # reset por tick
+        # gas_used es acumulativo — no resetea por tick
 
         lines = [l.strip() for l in self.code.split("\n") if l.strip()]
         inst_count = 0
@@ -141,6 +147,14 @@ class MProcess:
                 # Yield si agotó el gas del tick
                 if self.gas_used >= self.gas_limit:
                     self.status = READY
+                    break
+
+                # Preemption acumulativa: gas_budget > 0 y consumido
+                if self.gas_budget > 0 and self.gas_used >= self.gas_budget:
+                    self.status = DEAD
+                    self.error = f"GAS_EXHAUSTED: consumido {self.gas_used}/{self.gas_budget} instrucciones"
+                    self.pdb.tool_set({"ns": "STATE", "subs": [str(self.pid), "error"],
+                                      "value": self.error})
                     break
 
                 if m._quit_flag:
@@ -395,6 +409,114 @@ class MVM:
                 return proc
         return None
 
+
+    # ── Fork Cognitivo ──────────────────────────────────────────────────
+    def fork(self, pid: int, name: str = "") -> int:
+        """Clonar un proceso como un nuevo PID.
+        Usa export_state() + import_state() para copia completa.
+        Retorna el nuevo PID, o -1 si falla."""
+        data = self.export_state(pid)
+        if not data:
+            return -1
+        new_pid = self.import_state(data)
+        if new_pid > 0 and name:
+            proc = self.processes.get(new_pid)
+            if proc:
+                proc.name = name
+                proc._save_state()
+        return new_pid
+
+    def diff_processes(self, pid_a: int, pid_b: int) -> dict:
+        """Comparar estado entre dos procesos forkeados.
+        Retorna diferencias en: scope_vars, pc, gas, status."""
+        a = self.get_process(pid_a)
+        b = self.get_process(pid_b)
+        if not a or not b:
+            return {"error": f"Proceso(s) no encontrado: pid_a={pid_a}, pid_b={pid_b}"}
+        
+        diff = {
+            "pid_a": pid_a,
+            "pid_b": pid_b,
+            "pc": {"a": a.pc, "b": b.pc, "diff": a.pc != b.pc},
+            "status": {"a": a.status, "b": b.status, "diff": a.status != b.status},
+            "gas_used": {"a": a.gas_used, "b": b.gas_used, "diff": a.gas_used != b.gas_used},
+            "gas_total": {"a": a.gas_total, "b": b.gas_total, "diff": a.gas_total != b.gas_total},
+            "vars_diff": {},
+            "vars_only_in_a": [],
+            "vars_only_in_b": [],
+        }
+        
+        # Comparar scope_vars
+        all_keys = set(a.scope_vars.keys()) | set(b.scope_vars.keys())
+        for k in sorted(all_keys):
+            va = a.scope_vars.get(k)
+            vb = b.scope_vars.get(k)
+            if va != vb:
+                if k in a.scope_vars and k in b.scope_vars:
+                    diff["vars_diff"][k] = {"a": va, "b": vb}
+                elif k in a.scope_vars:
+                    diff["vars_only_in_a"].append(k)
+                else:
+                    diff["vars_only_in_b"].append(k)
+        
+        return diff
+
+    def promote(self, source_pid: int, target_pid: int = None) -> dict:
+        """Copiar estado de source_pid a target_pid y matar source.
+        Si target_pid no se especifica, se usa el PID original (el primero de la cadena).
+        Retorna {status, target_pid}."""
+        src = self.get_process(source_pid)
+        if not src:
+            return {"status": "error", "error": f"Source PID {source_pid} no encontrado"}
+        
+        # Export source state
+        data = self.export_state(source_pid)
+        if not data:
+            return {"status": "error", "error": f"No se pudo exportar pid={source_pid}"}
+        
+        if target_pid is None:
+            # Si no hay target, crear nuevo PID y matar source
+            new_pid = self.import_state(data)
+            self.kill(source_pid)
+            return {"status": "promoted", "source_pid": source_pid, "target_pid": new_pid}
+        
+        # Import sobre target existente: kill target, re-import
+        target = self.get_process(target_pid)
+        if not target:
+            return {"status": "error", "error": f"Target PID {target_pid} no encontrado"}
+        
+        # Kill old target state
+        self.pdb.tool_kill({"ns": "STATE", "subs": [str(target_pid)]})
+        self.pdb.tool_kill({"ns": "PROCESSES", "subs": [str(target_pid)]})
+        
+        # Create fresh process with same PID
+        code = data.get("code", "")
+        name = data.get("name", f"promoted_{source_pid}_to_{target_pid}")
+        
+        proc = MProcess(target_pid, code, self.pdb, name=name, 
+                        devices=self.device_mgr, owner=data.get("owner", ""))
+        proc.pc = data.get("pc", 0)
+        proc.status = data.get("status", "READY")
+        proc.scope_vars = dict(data.get("scope_vars", {}))
+        proc.gas_limit = data.get("gas_limit", 1000)
+        proc.gas_budget = data.get("gas_budget", 0)
+        proc.gas_used = data.get("gas_used", 0)
+        proc.gas_total = data.get("gas_total", 0)
+        proc._device_num = data.get("device_num", 0)
+        proc.owner = data.get("owner", "")
+        
+        self.processes[str(target_pid)] = proc
+        self.device_mgr.attach_mailbox(str(target_pid), self)
+        
+        if proc.status == READY and str(target_pid) not in self._ready_queue:
+            self._ready_queue.append(str(target_pid))
+        
+        proc._save_state()
+        
+        # Kill source
+        self.kill(source_pid)
+        
+        return {"status": "promoted", "source_pid": source_pid, "target_pid": target_pid}
     def mailbox_send(self, to_pid, message: str) -> str:
         """Enviar mensaje a mailbox de otro Job."""
         to_pid = str(to_pid)
@@ -447,6 +569,7 @@ class MVM:
             result["status"] = proc.status
             result["scope_vars"] = dict(proc.scope_vars)
             result["gas_limit"] = proc.gas_limit
+            result["gas_budget"] = proc.gas_budget
             result["gas_used"] = proc.gas_used
             result["gas_total"] = proc.gas_total
             result["owner"] = proc.owner
@@ -517,7 +640,8 @@ class MVM:
         
         # Create process
         proc = MProcess(new_pid, code, self.pdb, name=name, owner=owner,
-                        gas_limit=data.get("gas_limit", 1000))
+                        gas_limit=data.get("gas_limit", 1000),
+                        gas_budget=data.get("gas_budget", 0))
         
         # Restore state
         proc.pc = data.get("pc", 0)
@@ -525,6 +649,7 @@ class MVM:
         proc.scope_vars = dict(data.get("scope_vars", {}))
         proc.gas_total = data.get("gas_total", 0)
         proc.gas_used = data.get("gas_used", 0)
+        proc.gas_budget = data.get("gas_budget", 0)
         proc._device_num = data.get("device_num", 0)
         proc.error = data.get("error", "")
         proc.created_at = data.get("created_at", time.time())
@@ -538,7 +663,7 @@ class MVM:
                               "value": str(content)})
         
         # Register and persist
-        self.processes[new_pid] = proc
+        self.processes[str(new_pid)] = proc
         proc._save_state()
         
         return new_pid
