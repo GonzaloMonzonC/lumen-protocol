@@ -558,6 +558,54 @@ def tool_mvm_mailbox_read(args: dict) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# ── MVM Scheduler — HIBERNATE + auto-wake ──
+
+def tool_mvm_sleep(args: dict) -> dict:
+    """HIBERNATE a process for N seconds. Wakes automatically via ^SCHEDULE."""
+    pid = args.get("pid")
+    seconds = args.get("seconds", 60)
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    if not vm.sleep_process(pid, seconds):
+        return {"success": False, "error": f"Process {pid} not found"}
+    return {"success": True, "pid": pid, "status": "HIBERNATE",
+            "wake_in_seconds": seconds}
+
+def tool_mvm_wake(args: dict) -> dict:
+    """Wake a HIBERNATE process manually."""
+    pid = args.get("pid")
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    if not vm.wake_process(pid):
+        return {"success": False, "error": f"Process {pid} not found or not HIBERNATE"}
+    return {"success": True, "pid": pid, "status": "READY"}
+
+def tool_mvm_schedule_list(args: dict) -> dict:
+    """List all scheduled wake-ups (^SCHEDULE entries)."""
+    vm = __get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    entries = []
+    pid = ""
+    while True:
+        r = vm.pdb.tool_order({"ns": "SCHEDULE", "subs": [pid], "direction": 1})
+        if r.get("value") is None:
+            break
+        pid = str(r["value"])
+        val = vm.pdb.tool_get({"ns": "SCHEDULE", "subs": [pid]})
+        try:
+            wake_time = float(val.get("value", 0))
+            entries.append({
+                "pid": int(pid) if pid.isdigit() else pid,
+                "wake_time": wake_time,
+                "remaining": max(0, wake_time - time.time())
+            })
+        except (ValueError, TypeError):
+            entries.append({"pid": pid, "wake_time": val.get("value", "?"), "remaining": -1})
+    return {"success": True, "entries": entries, "count": len(entries)}
+
 # ── DBFIX — Mantenimiento automático ──
 
 def tool_dbfix(args: dict) -> dict:
@@ -3044,6 +3092,9 @@ HANDLERS = {
     "pdb_mvm_tick": tool_mvm_tick,
     "pdb_mvm_list": tool_mvm_list,
     "pdb_mvm_kill": tool_mvm_kill,
+    "pdb_mvm_sleep": tool_mvm_sleep,
+    "pdb_mvm_wake": tool_mvm_wake,
+    "pdb_mvm_schedule_list": tool_mvm_schedule_list,
     "pdb_mvm_mailbox_send": tool_mvm_mailbox_send,
     "pdb_mvm_mailbox_read": tool_mvm_mailbox_read,
     "pdb_embed": tool_embed,
