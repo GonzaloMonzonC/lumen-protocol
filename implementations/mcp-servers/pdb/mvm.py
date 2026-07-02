@@ -424,6 +424,149 @@ class MVM:
         return msgs
 
 
+
+    def export_state(self, pid) -> dict:
+        """Export complete process state as JSON-serializable dict.
+        Includes: scope_vars, pc, status, mailbox, metadata.
+        Suitable for cross-node transfer and resurrection.
+        Returns empty dict if process not found."""
+        pid = str(pid)
+        proc = self.processes.get(int(pid)) if isinstance(pid, str) and pid.isdigit() else None
+        if not proc and pid not in self.processes:
+            # Try to load from PDB STATE namespace
+            pass  # will try PDB directly
+        
+        result = {}
+        
+        # Core process fields
+        if proc:
+            result["pid"] = proc.pid
+            result["name"] = proc.name
+            result["code"] = proc.code
+            result["pc"] = proc.pc
+            result["status"] = proc.status
+            result["scope_vars"] = dict(proc.scope_vars)
+            result["gas_limit"] = proc.gas_limit
+            result["gas_used"] = proc.gas_used
+            result["gas_total"] = proc.gas_total
+            result["owner"] = proc.owner
+            result["error"] = proc.error
+            result["device_num"] = proc._device_num
+            result["created_at"] = proc.created_at
+            result["last_run"] = proc.last_run
+        else:
+            # Load from PDB STATE directly
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "name"]})
+            if not r.get("found", True) and r.get("value") is None:
+                return {}  # process not found
+            result["pid"] = int(pid)
+            result["name"] = r.get("value", "")
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "status"]})
+            result["status"] = r.get("value", "DEAD")
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "pc"]})
+            result["pc"] = int(r.get("value", 0)) if r.get("value") else 0
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "vars"]})
+            result["scope_vars"] = json.loads(r.get("value", "{}")) if r.get("value") else {}
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "gas_limit"]})
+            result["gas_limit"] = int(r.get("value", 1000))
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "gas_total"]})
+            result["gas_total"] = int(r.get("value", 0))
+            result["gas_used"] = 0
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "owner"]})
+            result["owner"] = r.get("value", "")
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "io"]})
+            result["device_num"] = int(r.get("value", 0))
+            result["code"] = ""
+            result["error"] = ""
+            result["created_at"] = 0.0
+            result["last_run"] = 0.0
+        
+        # Collect mailbox messages
+        mailbox_msgs = []
+        m_id = ""
+        while True:
+            r = self.pdb.tool_order({"ns": "STATE", "subs": [pid, "mailbox", m_id], "direction": 1})
+            if r.get("value") is None:
+                break
+            m_id = r["value"]
+            if m_id in ("heartbeat",):
+                continue
+            val = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "mailbox", m_id]})
+            mailbox_msgs.append({"id": m_id, "content": val.get("value")})
+        result["mailbox"] = mailbox_msgs
+        
+        result["_export_version"] = 1
+        result["_exported_at"] = time.time()
+        return result
+
+    def import_state(self, data: dict) -> int:
+        """Import a process from exported state dict.
+        Creates a NEW process with a fresh PID.
+        Returns the new PID, or -1 on failure."""
+        import copy
+        data = copy.deepcopy(data)
+        
+        # Validate
+        # Allocate new PID (even with empty code, export should work)
+        new_pid = self._next_pid
+        self._next_pid += 1
+        
+        code = data.get("code", "")
+        name = data.get("name", f"restored_{new_pid}")
+        owner = data.get("owner", "")
+        
+        # Create process
+        proc = MProcess(new_pid, code, self.pdb, name=name, owner=owner,
+                        gas_limit=data.get("gas_limit", 1000))
+        
+        # Restore state
+        proc.pc = data.get("pc", 0)
+        proc.status = data.get("status", "READY")
+        proc.scope_vars = dict(data.get("scope_vars", {}))
+        proc.gas_total = data.get("gas_total", 0)
+        proc.gas_used = data.get("gas_used", 0)
+        proc._device_num = data.get("device_num", 0)
+        proc.error = data.get("error", "")
+        proc.created_at = data.get("created_at", time.time())
+        proc.last_run = data.get("last_run", time.time())
+        
+        # Restore mailbox
+        for msg in data.get("mailbox", []):
+            msg_id = msg.get("id", f"m{int(time.time()*1000000)}_{random.randint(0,9999)}")
+            content = msg.get("content", "")
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(new_pid), "mailbox", msg_id],
+                              "value": str(content)})
+        
+        # Register and persist
+        self.processes[new_pid] = proc
+        proc._save_state()
+        
+        return new_pid
+
+    def state_save(self, pid) -> bool:
+        """Export process state and save as single blob under ^STATE(pid, 'snapshot')."""
+        data = self.export_state(pid)
+        if not data:
+            return False
+        try:
+            self.pdb.tool_set({"ns": "STATE", "subs": [str(pid), "snapshot"],
+                              "value": json.dumps(data)})
+            return True
+        except Exception:
+            return False
+
+    def state_restore(self, pid) -> int:
+        """Restore a process from a previously saved snapshot.
+        Returns new PID, or -1 on failure."""
+        try:
+            r = self.pdb.tool_get({"ns": "STATE", "subs": [str(pid), "snapshot"]})
+            if not r.get("value"):
+                return -1
+            data = json.loads(r.get("value", "{}"))
+            return self.import_state(data)
+        except Exception:
+            return -1
+
 # ══════════════════════════════════════════════════════════════════
 # Device Manager
 # ══════════════════════════════════════════════════════════════════
