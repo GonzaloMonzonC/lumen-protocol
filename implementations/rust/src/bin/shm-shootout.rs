@@ -57,7 +57,7 @@ fn bench_ring_throughput(region_size: usize) {
     println!("═══ S1: Ring Buffer Frame Throughput (region={} KiB, ring_cap={}B) ═══", region_size / 1024, ring_cap);
 
     let mut region: Vec<u8> = vec![0u8; region_size];
-    lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size);
+    unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
     let mut frame_buf = Vec::new();
 
     let payload_sizes = [16, 64, 256, 1024, 4096, 16384, 65536];
@@ -110,7 +110,7 @@ fn bench_shm_echo(region_size: usize) {
     println!("═══ S2: ShmTransport Echo Roundtrip ═══");
 
     let mut region: Vec<u8> = vec![0u8; region_size];
-    lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size);
+    unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
 
     // Client: writes to A, reads from B
     let cw = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
@@ -208,7 +208,7 @@ fn bench_stream_throughput(region_size: usize) {
     println!("═══ S4: STREAM-like — Large sequential writes/reads ═══");
 
     let mut region: Vec<u8> = vec![0u8; region_size];
-    lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size);
+    unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
 
     let wring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
     let rring = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
@@ -256,7 +256,7 @@ fn bench_ping_pong(region_size: usize) {
     println!("═══ S5: Cache-line Ping-Pong (64-byte payloads) ═══");
 
     let mut region: Vec<u8> = vec![0u8; region_size];
-    lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size);
+    unsafe { lumen::shm::ShmRingBuffer::init_region(region.as_mut_ptr(), region_size) };
 
     let cw = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::A) };
     let cr = unsafe { lumen::shm::ShmRingBuffer::from_raw(region.as_mut_ptr(), region_size, lumen::shm::RingSide::B) };

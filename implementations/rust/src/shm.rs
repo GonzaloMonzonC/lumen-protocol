@@ -66,20 +66,26 @@ unsafe impl Send for ShmHeader {}
 unsafe impl Sync for ShmHeader {}
 
 impl ShmHeader {
-    fn init(&self, region_size: u64) {
-        let p = self as *const ShmHeader as *mut ShmHeader;
+    /// Initialize a header in place through a raw pointer.
+    ///
+    /// Writes go through `addr_of_mut!` — never through a shared reference —
+    /// so this is sound even though other mappings of the region exist.
+    ///
+    /// # Safety
+    /// `ptr` must point to writable, properly aligned memory of at least
+    /// `HEADER_SIZE` bytes, and no peer may be accessing the region yet.
+    unsafe fn init_at(ptr: *mut ShmHeader, region_size: u64) {
+        use std::ptr::addr_of_mut;
         let data_len = region_size - HEADER_SIZE as u64;
-        unsafe {
-            (*p).magic = SHM_MAGIC;
-            (*p).version = SHM_VERSION;
-            (*p).data_offset = HEADER_SIZE as u64;
-            (*p).data_len = data_len;
-            (*p).mid = HEADER_SIZE as u64 + data_len / 2;
-        }
-        self.write_a.store(0, Ordering::Release);
-        self.read_a.store(0, Ordering::Release);
-        self.write_b.store(0, Ordering::Release);
-        self.read_b.store(0, Ordering::Release);
+        addr_of_mut!((*ptr).magic).write(SHM_MAGIC);
+        addr_of_mut!((*ptr).version).write(SHM_VERSION);
+        addr_of_mut!((*ptr).data_offset).write(HEADER_SIZE as u64);
+        addr_of_mut!((*ptr).data_len).write(data_len);
+        addr_of_mut!((*ptr).mid).write(HEADER_SIZE as u64 + data_len / 2);
+        addr_of_mut!((*ptr).write_a).write(AtomicU64::new(0));
+        addr_of_mut!((*ptr).read_a).write(AtomicU64::new(0));
+        addr_of_mut!((*ptr).write_b).write(AtomicU64::new(0));
+        addr_of_mut!((*ptr).read_b).write(AtomicU64::new(0));
     }
 
     fn validate(&self) -> bool {
@@ -118,9 +124,13 @@ impl ShmRingBuffer {
     }
 
     /// Initialize the header of a freshly-created region.
-    pub fn init_region(ptr: *mut u8, size: usize) {
-        unsafe { &*(ptr as *const ShmHeader) }.init(size as u64);
-        unsafe { std::ptr::write_bytes(ptr.add(HEADER_SIZE), 0, size - HEADER_SIZE); }
+    ///
+    /// # Safety
+    /// `ptr` must point to writable memory of at least `size` bytes
+    /// (`size > HEADER_SIZE`), with no peer accessing the region yet.
+    pub unsafe fn init_region(ptr: *mut u8, size: usize) {
+        ShmHeader::init_at(ptr as *mut ShmHeader, size as u64);
+        std::ptr::write_bytes(ptr.add(HEADER_SIZE), 0, size - HEADER_SIZE);
     }
 
     // ── helpers ──
@@ -337,7 +347,9 @@ impl ShmRegion {
 
     /// Initialize header for a freshly-created region.
     pub fn init_header(&self) {
-        ShmRingBuffer::init_region(self.ptr, self.size);
+        // Safety: self.ptr is a mapping of exactly self.size bytes owned by
+        // this region, created just above and not yet shared with a peer.
+        unsafe { ShmRingBuffer::init_region(self.ptr, self.size) };
     }
 
     /// Create a ring buffer for the given side.
@@ -430,6 +442,23 @@ impl ShmRegion {
 
         let fd = unsafe { libc::shm_open(cname.as_ptr(), libc::O_RDWR, 0o600) };
         if fd < 0 { return Err(io::Error::last_os_error()); }
+
+        // The object must be at least region_size bytes — mmap happily maps
+        // past the end of a smaller object and the first access SIGBUSes.
+        // This also guards against a peer advertising a bogus size.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd, &mut st) } < 0 {
+            let err = io::Error::last_os_error();
+            unsafe { libc::close(fd); }
+            return Err(err);
+        }
+        if (st.st_size as u64) < region_size as u64 {
+            unsafe { libc::close(fd); }
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("shm object '{name}' is {} bytes, expected at least {region_size}", st.st_size),
+            ));
+        }
 
         let ptr = unsafe {
             libc::mmap(std::ptr::null_mut(), region_size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0)
