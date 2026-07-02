@@ -2606,6 +2606,75 @@ def tool_event_route_list(args: dict) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e), "routes": []}
 
+
+# ── Tool: pdb_mvm_state_export ──
+
+def tool_mvm_state_export(args: dict) -> dict:
+    """Export MVM process state as JSON-serializable dict."""
+    pid = args.get("pid", "")
+    if not pid:
+        return {"success": False, "error": "pid required"}
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        data = vm.export_state(str(pid))
+        if not data:
+            return {"success": False, "error": f"Process {pid} not found"}
+        return {"success": True, "pid": int(pid), "state": data}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_mvm_state_import(args: dict) -> dict:
+    """Import MVM process from exported state dict."""
+    state_data = args.get("state", {})
+    if not state_data:
+        return {"success": False, "error": "state dict required"}
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        new_pid = vm.import_state(state_data)
+        if new_pid < 0:
+            return {"success": False, "error": "Import failed"}
+        return {"success": True, "pid": new_pid, "message": f"Process restored as PID {new_pid}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_mvm_state_save(args: dict) -> dict:
+    """Save process state as snapshot blob in ^STATE(pid, snapshot)."""
+    pid = args.get("pid", "")
+    if not pid:
+        return {"success": False, "error": "pid required"}
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        ok = vm.state_save(str(pid))
+        return {"success": ok, "pid": int(pid)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def tool_mvm_state_restore(args: dict) -> dict:
+    """Restore a process from a saved snapshot. Returns new PID."""
+    pid = args.get("pid", "")
+    if not pid:
+        return {"success": False, "error": "pid required"}
+    vm = _get_mvm()
+    if not vm:
+        return {"success": False, "error": "MVM not available"}
+    try:
+        new_pid = vm.state_restore(str(pid))
+        if new_pid < 0:
+            return {"success": False, "error": f"No snapshot found for PID {pid}"}
+        return {"success": True, "pid": new_pid, "message": f"Process restored as PID {new_pid}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 TOOLS = [
     {
         "name": "pdb_vec_search",
@@ -2667,6 +2736,35 @@ TOOLS = [
             "ns": {"type": "string", "description": "Filter by namespace"}
         }}
     },
+    {
+        "name": "pdb_mvm_state_export",
+        "description": "Export MVM process state as JSON-serializable dict",
+        "inputSchema": {"type": "object", "properties": {
+            "pid": {"type": "number", "description": "Process PID"}
+        }, "required": ["pid"]}
+    },
+    {
+        "name": "pdb_mvm_state_import",
+        "description": "Import MVM process from exported state dict",
+        "inputSchema": {"type": "object", "properties": {
+            "state": {"type": "object", "description": "Exported state dict"}
+        }, "required": ["state"]}
+    },
+    {
+        "name": "pdb_mvm_state_save",
+        "description": "Save process snapshot in ^STATE(pid, snapshot)",
+        "inputSchema": {"type": "object", "properties": {
+            "pid": {"type": "number", "description": "Process PID"}
+        }, "required": ["pid"]}
+    },
+    {
+        "name": "pdb_mvm_state_restore",
+        "description": "Restore process from saved snapshot",
+        "inputSchema": {"type": "object", "properties": {
+            "pid": {"type": "number", "description": "Original PID"}
+        }, "required": ["pid"]}
+    },
+
 ]
 
 HANDLERS = {
@@ -2717,5 +2815,10 @@ HANDLERS = {
     "pdb_event_route_define": tool_event_route_define,
     "pdb_event_route_remove": tool_event_route_remove,
     "pdb_event_route_list": tool_event_route_list,
+
+    "pdb_mvm_state_export": tool_mvm_state_export,
+    "pdb_mvm_state_import": tool_mvm_state_import,
+    "pdb_mvm_state_save": tool_mvm_state_save,
+    "pdb_mvm_state_restore": tool_mvm_state_restore,
 
 }
