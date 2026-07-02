@@ -34,6 +34,7 @@ import math
 import time
 from web_helpers import extract_page
 from file_tools import FILE_TOOL_SCHEMAS, FILE_TOOL_HANDLERS
+from pdb_watch import PDB_WATCH_SCHEMAS, PDB_WATCH_HANDLERS
 from objective_loop import (OBJECTIVE_HANDLERS, OBJECTIVE_SCHEMAS, get_objective_state, load_objective_state)
 from kanban import KANBAN_HANDLERS, KANBAN_SCHEMAS
 from collections import defaultdict, Counter
@@ -1175,7 +1176,7 @@ TOOLS = [
             "required": ["context"]
         }
     },
-] + FILE_TOOL_SCHEMAS + OBJECTIVE_SCHEMAS + KANBAN_SCHEMAS
+] + FILE_TOOL_SCHEMAS + PDB_WATCH_SCHEMAS + OBJECTIVE_SCHEMAS + KANBAN_SCHEMAS
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3417,6 +3418,7 @@ HANDLERS = {
     "pattern_suggest": tool_pattern_suggest,
         **KANBAN_HANDLERS,
     **FILE_TOOL_HANDLERS,
+    **PDB_WATCH_HANDLERS,
     **OBJECTIVE_HANDLERS,
 }
 
