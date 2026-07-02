@@ -3,9 +3,9 @@
   <h1 align="center">◆ LUMEN</h1>
   <p align="center"><strong>Lightweight Universal Model Exchange Network</strong></p>
   <p align="center">
-    El asistente cognitivo definitivo para Hermes Agent.
+    The definitive cognitive assistant for Hermes Agent.
     <br>
-    <em>106 herramientas · memoria persistente · kanban · wiki · patrones · dashboard · RAG</em>
+    <em>106 tools · persistent memory · kanban · wiki · patterns · dashboard · RAG</em>
   </p>
   <br>
 </p>
@@ -131,35 +131,35 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 
 > **106 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
-> **🧠 PDB** — 40 tools, una base de datos jerárquica KV+SQL con herencia de MUMPS (1966). Sin esquemas, sin migraciones, 15 μs por GET. Incluye $LOCK, auto-indices ^IDX, triggers ON SET/ON KILL, global mapping ^GLOBAL→archivo, partitioning automático, journaling DELETE, DBFIX, y M REPL. Es donde el agente guarda su memoria persistente. [Más en COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+> **🧠 PDB** — 40 tools, a hierarchical KV+SQL database with MUMPS (1966) heritage. No schemas, no migrations, 15 μs per GET. Includes $LOCK, ^IDX auto-indexes, ON SET/ON KILL triggers, ^GLOBAL→file global mapping, automatic partitioning, DELETE journaling, DBFIX, and an M REPL. It is where the agent keeps its persistent memory. [More in COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
 
 ---
 
-## 🧠 Tu Asistente Personal con Superpoderes Cognitivos
+## 🧠 Your Personal Assistant with Cognitive Superpowers
 
-LUMEN no es solo un protocolo rápido. Sobre Hermes Agent, se convierte en un **asistente personal con memoria, organización y consciencia de estado**:
+LUMEN is not just a fast protocol. On top of Hermes Agent, it becomes a **personal assistant with memory, organization, and state awareness**:
 
-| Capacidad | Tools | ¿Qué hace por ti? |
+| Capability | Tools | What it does for you |
 |-----------|-------|-------------------|
-| **📋 Kanban cognitivo** | `niche_create`, `task_create`, `task_move`, `task_list`, `task_search`, `kanban_stats` | Organiza proyectos en nichos, trackea tareas, mide velocidad |
-| **📚 Wiki persistente** | `wiki_create`, `wiki_read`, `wiki_update`, `wiki_delete`, `wiki_list` | Documenta decisiones, guarda conocimiento entre sesiones |
-| **🐞 Memoria de bugs** | `pattern_record`, `pattern_suggest`, `pattern_match` | Aprende de errores pasados, sugiere fixes conocidos |
-| **📋 Registro de decisiones** | `decision_log`, `decision_list` | Arquitectura con rationale, alternativas, triggers de revisión |
-| **❓ Q&A permanente** | `qa_ask`, `qa_list`, `qa_link` | Resuelve dudas una vez, reutiliza para siempre |
-| **🧠 Modelo mental** | `model_add`, `model_map`, `model_query`, `model_stats` | Construye un grafo de conceptos del dominio |
-| **🔗 Razonamiento estructurado** | `sequential_thinking`, `thought_evaluate`, `thought_to_plan`, `thought_bridge` | Descompone problemas, evalúa hipótesis, genera planes |
-| **🎯 Agent Loop** | `objective_create`, `objective_judge`, `objective_plan`, `objective_status` | Ciclo BUILD→TEST autónomo con criterios de aceptación |
-| **🩺 Auto-diagnóstico** | `cognitive_integrity`, `cognitive_pulse`, `state_snapshot`, `unified_search` | Detecta tareas huérfanas, patrones estancados, Q&A sin responder |
-| **📊 Dashboard en tiempo real** | `:9876` — métricas, kanban, chains, works, M Console | Monitoriza tu sesión como un piloto su cabina |
-| **💾 PDB — memoria persistente** | 40 tools: `pdb_set`, `pdb_get`, `pdb_order`, `pdb_query`, `pdb_m_eval`... | Jerárquico, ACID, sin esquemas, 15 μs/GET |
-| **🔍 Búsqueda semántica (RAG)** | `mcp_eb_embed`, `mcp_eb_embed_search` | Embeddings locales (fastembed), 0 tokens, 100ms/query |
-| **🌐 Web + research** | `web_search`, `web_extract`, `web_snapshot` | Busca, extrae, guarda snapshots para referencia |
-| **📁 Filesystem inteligente** | 13 tools: `read_file`, `search_files`, `disk_usage`, `find_duplicates`... | Zero-copy SHM, sin dependencia de shell |
-| **🔐 Multi-sesión** | `session_init`, `session_list`, `session_search`, `work_start`, `work_log` | Trabajo cross-session, recuperación de contexto, logs |
+| **📋 Cognitive kanban** | `niche_create`, `task_create`, `task_move`, `task_list`, `task_search`, `kanban_stats` | Organizes projects into niches, tracks tasks, measures velocity |
+| **📚 Persistent wiki** | `wiki_create`, `wiki_read`, `wiki_update`, `wiki_delete`, `wiki_list` | Documents decisions, keeps knowledge across sessions |
+| **🐞 Bug memory** | `pattern_record`, `pattern_suggest`, `pattern_match` | Learns from past mistakes, suggests known fixes |
+| **📋 Decision log** | `decision_log`, `decision_list` | Architecture with rationale, alternatives, review triggers |
+| **❓ Permanent Q&A** | `qa_ask`, `qa_list`, `qa_link` | Answer a question once, reuse it forever |
+| **🧠 Mental model** | `model_add`, `model_map`, `model_query`, `model_stats` | Builds a graph of domain concepts |
+| **🔗 Structured reasoning** | `sequential_thinking`, `thought_evaluate`, `thought_to_plan`, `thought_bridge` | Decomposes problems, evaluates hypotheses, generates plans |
+| **🎯 Agent Loop** | `objective_create`, `objective_judge`, `objective_plan`, `objective_status` | Autonomous BUILD→TEST cycle with acceptance criteria |
+| **🩺 Self-diagnosis** | `cognitive_integrity`, `cognitive_pulse`, `state_snapshot`, `unified_search` | Detects orphaned tasks, stalled patterns, unanswered Q&A |
+| **📊 Real-time dashboard** | `:9876` — metrics, kanban, chains, works, M Console | Monitor your session like a pilot monitors the cockpit |
+| **💾 PDB — persistent memory** | 40 tools: `pdb_set`, `pdb_get`, `pdb_order`, `pdb_query`, `pdb_m_eval`... | Hierarchical, ACID, schema-less, 15 μs/GET |
+| **🔍 Semantic search (RAG)** | `mcp_eb_embed`, `mcp_eb_embed_search` | Local embeddings (fastembed), 0 tokens, 100 ms/query |
+| **🌐 Web + research** | `web_search`, `web_extract`, `web_snapshot` | Searches, extracts, saves snapshots for reference |
+| **📁 Smart filesystem** | 13 tools: `read_file`, `search_files`, `disk_usage`, `find_duplicates`... | Zero-copy SHM, no shell dependency |
+| **🔐 Multi-session** | `session_init`, `session_list`, `session_search`, `work_start`, `work_log` | Cross-session work, context recovery, logs |
 
-> **106 herramientas. 0 API keys. 1 asistente que recuerda, aprende y se organiza contigo.**
+> **106 tools. 0 API keys. 1 assistant that remembers, learns, and organizes with you.**
 
-[TOOLS_GUIDE.md →](implementations/mcp-servers/TOOLS_GUIDE.md) para referencia completa con ejemplos.
+[TOOLS_GUIDE.md →](implementations/mcp-servers/TOOLS_GUIDE.md) for the full reference with examples.
 
 ---
 
@@ -205,10 +205,10 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
 | Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 106 tools, transparent override of built-ins |
 | M-Light M evaluator | ✅ | $O, $G, $D, $P, $E, $S, $L, $F, $TR, FOR, IF, GOTO, DO, Q:cond. ~70% MSM STU |
-| D^ROUTINE web | ✅ | :8767 — D^SS (procesos), D^GS (globals), dashboard HTML |
-| MSM Compatibility | ✅ | 14/18 MSM STU patterns. Hex #, +cast, \\div, #mod. KILL locales, coma-SET |
-| Cognitive Benchmark | ✅ | 27K insert/s, 58K GET/s, \$ORDER jerárquico, M-Light \$ORDER 0.5s/1K |
-| MVM — M Virtual Machine | ✅ | Procesos M autónomos: spawn, tick, mailbox, kill. D^SS panel |
+| D^ROUTINE web | ✅ | :8767 — D^SS (processes), D^GS (globals), HTML dashboard |
+| MSM Compatibility | ✅ | 14/18 MSM STU patterns. Hex #, +cast, \\div, #mod. KILL of locals, comma-SET |
+| Cognitive Benchmark | ✅ | 27K insert/s, 58K GET/s, hierarchical \$ORDER, M-Light \$ORDER 0.5s/1K |
+| MVM — M Virtual Machine | ✅ | Autonomous M processes: spawn, tick, mailbox, kill. D^SS panel |
 | Probe/ACK negotiation | ✅ | Graceful JSON-RPC fallback |
 | ChaCha20-Poly1305 encryption | ✅ | Rust + TypeScript; HKDF-SHA256 key derivation (network transports). Protects against passive eavesdropping. For active MITM protection, use QUIC (TLS 1.3) or pre-shared Ed25519 keys. |
 | X25519 key exchange | ✅ | Rust + TypeScript; peer key now validated against low-order points |
@@ -242,11 +242,11 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | 4 | `SPEC_DEV.md` claimed AEAD protects against active MITM | **RESOLVED** — corrected: wire encryption protects passive only; MITM requires TLS/PSK |
 | 5 | TypeScript `src/crypto.ts` did not compile (5 TS errors) | **RESOLVED** — `isNode` boolean coercion + HKDF `Uint8Array` wrapping |
 | 6 | Python missing `TYPE_TRANSPORT_INIT`, `TYPE_TRANSPORT_ACK`, `TYPE_BATCH`, `TYPE_FLOW_CTL` | **RESOLVED** — constants added and exported |
-| 7 | `conformance.json` mixed `BATCH`/`FLOW_CTL` in core (`0x01..0x10` sweep) | **IN PROGRESS** — separating into `core.frame_type_constants` + `extensions.batch_flow` |
-| 8 | PHP e2e: 181/217 (36 failures in Frame Binary Compatibility) | **PENDING** — needs PHP runtime; golden/test JSON compact vs spaces |
-| 9 | PHP missing `TRANSPORT_INIT`, `TRANSPORT_ACK`, `BATCH`, `FLOW_CTL` | **IN PROGRESS** — constants being added (no PHP runtime to test) |
+| 7 | `conformance.json` mixed `BATCH`/`FLOW_CTL` in core (`0x01..0x10` sweep) | **RESOLVED** — split into `frame_type_constants_core` + `frame_type_constants_ext_batch_flow` (`required_capability: batch_flow`) |
+| 8 | PHP e2e: 181/217 (36 failures in Frame Binary Compatibility) | **PENDING** — test emits JSON with spaces vs compact golden (`jsonDumpsPy()`); fix tracked |
+| 9 | PHP missing `TRANSPORT_INIT`, `TRANSPORT_ACK`, `BATCH`, `FLOW_CTL` | **RESOLVED** — constants added to `Frame.php` (+ `FLAG_FLOW_PAUSE`); remaining e2e failures are #8 |
 | 10 | C# no `Frame.cs` layer | **PENDING** — requires .NET SDK; currently compression/Hyb128/FFI only |
-| 11 | No capability manifest per binding | **IN PROGRESS** — creating `tests/e2e/capabilities.json` |
+| 11 | No capability manifest per binding | **RESOLVED** — embedded in `tests/e2e/conformance.json` under `implementations.<binding>.capabilities` (all 5 bindings) |
 | 12 | Rust tests not runnable in this environment | **PENDING** — requires `cargo`; reference implementation presumed complete |
 
 ---
@@ -269,10 +269,10 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | **[examples/](examples/)** | Runnable demos with bilingual READMEs |
 | **[implementations/mcp-servers/](implementations/mcp-servers/)** | MCP server implementations |
 | **[implementations/mcp-servers/TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md)** | 106 tool reference with schemas |
-| **[implementations/mcp-servers/pdb/m_light.py](implementations/mcp-servers/pdb/m_light.py)** | M-Light: evaluador MUMPS para PDB |
+| **[implementations/mcp-servers/pdb/m_light.py](implementations/mcp-servers/pdb/m_light.py)** | M-Light: MUMPS evaluator for PDB |
 | **[docs/ROADMAP_MLIGHT.md](docs/ROADMAP_MLIGHT.md)** | M-Light MSM Compatibility Roadmap |
 | **[docs/lumen_thinking_usage.md](docs/lumen_thinking_usage.md)** | Thinking server usage guide |
-| **[acta_revision_1_2026-06-20.md](acta_revision_1_2026-06-20.md)** | Cognitive OS review acta (ES) |
+| **[acta_revision_1_2026-06-20.md](acta_revision_1_2026-06-20.md)** | Cognitive OS review minutes (in Spanish) |
 
 ---
 

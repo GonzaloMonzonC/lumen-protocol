@@ -21,10 +21,12 @@ Status of This Document
    Items 1-5 (endianness, DICT_REF, LEN field semantics, CBOR
    references, static dictionary table) corrected in revision 2.
 
-   Section 5.1-5.6 (REQUEST, RESPONSE, NOTIFY, STREAM_DATA,
-   SCHEMA_PATCH, STREAM_INIT) now accurately describe the v0.1
+   Sections 5.1-5.3 (REQUEST, RESPONSE, NOTIFY) describe the v0.1
    implementation: payloads are compressed JSON-RPC 2.0 messages,
-   with native binary headers planned for v2.
+   with native binary headers planned for v2.  Sections 5.4/5.6
+   (STREAM_DATA/STREAM_INIT), 5.9 (MUX), 5.11 (TRANSPORT_INIT/ACK),
+   and 5.13/5.14 (BATCH/FLOW_CTL) document the binary payloads as
+   implemented in the Rust reference implementation.
 
    All planned core features (0x01-0x03 REQUEST/RESPONSE/NOTIFY,
    0x0A HEARTBEAT, 0x0F-0x10 PROBE/PROBE_ACK) are implemented in the
@@ -37,8 +39,9 @@ Status of This Document
    README.md and the source code in implementations/.
 
    Sections marked [PLANNED] describe features designed for future
-   versions. Currently, no sections carry this marker — all planned
-   features have been implemented as of v0.1.0.
+   versions that are not implemented in v0.1 beyond the registered
+   frame type constant.  Currently: 5.5 SCHEMA_PATCH, 5.7 DICT_SYNC,
+   and 5.8 DISCOVER.
 
 Abstract
 
@@ -81,18 +84,13 @@ Status of This Memo
 
 Copyright Notice
 
-   Copyright (c) 2026 IETF Trust and the persons identified as the
-   document authors.  All rights reserved.
+   Copyright (c) 2025-2026 Gonzalo Monzon (Cadences Lab) and the
+   persons identified as the document authors.  All rights reserved.
 
-   This document is subject to BCP 78 and the IETF Trust's Legal
-   Provisions Relating to IETF Documents
-   (https://trustee.ietf.org/license-info) in effect on the date of
-   publication of this document.  Please review these documents
-   carefully, as they describe your rights and restrictions with respect
-   to this document.  Code Components extracted from this document must
-   include Revised BSD License text as described in Section 4.e of the
-   Trust Legal Provisions and are provided without warranty as described
-   in the Revised BSD License.
+   This document is distributed under the MIT License, the same license
+   as the LUMEN project repository (see the LICENSE file).  Code
+   components extracted from this document are provided without
+   warranty of any kind.
 Table of Contents
 
    1.  Introduction .................................................X
@@ -121,6 +119,8 @@ Table of Contents
       5.10. HEARTBEAT (0x0A) .........................................X
       5.11. TRANSPORT_INIT (0x0B) / TRANSPORT_ACK (0x0C) .............X
       5.12. PROBE (0x0F) / PROBE_ACK (0x10) ..........................X
+      5.13. BATCH (0x0D) — extension lumen-batch-flow ................X
+      5.14. FLOW_CTL (0x0E) — extension lumen-batch-flow .............X
    6.  Semantic Compression ..........................................X
       6.1.  Static Dictionary (0x00–0x7F) ............................X
       6.2.  Session Dictionary (0x80–0xFE) ...........................X
@@ -135,7 +135,7 @@ Table of Contents
       9.3.  Wire Encryption ..........................................X
       9.4.  Key Exchange (X25519) ....................................X
       9.5.  Anti-Replay ..............................................X
-   10. IANA Considerations ...........................................X
+   10. Registry Considerations .......................................X
       10.1. Frame Type Registry ......................................X
       10.2. Flag Bit Registry ........................................X
       10.3. Compression Dictionary Registry ..........................X
@@ -466,18 +466,20 @@ Table of Contents
 
 5.4.  STREAM_DATA (0x04)
 
-   Carries a single token in an LLM streaming response.  In v0.1, this
-   frame type is defined but the structured payload builder is not yet
-   implemented.  The constant is reserved for the streaming subsystem.
+   Carries a single token in an LLM streaming response.  Implemented
+   in the Rust reference implementation (extension: lumen-stream,
+   implementations/rust/src/stream.rs); other bindings currently define
+   the frame type constant only.
 
-   > **v2 planned**: Binary payload: [stream_id:4B LE][token_seq:4B LE]
-   > [token_type:1B][token_data:variable].
+   The binary payload is normatively defined in Section 7.1:
 
-5.5.  SCHEMA_PATCH (0x05)
+   [stream_id:u32 LE][token_seq:u32 LE][token_type:u8][token_data]
 
-   Carries a dynamic schema update.  In v0.1, this frame type is
-   defined as a constant; the structured payload format and server-side
-   schema patching logic are not yet implemented.
+5.5.  SCHEMA_PATCH (0x05)  [PLANNED]
+
+   Carries a dynamic schema update.  This frame type is registered but
+   its payload format is not defined in v0.1; no binding implements it
+   beyond the type constant.
 
    > **v2 planned**: JSON Patch [RFC6902] payload in LUMEN binary
    > format, with patch_seq for version tracking.
@@ -485,18 +487,27 @@ Table of Contents
 5.6.  STREAM_INIT (0x06)
 
    Initiates a token stream.  Sent before the first STREAM_DATA frame.
-   In v0.1, this frame type is defined but the structured payload
-   builder is not yet implemented.
+   Implemented in the Rust reference implementation (extension:
+   lumen-stream, implementations/rust/src/stream.rs); other bindings
+   currently define the frame type constant only.
 
-   > **v2 planned**: Binary payload: [stream_id:4B LE][max_tokens:4B LE]
-   > [temperature:f32 LE][model_len:Hyb128][model:UTF-8].
+   The binary payload is normatively defined in Section 7.1:
 
-5.7.  DICT_SYNC (0x07)
+   [stream_id:u32 LE][max_tokens:u32 LE][temperature:f32 LE]
+   [model_len:u8][model:UTF-8, max 255 bytes]
+
+5.7.  DICT_SYNC (0x07)  [PLANNED]
 
    Synchronizes a session dictionary entry between peers.  The payload
    carries one or more dictionary updates.
 
-   DICT_SYNC payload structure:
+   **Status**: the frame type is registered, but no binding implements
+   DICT_SYNC on the wire in v0.1.  Session dictionaries are currently
+   managed through each binding's local API (register_session_key,
+   unregister_session_key, init_session_dict) without wire
+   synchronization; both peers must be configured with the same
+   entries out of band.  The payload structure below is provisional
+   and MUST be treated as [PLANNED]:
 
    +===============+==========+=================================+
    | Field         | Size     | Description                     |
@@ -517,11 +528,17 @@ Table of Contents
    Session dictionaries are scoped to the transport connection.
    When the connection closes, the session dictionary is discarded.
 
-5.8.  DISCOVER (0x08)
+5.8.  DISCOVER (0x08)  [PLANNED]
 
    Requests or responds with tool/schema/method metadata.  This frame
    enables "late binding" where the client discovers available
    operations dynamically.
+
+   **Status**: the frame type is registered, but no binding implements
+   DISCOVER in v0.1 beyond the type constant.  Service discovery is
+   currently performed with PROBE/PROBE_ACK over datagram transports
+   (Section 5.12).  The payload structure below is provisional and
+   MUST be treated as [PLANNED].
 
    A DISCOVER frame with empty payload is a request for the full
    schema.  A DISCOVER frame with payload is a response.
@@ -570,19 +587,18 @@ Table of Contents
    RESPONSE, STREAM_DATA, and NOTIFY frames on that channel are
    wrapped in MUX DATA frames.
 
-   A MUX OPEN frame payload:
+   Implemented in the Rust reference implementation (extension:
+   lumen-mux, implementations/rust/src/mux.rs); other bindings
+   currently define the frame type constant only.  The payload layout,
+   sub-command semantics, and channel lifecycle are normatively
+   defined in Section 8:
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | sub_command   | 1 byte   | 0x00 (OPEN)                     |
-   | channel_id    | 2 bytes  | Proposed channel identifier     |
-   | channel_type  | 1 byte   | 0=request,1=stream,2=notify     |
-   +---------------+----------+---------------------------------+
+   [sub_command:u8][channel_id:u16 LE][payload:variable]
 
-   If the requested channel_id is already in use, the responder MUST
-   send a MUX CLOSE with an error reason and the initiator MUST
-   propose a different channel_id.
+   Control sub-commands (OPEN, CLOSE, PAUSE, RESUME) carry no payload
+   after channel_id; DATA carries a complete inner LUMEN frame.  The
+   channel registry MUST reject an OPEN for a channel_id that is
+   already active (Section 8.3).
 
 5.10.  HEARTBEAT (0x0A)
 
@@ -596,45 +612,122 @@ Table of Contents
 
 5.11.  TRANSPORT_INIT (0x0B) / TRANSPORT_ACK (0x0C)
 
-   Negotiates the transport level and parameters during connection
-   establishment.  The initiator sends a TRANSPORT_INIT listing
-   supported levels; the responder answers with TRANSPORT_ACK
-   selecting the highest mutually supported level.
+   Negotiates an upgrade of the transport level after connection
+   establishment.  The initiator sends a TRANSPORT_INIT listing its
+   supported transport capabilities; the responder answers with a
+   TRANSPORT_ACK selecting one.
+
+   In v0.1, as implemented in the Rust reference implementation
+   (implementations/rust/src/handshake.rs), both payloads are
+   uncompressed UTF-8 JSON objects (FLAGS = 0):
 
    TRANSPORT_INIT payload:
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | version       | 2 bytes  | LUMEN protocol version (0x0001) |
-   | levels_mask   | 1 byte   | Bitmask of supported levels     |
-   | heartbeat_ms  | 2 bytes  | Proposed heartbeat interval     |
-   | max_frame     | 4 bytes  | Maximum frame size accepted     |
-   +---------------+----------+---------------------------------+
+   {"caps": ["mmap", "stdio"]}
 
    TRANSPORT_ACK payload:
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | selected_level| 1 byte   | Chosen transport level          |
-   | heartbeat_ms  | 2 bytes  | Agreed heartbeat interval       |
-   | max_frame     | 4 bytes  | Minimum of both max_frame values|
-   | flags         | 1 byte   | Session capability flags        |
-   +---------------+----------+---------------------------------+
+   {"cap": "mmap", "shm_path": "/lumen-shm-xxxx", "shm_size": 1048576}
 
-   If the responder cannot support any of the proposed levels, it MUST
-   respond with TRANSPORT_ACK containing selected_level = 0 and then
-   close the transport.
+   - "caps" lists the initiator's capabilities in preference order.
+     Currently defined values: "mmap" (upgrade to Level 2 shared
+     memory) and "stdio" (remain on the Level 1 stream).
+   - The responder selects the best mutually supported capability and
+     returns it in "cap".  When "mmap" is chosen, "shm_path" and
+     "shm_size" describe the shared memory region the initiator MUST
+     map; both fields are omitted otherwise.
+   - If negotiation fails, no common capability exists, or the region
+     cannot be mapped, both peers MUST continue on the existing
+     Level 1 stream unchanged.
+
+   > **v2 planned**: A binary payload with version (2B LE), levels_mask
+   > (1B), heartbeat_ms (2B LE), and max_frame (4B LE), plus a matching
+   > binary TRANSPORT_ACK (selected_level, heartbeat_ms, max_frame,
+   > flags).
 
 5.12.  PROBE (0x0F) / PROBE_ACK (0x10)
 
-   Capability and liveness probe, typically sent over multicast (UDP)
-   for service discovery.  PROBE carries an optional filter (e.g.,
-   service type); PROBE_ACK returns the responder's capabilities.
+   Capability and liveness probe.  PROBE/PROBE_ACK serve three
+   purposes in v0.1:
 
-   PROBE_ACK payload mirrors DISCOVER payload with the addition of
-   a 2-byte ttl field for service discovery caching.
+   1. Version/capability negotiation: the PROBE payload is a
+      LUMEN-compressed JSON object with "protocol", "version",
+      "client_name", and "supported_versions"; the PROBE_ACK payload
+      carries "protocol", "server_name", and "accepted_version"
+      (implemented in the Python binding, lumen/negotiation.py).
+
+   2. Optional key exchange: when wire encryption is negotiated, the
+      PROBE payload carries the initiator's X25519 public key and the
+      PROBE_ACK the responder's (Section 9.4).
+
+   3. Liveness/service discovery over datagram transports (UDP
+      multicast), where PROBE_ACK signals a live responder.
+
+5.13.  BATCH (0x0D) — extension lumen-batch-flow
+
+   Carries multiple complete LUMEN frames in a single outer frame to
+   reduce syscall overhead in high-throughput scenarios.  BATCH is
+   part of the OPTIONAL extension "lumen-batch-flow"; implementations
+   that do not declare the batch_flow capability MAY treat it as an
+   unknown frame type.  Implemented in the Rust reference
+   implementation (implementations/rust/src/frame.rs).
+
+   BATCH payload layout:
+
+   +===============+==========+====================================+
+   | Field         | Size     | Description                        |
+   +===============+==========+====================================+
+   | count         | u16 LE   | Number of inner frames (max 65535) |
+   | frames[]      | variable | count complete LUMEN frames        |
+   +---------------+----------+------------------------------------+
+
+   - Each inner frame is a complete LUMEN frame (its own Hyb128
+     length header, TYPE, FLAGS, and PAYLOAD).
+   - A payload shorter than 2 bytes is malformed and MUST be rejected.
+   - If the payload ends before `count` complete inner frames have
+     been parsed, or an inner frame is malformed, the batch is
+     truncated: the receiver MUST NOT process the partial batch as if
+     it were complete, and SHOULD treat it as a protocol error.
+   - Senders MUST NOT emit trailing bytes after the last declared
+     inner frame; the reference parser ignores such bytes.
+   - The outer BATCH frame MAY carry FLAG_COMPRESSED or
+     FLAG_ENCRYPTED; in that case the entire batch payload (count +
+     inner frames) is compressed/encrypted as a single blob and MUST
+     be decompressed/decrypted before parsing inner frames.
+   - Nested BATCH frames (a BATCH inside a BATCH) are NOT RECOMMENDED
+     and receivers MAY reject them.
+
+5.14.  FLOW_CTL (0x0E) — extension lumen-batch-flow
+
+   Pauses or resumes data flow on a stream, or globally, implementing
+   credit-based backpressure.  FLOW_CTL is part of the OPTIONAL
+   extension "lumen-batch-flow".  Implemented in the Rust reference
+   implementation (implementations/rust/src/frame.rs).
+
+   FLOW_CTL payload layout (exactly 6 bytes):
+
+   +===============+==========+====================================+
+   | Field         | Size     | Description                        |
+   +===============+==========+====================================+
+   | stream_id     | u16 LE   | 0 = global; 1-65535 = specific     |
+   |               |          | multiplexed stream                 |
+   | window        | u32 LE   | Credit window in bytes             |
+   +---------------+----------+------------------------------------+
+
+   The FLAGS byte distinguishes pause from resume:
+
+   - FLAG_FLOW_PAUSE (0x01) set: PAUSE.  window = 0 means "stop
+     sending entirely"; window = N means "reduce to N bytes".
+   - FLAG_FLOW_PAUSE clear: RESUME.  window = N grants N bytes of
+     transmit credit.
+
+   FLAG_FLOW_PAUSE reuses the bit position of FLAG_COMPRESSED.  This
+   is unambiguous because the frame type alone identifies flow
+   control, and FLOW_CTL frames are never compressed.
+
+   A payload shorter than 6 bytes is malformed and MUST be rejected.
+   Senders MUST NOT emit more than 6 payload bytes; the reference
+   parser ignores extra bytes.
 
 
 6.  Semantic Compression
@@ -799,11 +892,13 @@ Table of Contents
    application-specific terms: custom tool names, parameter keys, and
    frequently used values that are not in the static dictionary.
 
-   Session dictionary entries are negotiated via DICT_SYNC frames
-   (Section 5.7).  Either peer MAY propose entries; both peers MUST
-   agree before using an entry.  If a compressed frame references an
-   unconfirmed session entry, the receiver MUST respond with error
-   status 0x07 (Unknown dictionary reference).
+   In v0.1, session dictionary entries are registered through each
+   binding's local API (register_session_key and related functions);
+   both peers MUST be configured with identical entries out of band.
+   In-band negotiation via DICT_SYNC frames (Section 5.7) is
+   [PLANNED].  If a compressed frame references an unknown session
+   entry, the receiver MUST respond with error status 0x07 (Unknown
+   dictionary reference).
 
    Index 0xFF is reserved and MUST NOT be used as a dictionary
    reference.  It serves as an escape value: a reference of 0xFF
@@ -812,15 +907,15 @@ Table of Contents
 
 6.3.  Dictionary Synchronization
 
-   Session dictionary entries may be proposed during TRANSPORT_INIT
-   (piggybacked on the init frame) or at any time during the session
-   via DICT_SYNC.  Entries have a scope of the transport connection;
-   they are discarded on disconnect.
+   Entries have a scope of the transport connection; they are
+   discarded on disconnect.  When wire synchronization via DICT_SYNC
+   is implemented ([PLANNED], Section 5.7), entries may additionally
+   be proposed at any time during the session.
 
    Implementations SHOULD limit session dictionaries to 127 entries as
-   specified.  If an implementation receives a DICT_SYNC proposing
-   entry 127 when all slots are full, it SHOULD send an error and
-   close the transport.
+   specified.  If an implementation receives a DICT_SYNC proposing an
+   entry when all slots are full, it SHOULD send an error and close
+   the transport.
 
    Dictionary compression is lossless at the semantic level: a
    dictionary-compressed message, when decompressed, MUST produce
@@ -1042,35 +1137,29 @@ Table of Contents
 
 9.4.  Key Exchange (X25519)
 
-   Encryption keys are established during TRANSPORT_INIT via X25519
-   [RFC7748] key exchange.
+   Encryption keys are established during the PROBE/PROBE_ACK
+   handshake (Section 5.12) via X25519 [RFC7748] key exchange, as
+   implemented in the Rust and TypeScript reference implementations
+   (crypto.rs / crypto.ts):
 
-   TRANSPORT_INIT (with encryption offered):
+   1. The initiator generates an ephemeral X25519 keypair and sends a
+      PROBE frame carrying its public key.
+   2. The responder generates its own ephemeral keypair, derives the
+      shared secret, and replies with a PROBE_ACK carrying its public
+      key.
+   3. The initiator derives the same shared secret.
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | ... standard fields (Section 5.11) ...                          |
-   | pubkey        | 32 bytes | Initiator's X25519 public key   |
-   +---------------+----------+---------------------------------+
+   Both parties derive two independent directional keys using
+   HKDF-SHA256 [RFC5869]:
 
-   TRANSPORT_ACK (with encryption accepted):
+   c2s_key = HKDF(shared_secret, info="lumen-c2s-key", 32)
+   s2c_key = HKDF(shared_secret, info="lumen-s2c-key", 32)
 
-   +===============+==========+=================================+
-   | Field         | Size     | Description                     |
-   +===============+==========+=================================+
-   | ... standard fields (Section 5.11) ...                          |
-   | pubkey        | 32 bytes | Responder's X25519 public key   |
-   +---------------+----------+---------------------------------+
-
-   Both parties compute the shared secret using X25519 DH and derive
-   separate keys for each direction using HKDF-SHA256 [RFC5869]:
-
-   send_key = HKDF-Expand(shared_secret, "lumen-send-key", 32)
-   recv_key = HKDF-Expand(shared_secret, "lumen-recv-key", 32)
-
-   Each party uses its send_key for encrypting outbound frames and its
-   recv_key for decrypting inbound frames.
+   The initiator (client) encrypts outbound frames with c2s_key and
+   decrypts inbound frames with s2c_key; the responder (server) does
+   the reverse.  Using separate directional keys prevents (key, nonce)
+   reuse between the two directions.  Nonce counters start at 0 per
+   direction.
 
 9.5.  Anti-Replay
 
@@ -1109,27 +1198,27 @@ Table of Contents
 10.2.  Flag Bit Registry
 
    The "LUMEN Frame Flags" registry is maintained by the project.  Bit positions
-   4–7 are unassigned and available via "IETF Review".  Initial
+   4–7 are unassigned and available via project review.  Initial
    assignments:
 
    +=======+===============+================+======================+
    | Bit   | Name          | Status         | Reference            |
    +=======+===============+================+======================+
-   | 0     | COMPRESSED    | Permanent      | RFC XXXX, Section 3.3|
-   | 1     | ENCRYPTED     | Permanent      | RFC XXXX, Section 9.3|
-   | 2     | PRIORITY      | Permanent      | RFC XXXX, Section 3.3|
-   | 3     | FRAGMENTED    | Permanent      | RFC XXXX, Section 3.3|
-   | 4–7   | Unassigned    | IETF Review    |                      |
+   | 0     | COMPRESSED    | Permanent      | This doc, Section 3.3|
+   | 1     | ENCRYPTED     | Permanent      | This doc, Section 9.3|
+   | 2     | PRIORITY      | Permanent      | This doc, Section 3.3|
+   | 3     | FRAGMENTED    | Permanent      | This doc, Section 3.3|
+   | 4–7   | Unassigned    | Project Review |                      |
    +-------+---------------+---------------+----------------------+
 
 10.3.  Compression Dictionary Registry
 
    The "LUMEN Static Dictionary" registry is maintained by the project.  Entries
    0x00–0x7F are defined by this document.  Future additions require
-   "Standards Action" [RFC8126] and a new protocol version.
+   approval by the project maintainers and a new protocol version.
 
    The session dictionary range 0x80–0xFE is dynamic and not subject
-   to IANA registration.
+   to registration.
 
 
 11.  Security Considerations

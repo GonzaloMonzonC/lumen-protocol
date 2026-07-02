@@ -1,6 +1,7 @@
 {
   "$schema": "conformance.json",
   "protocol": "LUMEN/1.0",
+  "protocol_note": "LUMEN/1.0 is the wire-format version negotiated in PROBE (see lumen/negotiation.py: version '1.0'); it is distinct from spec_version, which tracks the specification document / package releases (v0.1.0, draft).",
   "spec_version": "v0.1.0",
   "description": "LUMEN protocol conformance test suite — cross-implementation verification vectors. Values verified against the actual Hyb128 encoder (1/3/5B modes: short/u16/u32/LEB128).",
   "generated": "2026-06-17",
@@ -34,6 +35,54 @@
         "security_macaroons": false,
         "shm": "ffi",
         "datagram": true,
+        "quic": false
+      }
+    },
+    "python": {
+      "path": "implementations/python/",
+      "version": "0.1.0",
+      "test_runner": "pytest -q (requires Python >= 3.10)",
+      "capabilities": {
+        "core": true,
+        "batch_flow": false,
+        "stream": false,
+        "mux": false,
+        "security_crypto": false,
+        "security_macaroons": false,
+        "shm": true,
+        "datagram": false,
+        "quic": false
+      }
+    },
+    "php": {
+      "path": "implementations/php/",
+      "version": "0.1.0",
+      "test_runner": "php tests/e2e_test.php",
+      "capabilities": {
+        "core": true,
+        "batch_flow": false,
+        "stream": false,
+        "mux": false,
+        "security_crypto": false,
+        "security_macaroons": false,
+        "shm": false,
+        "datagram": false,
+        "quic": false
+      }
+    },
+    "csharp": {
+      "path": "implementations/csharp/",
+      "version": "0.1.0",
+      "test_runner": "dotnet run (requires .NET 9)",
+      "capabilities": {
+        "core": "partial (Hyb128 + dict + compress + FFI; no frame layer)",
+        "batch_flow": false,
+        "stream": false,
+        "mux": false,
+        "security_crypto": false,
+        "security_macaroons": false,
+        "shm": false,
+        "datagram": false,
         "quic": false
       }
     }
