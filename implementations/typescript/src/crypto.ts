@@ -59,7 +59,7 @@ const WINDOW_SIZE = 64; // anti-replay bitmap width
 // ═══ Platform detection ═════════════════════════════════════════════════════
 
 /** True if we are running under Node.js (global `process` exists). */
-const isNode = typeof process !== "undefined" && process.versions?.node;
+const isNode = !!(typeof process !== "undefined" && process.versions?.node);
 
 /** Lazy-loaded reference to `node:crypto` when available. */
 let nodeCrypto: typeof import("node:crypto") | null = null;
@@ -178,8 +178,8 @@ export class Cipher {
     if (this.useNativeNodeCrypto) {
       // Node.js native crypto fallback: derive keys via HKDF, encrypt/decrypt via createCipheriv
       const nc = await getNodeCrypto();
-      const c2sKey = nc.hkdfSync("sha256", sharedSecret, new Uint8Array(0), HKDF_INFO_C2S, 32);
-      const s2cKey = nc.hkdfSync("sha256", sharedSecret, new Uint8Array(0), HKDF_INFO_S2C, 32);
+      const c2sKey = new Uint8Array(nc.hkdfSync("sha256", sharedSecret, new Uint8Array(0), HKDF_INFO_C2S, 32));
+      const s2cKey = new Uint8Array(nc.hkdfSync("sha256", sharedSecret, new Uint8Array(0), HKDF_INFO_S2C, 32));
       if (role === Role.Initiator) {
         this.sendKeyRaw = c2sKey;
         this.recvKeyRaw = s2cKey;
