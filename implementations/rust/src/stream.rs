@@ -408,10 +408,10 @@ mod tests {
         // "abc" = 3 bytes, all ASCII
         assert_eq!(utf8_truncate(b"abc", 3), 3);
         assert_eq!(utf8_truncate(b"abc", 1), 1); // 'a' is 1 byte
-        // "ñ" = 2 bytes (0xC3, 0xB1)
+                                                 // "ñ" = 2 bytes (0xC3, 0xB1)
         assert_eq!(utf8_truncate("ñ".as_bytes(), 2), 2);
         assert_eq!(utf8_truncate("ñ".as_bytes(), 1), 0); // can't split
-        // empty
+                                                         // empty
         assert_eq!(utf8_truncate(b"", 0), 0);
     }
 
@@ -794,7 +794,8 @@ mod tests {
             max_tokens: 0,
             temperature: 0.0,
             model: "t".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         // Unknown token types are accepted (not validated by registry)
         let data = StreamData {
@@ -815,17 +816,23 @@ mod tests {
             max_tokens: 1, // only 1 token allowed
             temperature: 0.0,
             model: "t".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         // Accept 1 data token
         reg.accept(&StreamData {
-            stream_id: 1, token_seq: 0, token_type: TOKEN_TEXT,
+            stream_id: 1,
+            token_seq: 0,
+            token_type: TOKEN_TEXT,
             token_data: b"x".to_vec(),
-        }).unwrap();
+        })
+        .unwrap();
 
         // END token should NOT count against the limit
         let end = StreamData {
-            stream_id: 1, token_seq: 1, token_type: TOKEN_END,
+            stream_id: 1,
+            token_seq: 1,
+            token_type: TOKEN_END,
             token_data: vec![],
         };
         assert!(reg.accept(&end).unwrap()); // true = END
@@ -839,42 +846,66 @@ mod tests {
         // This is documented behavior — caller MUST remove after END.
         let mut reg = StreamRegistry::new();
         reg.register(&StreamInit {
-            stream_id: 1, max_tokens: 0, temperature: 0.0, model: "t".into(),
-        }).unwrap();
+            stream_id: 1,
+            max_tokens: 0,
+            temperature: 0.0,
+            model: "t".into(),
+        })
+        .unwrap();
 
         let end = StreamData {
-            stream_id: 1, token_seq: 0, token_type: TOKEN_END, token_data: vec![],
+            stream_id: 1,
+            token_seq: 0,
+            token_type: TOKEN_END,
+            token_data: vec![],
         };
         assert!(reg.accept(&end).unwrap()); // END, next_seq → 1
-        // Caller forgets remove() — stream still registered with next_seq=1
+                                            // Caller forgets remove() — stream still registered with next_seq=1
 
         // seq=1 matches next_seq=1 → ACCEPTED (not rejected!)
         let more = StreamData {
-            stream_id: 1, token_seq: 1, token_type: TOKEN_TEXT, token_data: b"x".to_vec(),
+            stream_id: 1,
+            token_seq: 1,
+            token_type: TOKEN_TEXT,
+            token_data: b"x".to_vec(),
         };
         assert!(reg.accept(&more).is_ok()); // passes — caller's responsibility
 
         // seq=0 is below next_seq=2 → gap
         let backtrack = StreamData {
-            stream_id: 1, token_seq: 0, token_type: TOKEN_TEXT, token_data: b"x".to_vec(),
+            stream_id: 1,
+            token_seq: 0,
+            token_type: TOKEN_TEXT,
+            token_data: b"x".to_vec(),
         };
         assert!(matches!(
             reg.accept(&backtrack),
-            Err(StreamError::SequenceGap { expected: 2, received: 0 })
+            Err(StreamError::SequenceGap {
+                expected: 2,
+                received: 0
+            })
         ));
 
         // Re-registration fails (duplicate)
         assert!(matches!(
             reg.register(&StreamInit {
-                stream_id: 1, max_tokens: 0, temperature: 0.0, model: "t".into(),
+                stream_id: 1,
+                max_tokens: 0,
+                temperature: 0.0,
+                model: "t".into(),
             }),
             Err(StreamError::DuplicateStream(1))
         ));
 
         // After explicit remove, re-registration works
         reg.remove(1);
-        assert!(reg.register(&StreamInit {
-            stream_id: 1, max_tokens: 0, temperature: 0.0, model: "t".into(),
-        }).is_ok());
+        assert!(reg
+            .register(&StreamInit {
+                stream_id: 1,
+                max_tokens: 0,
+                temperature: 0.0,
+                model: "t".into(),
+            })
+            .is_ok());
     }
 }

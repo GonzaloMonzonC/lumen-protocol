@@ -33,17 +33,19 @@ fn make_frame(ftype: u8, payload: &[u8]) -> Vec<u8> {
 /// macOS caps datagrams at net.inet.udp.maxdgram (9216 by default), so the
 /// larger benchmark sizes are skipped there instead of erroring out.
 fn os_can_send_dgram(len: usize) -> bool {
-    let Ok(probe) = std::net::UdpSocket::bind("127.0.0.1:0") else { return false };
-    let Ok(addr) = probe.local_addr() else { return false };
+    let Ok(probe) = std::net::UdpSocket::bind("127.0.0.1:0") else {
+        return false;
+    };
+    let Ok(addr) = probe.local_addr() else {
+        return false;
+    };
     probe.send_to(&vec![0u8; len], addr).is_ok()
 }
 
 /// Parse a received frame, returning (frame_type, payload_len).
 fn parse_frame(data: &[u8]) -> Option<(u8, usize)> {
     match frame::parse(data) {
-        frame::ParseResult::Complete { frame, .. } => {
-            Some((frame.frame_type, frame.payload.len()))
-        }
+        frame::ParseResult::Complete { frame, .. } => Some((frame.frame_type, frame.payload.len())),
         _ => None,
     }
 }
@@ -79,7 +81,10 @@ fn bench_roundtrip() -> io::Result<()> {
                 loop {
                     let (data_to_echo, src_to_echo) = match srv.recv_frame()? {
                         Some((data, src)) => (data.to_vec(), src),
-                        None => { thread::yield_now(); continue; }
+                        None => {
+                            thread::yield_now();
+                            continue;
+                        }
                     };
                     srv.send_frame_to(&data_to_echo, src_to_echo)?;
                     break;
@@ -131,7 +136,14 @@ fn bench_roundtrip() -> io::Result<()> {
 
         println!(
             "  {:>6}B   {:>10.0}ns  {:>8.1} MB/s   {:>4}",
-            psize, rtt_ns, tput, if lost > 0 { format!("{}", lost) } else { "0".into() }
+            psize,
+            rtt_ns,
+            tput,
+            if lost > 0 {
+                format!("{}", lost)
+            } else {
+                "0".into()
+            }
         );
     }
 
@@ -218,7 +230,10 @@ fn bench_heartbeat() -> io::Result<()> {
             loop {
                 let (data_to_echo, src_to_echo) = match srv.recv_frame()? {
                     Some((data, src)) => (data.to_vec(), src),
-                    None => { thread::yield_now(); continue; }
+                    None => {
+                        thread::yield_now();
+                        continue;
+                    }
                 };
                 srv.send_frame_to(&data_to_echo, src_to_echo)?;
                 echoed += 1;
@@ -265,9 +280,15 @@ fn bench_heartbeat() -> io::Result<()> {
     let _echoed = echo_handle.join().unwrap()?;
 
     let rtt_ns = elapsed.as_nanos() as f64 / ITERS as f64;
-    println!("  frame_size: {} bytes (Hyb128 + TYPE + FLAGS + payload)", frame_send.len());
+    println!(
+        "  frame_size: {} bytes (Hyb128 + TYPE + FLAGS + payload)",
+        frame_send.len()
+    );
     println!("  roundtrip:  {:.0} ns/op", rtt_ns);
-    println!("  throughput: {:.1} MB/s", throughput_mbps(frame_send.len(), rtt_ns));
+    println!(
+        "  throughput: {:.1} MB/s",
+        throughput_mbps(frame_send.len(), rtt_ns)
+    );
     println!("  lost:       {}", lost);
     println!("  wire_bytes: {} B/datagram", frame_send.len() + 28); // +20 IP + 8 UDP
 
@@ -327,7 +348,11 @@ fn bench_parse_overhead() -> io::Result<()> {
 
         println!(
             "  {:>6}B   {:>10.0}ns  {:>10.0}ns  {:>10.0}ns  ({} parsed)",
-            psize, build_send_ns, recv_parse_ns, build_send_ns + recv_parse_ns, parsed
+            psize,
+            build_send_ns,
+            recv_parse_ns,
+            build_send_ns + recv_parse_ns,
+            parsed
         );
     }
 
@@ -340,7 +365,10 @@ fn bench_parse_overhead() -> io::Result<()> {
 
 fn bench_max_payload() -> io::Result<()> {
     println!();
-    println!("═══ S5: Max Payload Stress Test ({}B payload) ═══", MAX_FRAME_PAYLOAD);
+    println!(
+        "═══ S5: Max Payload Stress Test ({}B payload) ═══",
+        MAX_FRAME_PAYLOAD
+    );
 
     let mut rx = DatagramTransport::bind("127.0.0.1:0")?;
     let rx_addr = rx.local_addr()?;

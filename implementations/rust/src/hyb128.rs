@@ -133,7 +133,10 @@ fn decode_inner(bytes: &[u8], strict: bool) -> Option<Decoded> {
             if strict && value <= 63 {
                 return None; // should have been Short
             }
-            Some(Decoded { value, header_len: 3 })
+            Some(Decoded {
+                value,
+                header_len: 3,
+            })
         }
 
         MODE_U32 => {
@@ -145,7 +148,10 @@ fn decode_inner(bytes: &[u8], strict: bool) -> Option<Decoded> {
             if strict && value <= 65535 {
                 return None; // should have been U16 or Short
             }
-            Some(Decoded { value, header_len: 5 })
+            Some(Decoded {
+                value,
+                header_len: 5,
+            })
         }
 
         MODE_LEB128 => {

@@ -1,4 +1,4 @@
-﻿//! LUMEN QUIC Transport — LTA over QUIC (RFC 9000).
+//! LUMEN QUIC Transport — LTA over QUIC (RFC 9000).
 //!
 //! ## Why QUIC?
 //!
@@ -32,7 +32,9 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use quinn::{Endpoint, Connection, RecvStream, SendStream, ServerConfig, ClientConfig, TransportConfig};
+use quinn::{
+    ClientConfig, Connection, Endpoint, RecvStream, SendStream, ServerConfig, TransportConfig,
+};
 use tokio::runtime::Runtime;
 
 #[derive(Debug)]
@@ -79,9 +81,13 @@ impl rustls::client::danger::ServerCertVerifier for SkipCertVerifier {
 
 pub fn generate_self_signed_cert(
     subject_alt_names: &[String],
-) -> io::Result<(rustls::pki_types::CertificateDer<'static>, rustls::pki_types::PrivateKeyDer<'static>)> {
-    let cert = rcgen::generate_simple_self_signed(subject_alt_names.to_vec())
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("cert generation failed: {e}")))?;
+) -> io::Result<(
+    rustls::pki_types::CertificateDer<'static>,
+    rustls::pki_types::PrivateKeyDer<'static>,
+)> {
+    let cert = rcgen::generate_simple_self_signed(subject_alt_names.to_vec()).map_err(|e| {
+        io::Error::new(io::ErrorKind::Other, format!("cert generation failed: {e}"))
+    })?;
     let cert_der = cert.cert.into();
     let key_der = cert.key_pair.serialize_der();
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(key_der.into());
@@ -132,34 +138,47 @@ pub struct QuicEndpoint {
 
 impl QuicEndpoint {
     pub fn server(addr: &str) -> io::Result<Self> {
-        let runtime = Arc::new(tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("lumen-quic-server")
-            .enable_all()
-            .build()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("tokio runtime: {e}")))?);
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("lumen-quic-server")
+                .enable_all()
+                .build()
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("tokio runtime: {e}")))?,
+        );
 
         let _guard = runtime.enter();
         let server_config = default_server_config()?;
-        let socket_addr: SocketAddr = addr.parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid address '{addr}': {e}")))?;
+        let socket_addr: SocketAddr = addr.parse().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid address '{addr}': {e}"),
+            )
+        })?;
         let socket = std::net::UdpSocket::bind(socket_addr)
             .map_err(|e| io::Error::new(io::ErrorKind::AddrInUse, format!("UDP bind: {e}")))?;
         let endpoint = runtime.block_on(async {
-            Endpoint::new(Default::default(), Some(server_config), socket, Arc::new(quinn::TokioRuntime))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC endpoint: {e}")))
+            Endpoint::new(
+                Default::default(),
+                Some(server_config),
+                socket,
+                Arc::new(quinn::TokioRuntime),
+            )
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC endpoint: {e}")))
         })?;
 
         Ok(Self { endpoint, runtime })
     }
 
     pub fn client() -> io::Result<Self> {
-        let runtime = Arc::new(tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("lumen-quic-client")
-            .enable_all()
-            .build()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("tokio runtime: {e}")))?);
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("lumen-quic-client")
+                .enable_all()
+                .build()
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("tokio runtime: {e}")))?,
+        );
 
         let _guard = runtime.enter();
         let client_config = default_client_config()?;
@@ -167,8 +186,13 @@ impl QuicEndpoint {
         let socket = std::net::UdpSocket::bind(socket_addr)
             .map_err(|e| io::Error::new(io::ErrorKind::AddrInUse, format!("UDP bind: {e}")))?;
         let mut endpoint = runtime.block_on(async {
-            Endpoint::new(Default::default(), None, socket, Arc::new(quinn::TokioRuntime))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC endpoint: {e}")))
+            Endpoint::new(
+                Default::default(),
+                None,
+                socket,
+                Arc::new(quinn::TokioRuntime),
+            )
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC endpoint: {e}")))
         })?;
         endpoint.set_default_client_config(client_config);
 
@@ -179,10 +203,18 @@ impl QuicEndpoint {
         self.runtime.block_on(async {
             match self.endpoint.accept().await {
                 Some(incoming) => {
-                    let conn = incoming.await
-                        .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, format!("QUIC handshake failed: {e}")))?;
-                    let (send, recv) = conn.accept_bi().await
-                        .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, format!("stream accept failed: {e}")))?;
+                    let conn = incoming.await.map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::ConnectionRefused,
+                            format!("QUIC handshake failed: {e}"),
+                        )
+                    })?;
+                    let (send, recv) = conn.accept_bi().await.map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::ConnectionReset,
+                            format!("stream accept failed: {e}"),
+                        )
+                    })?;
                     Ok(QuicTransport {
                         send: Some(send),
                         recv: Some(recv),
@@ -194,23 +226,45 @@ impl QuicEndpoint {
                         read_pos: 0,
                     })
                 }
-                None => Err(io::Error::new(io::ErrorKind::NotConnected, "endpoint closed")),
+                None => Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "endpoint closed",
+                )),
             }
         })
     }
 
     pub fn connect(&mut self, addr: &str) -> io::Result<QuicTransport> {
-        let socket_addr: SocketAddr = addr.parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid address '{addr}': {e}")))?;
+        let socket_addr: SocketAddr = addr.parse().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid address '{addr}': {e}"),
+            )
+        })?;
         let server_name = "lumen.local".to_string();
 
         self.runtime.block_on(async {
-            let conn = self.endpoint.connect(socket_addr, &server_name)
-                .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, format!("QUIC connect: {e}")))?;
-            let conn = conn.await
-                .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, format!("QUIC handshake failed: {e}")))?;
-            let (send, recv) = conn.open_bi().await
-                .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, format!("stream open failed: {e}")))?;
+            let conn = self
+                .endpoint
+                .connect(socket_addr, &server_name)
+                .map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::ConnectionRefused,
+                        format!("QUIC connect: {e}"),
+                    )
+                })?;
+            let conn = conn.await.map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    format!("QUIC handshake failed: {e}"),
+                )
+            })?;
+            let (send, recv) = conn.open_bi().await.map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    format!("stream open failed: {e}"),
+                )
+            })?;
             Ok(QuicTransport {
                 send: Some(send),
                 recv: Some(recv),
@@ -229,7 +283,9 @@ impl QuicEndpoint {
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.endpoint.local_addr()
+        Ok(self
+            .endpoint
+            .local_addr()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("local addr: {e}")))?)
     }
 }
@@ -255,7 +311,8 @@ impl QuicTransport {
     }
 
     pub fn peer_certificate(&self) -> Option<Vec<rustls::pki_types::CertificateDer<'static>>> {
-        self.connection.peer_identity()
+        self.connection
+            .peer_identity()
             .and_then(|id| id.downcast::<Vec<rustls::pki_types::CertificateDer>>().ok())
             .map(|arc| (*arc).clone())
     }
@@ -275,7 +332,9 @@ impl crate::transport::Transport for QuicTransport {
             return Ok(n);
         }
 
-        let recv = self.recv.as_mut()
+        let recv = self
+            .recv
+            .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "recv stream closed"))?;
 
         self.runtime_handle.block_on(async {
@@ -288,18 +347,24 @@ impl crate::transport::Transport for QuicTransport {
                     self.read_pos = n;
                     Ok(n)
                 }
-                Err(e) => Err(io::Error::new(io::ErrorKind::ConnectionReset, format!("QUIC read: {e}"))),
+                Err(e) => Err(io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    format!("QUIC read: {e}"),
+                )),
             }
         })
     }
 
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        let send = self.send.as_mut()
+        let send = self
+            .send
+            .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "send stream closed"))?;
         let data = buf.to_vec();
         self.runtime_handle.block_on(async {
-            send.write_all(&data).await
-                .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, format!("QUIC write: {e}")))
+            send.write_all(&data).await.map_err(|e| {
+                io::Error::new(io::ErrorKind::ConnectionReset, format!("QUIC write: {e}"))
+            })
         })
     }
 
@@ -328,7 +393,8 @@ mod tests {
             .unwrap();
         crypto.max_early_data_size = u32::MAX;
         crypto.alpn_protocols = vec![b"lumen/1.0".to_vec()];
-        let quic_cfg = quinn::crypto::rustls::QuicServerConfig::try_from(std::sync::Arc::new(crypto)).unwrap();
+        let quic_cfg =
+            quinn::crypto::rustls::QuicServerConfig::try_from(std::sync::Arc::new(crypto)).unwrap();
         let mut server_config = quinn::ServerConfig::with_crypto(std::sync::Arc::new(quic_cfg));
         let mut transport = quinn::TransportConfig::default();
         transport.max_concurrent_bidi_streams(1024u32.into());
@@ -344,10 +410,13 @@ mod tests {
         let mut crypto = rustls::ClientConfig::builder()
             .with_root_certificates(rustls::RootCertStore::empty())
             .with_no_client_auth();
-        crypto.dangerous().set_certificate_verifier(std::sync::Arc::new(SkipCertVerifier));
+        crypto
+            .dangerous()
+            .set_certificate_verifier(std::sync::Arc::new(SkipCertVerifier));
         crypto.alpn_protocols = vec![b"lumen/1.0".to_vec()];
         crypto.enable_early_data = true;
-        let quic_cfg = quinn::crypto::rustls::QuicClientConfig::try_from(std::sync::Arc::new(crypto)).unwrap();
+        let quic_cfg =
+            quinn::crypto::rustls::QuicClientConfig::try_from(std::sync::Arc::new(crypto)).unwrap();
         let client_config = quinn::ClientConfig::new(std::sync::Arc::new(quic_cfg));
 
         let sock = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
@@ -379,13 +448,19 @@ mod tests {
 
         rt.block_on(async {
             let server_ep = quinn::Endpoint::new(
-                Default::default(), Some(server_config), server_sock,
+                Default::default(),
+                Some(server_config),
+                server_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             let mut client_ep = quinn::Endpoint::new(
-                Default::default(), None, client_sock,
+                Default::default(),
+                None,
+                client_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             client_ep.set_default_client_config(client_config);
 
             let addr: std::net::SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
@@ -395,7 +470,10 @@ mod tests {
             let client_conn = client_connecting.await.unwrap();
 
             let (mut client_send, _client_recv) = client_conn.open_bi().await.unwrap();
-            client_send.write_all(b"hello lumen over quic").await.unwrap();
+            client_send
+                .write_all(b"hello lumen over quic")
+                .await
+                .unwrap();
             client_send.finish().unwrap();
 
             let (_server_send, mut server_recv) = server_conn.accept_bi().await.unwrap();
@@ -413,13 +491,19 @@ mod tests {
 
         rt.block_on(async {
             let server_ep = quinn::Endpoint::new(
-                Default::default(), Some(server_config), server_sock,
+                Default::default(),
+                Some(server_config),
+                server_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             let mut client_ep = quinn::Endpoint::new(
-                Default::default(), None, client_sock,
+                Default::default(),
+                None,
+                client_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             client_ep.set_default_client_config(client_config);
 
             let addr: std::net::SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
@@ -450,13 +534,19 @@ mod tests {
 
         rt.block_on(async {
             let server_ep = quinn::Endpoint::new(
-                Default::default(), Some(server_config), server_sock,
+                Default::default(),
+                Some(server_config),
+                server_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             let mut client_ep = quinn::Endpoint::new(
-                Default::default(), None, client_sock,
+                Default::default(),
+                None,
+                client_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             client_ep.set_default_client_config(client_config);
 
             let addr: std::net::SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
@@ -487,13 +577,19 @@ mod tests {
 
         rt.block_on(async {
             let server_ep = quinn::Endpoint::new(
-                Default::default(), Some(server_config), server_sock,
+                Default::default(),
+                Some(server_config),
+                server_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             let mut client_ep = quinn::Endpoint::new(
-                Default::default(), None, client_sock,
+                Default::default(),
+                None,
+                client_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             client_ep.set_default_client_config(client_config);
 
             let addr: std::net::SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
@@ -519,13 +615,19 @@ mod tests {
 
         rt.block_on(async {
             let server_ep = quinn::Endpoint::new(
-                Default::default(), Some(server_config), server_sock,
+                Default::default(),
+                Some(server_config),
+                server_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             let mut client_ep = quinn::Endpoint::new(
-                Default::default(), None, client_sock,
+                Default::default(),
+                None,
+                client_sock,
                 std::sync::Arc::new(quinn::TokioRuntime),
-            ).unwrap();
+            )
+            .unwrap();
             client_ep.set_default_client_config(client_config);
 
             let addr: std::net::SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();

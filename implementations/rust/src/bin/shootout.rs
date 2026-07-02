@@ -33,8 +33,7 @@ fn lumen_serialize(frame_type: u8, flags: u8, payload_value: &serde_json::Value)
 fn lumen_parse(data: &[u8]) -> (u8, u8, serde_json::Value) {
     match frame::parse(data) {
         frame::ParseResult::Complete { frame, .. } => {
-            let value = compress::decompress(frame.payload, None)
-                .expect("LUMEN decompress failed");
+            let value = compress::decompress(frame.payload, None).expect("LUMEN decompress failed");
             (frame.frame_type, frame.flags, value)
         }
         _ => panic!("LUMEN parse failed"),
@@ -78,9 +77,17 @@ where
 
 fn wire(label: &str, bytes: usize) {
     if bytes >= 1024 * 1024 {
-        println!("  {label}: {} bytes ({:.2} MB)", bytes, bytes as f64 / (1024.0 * 1024.0));
+        println!(
+            "  {label}: {} bytes ({:.2} MB)",
+            bytes,
+            bytes as f64 / (1024.0 * 1024.0)
+        );
     } else {
-        println!("  {label}: {} bytes ({:.2} KB)", bytes, bytes as f64 / 1024.0);
+        println!(
+            "  {label}: {} bytes ({:.2} KB)",
+            bytes,
+            bytes as f64 / 1024.0
+        );
     }
 }
 
@@ -110,11 +117,9 @@ fn run_s1() -> ResultRow {
     let (json_deser_ns, _) = time("parse    ", ITERS, || json_parse(&json_data));
 
     println!("--- LUMEN ---");
-    let (lumen_ser_ns, lumen_data) = time(
-        "serialize",
-        ITERS,
-        || lumen_serialize(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &response),
-    );
+    let (lumen_ser_ns, lumen_data) = time("serialize", ITERS, || {
+        lumen_serialize(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &response)
+    });
     wire("wire size", lumen_data.len());
     let lumen_wire = lumen_data.len();
     let (lumen_deser_ns, _) = time("parse    ", ITERS, || lumen_parse(&lumen_data));
@@ -155,11 +160,9 @@ fn run_s2() -> ResultRow {
     let (json_deser_ns, _) = time("parse    ", n, || json_parse(&json_data));
 
     println!("--- LUMEN ---");
-    let (lumen_ser_ns, lumen_data) = time(
-        "serialize",
-        n,
-        || lumen_serialize(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &payload),
-    );
+    let (lumen_ser_ns, lumen_data) = time("serialize", n, || {
+        lumen_serialize(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &payload)
+    });
     wire("wire size", lumen_data.len());
     let lumen_wire = lumen_data.len();
     let (lumen_deser_ns, _) = time("parse    ", n, || lumen_parse(&lumen_data));
@@ -330,9 +333,7 @@ fn run_s6() -> ResultRow {
 
     // Create a local session dictionary and register 127 custom keys (0x80–0xFE)
     let mut session = SessionDict::new();
-    let custom_keys: Vec<String> = (0..127)
-        .map(|i| format!("custom_key_{i:03}"))
-        .collect();
+    let custom_keys: Vec<String> = (0..127).map(|i| format!("custom_key_{i:03}")).collect();
     for (i, key) in custom_keys.iter().enumerate() {
         session.register(key, 0x80 + i as u8).unwrap();
     }
@@ -354,7 +355,12 @@ fn run_s6() -> ResultRow {
     let (lumen_ser_ns, lumen_bytes) = time("LUMEN serialize", ITERS, || {
         let compressed = compress::compress(&payload, Some(&session));
         let mut buf = vec![0u8; frame::build_size(compressed.len())];
-        let n = frame::build(frame::TYPE_REQUEST, frame::FLAG_COMPRESSED, &compressed, &mut buf);
+        let n = frame::build(
+            frame::TYPE_REQUEST,
+            frame::FLAG_COMPRESSED,
+            &compressed,
+            &mut buf,
+        );
         buf.truncate(n);
         buf
     });
@@ -391,10 +397,18 @@ fn run_s6() -> ResultRow {
 
 fn print_summary(rows: &[ResultRow]) {
     println!("\n\n╔══════════════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                         LUMEN vs JSON-RPC — RESULTS SUMMARY                        ║");
-    println!("╠════════════════════════════════════════╤═══════════╤═══════════╤══════════╤═════════╣");
-    println!("║ Scenario                               │ JSON wire │ LUMEN wire│ Sav%     │ Speedup ║");
-    println!("╠════════════════════════════════════════╪═══════════╪═══════════╪══════════╪═════════╣");
+    println!(
+        "║                         LUMEN vs JSON-RPC — RESULTS SUMMARY                        ║"
+    );
+    println!(
+        "╠════════════════════════════════════════╤═══════════╤═══════════╤══════════╤═════════╣"
+    );
+    println!(
+        "║ Scenario                               │ JSON wire │ LUMEN wire│ Sav%     │ Speedup ║"
+    );
+    println!(
+        "╠════════════════════════════════════════╪═══════════╪═══════════╪══════════╪═════════╣"
+    );
 
     for row in rows {
         let wire_sav = if row.json_wire > 0 {
@@ -416,7 +430,9 @@ fn print_summary(rows: &[ResultRow]) {
             speedup,
         );
     }
-    println!("╚════════════════════════════════════════╧═══════════╧═══════════╧══════════╧═════════╝");
+    println!(
+        "╚════════════════════════════════════════╧═══════════╧═══════════╧══════════╧═════════╝"
+    );
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────

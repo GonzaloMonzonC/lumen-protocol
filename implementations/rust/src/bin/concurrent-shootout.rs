@@ -30,7 +30,12 @@ fn lumen_serialize_size(v: &serde_json::Value) -> (Vec<u8>, usize) {
     let compressed = compress::compress(v, None);
     let overhead = 1 + 1 + 5; // TYPE + FLAGS + max Hyb128
     let mut buf = vec![0u8; compressed.len() + overhead];
-    let n = frame::build(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &compressed, &mut buf);
+    let n = frame::build(
+        frame::TYPE_RESPONSE,
+        frame::FLAG_COMPRESSED,
+        &compressed,
+        &mut buf,
+    );
     buf.truncate(n);
     let len = buf.len();
     (buf, len)
@@ -118,8 +123,11 @@ fn run_concurrent(label: &'static str, use_lumen: bool) -> ConcurrencyResult {
 
         handles.push(thread::spawn(move || {
             // Pre-generate payloads
-            let payloads: Vec<serde_json::Value> =
-                workloads.iter().enumerate().map(|(i, w)| w.generate(i)).collect();
+            let payloads: Vec<serde_json::Value> = workloads
+                .iter()
+                .enumerate()
+                .map(|(i, w)| w.generate(i))
+                .collect();
 
             // Wait for all threads ready
             b.wait();
@@ -254,7 +262,11 @@ fn main() {
         json_result.elapsed_ms,
         lumen_result.elapsed_ms,
         time_ratio,
-        if time_ratio > 1.0 { "LUMEN" } else { "JSON-RPC" },
+        if time_ratio > 1.0 {
+            "LUMEN"
+        } else {
+            "JSON-RPC"
+        },
     );
 
     println!("╚══════════════════════════════╧═══════════╧═══════════╧══════════════╧══════════════╧══════════════╝");

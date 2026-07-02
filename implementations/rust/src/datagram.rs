@@ -35,7 +35,6 @@
 use std::io;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 
-
 /// Maximum UDP datagram payload size (65535 - 8B UDP header - 20B IP header).
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
 
@@ -251,11 +250,7 @@ mod tests {
         let rx_addr = rx.local_addr().unwrap();
 
         let tx = DatagramTransport::bind(&ephemeral()).unwrap();
-        let frame = build_dgram(
-            crate::frame::TYPE_HEARTBEAT,
-            0,
-            b"ping",
-        );
+        let frame = build_dgram(crate::frame::TYPE_HEARTBEAT, 0, b"ping");
 
         tx.send_frame_to(&frame, rx_addr).unwrap();
 
@@ -285,11 +280,7 @@ mod tests {
         let tx = DatagramTransport::bind(&ephemeral()).unwrap();
 
         let frames: Vec<Vec<u8>> = (0..5)
-            .map(|i| build_dgram(
-                crate::frame::TYPE_NOTIFY,
-                0,
-                format!("msg{}", i).as_bytes(),
-            ))
+            .map(|i| build_dgram(crate::frame::TYPE_NOTIFY, 0, format!("msg{}", i).as_bytes()))
             .collect();
 
         for f in &frames {
@@ -326,7 +317,10 @@ mod tests {
             // default) — a platform send-size limit, not a protocol bug.
             #[cfg(unix)]
             if e.raw_os_error() == Some(libc::EMSGSIZE) {
-                eprintln!("skipping: OS rejects {}-byte datagrams (EMSGSIZE)", frame.len());
+                eprintln!(
+                    "skipping: OS rejects {}-byte datagrams (EMSGSIZE)",
+                    frame.len()
+                );
                 return;
             }
             panic!("send_frame_to failed: {e}");
@@ -353,11 +347,7 @@ mod tests {
         let rx = DatagramTransport::bind("127.0.0.1:0").unwrap();
         let rx_addr = rx.local_addr().unwrap();
 
-        let tx = DatagramTransport::connect(
-            &ephemeral(),
-            &rx_addr.to_string(),
-        )
-        .unwrap();
+        let tx = DatagramTransport::connect(&ephemeral(), &rx_addr.to_string()).unwrap();
 
         let frame = build_dgram(crate::frame::TYPE_HEARTBEAT, 0, b"connected-ping");
         tx.send_frame(&frame).unwrap();

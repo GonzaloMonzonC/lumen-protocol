@@ -155,8 +155,11 @@ impl Macaroon {
     pub fn encode(&self) -> Vec<u8> {
         let id_bytes = self.id.as_bytes();
         let loc_bytes = self.location.as_bytes();
-        let cap = 1 + 1 + id_bytes.len()
-            + 1 + loc_bytes.len()
+        let cap = 1
+            + 1
+            + id_bytes.len()
+            + 1
+            + loc_bytes.len()
             + 1
             + self.caveats.iter().map(|c| 1 + c.len()).sum::<usize>()
             + SIGNATURE_SIZE;
@@ -254,7 +257,11 @@ impl Macaroon {
         Self::MIN_ENCODED_LEN
             + self.id.len().min(255)
             + self.location.len().min(255)
-            + self.caveats.iter().map(|c| 1 + c.len().min(MAX_CAVEAT_LEN)).sum::<usize>()
+            + self
+                .caveats
+                .iter()
+                .map(|c| 1 + c.len().min(MAX_CAVEAT_LEN))
+                .sum::<usize>()
     }
 }
 
@@ -264,8 +271,8 @@ impl Macaroon {
 /// RFC 4231 test vectors in this module's tests.
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; SIGNATURE_SIZE] {
     use hmac::{Hmac, Mac};
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key)
-        .expect("HMAC-SHA256 accepts keys of any length");
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC-SHA256 accepts keys of any length");
     mac.update(message);
     mac.finalize().into_bytes().into()
 }
@@ -284,17 +291,25 @@ fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
 fn parse_iso8601_to_unix(s: &str) -> Option<u64> {
     let s = s.trim();
     // Support both "2026-12-31" and "2026-12-31T23:59:59Z"
-    if s.len() < 10 { return None; }
+    if s.len() < 10 {
+        return None;
+    }
     let year: u32 = s[0..4].parse().ok()?;
     let month: u32 = s[5..7].parse().ok()?;
     let day: u32 = s[8..10].parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
     // Simplified: use day-of-year approximation (good enough for expiry checks)
     let days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let is_leap = |y: u32| y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
     let feb_days = if is_leap(year) { 29 } else { 28 };
-    if month == 2 && day > feb_days { return None; }
-    if day > days_in_month[month as usize] { return None; }
+    if month == 2 && day > feb_days {
+        return None;
+    }
+    if day > days_in_month[month as usize] {
+        return None;
+    }
     // Days since epoch (1970-01-01)
     let mut days = 0u64;
     for y in 1970..year {
@@ -302,7 +317,9 @@ fn parse_iso8601_to_unix(s: &str) -> Option<u64> {
     }
     let cumulative = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
     let mut cum = cumulative[month as usize];
-    if month > 2 && is_leap(year) { cum += 1; }
+    if month > 2 && is_leap(year) {
+        cum += 1;
+    }
     days += cum as u64 + day as u64 - 1;
     // Parse optional time part (HH:MM:SS)
     let seconds = if s.len() >= 19 && &s[10..11] == "T" {
@@ -310,7 +327,9 @@ fn parse_iso8601_to_unix(s: &str) -> Option<u64> {
         let m: u64 = s[14..16].parse().unwrap_or(0);
         let sec: u64 = s[17..19].parse().unwrap_or(0);
         h * 3600 + m * 60 + sec
-    } else { 0 };
+    } else {
+        0
+    };
     Some(days * 86400 + seconds)
 }
 
@@ -381,10 +400,9 @@ mod tests {
         let key = [0x0Bu8; 20];
         let data = b"Hi There";
         let expected: [u8; 32] = [
-            0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53,
-            0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b, 0xf1, 0x2b,
-            0x88, 0x1d, 0xc2, 0x00, 0xc9, 0x83, 0x3d, 0xa7,
-            0x26, 0xe9, 0x37, 0x6c, 0x2e, 0x32, 0xcf, 0xf7,
+            0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53, 0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b,
+            0xf1, 0x2b, 0x88, 0x1d, 0xc2, 0x00, 0xc9, 0x83, 0x3d, 0xa7, 0x26, 0xe9, 0x37, 0x6c,
+            0x2e, 0x32, 0xcf, 0xf7,
         ];
         assert_eq!(hmac_sha256(&key, data), expected);
 
@@ -392,10 +410,9 @@ mod tests {
         let key3 = [0xAAu8; 131];
         let data3 = b"Test Using Larger Than Block-Size Key - Hash Key First";
         let expected3: [u8; 32] = [
-            0x60, 0xe4, 0x31, 0x59, 0x1e, 0xe0, 0xb6, 0x7f,
-            0x0d, 0x8a, 0x26, 0xaa, 0xcb, 0xf5, 0xb7, 0x7f,
-            0x8e, 0x0b, 0xc6, 0x21, 0x37, 0x28, 0xc5, 0x14,
-            0x05, 0x46, 0x04, 0x0f, 0x0e, 0xe3, 0x7f, 0x54,
+            0x60, 0xe4, 0x31, 0x59, 0x1e, 0xe0, 0xb6, 0x7f, 0x0d, 0x8a, 0x26, 0xaa, 0xcb, 0xf5,
+            0xb7, 0x7f, 0x8e, 0x0b, 0xc6, 0x21, 0x37, 0x28, 0xc5, 0x14, 0x05, 0x46, 0x04, 0x0f,
+            0x0e, 0xe3, 0x7f, 0x54,
         ];
         assert_eq!(hmac_sha256(&key3, data3), expected3);
     }
@@ -430,7 +447,9 @@ mod tests {
         assert!(mac.verify(&root_key, |c| {
             if let Some(m) = caveats::parse_method(c) {
                 methods.contains(&m)
-            } else { caveats::is_read_only(c) }
+            } else {
+                caveats::is_read_only(c)
+            }
         }));
 
         // Fail with wrong method
@@ -438,15 +457,17 @@ mod tests {
         assert!(!mac.verify(&root_key, |c| {
             if let Some(m) = caveats::parse_method(c) {
                 methods2.contains(&m)
-            } else { caveats::is_read_only(c) }
+            } else {
+                caveats::is_read_only(c)
+            }
         }));
     }
 
     #[test]
     fn tampered_caveat_fails() {
         let root_key = generate_root_key();
-        let mut mac = Macaroon::create(&root_key, "s1", "lumen")
-            .attenuate(&caveats::method("tools/list"));
+        let mut mac =
+            Macaroon::create(&root_key, "s1", "lumen").attenuate(&caveats::method("tools/list"));
 
         // Tamper with a caveat
         mac.caveats[0] = caveats::method("tools/call");
@@ -491,8 +512,7 @@ mod tests {
     #[test]
     fn decode_truncated_caveat() {
         let root_key = generate_root_key();
-        let mac = Macaroon::create(&root_key, "s", "l")
-            .attenuate(&caveats::method("tools/list"));
+        let mac = Macaroon::create(&root_key, "s", "l").attenuate(&caveats::method("tools/list"));
 
         let mut encoded = mac.encode();
         // Truncate in the middle of a caveat
@@ -517,9 +537,15 @@ mod tests {
     #[test]
     fn caveat_helpers() {
         assert_eq!(caveats::method("tools/list"), "method = tools/list");
-        assert_eq!(caveats::parse_method("method = tools/call"), Some("tools/call"));
+        assert_eq!(
+            caveats::parse_method("method = tools/call"),
+            Some("tools/call")
+        );
         assert_eq!(caveats::parse_method("tool = x"), None);
-        assert_eq!(caveats::parse_expiry("expiry < 2026-01-01"), Some("2026-01-01"));
+        assert_eq!(
+            caveats::parse_expiry("expiry < 2026-01-01"),
+            Some("2026-01-01")
+        );
         assert!(caveats::is_read_only("op = read"));
         assert!(!caveats::is_read_only("op = write"));
     }
@@ -585,7 +611,10 @@ mod tests {
         let mac = Macaroon::create(&root_key, "s", "l");
         let mut encoded = mac.encode();
         encoded[0] = 99; // corrupt version
-        assert!(Macaroon::decode(&encoded).is_none(), "unknown version must be rejected");
+        assert!(
+            Macaroon::decode(&encoded).is_none(),
+            "unknown version must be rejected"
+        );
     }
 
     #[test]
@@ -624,8 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn macaroon_encoded_len_matches()
-    {
+    fn macaroon_encoded_len_matches() {
         let root_key = generate_root_key();
         let mac = Macaroon::create(&root_key, "session-1", "lumen-mcp")
             .attenuate(&caveats::method("tools/list"))

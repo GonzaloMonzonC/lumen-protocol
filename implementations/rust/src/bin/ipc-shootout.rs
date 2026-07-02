@@ -129,7 +129,9 @@ fn lumen_roundtrip(stream: &mut TcpStream, payload: &serde_json::Value) -> u128 
         &mut frame_buf,
     );
 
-    stream.write_all(&frame_buf[..n]).expect("lumen client write");
+    stream
+        .write_all(&frame_buf[..n])
+        .expect("lumen client write");
     stream.flush().expect("lumen client flush");
 
     let mut len_buf = [0u8; hyb128::MAX_ENCODED_LEN];
@@ -248,8 +250,8 @@ fn run_protocol(workload: &Workload, is_lumen: bool) -> (Vec<u128>, usize) {
     let port = if is_lumen { PORT + 1 } else { PORT };
     let label = if is_lumen { "LUMEN" } else { "JSON-RPC" };
 
-    let mut stream =
-        TcpStream::connect(("127.0.0.1", port)).unwrap_or_else(|_| panic!("{} client connect", label));
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .unwrap_or_else(|_| panic!("{} client connect", label));
     stream.set_nodelay(true).expect("set_nodelay");
 
     // Warmup
@@ -270,7 +272,12 @@ fn run_protocol(workload: &Workload, is_lumen: bool) -> (Vec<u128>, usize) {
             let compressed = compress::compress(&workload.payloads[i], None);
             let overhead = 1 + 1 + hyb128::MAX_ENCODED_LEN;
             let mut fb = vec![0u8; compressed.len() + overhead];
-            let n = frame::build(frame::TYPE_RESPONSE, frame::FLAG_COMPRESSED, &compressed, &mut fb);
+            let n = frame::build(
+                frame::TYPE_RESPONSE,
+                frame::FLAG_COMPRESSED,
+                &compressed,
+                &mut fb,
+            );
             wire_total += n;
             ns
         } else {
@@ -290,7 +297,10 @@ fn run_protocol(workload: &Workload, is_lumen: bool) -> (Vec<u128>, usize) {
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║   LUMEN vs JSON-RPC — IPC End-to-End Latency (TCP Loopback) ║");
-    println!("║   {} iterations per workload, {} warmup                      ║", ITERS, WARMUP);
+    println!(
+        "║   {} iterations per workload, {} warmup                      ║",
+        ITERS, WARMUP
+    );
     println!("╚══════════════════════════════════════════════════════════════╝");
 
     let workloads = build_workloads();

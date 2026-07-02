@@ -42,9 +42,8 @@ pub fn lumen_version() -> String {
 /// Throws a JS error if the JSON is invalid.
 #[wasm_bindgen]
 pub fn lumen_compress(json: &str) -> Result<Vec<u8>, JsValue> {
-    let value: serde_json::Value = serde_json::from_str(json).map_err(|e| {
-        JsValue::from_str(&format!("JSON parse error: {e}"))
-    })?;
+    let value: serde_json::Value = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("JSON parse error: {e}")))?;
 
     Ok(compress::compress(&value, None))
 }
@@ -54,13 +53,11 @@ pub fn lumen_compress(json: &str) -> Result<Vec<u8>, JsValue> {
 /// Returns a JSON string.  Throws a JS error if the binary is malformed.
 #[wasm_bindgen]
 pub fn lumen_decompress(data: &[u8]) -> Result<String, JsValue> {
-    let value = compress::decompress(data, None).ok_or_else(|| {
-        JsValue::from_str("decompress error: malformed LUMEN binary")
-    })?;
+    let value = compress::decompress(data, None)
+        .ok_or_else(|| JsValue::from_str("decompress error: malformed LUMEN binary"))?;
 
-    serde_json::to_string(&value).map_err(|e| {
-        JsValue::from_str(&format!("JSON serialize error: {e}"))
-    })
+    serde_json::to_string(&value)
+        .map_err(|e| JsValue::from_str(&format!("JSON serialize error: {e}")))
 }
 
 /// Get the last error message (always returns None in WASM — errors are
