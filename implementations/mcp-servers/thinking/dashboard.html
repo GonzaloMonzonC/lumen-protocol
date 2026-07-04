@@ -248,7 +248,7 @@ function drawChart(timeline){
   const W=c.parentElement.clientWidth-48,H=220;
   c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';ctx.scale(dpr,dpr);
   const now=Math.floor(Date.now()/1000),padX=40,padY=30,plotW=W-padX-20,plotH=H-padY*2;
-  const allBuckets=[];for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<48)allBuckets.push({h,val:(p.delta??0)||0})}
+  const allBuckets=[];for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<48)allBuckets.push({h,val:Math.max(0,(p.delta??0)||0)})}
   const maxH=allBuckets.length?Math.max(...allBuckets.map(b=>b.h),3):3;
   const bars=Math.min(48,Math.max(6,Math.ceil(maxH*1.2)));
   const buckets=Array(bars).fill(0);for(const b of allBuckets){if(b.h<bars)buckets[bars-1-b.h]=b.val}

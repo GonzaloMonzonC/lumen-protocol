@@ -145,6 +145,7 @@ _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []
 _global_tool_calls = 0  # monotonic counter, never decreases (avoids negative deltas from session pruning)
+_pdb_save_lock = threading.Lock()  # prevents concurrent PDB writes from racing
 _lumen_ws = None  # LUMEN WebSocket server instance
 _session_presence: dict = {}
 _file_touches: list[dict] = []  # [{session_id, path, timestamp}]
@@ -305,6 +306,7 @@ _json_snap_counter = 0
 
 def _pdb_save_all() -> None:
     """Write ALL thinking state to PDB as individual records. Single ACID transaction."""
+    _pdb_save_lock.acquire()
     try:
         conn = sqlite3.connect(str(_PDB_PATH))
         conn.execute("PRAGMA synchronous=NORMAL")  # 2x faster writes, still crash-safe
@@ -362,6 +364,8 @@ def _pdb_save_all() -> None:
         conn.close()
     except Exception as e:
         _safe_print(f"[lumen-thinking] PDB save FAILED: {e}")
+    finally:
+        _pdb_save_lock.release()
 
 
 def _pdb_load_all() -> bool:
