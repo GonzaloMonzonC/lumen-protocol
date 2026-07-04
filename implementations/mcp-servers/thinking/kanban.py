@@ -20,21 +20,25 @@ from typing import Any
 # ═══════════════════════════════════════════════════════════════════════
 
 def kanban_tool_niche_create(args: dict) -> dict:
-    from server import _niches, _next_niche_id, _save_state
-    name = args.get("name", "").strip()
-    if not name:
-        return {"content": [{"type": "text", "text": "Error: 'name' required."}]}
-    color = args.get("color", "#22d3ee")
-    desc = args.get("desc", "")
-    columns = args.get("columns", ["Backlog", "In Progress", "Review", "Done", "Blocked"])
-    nid = f"niche_{_next_niche_id}"
-    _next_niche_id += 1
-    _niches[nid] = {
-        "id": nid, "name": name, "color": color, "desc": desc,
-        "columns": columns, "archived": False, "created_at": time.time(),
-    }
-    _save_state()
-    return {"content": [{"type": "text", "text": f"✅ Niche created: {name} (ID: {nid})"}]}
+    from server import _niches, _next_niche_id, _save_state, _pdb_save_lock
+    _pdb_save_lock.acquire()
+    try:
+        name = args.get("name", "").strip()
+        if not name:
+            return {"content": [{"type": "text", "text": "Error: 'name' required."}]}
+        color = args.get("color", "#22d3ee")
+        desc = args.get("desc", "")
+        columns = args.get("columns", ["Backlog", "In Progress", "Review", "Done", "Blocked"])
+        nid = f"niche_{_next_niche_id}"
+        _next_niche_id += 1
+        _niches[nid] = {
+            "id": nid, "name": name, "color": color, "desc": desc,
+            "columns": columns, "archived": False, "created_at": time.time(),
+        }
+        _save_state()
+        return {"content": [{"type": "text", "text": f"✅ Niche created: {name} (ID: {nid})"}]}
+    finally:
+        _pdb_save_lock.release()
 
 
 def kanban_tool_niche_list(args: dict) -> dict:
@@ -72,25 +76,29 @@ def kanban_tool_niche_update(args: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def kanban_tool_task_create(args: dict) -> dict:
-    from server import _tasks, _next_task_id, _niches, _save_state
-    nid = args.get("niche_id", "")
-    title = args.get("title", "").strip()
-    if not nid or not title:
-        return {"content": [{"type": "text", "text": "Error: 'niche_id' and 'title' required."}]}
-    if nid not in _niches:
-        return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
-    tid = f"task_{_next_task_id}"
-    _next_task_id += 1
-    _tasks[tid] = {
-        "id": tid, "niche_id": nid, "title": title,
-        "desc": args.get("desc", ""), "priority": args.get("priority", "medium"),
-        "status": "backlog", "column": _niches[nid]["columns"][0],
-        "tags": args.get("tags", []), "assignee": args.get("assignee", ""),
-        "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
-        "urls": [], "created_at": time.time(), "updated_at": time.time(),
-    }
-    _save_state()
-    return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {tid}) in '{_niches[nid]['name']}'"}]}
+    from server import _tasks, _next_task_id, _niches, _save_state, _pdb_save_lock
+    _pdb_save_lock.acquire()
+    try:
+        nid = args.get("niche_id", "")
+        title = args.get("title", "").strip()
+        if not nid or not title:
+            return {"content": [{"type": "text", "text": "Error: 'niche_id' and 'title' required."}]}
+        if nid not in _niches:
+            return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
+        tid = f"task_{_next_task_id}"
+        _next_task_id += 1
+        _tasks[tid] = {
+            "id": tid, "niche_id": nid, "title": title,
+            "desc": args.get("desc", ""), "priority": args.get("priority", "medium"),
+            "status": "backlog", "column": _niches[nid]["columns"][0],
+            "tags": args.get("tags", []), "assignee": args.get("assignee", ""),
+            "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
+            "urls": [], "created_at": time.time(), "updated_at": time.time(),
+        }
+        _save_state()
+        return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {tid}) in '{_niches[nid]['name']}'"}]}
+    finally:
+        _pdb_save_lock.release()
 
 
 def kanban_tool_task_move(args: dict) -> dict:
