@@ -12,15 +12,16 @@ import re as _re
 from typing import Any
 
 # ── Late imports (avoid circular dep with server.py) ──
-# _get_session, _niches, _tasks, _next_niche_id, _next_task_id, _auto_save, _pdb_save_all
-# are imported inside each handler via "from server import ..."
+# Handlers use "import server" and access module-level vars via server._next_niche_id,
+# server._next_task_id, etc. This ensures integer increments persist to the module.
 
 # ═══════════════════════════════════════════════════════════════════════
 # Niche tools
 # ═══════════════════════════════════════════════════════════════════════
 
 def kanban_tool_niche_create(args: dict) -> dict:
-    from server import _niches, _next_niche_id, _save_state, _pdb_save_lock
+    import server
+    _pdb_save_lock = server._pdb_save_lock
     _pdb_save_lock.acquire()
     try:
         name = args.get("name", "").strip()
@@ -29,13 +30,13 @@ def kanban_tool_niche_create(args: dict) -> dict:
         color = args.get("color", "#22d3ee")
         desc = args.get("desc", "")
         columns = args.get("columns", ["Backlog", "In Progress", "Review", "Done", "Blocked"])
-        nid = f"niche_{_next_niche_id}"
-        _next_niche_id += 1
-        _niches[nid] = {
+        nid = f"niche_{server._next_niche_id}"
+        server._next_niche_id += 1
+        server._niches[nid] = {
             "id": nid, "name": name, "color": color, "desc": desc,
             "columns": columns, "archived": False, "created_at": time.time(),
         }
-        _save_state()
+        server._save_state()
         return {"content": [{"type": "text", "text": f"✅ Niche created: {name} (ID: {nid})"}]}
     finally:
         _pdb_save_lock.release()
@@ -76,27 +77,28 @@ def kanban_tool_niche_update(args: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def kanban_tool_task_create(args: dict) -> dict:
-    from server import _tasks, _next_task_id, _niches, _save_state, _pdb_save_lock
+    import server
+    _pdb_save_lock = server._pdb_save_lock
     _pdb_save_lock.acquire()
     try:
         nid = args.get("niche_id", "")
         title = args.get("title", "").strip()
         if not nid or not title:
             return {"content": [{"type": "text", "text": "Error: 'niche_id' and 'title' required."}]}
-        if nid not in _niches:
+        if nid not in server._niches:
             return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
-        tid = f"task_{_next_task_id}"
-        _next_task_id += 1
-        _tasks[tid] = {
+        tid = f"task_{server._next_task_id}"
+        server._next_task_id += 1
+        server._tasks[tid] = {
             "id": tid, "niche_id": nid, "title": title,
             "desc": args.get("desc", ""), "priority": args.get("priority", "medium"),
-            "status": "backlog", "column": _niches[nid]["columns"][0],
+            "status": "backlog", "column": server._niches[nid]["columns"][0],
             "tags": args.get("tags", []), "assignee": args.get("assignee", ""),
             "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
             "urls": [], "created_at": time.time(), "updated_at": time.time(),
         }
-        _save_state()
-        return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {tid}) in '{_niches[nid]['name']}'"}]}
+        server._save_state()
+        return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {tid}) in '{server._niches[nid]['name']}'"}]}
     finally:
         _pdb_save_lock.release()
 
