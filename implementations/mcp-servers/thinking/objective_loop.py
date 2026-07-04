@@ -287,6 +287,67 @@ def tool_objective_plan(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+def tool_objective_task_done(args: dict) -> dict:
+    """Mark a task within an objective as completed."""
+    goal_id = args.get("goal_id", "")
+    if not goal_id:
+        return {"content": [{"type": "text", "text": "Error: 'goal_id' required."}]}
+
+    obj = _objectives.get(goal_id)
+    if not obj:
+        return {"content": [{"type": "text", "text": f"Objective '{goal_id}' not found."}]}
+
+    task_id_arg = args.get("task_id")
+    tasks = obj.get("tasks", [])
+
+    if task_id_arg:
+        for t in tasks:
+            if t.get("id") == task_id_arg:
+                t["status"] = "done"
+                t["done_at"] = time.time()
+                break
+        else:
+            return {"content": [{"type": "text", "text": f"Task '{task_id_arg}' not found."}]}
+    else:
+        for t in tasks:
+            if t.get("status") != "done":
+                t["status"] = "done"
+                t["done_at"] = time.time()
+                break
+        else:
+            for c in obj.get("criteria", []):
+                c["verified"] = True
+            if obj.get("phase") == "testing" and not obj.get("test_results", []):
+                obj.setdefault("test_results", []).append({
+                    "name": "auto_all_done",
+                    "passed": True,
+                    "ts": time.time(),
+                    "summary": f"All {len(tasks)} tasks completed"
+                })
+
+    obj["updated_at"] = time.time()
+    obj["history"].append({"phase": obj["phase"], "action": "task_done", "ts": time.time()})
+
+    done = sum(1 for t in tasks if t.get("status") == "done")
+    total = len(tasks)
+
+    try:
+        import sqlite3, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
+        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        for _gid, _obj in _objectives.items():
+            _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         ('STATE', f'global:objective:{_gid}'.encode(), json.dumps(_obj).encode()))
+        _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     ('STATE', b'global:objective_meta', json.dumps({'next_id': _next_objective_id}).encode()))
+        _conn.commit()
+        _conn.close()
+    except Exception as _e:
+        print(f'[objective-loop] PDB save failed: {_e}')
+
+    return {"content": [{"type": "text", "text": f"✅ Task {done}/{total} done in '{obj.get('title', goal_id)}'"}]}
+
+
 def tool_objective_status(args: dict) -> dict:
     """Show objective progress. Dashboard-ready."""
     goal_id = args.get("goal_id", "")
@@ -410,14 +471,84 @@ def tool_checklist(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Checklist error: {e}"}]}
 
 
+def tool_objective_archive(args: dict) -> dict:
+    """Archive an objective (mark as archived rather than deleting)."""
+    goal_id = args.get("goal_id", "")
+    if not goal_id:
+        return {"content": [{"type": "text", "text": "Error: 'goal_id' required."}]}
+
+    obj = _objectives.get(goal_id)
+    if not obj:
+        return {"content": [{"type": "text", "text": f"Objective '{goal_id}' not found."}]}
+
+    obj["phase"] = "archived"
+    obj["archived_at"] = time.time()
+    obj["history"].append({"phase": "archived", "action": "archived", "ts": time.time()})
+    obj["updated_at"] = time.time()
+
+    # Persist to PDB (same as other tools)
+    try:
+        import sqlite3, json as _json, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
+        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        for _gid, _obj in _objectives.items():
+            _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         ('STATE', f'global:objective:{_gid}'.encode(), _json.dumps(_obj).encode()))
+        _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     ('STATE', b'global:objective_meta', _json.dumps({'next_id': _next_objective_id}).encode()))
+        _conn.commit()
+        _conn.close()
+    except Exception as _e:
+        print(f'[objective-loop] PDB save failed: {_e}')
+
+    return {"content": [{"type": "text", "text": f"🗄️ Archived: {obj.get('title', goal_id)}"}]}
+
+
+def tool_objective_delete(args: dict) -> dict:
+    """Permanently delete an objective and its tasks."""
+    goal_id = args.get("goal_id", "")
+    if not goal_id:
+        return {"content": [{"type": "text", "text": "Error: 'goal_id' required."}]}
+
+    obj = _objectives.pop(goal_id, None)
+    if not obj:
+        return {"content": [{"type": "text", "text": f"Objective '{goal_id}' not found."}]}
+
+    title = obj.get("title", goal_id)
+
+    # Persist removal to PDB
+    try:
+        import sqlite3, json as _json, os as _os
+        _pdb_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
+        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        # Delete specific objective
+        _conn.execute("DELETE FROM _globals WHERE ns='STATE' AND subkey = ?",
+                      (f'global:objective:{goal_id}'.encode(),))
+        # Save remaining + meta
+        for _gid, _obj in _objectives.items():
+            _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         ('STATE', f'global:objective:{_gid}'.encode(), _json.dumps(_obj).encode()))
+        _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     ('STATE', b'global:objective_meta', _json.dumps({'next_id': _next_objective_id}).encode()))
+        _conn.commit()
+        _conn.close()
+    except Exception as _e:
+        print(f'[objective-loop] PDB delete save failed: {_e}')
+
+    return {"content": [{"type": "text", "text": f"🗑️ Deleted: {title} ({goal_id})"}]}
+
+
 # ── Export for server.py ──
 
 OBJECTIVE_HANDLERS = {
     "checklist": tool_checklist,
+    "objective_archive": tool_objective_archive,
     "objective_create": tool_objective_create,
+    "objective_delete": tool_objective_delete,
     "objective_judge": tool_objective_judge,
     "objective_plan": tool_objective_plan,
     "objective_status": tool_objective_status,
+    "objective_task_done": tool_objective_task_done,
 }
 
 OBJECTIVE_SCHEMAS = [
@@ -467,6 +598,28 @@ OBJECTIVE_SCHEMAS = [
         }
     },
     {
+        "name": "objective_archive",
+        "description": "Archive an objective without deleting it. Sets phase to 'archived' and freezes it. Archived objectives are excluded from status overview and cleanup reports.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal_id": {"type": "string", "description": "Objective ID to archive"},
+            },
+            "required": ["goal_id"]
+        }
+    },
+    {
+        "name": "objective_delete",
+        "description": "Permanently delete an objective and all its associated tasks. Cannot be undone.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal_id": {"type": "string", "description": "Objective ID to delete"},
+            },
+            "required": ["goal_id"]
+        }
+    },
+    {
         "name": "checklist",
         "description": "Pilot checklist: get task checklist, mark tools as used, or view session compliance.",
         "inputSchema": {
@@ -478,6 +631,18 @@ OBJECTIVE_SCHEMAS = [
                 "session": {"type": "string", "description": "Session identifier (default: default)"}
             },
             "required": ["action"]
+        }
+    },
+    {
+        "name": "objective_task_done",
+        "description": "Mark a task within an objective as completed. Required before objective_judge can detect progress in BUILDING phase.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal_id": {"type": "string", "description": "Objective ID"},
+                "task_id": {"type": "string", "description": "Optional: specific task ID. If omitted, marks the next pending task."}
+            },
+            "required": ["goal_id"]
         }
     },
 ]
