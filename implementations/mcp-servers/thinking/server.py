@@ -144,6 +144,7 @@ _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []
+_global_tool_calls = 0  # monotonic counter, never decreases (avoids negative deltas from session pruning)
 _lumen_ws = None  # LUMEN WebSocket server instance
 _session_presence: dict = {}
 _file_touches: list[dict] = []  # [{session_id, path, timestamp}]
@@ -227,7 +228,8 @@ def _save_state() -> None:
 
     try:
         # Record timeline snapshot with hourly bucketing
-        total_calls = sum(s.tool_calls for s in _sessions.values())
+        # Use monotonic counter to avoid negative deltas when sessions are pruned
+        total_calls = _global_tool_calls
         now = time.time()
         hour_key = int(now // 3600)  # bucket by hour
         
@@ -236,7 +238,9 @@ def _save_state() -> None:
             _call_timeline[-1]["calls"] = total_calls
             _call_timeline[-1]["ts"] = now
         else:
-            _call_timeline.append({"hour": hour_key, "ts": now, "calls": total_calls, "delta": total_calls - (_call_timeline[-1].get("calls", 0) if _call_timeline else 0)})
+            prev_calls = _call_timeline[-1].get("calls", 0) if _call_timeline else 0
+            raw_delta = total_calls - prev_calls
+            _call_timeline.append({"hour": hour_key, "ts": now, "calls": total_calls, "delta": max(0, raw_delta)})
         
         # Keep last 48h (48 buckets)
         cutoff_hour = hour_key - 48
@@ -351,7 +355,7 @@ def _pdb_save_all() -> None:
         except ImportError:
             pass
         meta = {"next_session_num": _next_session_num, "next_niche_id": _next_niche_id,
-                "next_task_id": _next_task_id, "saved_at": time.time()}
+                "next_task_id": _next_task_id, "global_tool_calls": _global_tool_calls, "saved_at": time.time()}
         pairs.append(("STATE", "global:meta".encode(), json.dumps(meta).encode()))
         conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
         conn.commit()
@@ -362,7 +366,7 @@ def _pdb_save_all() -> None:
 
 def _pdb_load_all() -> bool:
     """Load ALL state from PDB. Returns True if state was loaded."""
-    global _sessions, _next_session_num, _preserved, _call_timeline
+    global _sessions, _next_session_num, _preserved, _call_timeline, _global_tool_calls
     global _file_touches, _file_claims, _agent_messages, _global_patterns
     global _web_snapshots, _qa_pairs, _niches, _tasks, _next_niche_id, _next_task_id
     try:
@@ -458,6 +462,7 @@ def _pdb_load_all() -> bool:
         _next_session_num = meta.get("next_session_num", 1)
         _next_niche_id = meta.get("next_niche_id", 1)
         _next_task_id = meta.get("next_task_id", 1)
+        _global_tool_calls = meta.get("global_tool_calls", 0)
         _safe_print(f"[lumen-thinking] PDB restored: {len(_sessions)} sessions, "
                      f"{sum(len(s.chains) for s in _sessions.values())} chains")
         return True
@@ -492,8 +497,10 @@ def _get_session(session_id: str | None = None) -> Session:
     sid = session_id or _DEFAULT_SESSION
     if sid not in _sessions:
         _sessions[sid] = Session(label=sid)
+    global _global_tool_calls
     _sessions[sid].updated_at = time.time()
     _sessions[sid].tool_calls += 1
+    _global_tool_calls += 1
     _auto_save()  # persist state periodically (works for both server.py and server_shm.py)
     return _sessions[sid]
 
@@ -1177,6 +1184,17 @@ TOOLS = [
             "required": ["context"]
         }
     },
+    {
+        "name": "pattern_purge",
+        "description": "Purge unmatched patterns from the pattern store. Removes patterns that have never been matched. Use force=True to remove all non-session patterns. [LUMEN SHM]",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force": {"type": "boolean", "description": "If true, purge all non-session patterns regardless of match count. Default: false."},
+                "session_id": {"type": "string", "description": "Session ID (optional)"}
+            }
+        }
+    }
 ] + FILE_TOOL_SCHEMAS + PDB_WATCH_SCHEMAS + FUZZY_SEARCH_SCHEMAS + OBJECTIVE_SCHEMAS + KANBAN_SCHEMAS
 
 
@@ -2872,7 +2890,7 @@ def tool_state_snapshot(args: dict) -> dict:
     total_chains = sum(len(s.chains) for s in _sessions.values())
     total_patterns = sum(len(s.patterns) for s in _sessions.values())
     total_works = sum(len(s.works) for s in _sessions.values())
-    total_calls = sum(s.tool_calls for s in _sessions.values())
+    total_calls = _global_tool_calls  # monotonic counter, survives session pruning
     scored = sum(1 for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score"))
     avg_score = round(sum(t.get("score", 0) for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score")) / max(scored, 1), 1)
     # Proactive: find works that have been active >30min
@@ -3363,6 +3381,44 @@ def tool_pattern_suggest(args: dict) -> dict:
     
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
+
+def tool_pattern_purge(args: dict) -> dict:
+    """Purge unmatched patterns from pattern storage.
+    
+    Removes patterns that have never been matched (hit count == 0).
+    With force=True, removes all non-session patterns.
+    """
+    force = args.get("force", False)
+    session = _get_session(args.get("session_id"))
+    
+    removed = []
+    kept = []
+    
+    for p in _global_patterns[:]:
+        match_count = p.get("match_count", 0) if not force else 0
+        if match_count == 0:
+            _global_patterns.remove(p)
+            removed.append(p.get("pattern_name", "?"))
+            
+            # Also remove from session patterns if present
+            if p in session.patterns:
+                session.patterns.remove(p)
+        else:
+            kept.append(p.get("pattern_name", "?")[:30])
+    
+    if not removed:
+        return {"content": [{"type": "text", "text": "No unmatched patterns to purge."}]}
+    
+    lines = [f"🧹 Purged {len(removed)} unmatched pattern(s):"]
+    for name in removed[:20]:
+        lines.append(f"  ✕ {name}")
+    if len(removed) > 20:
+        lines.append(f"  ... and {len(removed) - 20} more")
+    lines.append(f"💾 {len(kept)} patterns retained")
+    
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 HANDLERS = {
     "sequential_thinking": tool_sequential_thinking,
     "thought_similarity": tool_thought_similarity,
@@ -3417,6 +3473,7 @@ HANDLERS = {
     "cognitive_pulse": tool_cognitive_pulse,
     "session_end": tool_session_end,
     "pattern_suggest": tool_pattern_suggest,
+    "pattern_purge": tool_pattern_purge,
         **KANBAN_HANDLERS,
     **FILE_TOOL_HANDLERS,
     **PDB_WATCH_HANDLERS,
