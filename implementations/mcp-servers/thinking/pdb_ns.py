@@ -68,6 +68,12 @@ def pdb_ns_tool_get(args: dict) -> dict:
     if not row:
         return {"content": [{"type": "text", "text": f"(none) — {ns}:{key} not found"}]}
     value = row["value"]
+    # Decode bytes to string
+    if isinstance(value, bytes):
+        try:
+            value = value.decode()
+        except UnicodeDecodeError:
+            pass
     # Try to decode as JSON for pretty display
     try:
         parsed = json.loads(value)
@@ -126,7 +132,14 @@ def pdb_ns_tool_order(args: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Error: {e}"}]}
     if not rows:
         return {"content": [{"type": "text", "text": f"(empty) - no keys in {ns}" + (f" with prefix '{prefix}'" if prefix else "")}]}
-    keys = [r["subkey"].decode() if isinstance(r["subkey"], bytes) else r["subkey"] for r in rows]
+    keys = []
+    for r in rows:
+        try:
+            k = r["subkey"].decode() if isinstance(r["subkey"], bytes) else r["subkey"]
+            keys.append(k)
+        except UnicodeDecodeError:
+            # Skip MUMPS-encoded keys written by pdb_set
+            pass
     lines = [f"📂 {ns} ({len(keys)} keys):"]
     for k in keys:
         lines.append(f"  • {k}")
