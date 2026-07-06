@@ -400,7 +400,7 @@ def _handle_thinking_sequential_thinking(*args, **kwargs) -> str:
     params = args[0] if args else kwargs
     conn = _get_connection("thinking")
     tool_args = {"thought": params.get("thought", ""), "nextThoughtNeeded": params.get("nextThoughtNeeded", False), "totalThoughts": params.get("totalThoughts", 1)}
-    for k in ("thoughtNumber", "isRevision", "revisesThought", "branchFromThought", "branchId", "needsMoreThoughts", "chainId"):
+    for k in ("thoughtNumber", "isRevision", "revisesThought", "branchFromThought", "branchId", "needsMoreThoughts", "chainId", "provenance"):
         if k in params and params[k] is not None:
             tool_args[k] = params[k]
     result = conn.call_tool("sequential_thinking", tool_args)
@@ -536,6 +536,7 @@ def register(ctx) -> None:
                     "branchId": {"type": "string"},
                     "needsMoreThoughts": {"type": "boolean", "default": False},
                     "chainId": {"type": "string", "description": "Existing chain ID to continue"},
+                    "provenance": {"type": "array", "description": "Optional: tool calls that informed this thought. Each entry: {tool, summary, args_keys, result_len, error}."},
                 },
                 "required": ["thought", "nextThoughtNeeded", "totalThoughts"],
             },
