@@ -50,6 +50,10 @@ from socketserver import ThreadingMixIn
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+# ── Lazy embedding model for hybrid pattern_suggest ──
+_embedder = None
+
+
 def _safe_print(msg: str) -> None:
     """Print to stderr so it doesn't interfere with JSON-RPC on stdout."""
     try:
@@ -3345,20 +3349,43 @@ def tool_session_end(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+def _get_embedder():
+    """Lazy-load fastembed model (downloaded once, ~80MB)."""
+    global _embedder
+    if _embedder is None:
+        try:
+            from fastembed import TextEmbedding
+            _embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5", max_length=256)
+            _safe_print("[embed] fastembed model loaded")
+        except Exception as e:
+            _safe_print(f"[embed] failed: {e}")
+            _embedder = False  # sentinel
+    return _embedder if _embedder is not False else None
+
+def _cosine_sim(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb + 1e-10)
+
 def tool_pattern_suggest(args: dict) -> dict:
-    """Find patterns relevant to current context using TF-IDF similarity."""
+    """Find patterns relevant to current context.
+    
+    Two modes:
+      - method="tfidf" (default): fast Jaccard similarity on word sets
+      - method="hybrid": TF-IDF first pass + embedding rerank (more precise)
+    """
     session = _get_session(args.get("session_id"))
     context = args["context"]
     limit = args.get("limit", 3)
     min_score = args.get("min_score", 0.15)
+    method = args.get("method", "tfidf")
     
-    # Collect all patterns from all sessions
     all_patterns = list(session.patterns)
-    
     if not all_patterns:
         return {"content": [{"type": "text", "text": "No patterns recorded yet. Use pattern_record to save fixes."}]}
     
-    # Simple TF-IDF scoring
+    # ── Phase 1: TF-IDF scoring (always) ──
     context_words = set(context.lower().split())
     scored = []
     for p in all_patterns:
@@ -3372,17 +3399,53 @@ def tool_pattern_suggest(args: dict) -> dict:
             scored.append((score, p))
     
     scored.sort(key=lambda x: -x[0])
-    matches = scored[:limit]
     
+    # ── Phase 2: Embedding reranking (hybrid mode only) ──
+    if method == "hybrid" and scored:
+        embedder = _get_embedder()
+        if embedder:
+            try:
+                # Take top 10 TF-IDF candidates for reranking
+                candidates = scored[:10]
+                texts = [context] + [
+                    (p.get("description", "") + " " + p.get("pattern_name", ""))
+                    for _, p in candidates
+                ]
+                # Generate embeddings (list of lists)
+                emb_iter = list(embedder.embed(texts))
+                ctx_emb = emb_iter[0]
+                reranked = []
+                for i, (tfidf_score, p) in enumerate(candidates):
+                    emb = emb_iter[i + 1]
+                    emb_score = _cosine_sim(ctx_emb, emb)
+                    # Blend: 30% TF-IDF + 70% embedding
+                    blended = 0.3 * tfidf_score + 0.7 * max(0, emb_score)
+                    reranked.append((blended, emb_score, tfidf_score, p))
+                reranked.sort(key=lambda x: -x[0])
+                matches = reranked[:limit]
+                
+                lines = [f" Found {len(matches)} relevant pattern(s) [hybrid]:"]
+                for blended, emb_s, tfidf_s, p in matches:
+                    name = p.get("pattern_name", "?")
+                    desc = p.get("description", "")
+                    lines.append(f"  [{blended:.0%}] {name} (tfidf={tfidf_s:.0%} emb={emb_s:.0%}): {desc[:120]}")
+                lines.append("  method=hybrid: TF-IDF + embedding rerank")
+                return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+            except Exception as e:
+                _safe_print(f"[pattern_suggest] embedding rerank failed: {e}")
+                # Fall through to TF-IDF only
+    
+    # ── Fallback: TF-IDF only ──
+    matches = scored[:limit]
     if not matches:
         return {"content": [{"type": "text", "text": "No matching patterns found. Consider recording this as a new pattern with pattern_record."}]}
     
-    lines = [f" Found {len(matches)} relevant pattern(s):"]
+    lines = [f" Found {len(matches)} relevant pattern(s) [tfidf]:"]
     for score, p in matches:
         name = p.get("pattern_name", "?")
         desc = p.get("description", "")
         lines.append(f"  [{score:.0%}] {name}: {desc[:120]}")
-    lines.append("  Tip: pattern_match() for deeper analysis.")
+    lines.append("  Tip: pattern_match() for deeper analysis. Use method='hybrid' for embedding rerank.")
     
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
