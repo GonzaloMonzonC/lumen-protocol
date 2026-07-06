@@ -83,6 +83,7 @@ class Session:
         self.wiki: dict[str, dict] = {}  # named wiki pages: title → {content, created_at, updated_at, author}
         self.model_name: str = ""  # LLM model used in this session
         self.tool_calls = 0
+        self.max_tool_calls = 100  # hard budget per session, prevents runaway tool loops
         self.created_at = time.time()
         self.updated_at = time.time()
         self.feeling = None  # Last state_feeling record
@@ -3324,7 +3325,14 @@ def tool_cognitive_pulse(args: dict) -> dict:
         pass
     
     header = " Cognitive Pulse: " + str(warnings) + " warning(s)" if warnings else " Cognitive Pulse: clear"
+    budget_pct = int((session.tool_calls / session.max_tool_calls) * 100) if session.max_tool_calls else 0
+    budget_line = f"  Budget: {session.tool_calls}/{session.max_tool_calls} ({budget_pct}%)"
+    if budget_pct >= 95:
+        budget_line += " \u26a0\ufe0f CRITICAL"
+    elif budget_pct >= 80:
+        budget_line += " \u26a0\ufe0f"
     lines.insert(0, header)
+    lines.insert(1, budget_line)
     if warnings:
         try:
             context_str = " ".join(lines)
@@ -3635,9 +3643,27 @@ def handle_message(msg: dict) -> None:
         handler = HANDLERS.get(tool_name)
         if handler:
             try:
+                # ── Budget check: prevent runaway tool loops ──
+                sid = tool_args.get("session_id", _DEFAULT_SESSION)
+                sess = _sessions.get(sid)
+                budget_msg = ""
+                if sess and sess.tool_calls >= sess.max_tool_calls:
+                    send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32001, "message": f"Budget exceeded: {sess.tool_calls}/{sess.max_tool_calls} tool calls. Session limit reached."}})
+                    return
+                elif sess and sess.tool_calls >= sess.max_tool_calls * 0.95:
+                    budget_msg = f"\n[BUDGET CRITICAL: {sess.tool_calls}/{sess.max_tool_calls} tools used. Reduce calls immediately or restart session.]"
+                elif sess and sess.tool_calls >= sess.max_tool_calls * 0.80:
+                    budget_msg = f"\n[BUDGET WARNING: {sess.tool_calls}/{sess.max_tool_calls} tools used. Consider optimizing.]"
+
                 result = handler(tool_args)
+                if budget_msg and isinstance(result, dict) and "content" in result:
+                    # Append budget warning to the tool result text
+                    for item in result["content"]:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            item["text"] += budget_msg
+                            break
                 send({"jsonrpc": "2.0", "id": req_id, "result": result})
-                _auto_save()  # persist state periodically
+                _auto_save()
             except Exception as e:
                 send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": f"Tool error: {e}"}})
         else:
