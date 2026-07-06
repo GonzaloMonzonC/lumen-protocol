@@ -1252,7 +1252,7 @@ def register(ctx) -> None:
     )
     ctx.register_tool(
         name="pattern_suggest", toolset="lumen-shm",
-        schema={"name":"pattern_suggest","description":"Find recorded patterns relevant to current context. Uses TF-IDF similarity. Call when stuck or when a previous fix might apply. [LUMEN SHM]","parameters":{"type":"object","properties":{"context":{"type":"string"},"limit":{"type":"integer"},"min_score":{"type":"number"},"session_id":{"type":"string"}},"required":["context"]}},
+        schema={"name":"pattern_suggest","description":"Find recorded patterns relevant to current context. Supports method='tfidf' (fast) or method='hybrid' (embedding rerank). [LUMEN SHM]","parameters":{"type":"object","properties":{"context":{"type":"string"},"limit":{"type":"integer"},"min_score":{"type":"number"},"method":{"type":"string","description":"'tfidf' (default, fast) or 'hybrid' (TF-IDF + embedding rerank)"},"session_id":{"type":"string"}},"required":["context"]}},
         handler=_make_thinking_handler("pattern_suggest"),
     )
 
