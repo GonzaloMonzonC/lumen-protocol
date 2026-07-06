@@ -149,6 +149,7 @@ _save_counter = 0
 _last_state_mtime = 0.0  # track when we last read the state file
 _loaded_from_disk = False
 _call_timeline: list[dict] = []
+_tool_recent: dict[str, list] = {}  # session_id → [(tool, action_summary, ts), ...]
 _global_tool_calls = 0  # monotonic counter, never decreases (avoids negative deltas from session pruning)
 _pdb_save_lock = threading.Lock()  # prevents concurrent PDB writes from racing
 _lumen_ws = None  # LUMEN WebSocket server instance
@@ -3269,13 +3270,15 @@ def tool_state_feeling(args: dict) -> dict:
 
 
 def tool_cognitive_pulse(args: dict) -> dict:
-    """Check for stagnation in current work."""
+    """Check for stagnation in current work. Detects time-based stalls AND conceptual cycling (same tool, same args, no progress)."""
     session = _get_session(args.get("session_id"))
     window = args.get("window_minutes", 30)
     now = time.time()
     threshold = now - window * 60
     lines = []
     warnings = 0
+    
+    # ── Time-based: active work stalled since last activity ──
     active = [w for w in session.works if w.get("status") == "in_progress"]
     if not active:
         lines.append("  No active work items.")
@@ -3293,10 +3296,30 @@ def tool_cognitive_pulse(args: dict) -> dict:
         warnings += 1
         mins_since = int((now - last) / 60)
         lines.append(f"  No tool calls in {mins_since}m -- possible stall.")
+    
+    # ── Conceptual stagnation: detect tool cycling (same tool, same args, repeating) ──
+    try:
+        sid = args.get("session_id", "default")
+        recent = _tool_recent.get(sid, [])
+        if len(recent) >= 4:
+            last_n = recent[-6:] if len(recent) >= 6 else recent
+            tool_counts = {}
+            for tn, summary, ts in last_n:
+                tool_counts[tn] = tool_counts.get(tn, 0) + 1
+            for tn, count in tool_counts.items():
+                if count >= 3:
+                    summaries = [s for t, s, _ in last_n if t == tn]
+                    if len(set(summaries)) <= 2 and count >= 3:
+                        warnings += 1
+                        lines.append(f"  Cycling: {tn} called {count}x with same pattern -- conceptual stagnation.")
+                        for i, s in enumerate(summaries[-3:]):
+                            lines.append(f"    {i+1}. {s}")
+    except Exception:
+        pass
+    
     header = " Cognitive Pulse: " + str(warnings) + " warning(s)" if warnings else " Cognitive Pulse: clear"
     lines.insert(0, header)
     if warnings:
-        # Try to find relevant patterns automatically
         try:
             context_str = " ".join(lines)
             pat_result = tool_pattern_suggest({"context": context_str, "limit": 2, "min_score": 0.05})
@@ -3585,6 +3608,18 @@ def handle_message(msg: dict) -> None:
         params = msg.get("params", {})
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
+        # Track recent tool calls for stagnation detection
+        try:
+            sid = tool_args.get("session_id", _DEFAULT_SESSION)
+            # Extract action summary: key arguments (excluding noise)
+            action_keys = [str(v)[:40] for k, v in sorted(tool_args.items()) if k not in ("session_id", "_model", "limit")]
+            action_summary = tool_name + ":" + "|".join(action_keys[:2])
+            recent = _tool_recent.setdefault(sid, [])
+            recent.append((tool_name, action_summary, time.time()))
+            if len(recent) > 12:
+                _tool_recent[sid] = recent[-12:]
+        except Exception:
+            pass
         # Track which LLM model is executing this tool
         model = tool_args.get("_model", "")
         if model:
