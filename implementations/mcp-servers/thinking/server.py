@@ -659,7 +659,8 @@ TOOLS = [
                 "branchId": {"type": "string", "description": "Identifier for this branch (e.g. 'alternative-plan')"},
                 "needsMoreThoughts": {"type": "boolean", "description": "Set true to increase totalThoughts estimate", "default": False},
                 "chainId": {"type": "string", "description": "ID of an existing chain to continue. Omit to create a new chain."},
-                "verbose": {"type": "boolean", "description": "Show full recent history (default: false = compact mode, shows only last thought)", "default": False}
+                "verbose": {"type": "boolean", "description": "Show full recent history (default: false = compact mode, shows only last thought)", "default": False},
+                "provenance": {"type": "array", "description": "Optional: tool calls that informed this thought. Each entry: {tool, summary, args_keys, result_len, error}. Creates a provenance graph for traceability."}
             },
             "required": ["thought", "nextThoughtNeeded", "totalThoughts"]
         }
@@ -1251,6 +1252,7 @@ def tool_sequential_thinking(args: dict) -> dict:
         "branchFromThought": branch_from,
         "branchId": branch_id,
         "timestamp": time.time(),
+        "provenance": args.get("provenance", []),  # tool calls that generated this thought
     }
 
     # If revision, mark original
@@ -1557,6 +1559,10 @@ def tool_thought_to_plan(args: dict) -> dict:
         for i, t in enumerate(active, 1):
             lines.append(f"## Step {i}")
             lines.append(f"**Origin**: Thought #{t['number']}")
+            if t.get("provenance"):
+                prov = t["provenance"]
+                prov_str = ", ".join(p.get("summary", p.get("tool", "?")) for p in prov[:3])
+                lines.append(f"**From**: {prov_str}")
             lines.append(f"**Action**: {t['thought']}")
             if i > 1:
                 lines.append(f"**Depends on**: Step {i - 1}")
