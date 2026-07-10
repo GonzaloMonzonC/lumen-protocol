@@ -56,6 +56,90 @@ PDB_PATH = os.path.expanduser(
 DOCS_NAMESPACE = "docs"
 HISTORY_NAMESPACE = "docs_history"
 
+# ── D2: TTL Policies (por tipo de documento) ────────────────────────
+
+# TTL en segundos. None = no expira.
+DOC_TTL = {
+    "code":        0,          # invalidación inmediata (git commit)
+    "api":         3600,       # 1 hora
+    "decisions":   86400,      # 24 horas
+    "architecture": 86400,     # 24 horas
+    "guides":      259200,     # 72 horas
+    "playbook":    None,       # no expira (conocimiento operativo)
+    "default":     604800,     # 7 días
+}
+
+def get_doc_ttl(ns: str) -> int | None:
+    """Obtener TTL para un tipo de documento."""
+    return DOC_TTL.get(ns, DOC_TTL["default"])
+
+def doc_is_stale(ns: str, subs: list) -> bool:
+    """Verificar si un documento está obsoleto según su TTL."""
+    doc = doc_get(ns, subs)
+    if not doc:
+        return False
+
+    ttl = get_doc_ttl(ns)
+    if ttl is None:
+        return False  # playbooks no expiran
+    if ttl == 0:
+        return True   # code docs siempre stale hasta git hook
+
+    updated_at = doc.get("updated_at", doc.get("created_at", ""))
+    if not updated_at:
+        return True
+
+    from datetime import datetime, timezone, timedelta
+    try:
+        doc_time = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - doc_time).total_seconds()
+        return age > ttl
+    except (ValueError, TypeError):
+        return True
+
+def doc_mark_stale(ns: str, subs: list):
+    """Marcar un documento como 'stale'."""
+    doc = doc_get(ns, subs)
+    if doc:
+        doc["stale"] = True
+        doc["stale_since"] = _now_iso()
+        return doc_set(ns, subs, doc)
+    return {"success": False, "error": "not found"}
+
+def doc_check_all_stale():
+    """Verificar TODOS los documentos y marcar los obsoletos.
+    Usar como cron cada 5 minutos.
+    """
+    tools = _get_pdb_tools()
+    stale_count = 0
+    checked = 0
+
+    # Iterar sobre todos los namespaces en ^docs
+    ns_list = doc_list(limit=100)
+    for ns_entry in ns_list:
+        ns = ns_entry.get("key", "")
+        if not ns:
+            continue
+        docs = doc_list(ns=ns, limit=100)
+        for d in docs:
+            checked += 1
+            path = d.get("key", "")
+            if doc_is_stale(ns, [path]):
+                doc_mark_stale(ns, [path])
+                stale_count += 1
+
+    return {"checked": checked, "stale": stale_count, "timestamp": _now_iso()}
+
+def doc_touch(ns: str, subs: list):
+    """Actualizar timestamp de lectura (resetea TTL)."""
+    doc = doc_get(ns, subs)
+    if doc:
+        doc["last_read"] = _now_iso()
+        doc["read_count"] = doc.get("read_count", 0) + 1
+        doc.setdefault("stale", False)
+        return doc_set(ns, subs, doc)
+    return {"success": False, "error": "not found"}
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _get_pdb_tools():
