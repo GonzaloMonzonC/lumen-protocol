@@ -60,7 +60,8 @@ async def extract_learnings(
     }
 
     # ── Paso 1+2: Extracción con Tom ──
-    raw_facts = await extract_facts_from_transcript(transcript)
+    async with asyncio.timeout(3.0):  # Zalo: max 3s por extracción
+        raw_facts = await extract_facts_from_transcript(transcript)
     extracted = len(raw_facts)
 
     if extracted == 0:

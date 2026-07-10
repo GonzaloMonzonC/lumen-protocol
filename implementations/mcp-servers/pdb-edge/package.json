@@ -1,0 +1,24 @@
+{
+  "name": "@lumen/pdb-edge",
+  "version": "0.1.0",
+  "description": "PDB Edge — MUMPS-style hierarchical KV store on Cloudflare D1 (TypeScript)",
+  "main": "src/server.ts",
+  "types": "src/server.ts",
+  "files": ["src/"],
+  "scripts": {
+    "test": "echo 'Tests TBD'",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cadenceslab/lumen-protocol"
+  },
+  "license": "MIT"
+}

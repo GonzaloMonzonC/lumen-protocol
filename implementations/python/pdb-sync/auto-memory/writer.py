@@ -17,9 +17,9 @@ from typing import Any
 
 # ─── Configuración ──────────────────────────────────────────────────
 
-PDB_EDGE_WORKER_URL = "http://localhost:8787"  # Ajustar a URL real de CF D1
+PDB_EDGE_WORKER_URL = "https://pdb-edge.gonzalomonzonc.workers.dev"  # CF D1 edge worker
 LEARNINGS_NAMESPACE = "learnings"
-CONFIDENCE_THRESHOLD = 4  # Descartar facts con confianza < 4
+CONFIDENCE_THRESHOLD = 6  # Zalo: descartar facts con confianza < 6
 
 
 async def write_learnings_to_pdb(
