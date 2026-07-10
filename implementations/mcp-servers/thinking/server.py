@@ -4645,6 +4645,24 @@ def _start_dashboard(port: int = 9876) -> None:
                     self.send_response(500); self.end_headers()
                     self.wfile.write(json.dumps({"error": str(e)}).encode())
 
+            elif self.path == "/sessions":
+                sess_list = []
+                for sid, sess in _sessions.items():
+                    thoughts_count = sum(len(c.get("thoughts",[])) for c in sess.chains.values())
+                    sess_list.append({"session_id":sid,"label":sess.label,"chains":len(sess.chains),"thoughts":thoughts_count,"tool_calls":sess.tool_calls,"model_entities":len(sess.model),"patterns":len(sess.patterns),"created":sess.created_at})
+                body = json.dumps({"count":len(sess_list),"sessions":sess_list}).encode()
+                self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Access-Control-Allow-Origin","*");self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
+            elif self.path.startswith("/timeline"):
+                from urllib.parse import urlparse, parse_qs
+                limit = min(int(parse_qs(urlparse(self.path).query).get("limit",[50])[0]),200)
+                events = []
+                for sid, sess in _sessions.items():
+                    for cid, chain in sess.chains.items():
+                        for t in chain.get("thoughts",[]): events.append({"ts":t.get("timestamp",0),"session":sid,"type":"thought","text":t.get("thought","")[:120]})
+                    for d in sess.decisions: events.append({"ts":d.get("timestamp",0),"session":sid,"type":"decision","text":d.get("decision","")[:120]})
+                events.sort(key=lambda e:e["ts"],reverse=True)
+                body = json.dumps(events[:limit]).encode()
+                self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Access-Control-Allow-Origin","*");self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
             else:
                 self.send_response(404)
                 self.end_headers()

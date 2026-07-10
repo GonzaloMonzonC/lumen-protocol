@@ -1,788 +1,175 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LUMEN Dashboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUMEN Cognitive Desktop</title>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <style>
-:root{--bg:#0a0a0f;--panel:rgba(20,20,35,.85);--border:rgba(255,255,255,.08);--acc:#22d3ee;--purp:#a855f7;--text:#d1d5db;--dim:#9ca3af;--red:#f87171;--yellow:#facc15;--green:#4ade80;--slate800:#1a1a24;--slate700:#2a2a3a}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px;background-image:radial-gradient(ellipse 80% 50% at 50% -20%,rgba(34,211,238,.06),transparent),radial-gradient(ellipse 60% 40% at 100% 100%,rgba(59,130,246,.04),transparent)}
-::selection{background:rgba(34,211,238,.2);color:var(--acc)}
-::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(42,42,58,.5);border-radius:99px}::-webkit-scrollbar-thumb:hover{background:rgba(61,61,82,.7)}
-h3{font-size:14px;font-weight:600;margin-bottom:12px;letter-spacing:.3px;color:#e2e8f0}
-.glass{background:rgba(20,20,35,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:20px;margin-bottom:12px;transition:border-color .2s}
-.glass:hover{border-color:rgba(34,211,238,.12)}
-.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.kpi{background:rgba(20,20,35,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:20px;text-align:center;transition:border-color .2s}
-.kpi:hover{border-color:rgba(34,211,238,.2)}
-.kpi .val{font-size:34px;font-weight:800;background:linear-gradient(135deg,var(--acc),var(--purp));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.kpi .lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
-.kpi .sub{font-size:10px;color:var(--dim);margin-top:4px}
-.card{background:var(--slate800);border:1px solid rgba(255,255,255,.04);border-radius:12px;padding:12px;margin-bottom:6px;font-size:12px;transition:border-color .15s}
-.card:hover{border-color:rgba(34,211,238,.15)}
-.tag{font-size:10px;padding:2px 8px;border-radius:999px;font-family:'JetBrains Mono',monospace;display:inline-block}
-.mono{font-family:'JetBrains Mono',monospace;font-size:10px}
-.cyan{color:var(--acc)}.dim{color:var(--dim)}.green{color:var(--green)}.yellow{color:var(--yellow)}.red{color:var(--red)}
-.bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
-.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}.live{background:var(--acc);box-shadow:0 0 8px var(--acc);animation:pulse 2s infinite}.off{background:var(--red)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.status-text{font-size:11px;margin-left:auto}
-.score-bar{height:4px;border-radius:2px;background:var(--acc);margin-top:6px;transition:width .3s}
-.chain-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px}
-.chain-row:last-child{border-bottom:none}
-.mem-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.05);margin-top:8px;overflow:hidden}
-.mem-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--acc),var(--purp));transition:width .5s}
-.btn{padding:10px 16px;border-radius:12px;font-size:12px;cursor:pointer;font-family:inherit;border:1px solid;transition:all .2s}
-.btn-danger{background:rgba(248,113,113,.06);border-color:rgba(248,113,113,.15);color:var(--red)}.btn-danger:hover{background:rgba(248,113,113,.12)}
-.btn-acc{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.15);color:var(--acc)}.btn-acc:hover{background:rgba(34,211,238,.12)}
-.chart-wrap{background:rgba(20,20,35,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:24px 24px 16px;margin-bottom:12px;position:relative}
-.chart-wrap h3{margin-bottom:4px}.chart-wrap .sub{font-size:10px;color:var(--dim);margin-bottom:12px}
-.chart-wrap .stats{display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--dim)}
-.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
-.modal{background:rgba(20,20,35,.98);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:24px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto}
-.modal h3{font-size:13px}.modal-close{float:right;background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px 8px}
-.section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
-.section-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}.section-toggle .arrow{font-size:10px;transition:transform .2s;color:var(--dim);min-width:12px}.section-toggle .summ{font-size:10px;color:var(--dim);font-weight:400;margin-left:auto}.collapsible{overflow:hidden;transition:max-height .3s ease,opacity .2s}.collapsible.collapsed{max-height:0!important;opacity:0;margin-bottom:0}
-
-.kanban-col{border-width:1px;border-style:solid;border-color:var(--border);transition:border-color .2s,background .2s}
-.kanban-col:hover{border-color:rgba(34,211,238,.2);background:rgba(34,211,238,.02)}
-.kanban-col.drag-over{border-color:var(--acc);background:rgba(34,211,238,.08)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:#1e293b;padding:1rem 2rem;border-bottom:1px solid #334155}
+h1{font-size:1.25rem;color:#22d3ee}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:1rem;padding:1rem}
+.card{background:#1e293b;border-radius:8px;padding:1rem;border:1px solid #334155}
+.card h2{font-size:.9rem;color:#94a3b8;margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em}
+.entity,.msg,.event{padding:.5rem;border-bottom:1px solid #1e293b;font-size:.85rem}
+.entity:last-child,.msg:last-child,.event:last-child{border-bottom:none}
+.tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:.7rem;margin-right:4px}
+.tag-thought{background:#1e40af}.tag-decision{background:#854d0e}.tag-model{background:#166534}
+.tag-session{background:#6b21a8}.tag-collision{background:#991b1b}.tag-msg{background:#0e7490}
+input,textarea,button{padding:6px 8px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:.8rem;margin:4px 0}
+button{background:#22d3ee;color:#0f172a;border:none;cursor:pointer;font-weight:600}
+button:hover{background:#06b6d4}
+.collision-warn{background:#451a03;border-left:3px solid #f59e0b;padding:.5rem;margin-bottom:.5rem;font-size:.8rem}
 </style>
-<script src="lumen-client.js">
-
-// ── Web Research ──────────────────────────────────────
-let _webSnapshots = [];
-let _webSnapshotTimer = null;
-
-</script>
-<script>
-function loadWebSnapshots() {
-  fetch('/web-snapshots')
-    .then(r=>r.json())
-    .then(data=>{
-      _webSnapshots = data||[];
-      renderWebSnapshots();
-    })
-    .catch(()=>{});
-}
-
-function renderWebSnapshots() {
-  const el = document.getElementById('web-snapshots');
-  if (!el) return;
-  const total = _webSnapshots.length;
-  document.getElementById('summary-web').textContent = total + ' snapshots';
-  if (!total) {
-    el.innerHTML = '<div style="font-size:10px;color:var(--dim);padding:20px;text-align:center">No web research snapshots yet. Use web_snapshot() tool to add one.</div>';
-    return;
-  }
-  let h = '';
-  _webSnapshots.forEach(s=>{
-    const ts = s.created_at ? Math.floor((Date.now()/1000 - s.created_at)/60) : '?';
-    const age = ts < 1 ? 'now' : ts < 60 ? ts+'m ago' : Math.floor(ts/60)+'h ago';
-    const taskLink = s.task_id ? '<span style="color:var(--purp);font-size:9px;cursor:pointer">\u2192 '+s.task_id+'</span>' : '';
-    h += '<div style="background:rgba(20,20,35,.5);border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;cursor:pointer" onclick="showSnapshotDetail(\''+s.id+'\')">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center">' +
-      '<span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(s.title||'untitled')+'</span>' +
-      '<span style="font-size:9px;color:var(--dim)">'+s.word_count+'w · '+age+'</span></div>' +
-      '<div style="font-size:9px;color:var(--dim);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">'+s.url+'</div>' +
-      (s.content_preview ? '<div style="font-size:9px;color:var(--text);margin-top:4px;max-height:32px;overflow:hidden">'+s.content_preview.slice(0,120)+'</div>' : '') +
-      (taskLink ? '<div style="margin-top:4px">'+taskLink+'</div>' : '') +
-    '</div>';
-  });
-  el.innerHTML = h;
-}
-
-function showSnapshotDetail(snapId) {
-  fetch('/web-snapshot-content?id='+snapId)
-    .then(r=>r.json())
-    .then(s=>{
-      if(!s||s.error){alert('Snapshot not found');return;}
-      const content = s.content || 'No content';
-      const html = '<div style="font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow-y:auto;background:rgba(0,0,0,.3);padding:12px;border-radius:8px;font-family:monospace;font-size:10px">'+escapeHtml(content.slice(0,5000))+'</div>' +
-        '<div style="margin-top:8px;font-size:9px;color:var(--dim)">'+s.word_count+' words · <a href="'+s.url+'" target="_blank" style="color:var(--acc)">Open URL</a></div>';
-      showModal('📸 '+ (s.title||'Snapshot'), html);
-    })
-    .catch(()=>alert('Failed to load snapshot'));
-}
-
-function escapeHtml(text) {
-  const d = document.createElement('div');
-  d.textContent = text;
-  return d.innerHTML;
-}
-</script>
 </head>
-<body>
+<body x-data="dashboard()" x-init="init()">
+<header>
+  <h1>🧠 LUMEN Cognitive Desktop</h1>
+  <span style="font-size:.75rem;color:#64748b" x-text="status"></span>
+</header>
 
-<div class="bar">
-  <div class="dot off" id="status-dot"></div>
-  <span style="font-weight:600" id="server-name">LUMEN</span>
-  <span class="mono dim" id="server-version">v0.1</span>
-  <span class="mono dim" id="model-name" style="margin-left:8px"></span><span class="status-text red" id="status-label">Offline</span>
-</div>
-
-<div class="grid4">
-  <div class="kpi" style="cursor:pointer" onclick="showKPI('thoughts')"><div class="lbl">Thoughts ↗</div><div class="val" id="kpi-thoughts">0</div><div class="sub" id="kpi-thoughts-sub"></div></div>
-  <div class="kpi" style="cursor:pointer" onclick="showKPI('score')"><div class="lbl">Avg Score ↗</div><div class="val" id="kpi-score">--</div><div class="sub" id="kpi-score-sub"></div></div>
-  <div class="kpi" style="cursor:pointer" onclick="showKPI('contra')"><div class="lbl">Contradictions ↗</div><div class="val" id="kpi-contra">0</div><div class="sub" id="kpi-contra-sub"></div></div>
-  <div class="kpi" style="cursor:pointer" onclick="showKPI('calls')"><div class="lbl">Tool Calls ↗</div><div class="val" id="kpi-calls">0</div><div class="sub" id="kpi-calls-sub"></div></div>
-</div>
-
-<div class="chart-wrap">
-  <h3>Activity</h3>
-  <div class="sub">Calls per hour — last 48 hours</div>
-  <canvas id="chart" style="width:100%;height:220px"></canvas>
-  <div class="stats" id="chart-stats"></div>
-</div>
-
-<div class="chart-wrap">
-  <h3>System Pulse</h3>
-  <div class="sub">NOW · RECENT · BLOCKED</div>
-  <div class="grid3" style="margin-top:8px">
-    <div class="glass" style="margin:0;background:rgba(34,211,238,.03);border-color:rgba(34,211,238,.1)">
-      <h3 style="color:var(--acc);font-size:11px">▶ NOW</h3>
-      <div id="pulse-now" style="font-size:10px;min-height:40px"></div>
-    </div>
-    <div class="glass" style="margin:0;background:rgba(74,222,128,.03);border-color:rgba(74,222,128,.1)">
-      <h3 style="color:var(--green);font-size:11px">● RECENT</h3>
-      <div id="pulse-recent" style="font-size:10px;min-height:40px"></div>
-    </div>
-    <div class="glass" style="margin:0;background:rgba(248,113,113,.03);border-color:rgba(248,113,113,.1)">
-      <h3 style="color:var(--red);font-size:11px">■ BLOCKED</h3>
-      <div id="pulse-blocked" style="font-size:10px;min-height:40px"></div>
+<div class="grid">
+  <!-- Wiki Editor -->
+  <div class="card">
+    <h2>📝 Wiki Mental</h2>
+    <input placeholder="Nombre entidad" x-model="newEntity.name" @keyup.enter="addEntity()">
+    <input placeholder="Rol" x-model="newEntity.role">
+    <input placeholder="Notas" x-model="newEntity.notes">
+    <textarea placeholder="Relaciones (coma)" x-model="newEntity.relationships"></textarea>
+    <textarea placeholder="Properties (JSON)" x-model="newEntity.properties"></textarea>
+    <button @click="addEntity()">Añadir</button>
+    <div style="margin-top:.5rem">
+      <template x-for="e in entities" :key="e.name">
+        <div class="entity">
+          <strong x-text="e.name"></strong>
+          <span class="tag tag-model" x-text="e.role||'?'"></span>
+          <div style="font-size:.75rem;color:#94a3b8" x-text="e.notes?.slice(0,80)"></div>
+        </div>
+      </template>
     </div>
   </div>
-</div>
 
-
-<div class="glass"><h3 class="section-toggle" onclick="toggleSection('objectives-content')"><span class="arrow">▼</span> 🎯 Agent Loop <span class="summ" id="summary-objectives"></span></h3>
-<div class="collapsible" id="objectives-content" style="max-height:3000px">
-<div id="objectives-list"><div class="dim" style="font-size:11px">No objectives. Use objective_create in agent to create one.</div></div>
-</div></div>
-<div class="glass"><h3 class="section-toggle" onclick="toggleSection('kanban-content')"><span class="arrow">▼</span> 📋 Kanban <span class="summ" id="summary-kanban"></span></h3>
-<div class="collapsible" id="kanban-content" style="max-height:3000px">
-<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-  <span style="font-size:11px;font-weight:600">Niche:</span>
-  <select id="kanban-niche" style="background:var(--slate800);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-family:inherit" onchange="loadKanban()"></select>
-  <button class="btn btn-acc" onclick="createTask()" style="margin-left:auto;padding:6px 12px;font-size:10px">+ New Task</button>
-</div>
-<div id="kanban-board" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:200px">
-  <div style="flex:1;text-align:center;padding:40px;color:var(--dim);font-size:11px">Select a niche to show the board</div>
-</div>
-</div></div>
-<div class="glass"><h3 class="section-toggle" onclick="toggleSection('reasoning-content')"><span class="arrow">▼</span> Reasoning <span class="summ" id="summary-reasoning"></span></h3><div class="collapsible" id="reasoning-content" style="max-height:3000px">
-<div class="grid2">
-  <div class="glass" style="background:none;backdrop-filter:none;border:none;padding:0;margin:0"><h3>🔗 Chains</h3><div id="chains-list"><div class="dim" style="font-size:11px">No chains</div></div></div>
-  <div class="glass"><h3>📝 Plans</h3><div id="plans-list"><div class="dim" style="font-size:11px">No plans</div></div></div>
-</div>
-<div class="grid2">
-  <div class="glass"><h3>🔧 Work Tracker</h3><div id="works-list"><div class="dim" style="font-size:11px">No work tracked</div></div></div>
-  </div></div>
-
-<div class="grid2">
-  </div></div>
-
-<div class="grid2">
-  <div class="glass"><h3>🧠 Cognitive State</h3><div id="feeling-list"><div class="dim" style="font-size:11px">No feeling recorded</div></div></div>
-<div class="glass"><h3>📚 Wiki</h3><div id="wiki-list"><div class="dim" style="font-size:11px">No wiki pages</div></div></div>
-</div>
-<div class="grid3">
-  <div class="glass"><h3>📊 Clusters</h3><div id="clusters-list"><div class="dim" style="font-size:11px">No clusters</div></div></div>
-  <div class="glass"><h3>📊 Heatmap</h3><div id="heatmap-table" style="font-size:10px;overflow-x:auto"></div></div>
-  <div class="glass"><h3>💭 Breakdown</h3>
-    <div class="chain-row"><span class="dim">Total</span><span id="tb-total">0</span></div>
-    <div class="chain-row"><span class="dim">Chains</span><span id="tb-chains">0</span></div>
-    <div class="chain-row"><span class="dim">Avg/Chain</span><span id="tb-avg">--</span></div>
-    <div class="chain-row"><span class="dim">Branches</span><span id="tb-branches">0</span></div>
-    <div class="chain-row"><span class="dim">Revisions</span><span id="tb-revisions">0</span></div>
-    <div class="chain-row"><span class="dim">Rated</span><span class="green" id="tb-rated">0</span></div>
-  </div>
-  <div class="glass"><h3>Memory</h3>
-    <div class="chain-row"><span class="dim">Thoughts</span><span id="mem-t">0</span></div>
-    <div class="chain-row"><span class="dim">Chains</span><span id="mem-c">0</span></div>
-    <div class="chain-row"><span class="dim">Sessions</span><span id="mem-s">0</span></div>
-    <div class="mem-bar"><div class="mem-fill" id="mem-bar" style="width:0%"></div></div>
-    <div class="dim mono" style="font-size:9px;margin-top:4px" id="mem-label">0 / 200</div>
-  </div>
-</div>
-<div class="grid2">
-  <div class="glass"><h3>⚠️ Collisions</h3><div id="collisions-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>🔒 File Claims</h3><div id="claims-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>🌉 Bridges</h3><div id="bridges-list"><div class="dim" style="font-size:11px">No bridges</div></div></div>
-</div>
-<div class="grid2">
-  <div class="glass"><h3>💾 Preserved</h3><div id="preserved-list"><div class="dim" style="font-size:11px">No contexts preserved</div></div></div>
-  <div class="glass"><h3>🧠 Model</h3><div id="model-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>📋 Decisions</h3><div id="decisions-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>🔍 Patterns</h3><div id="patterns-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>⏳ Assumptions</h3><div id="assumptions-list"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>❓ Q&A</h3><div id="qa-list" style="max-height:180px;overflow-y:auto"><div class="dim" style="font-size:11px">Loading</div></div></div>
-  <div class="glass"><h3>👥 Sessions</h3><div id="sessions-list"><div class="dim" style="font-size:11px">No sessions</div></div></div>
-</div>
-<div class="grid2">
-  <div class="glass"><h3>🧹 Manage</h3>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-danger" onclick="clearChains()">Clear chains</button>
-      <button class="btn btn-acc" onclick="clearBridges()">Clear bridges</button>
-    </div>
-    <div id="mem-msg" style="font-size:10px;color:var(--dim);margin-top:8px"></div>
-  </div>
-  <div class="glass"><h3>👥 Presence</h3><div id="presence-list"><div class="dim" style="font-size:11px">No presence data</div></div></div>
-</div>
-  </div>
-</div>
-
-<div style="text-align:center;font-size:10px;color:var(--dim);margin-top:12px" id="footer">Metrics: /metrics  |  Updated: --</div>
-<div id="modal-container"></div>
-
-<script>
-const $=id=>document.getElementById(id);
-let lastTimeline=[],lastWorks=[],lastTimelineStr='',lastWorksStr='';
-
-function drawChart(timeline){
-  const c=$('chart');if(!timeline||timeline.length<1){c.style.display='none';return}c.style.display='block';
-  lastTimeline=timeline;
-  const ctx=c.getContext('2d'),dpr=devicePixelRatio||1;
-  const W=c.parentElement.clientWidth-48,H=220;
-  c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';ctx.scale(dpr,dpr);
-  const now=Math.floor(Date.now()/1000),padX=40,padY=30,plotW=W-padX-20,plotH=H-padY*2;
-  const allBuckets=[];for(const p of timeline){const h=Math.floor((now-p.ts)/3600);if(h>=0&&h<48)allBuckets.push({h,val:Math.max(0,(p.delta??0)||0)})}
-  const maxH=allBuckets.length?Math.max(...allBuckets.map(b=>b.h),3):3;
-  const bars=Math.min(48,Math.max(6,Math.ceil(maxH*1.2)));
-  const buckets=Array(bars).fill(0);for(const b of allBuckets){if(b.h<bars)buckets[bars-1-b.h]=b.val}
-  const maxV=Math.max(...buckets,1),totalCalls=buckets.reduce((a,b)=>a+b,0),peakH=buckets.indexOf(Math.max(...buckets));
-  
-  // Grid
-  ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=.5;
-  for(let i=0;i<=4;i++){const y=padY+(plotH/4)*i;ctx.beginPath();ctx.moveTo(padX,y);ctx.lineTo(W-padX,y);ctx.stroke();
-    ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(Math.round(maxV-(maxV/4)*i),2,y+3)}
-  const labelStep=Math.max(1,Math.floor(bars/8));
-  for(let i=0;i<bars;i+=labelStep){const x=padX+(plotW/bars)*i;const hAgo=Math.round(((bars-1-i)*3600)/3600);
-    let label=hAgo+'h';if(hAgo>=24)label=Math.floor(hAgo/24)+'d';ctx.fillStyle='#64748b';ctx.font='9px Inter';ctx.fillText(label,x-8,H-10)}
-  
-  // Gradient bars
-    // Smooth area + line chart
-  const points=[];for(let i=0;i<bars;i++){const v=buckets[i]||0;points.push({x:padX+(plotW/(bars-1||1))*i,y:padY+plotH-(v/maxV)*plotH})}
-  
-  // Area fill with gradient
-  const grad=ctx.createLinearGradient(0,padY,0,padY+plotH);
-  grad.addColorStop(0,'rgba(34,211,238,.15)');grad.addColorStop(.5,'rgba(34,211,238,.04)');grad.addColorStop(1,'rgba(34,211,238,0)');
-  ctx.beginPath();ctx.moveTo(points[0].x,padY+plotH);
-  for(let i=0;i<points.length;i++)ctx.lineTo(points[i].x,points[i].y);
-  ctx.lineTo(points[points.length-1].x,padY+plotH);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
-  
-  // Smooth bezier line
-  ctx.beginPath();ctx.strokeStyle='#22d3ee';ctx.lineWidth=2;ctx.shadowColor='#22d3ee';ctx.shadowBlur=6;
-  ctx.moveTo(points[0].x,points[0].y);
-  for(let i=1;i<points.length;i++){const cpx=(points[i-1].x+points[i].x)/2;ctx.bezierCurveTo(cpx,points[i-1].y,cpx,points[i].y,points[i].x,points[i].y)}
-  ctx.stroke();ctx.shadowBlur=0;
-  
-  // Dots on peaks
-  for(let i=0;i<points.length;i++){if(buckets[i]>0&&(i===0||buckets[i]>=buckets[i-1]||i===bars-1||buckets[i]>=buckets[i+1])){ctx.beginPath();ctx.arc(points[i].x,points[i].y,3,0,Math.PI*2);ctx.fillStyle='#22d3ee';ctx.fill()}}
-  
-  // Cumulative line
-  let cum=0;ctx.beginPath();ctx.strokeStyle='rgba(168,85,247,.6)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
-  for(let i=0;i<bars;i++){cum+=buckets[i];const x=padX+(plotW/(bars-1||1))*i,y=padY+plotH-(cum/Math.max(cum,1))*plotH;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)}ctx.stroke();ctx.setLineDash([]);
-  
-  // Stats
-  $('chart-stats').innerHTML=`<span>🟢 ${totalCalls} calls</span><span>📈 Peak: ${maxV} at ${bars-1-peakH}h ago</span><span>📊 ${bars}h window</span>`;
-  // Tooltip on hover
-  const _tt=c._tooltipEl||(function(){const el=document.createElement('div');el.style.cssText='position:absolute;background:rgba(20,20,35,.95);border:1px solid var(--border);border-radius:12px;padding:8px 12px;font-size:11px;color:var(--text);pointer-events:none;display:none;z-index:100;white-space:nowrap';c.parentElement.appendChild(el);c._tooltipEl=el;return el})();
-  c.onmousemove=function(e){const r=c.getBoundingClientRect();const mx=e.clientX-r.left-padX;const bw=plotW/(bars-1||1);const i=Math.round(mx/bw);if(i<0||i>=bars||!buckets[i]){_tt.style.display='none';return};const ha=Math.round(((bars-1-i)*3600)/3600);_tt.textContent=buckets[i]+' calls \u2014 '+(ha>=24?Math.floor(ha/24)+'d':ha+'h')+' ago';_tt.style.left='20px';_tt.style.top='0px';_tt.style.display='block'};
-  c.onmouseleave=function(){_tt.style.display='none'};
-}
-
-function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath()}
-
-
-
-var _lumenWs=null;  // LUMEN WebSocket client (loaded from lumen-client.js)
-
-// ── HTTP fallback: fetch /metrics on page load + periodic poll ──
-function _fetchMetrics() {
-  fetch('/metrics')
-    .then(r => r.json())
-    .then(data => {
-      if (data && window.renderData) window.renderData(data);
-      const footer = document.getElementById('footer');
-      if (footer) footer.textContent = 'Metrics: /metrics  |  Updated: ' + new Date().toLocaleTimeString();
-    })
-    .catch(() => {});
-}
-// Initial load: use server-injected data first, then fetch for live updates
-if (window.__INITIAL_DATA__ && window.renderData) {
-  window.renderData(window.__INITIAL_DATA__);
-  const footer = document.getElementById('footer');
-  if (footer) footer.textContent = 'Metrics: PDB (server-side)  |  Updated: ' + new Date().toLocaleTimeString();
-}
-_fetchMetrics();
-// Then poll every 10 seconds (keeps dashboard live even without WebSocket)
-setInterval(_fetchMetrics, 10000);
-
-window.renderData = function renderData(d) {
-  if(!d||!d.totals)return;
-  const t=d.totals||{},sc=d.scores||{},ct=d.contradictions||{};
-  // Update KPIs (use IDs directly)
-  const kpiMap={thoughts:t.thoughts||0,chains:t.chains||0,score:sc.avg||'--',contra:ct.found||0,calls:t.tool_calls||0};
-  const kpiIds=['thoughts','score','contra','calls'];
-  kpiIds.forEach(id=>{
-    const el=document.getElementById('kpi-'+id);
-    if(!el)return;
-    if(id==='thoughts')el.textContent=kpiMap.thoughts;
-    else if(id==='score')el.textContent=kpiMap.score;
-    else if(id==='contra')el.textContent=kpiMap.contra;
-    else if(id==='calls')el.textContent=kpiMap.calls;
-  });
-  // Update subtitles
-  const sub=document.getElementById('kpi-thoughts-sub');
-  if(sub)sub.textContent=t.chains+' chains';
-  // Status dot
-  const sd=document.getElementById('status-dot');const sl=document.getElementById('status-label');
-  if(sd)sd.className='dot on';if(sl){sl.className='status-text green';sl.textContent='Live'}
-  // Chains
-  const chains=d.chains||[];
-  const cl=document.getElementById('chains-list');
-  if(cl)cl.innerHTML=chains.map(c=>'<div class="chain-row" style="cursor:pointer" onclick="showChain(\''+c.chain_id+'\')"><span class="tag '+((c.thoughts||0)>5?'cyan':'mono')+'">'+(c.thoughts||0)+'t</span><span class="dim mono" style="flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+c.chain_id.slice(0,25)+'</span>'+(c.score_avg?'<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">'+c.score_avg.toFixed(1)+'★</span>':'')+'</div>').join('')||'<div class="dim">No chains</div>';
-  // Plans
-  const plans=d.plans||[];
-  const pl=document.getElementById('plans-list');
-  if(pl)pl.innerHTML=plans.map(p=>'<div class="chain-row" style="cursor:pointer" onclick="showPlan(\''+p.chain_id+'\')"><span class="tag purple">'+((p.steps||0)+' steps')+'</span><span class="dim mono" style="flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.chain_id.slice(0,18)+'</span></div>').join('')||'<div class="dim">No plans</div>';
-  // Works
-  const works=d.works||[];
-  const wl=document.getElementById('works-list');
-  if(wl)wl.innerHTML=works.map(w=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(w.status==='done'?'\u2713':w.status==='in_progress'?'\u2699':'\u{1F6AB}')+'</span><span style="font-size:11px;flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(w.item||'').slice(0,35)+'</span><span class="dim" style="font-size:10px">'+(w.duration_seconds?((w.duration_seconds/60).toFixed(1))+'m':'')+'</span></div>').join('')||'<div class="dim">No work tracked</div>';
-  // Wiki
-  const wiki=d.wiki||[];
-  const wi=document.getElementById('wiki-list');
-  if(wi)wi.innerHTML=wiki.map(w=>'<div class="chain-row" style="cursor:pointer" onclick="showWiki(\''+w.title+'\')"><span class="tag cyan mono">'+w.title.slice(0,30)+'</span><span class="dim" style="margin-left:8px">'+(w.chars||0)+' chars</span></div>').join('')||'<div class="dim">No wiki pages</div>';
-  // Clusters
-  window._lastClusters=d.clusters||[];
-  const clusters=d.clusters||[];
-  const cm=document.getElementById('clusters-list');
-  if(cm)cm.innerHTML=clusters.slice(0,10).map(cl=>'<div class="chain-row" style="cursor:pointer" onclick="showCluster(\''+cl.chain_id+'\')"><span class="mono" style="font-size:10px;color:var(--purp)">'+(cl.label||'Theme '+(cl.theme||cl.count||'?')).slice(0,40)+'</span><span class="dim" style="font-size:10px;flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cl.thoughts||cl.count||0)+'t</span></div>').join('')||'<div class="dim">No clusters</div>';
-  // Heatmap
-  if(typeof buildHeatmap==='function')buildHeatmap(d.chains||[]);
-  // Pulse
-  if(typeof pulseUpdate==='function')pulseUpdate(works);
-  // Breakdown (IDs: tb-total, tb-chains, etc.)
-  const bd=document.getElementById('tb-total');if(bd)bd.textContent=t.thoughts||0;
-  const bc=document.getElementById('tb-chains');if(bc)bc.textContent=t.chains||0;
-  const ba=document.getElementById('tb-avg');if(ba)ba.textContent=t.chains&&t.thoughts?(t.thoughts/t.chains).toFixed(1):'--';
-  const bb=document.getElementById('tb-branches');if(bb)bb.textContent=t.branches||0;
-  const br=document.getElementById('tb-revisions');if(br)br.textContent=t.revisions||0;
-  const brr=document.getElementById('tb-rated');if(brr)brr.textContent=sc.total_rated||0;
-  // Memory (IDs: mem-t, mem-c, mem-s)
-  const mt=document.getElementById('mem-t');if(mt)mt.textContent=t.thoughts||0;
-  const mc=document.getElementById('mem-c');if(mc)mc.textContent=t.chains||0;
-  const ms=document.getElementById('mem-s');if(ms)ms.textContent=d.sessions||0;
-  // Objectives (Agent Loop)
-  const objectives = d.objectives||[];
-  const ol = document.getElementById('objectives-list');
-  if(ol) {
-    const total = objectives.length;
-    const done = objectives.filter(o=>o.phase==='done').length;
-    document.getElementById('summary-objectives').textContent = done + '/' + total + ' done';
-    ol.innerHTML = objectives.map(o => {
-      const phaseIcon = {builder:'🔵',building:'⚙️',testing:'🧪',done:'✅'}[o.phase]||'❓';
-      const barLen = 10;
-      const doneBar = o.tasks_total ? Math.round((o.tasks_done / o.tasks_total) * barLen) : 0;
-      const bar = '█'.repeat(doneBar) + '░'.repeat(barLen - doneBar);
-      return '<div class="card">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<span>' + phaseIcon + ' <strong>' + (o.title||'') + '</strong></span>' +
-        '<span class="mono" style="color:' + (o.score >= 8 ? 'var(--green)' : o.score >= 5 ? 'var(--yellow)' : 'var(--red)') + '">' + o.score + '/10</span>' +
-        '</div>' +
-        '<div style="font-size:10px;color:var(--dim);margin-top:4px">' + o.phase.toUpperCase() + ' · ' + o.criteria + ' criteria</div>' +
-        '<div style="font-size:10px;margin-top:4px;font-family:monospace">' + bar + ' ' + o.tasks_done + '/' + o.tasks_total + '</div>' +
-        '</div>';
-    }).join('') || '<div class="dim" style="font-size:11px">No objectives. Use objective_create in agent to create one.</div>';
-  }
-
-  // Collisions, Claims, Bridges, Preserved
-  const col=document.getElementById('collisions-list');if(col)col.innerHTML=(d.collisions||[]).length?(d.collisions||[]).map(x=>'<div>'+x+'</div>').join(''):'<div class="dim" style="font-size:11px">No collisions</div>';
-  // Bridges
-  const bl=document.getElementById('bridges-list');if(bl){const bd=d.bridges||[];bl.innerHTML=bd.length?bd.map(b=>'<div class="chain-row"><span class="mono" style="font-size:9px;color:var(--purp)">'+(b.score||0).toFixed(2)+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(b.chain_id||'').slice(0,18)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No bridges</div>';}
-  // Preserved
-  const pr=document.getElementById('preserved-list');if(pr){const pd=d.preserved||[];pr.innerHTML=pd.length?pd.map(p=>'<div class="chain-row"><span class="tag cyan" style="font-size:8px">'+(p.priority||'low')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.label||'').slice(0,50)+'</span></div>').join(''):'<div class="dim" style="font-size:11px">No contexts preserved</div>';}
-  // Claims
-  ['claims-list'].forEach(id=>{const el=document.getElementById(id);if(el&&el.innerHTML.includes('Loading'))el.innerHTML='<div class="dim" style="font-size:11px">No data</div>'});
-  // Sessions
-  const sDetail=d.sessions_detail||{};
-  const sList=Object.entries(sDetail).slice(0,10);
-  const se=document.getElementById('sessions-list');
-  if(se)se.innerHTML=sList.map(([sid,ss])=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+sid.slice(0,12)+'</span><span class="dim" style="margin-left:8px;font-size:10px">'+(ss.chains||0)+'c · '+(ss.patterns||0)+'p · '+(ss.tool_calls||0)+' calls</span></div>').join('')||'<div class="dim">No sessions</div>';
-  // Feeling
-  const fl=document.getElementById('feeling-list');
-  if(fl){
-    let felt=null;
-    Object.values(sDetail).forEach(s=>{if(s.feeling){felt=s.feeling}});
-    if(felt){
-      const moods={focused:"🔵",frustrated:"🔴",stuck:"⛔",tired:"😴",confident:"🟢",curious:"🟣",overwhelmed:"😰",neutral:"⚪"};
-      const icon=moods[felt.mood]||"❓";
-      const dt=Math.floor((Date.now()/1000-parseFloat(felt.ts))/60);
-      fl.innerHTML='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:16px">'+icon+' '+felt.mood+'</span><span class="mono dim">'+(dt<1?"now":dt+"m ago")+'</span></div><div style="margin-top:8px;display:flex;gap:12px;font-size:10px"><span>Confidence: '+felt.confidence+'/10</span><span>Energy: '+felt.energy+'/10</span></div>'+(felt.context?'<div style="font-size:10px;color:var(--dim);margin-top:6px">'+felt.context+'</div>':"")+'</div>';
-    }else{
-      fl.innerHTML='<div class="dim" style="font-size:11px">No feeling recorded</div>';
-    }
-  }
-  // Model
-  const model=d.model||{};
-  const mo=document.getElementById('model-list');
-  if(mo)mo.innerHTML=Object.entries(model).slice(0,25).map(([name,ent])=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--purp)">'+(ent.role||'item')+'</span><span class="dim" style="flex:1;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">'+name.slice(0,25)+'</span><span class="dim" style="font-size:9px">'+(ent.deps||0)+' deps</span></div>').join('')||'<div class="dim">Loading</div>';
-  // Patterns (from /metrics)
-  const patterns=d.patterns||[];
-  const pt=document.getElementById("patterns-list");
-  if(pt)pt.innerHTML=patterns.slice(0,20).map(p=>`<div class="chain-row" style="cursor:pointer" onclick="showPattern('${p.name}')"><span class="mono" style="font-size:9px;color:var(--purp)">${p.name.slice(0,20)}</span><span class="dim" style="flex:1;margin:0 4px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(p.description||'').slice(0,40)}</span></div>`).join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No patterns</div>';
-
-  // Q&A (from /metrics)
-  const qaPairs=d.qa_pairs||[];
-  const ql=document.getElementById("qa-list");
-  if(ql)ql.innerHTML=qaPairs.slice(0,20).map(q=>'<div class="chain-row" style="cursor:pointer" onclick="showQA(\''+q.id+'\')"><span class="dim" style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.question||'').slice(0,45)+'</span><span class="tag mono" style="font-size:8px">'+(q.tags||[]).slice(0,2).join(",")+'</span></div>').join('')||'<div class="dim" style="font-size:11px;padding:8px;text-align:center">No Q&A</div>';
-
-  // Decisions — fetch from /decisions endpoint
-  fetch('/decisions').then(r=>r.json()).then(dd=>{
-    const de=document.getElementById('decisions-list');
-    const decisions=dd.decisions||[];
-    if(de)de.innerHTML=decisions.slice(0,20).map(dc=>'<div class="chain-row"><span class="mono" style="font-size:10px;color:var(--cyan)">#'+dc.id+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(dc.decision||'').slice(0,60)+'</span></div>').join('')||'<div class="dim">No decisions</div>';
-  }).catch(()=>{const de=document.getElementById('decisions-list');if(de)de.innerHTML='<div class="dim">Error loading</div>'});
-  // Assumptions
-  const assumptions=d.assumptions||[];
-  const as=document.getElementById('assumptions-list');
-  if(as)as.innerHTML=assumptions.slice(0,20).map(a=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(a.status==='\u2714'?'\u2705':'\u274C')+'</span><span class="dim" style="flex:1;margin:0 4px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#'+a.id+' '+(a.statement||'').slice(0,40)+'</span></div>').join('')||'<div class="dim">Loading</div>';
-  // Presence
-  const presence=d.presence||{};
-  const ps=document.getElementById('presence-list');
-  if(pr)pr.innerHTML=Object.entries(presence).slice(0,8).map(([sid,p])=>'<div class="chain-row"><span class="mono" style="font-size:10px">'+(p.online?'\u25CF':'\u25CB')+'</span><span style="font-size:10px;flex:1;margin:0 4px">'+sid.slice(0,20)+'</span><span class="dim" style="font-size:9px">PID '+p.pid+'</span></div>').join('')||'<div class="dim" style="font-size:11px">No presence data</div>';
-  // Footer
-  const ft=document.getElementById('footer');
-  if(ft)ft.textContent='Metrics: /metrics | Live via LUMEN';
-  // Chart (async/delayed)
-  if(typeof drawChart==='function'&&d.timeline)setTimeout(()=>drawChart(d.timeline),50);
-};
-async function refresh(){
-  // Always fetch via HTTP for reliable data
-  try{const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),5000);const r=await fetch('/metrics',{signal:ctrl.signal});if(!r.ok)throw Error();const d=await r.json();renderData(d)}
-  catch(e){$('status-dot').className='dot off';$('status-label').className='status-text red';$('status-label').textContent='Offline';$('footer').textContent='Error: '+e.message}
-  setTimeout(refresh,10000)}
-refresh(); loadKanban();
-  loadWebSnapshots();
-
-function showChain(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||c.error)return;
-  const thoughts=(c.thoughts||[]).map(t=>`<div class="chain-row"><span class="mono ${t.score?'green':''}" style="font-size:10px">#${t.number}</span><span style="font-size:11px;flex:1;margin:0 8px">${t.thought}</span>${t.score?`<span class="tag" style="background:rgba(34,211,238,.15);color:var(--acc)">${t.score}★</span>`:''}${t.is_revision?'<span class="tag" style="background:rgba(168,85,247,.15);color:var(--purp)">rev</span>':''}${t.has_branch?'<span class="tag" style="background:rgba(250,204,21,.15);color:var(--yellow)">branch</span>':''}</div>`).join('');
-  $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${c.chain_id}</h3><div class="dim mono" style="margin:8px 0">${c.total_thoughts} thoughts · v${c.version} · session ${c.session}</div><div style="max-height:50vh;overflow-y:auto">${thoughts||'<div class="dim">No thoughts</div>'}</div></div></div>`}).catch(()=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close">&times;</button><h3>Error</h3><p>Chain not found</p></div></div>'})}
-function showPattern(name){
-  fetch('/metrics').then(r=>r.json()).then(d=>{
-    const p=(d.patterns||[]).find(x=>x.name===name);
-    if(!p){return}
-    const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+p.name+'</div>',
-      '<div class="dim" style="font-size:11px;margin-bottom:8px">'+(p.description||'')+'</div>'];
-    $('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
-  });
-}
-function showQA(id){
-  fetch('/metrics').then(r=>r.json()).then(d=>{
-    const q=(d.qa_pairs||[]).find(x=>x.id===id);
-    if(!q){return}
-    const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">❓ '+q.question+'</div>',
-      '<div style="font-size:12px;padding:12px;background:rgba(34,211,238,.05);border-radius:8px;margin-bottom:8px">'+q.answer+'</div>',
-      '<div class="dim" style="font-size:10px">Tags: '+(q.tags||[]).join(', ')+'</div>'];
-    $('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
-  });
-}
-function showWiki(title){$('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:700px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><pre style="font-size:11px;color:var(--text);white-space:pre-wrap;margin-top:12px;max-height:60vh;overflow-y:auto" id="wiki-content">Loading...</pre></div></div>`;
-  fetch('/metrics').then(r=>r.json()).then(d=>{const w=(d.wiki||[]).find(x=>x.title===title);if(w)$('wiki-content').textContent=w.chars;else $('wiki-content').textContent='Not found'})}
-function showCluster(cid){const clusters=(window._lastClusters||[]).filter(c=>c.chain_id===cid);
-  if(!clusters.length){$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><h3>No clusters</h3><p>No themes found for this chain.</p></div></div>';return}
-  const items=clusters.map(cl=>`<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span class="tag mono" style="background:rgba(168,85,247,.15);color:var(--purp)">${cl.label||'Theme'}</span><span class="dim" style="margin-left:8px">${cl.count} thoughts</span>${cl.preview?`<div class="dim" style="font-size:10px;margin-top:4px">${cl.preview.slice(0,200)}</div>`:''}</div>`).join('');
-  $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" style="max-width:650px" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3 style="cursor:default">Clusters: ${cid.slice(0,30)}</h3><div class="dim mono" style="margin:6px 0;font-size:10px">${clusters.length} themes</div><div style="max-height:55vh;overflow-y:auto">${items}</div></div></div>`}
-function showPlan(cid){fetch('/chain?chain_id='+encodeURIComponent(cid)).then(r=>r.json()).then(c=>{if(!c||!c.plan){$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><h3>No plan</h3><p>Run thought_to_plan on this chain first.</p></div></div>';return}
-  $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>Plan: ${cid.slice(0,25)}</h3><div class="dim mono" style="margin:8px 0">${c.plan.steps} steps · ${c.plan.format}</div><pre style="font-size:11px;color:var(--text);white-space:pre-wrap;max-height:60vh;overflow-y:auto">${c.plan.preview||'No details'}</pre></div></div>`})}
-async function clearChains(){try{const r=await fetch('/clear-chains',{method:'POST',body:'{}'});const d=await r.json();$('mem-msg').textContent='Cleared '+d.cleared+' chains'}catch(e){$('mem-msg').textContent='Error'}}
-function showKPI(type){
-  fetch('/metrics').then(r=>r.json()).then(d=>{
-    const t=d.totals||{},sc=d.scores||{},ct=d.contradictions||{};
-    let title,body;
-    if(type==='thoughts'){title='Thoughts';body=`<div class="chain-row"><span class="dim">Total</span><span>${t.thoughts||0}</span></div><div class="chain-row"><span class="dim">Chains</span><span>${t.chains||0}</span></div><div class="chain-row"><span class="dim">Branches</span><span>${t.branches||0}</span></div><div class="chain-row"><span class="dim">Revisions</span><span>${t.revisions||0}</span></div><div class="chain-row"><span class="dim">Rated</span><span>${sc.total_rated||0} / ${t.thoughts||0}</span></div>`}
-    else if(type==='score'){title='Score Distribution';body=`<div class="chain-row"><span class="dim">Average</span><span class="cyan mono">${sc.avg||'--'}</span></div><div class="chain-row"><span class="dim">Highest</span><span class="yellow mono">${sc.max||'--'}</span></div><div class="chain-row"><span class="dim">Lowest</span><span class="dim mono">${sc.min||'--'}</span></div><div class="chain-row"><span class="dim">Unrated</span><span>${sc.unrated||0}</span></div>`}
-    else if(type==='contra'){title='Contradictions';body=`<div class="chain-row"><span class="dim">Found</span><span class="red">${ct.found||0}</span></div><div class="chain-row"><span class="dim">Chains affected</span><span>${ct.chains_affected||0}</span></div>`}
-    else if(type==='calls'){title='Tool Calls';body=`<div class="chain-row"><span class="dim">Total</span><span>${t.tool_calls||0}</span></div><div class="chain-row"><span class="dim">Sessions</span><span>${d.sessions||0}</span></div><div class="chain-row"><span class="dim">Uptime</span><span>${((d.uptime_seconds||0)/60).toFixed(1)} min</span></div>`;}
-    $('modal-container').innerHTML=`<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>${title}</h3><div style="margin-top:12px">${body}</div></div></div>`;
-  });
-}
-
-function buildHeatmap(chains){
-  const months={};chains.forEach(c=>{if(!c.created_at)return;const d=new Date(c.created_at*1000);const k=d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0');if(!months[k])months[k]={};const sid=c.session||'?';months[k][sid]=(months[k][sid]||0)+c.thoughts});
-  const sessions=[...new Set(chains.map(c=>c.session).filter(Boolean))];
-  const mkeys=Object.keys(months).sort();
-  if(!mkeys.length){$('heatmap-table').innerHTML='<div class="dim" style="font-size:11px">No data</div>';return}
-  let h='<table style="width:100%;border-collapse:collapse"><tr><th style="padding:4px;text-align:left;color:var(--dim)">Session</th>'+mkeys.map(m=>`<th style="padding:4px;color:var(--dim)">${m}</th>`).join('')+'</tr>';
-  sessions.forEach(sid=>{h+='<tr><td class="dim mono" style="padding:4px">'+sid.slice(0,15)+'</td>'+mkeys.map(m=>{const v=months[m][sid]||0;const alpha=v?Math.min(1,0.05+v*0.05):0.02;return`<td style="padding:4px;text-align:center;background:rgba(34,211,238,${alpha});border-radius:4px">${v||'·'}</td>`}).join('')+'</tr>'});
-  h+='</table>';$('heatmap-table').innerHTML=h;
-}
-
-async function clearBridges(){try{const r=await fetch('/clear-bridges',{method:'POST'});const d=await r.json();$('mem-msg').textContent=d.cleared}catch(e){$('mem-msg').textContent='Error'}}
-
-function pulseUpdate(works){
-  const now=Date.now()/1000;
-  const fmtTime=ts=>{const s=Math.round(now-ts);return s<60?s+'s':s<3600?Math.floor(s/60)+'m':Math.floor(s/3600)+'h'};
-  const fmtDur=d=>{const m=d/60;return m<60?m.toFixed(0)+'m':(m/60).toFixed(1)+'h'};
-  const shortItem=s=>s&&s.length>22?s.slice(0,22)+'...':s||'';
-  // NOW: in_progress works started within last 60 minutes
-  const active=works.filter(w=>w.status==='in_progress'&&w.started_at).sort((a,b)=>(b.started_at||0)-(a.started_at||0)).slice(0,5);
-  // Recent: completed within 24h
-  const done=works.filter(w=>w.status==='done'&&w.done_at).sort((a,b)=>(b.done_at||0)-(a.done_at||0)).slice(0,5);
-  const blocked=works.filter(w=>w.status==='blocked').slice(0,3);
-  // Show modal on click with full work data
-  window.showWorkInfo=function(w){
-    if(!w)return;
-    const lines=['<div style="font-size:13px;font-weight:600;margin-bottom:8px">'+(w.item||'Unnamed')+'</div>'];
-    if(w.description)lines.push('<div class="dim" style="font-size:11px;margin-bottom:8px">'+w.description.slice(0,300)+'</div>');
-    lines.push('<div class="chain-row"><span class="dim">Status</span><span class="tag '+(w.status==='done'?'green':w.status==='in_progress'?'cyan':'red')+'">'+(w.status||'?')+'</span></div>');
-    if(w.started_at)lines.push('<div class="chain-row"><span class="dim">Started</span><span class="mono">'+new Date(w.started_at*1000).toLocaleString()+'</span></div>');
-    if(w.done_at)lines.push('<div class="chain-row"><span class="dim">Completed</span><span class="mono">'+new Date(w.done_at*1000).toLocaleString()+'</span></div>');
-    if(w.started_at&&w.done_at)lines.push('<div class="chain-row"><span class="dim">Duration</span><span class="mono">'+fmtDur(w.done_at-w.started_at)+'</span></div>');
-    if(w.started_at&&!w.done_at)lines.push('<div class="chain-row"><span class="dim">Elapsed</span><span class="mono">'+fmtDur(now-w.started_at)+'</span></div>');
-    if(w.category)lines.push('<div class="chain-row"><span class="dim">Category</span><span>'+w.category+'</span></div>');
-    if(w.block_reason)lines.push('<div class="chain-row"><span class="dim">Blocked by</span><span style="color:var(--red)">'+w.block_reason+'</span></div>');
-    $('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button>'+lines.join('')+'</div></div>';
-  };
-  // Build clickable cards
-  const renderCard=(w,color,sub)=>{
-    const json=encodeURIComponent(JSON.stringify(w));
-    return '<div class="chain-row" style="cursor:pointer;padding:8px 10px;margin-bottom:4px;background:rgba(255,255,255,.02);border-radius:8px;border-left:3px solid '+color+';transition:background .2s" onclick="showWorkInfo(JSON.parse(decodeURIComponent(\''+json+'\')))" onmouseover="this.style.background=\'rgba(255,255,255,.06)\'" onmouseout="this.style.background=\'rgba(255,255,255,.02)\'"><span style="font-size:11px;font-weight:700;color:'+color+'">'+(w.status==='done'?'\u2714\uFE0F':w.status==='in_progress'?'\u25B6':'\u274C')+'</span><span class="mono" style="flex:1;margin:0 8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+shortItem(w.item||w.title||'')+'</span><span class="dim" style="font-size:9px;white-space:nowrap">'+sub+'</span></div>';
-  };
-  $('pulse-now').innerHTML=active.length?active.map(w=>renderCard(w,'#22d3ee',fmtDur((now-w.started_at)/60))).join(''):'<div class="dim" style="font-size:11px;padding:12px;text-align:center">None active</div>';
-  $('pulse-recent').innerHTML=done.length?done.map(w=>renderCard(w,'rgba(34,211,238,.5)',(w.done_at?fmtTime(w.done_at):'')+' ago')).join(''):'<div class="dim" style="font-size:11px;padding:12px;text-align:center">None done</div>';
-  $('pulse-blocked').innerHTML=blocked.length?blocked.map(w=>renderCard(w,'#ef4444','')).join(''):'<div class="dim" style="font-size:11px;padding:12px;text-align:center">None blocked</div>';
-}
-/* ── Wiki CRUD ── */
-function showEntity(name){fetch('/model?entity='+encodeURIComponent(name)).then(r=>r.json()).then(e=>{const props=Object.entries(e.properties||{}).map(([k,v])=>'<div class="chain-row"><span class="dim">'+k+'</span><span>'+v+'</span></div>').join('');$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>'+name+' <span class="tag mono" style="background:rgba(34,211,238,.15);color:var(--acc);float:right">'+e.role+'</span></h3>'+props+'<div style="font-size:11px;color:var(--dim);margin-top:8px">Deps: '+(e.deps||[]).join(', ')+'</div><div style="font-size:11px;color:var(--dim);margin-top:4px">Notes: '+(e.notes||'None')+'</div><div style="margin-top:12px"><button class="btn btn-acc" onclick="editEntity(\''+name+'\')">Edit</button> <button class="btn btn-danger" onclick="deleteEntity(\''+name+'\')">Delete</button></div></div></div>'}).catch(()=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><h3>Error</h3><p>Entity not found</p></div></div>'})}
-function deleteEntity(name){if(!confirm('Delete '+name+'?'))return;fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({_action:'delete',entity:name})}).then(r=>r.json()).then(d=>{loadWiki()}).catch(e=>alert('Delete failed'))}
-function editEntity(name){fetch('/model?entity='+encodeURIComponent(name)).then(r=>r.json()).then(e=>{$('modal-container').innerHTML='<div class="modal-overlay" onclick="this.remove()"><div class="modal" onclick="event.stopPropagation()"><button class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</button><h3>Edit: '+name+'</h3><form id="edit-form" onsubmit="saveEntity(event,\''+name+'\')"><div style="margin:8px 0"><label class="dim" style="font-size:10px">Role</label><input name="role" value="'+e.role+'" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;margin-top:4px"></div><div style="margin:8px 0"><label class="dim" style="font-size:10px">Deps (comma separated)</label><input name="deps" value="'+(e.deps||[]).join(', ')+'" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;margin-top:4px"></div><div style="margin:8px 0"><label class="dim" style="font-size:10px">Notes</label><textarea name="notes" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;margin-top:4px;min-height:60px">'+e.notes+'</textarea></div><button type="submit" class="btn btn-acc" style="width:100%;margin-top:8px">Save</button></form></div></div>'})}
-function saveEntity(event,name){event.preventDefault();const f=event.target;const deps=f.deps.value.split(',').map(s=>s.trim()).filter(Boolean);fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:name,role:f.role.value,deps:deps,notes:f.notes.value})}).then(r=>r.json()).then(d=>{document.querySelector('.modal-overlay')?.remove();loadWiki()}).catch(e=>alert('Save failed'))}
-function newEntity(){const n=prompt('Entity name:');if(!n)return;fetch('/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity:n,role:'other',deps:[],notes:''})}).then(r=>r.json()).then(d=>{loadWiki();editEntity(n)})}
-function loadWiki(){fetch('/model').then(r=>r.json()).then(data=>{const entries=Object.entries(data||{});$('wiki-list').innerHTML=entries.length?entries.map(([name,e])=>'<div class="card" style="cursor:pointer" onclick="showEntity(\''+name+'\')"><span class="tag cyan mono">'+name.slice(0,30)+'</span> <span class="dim">'+e.role+' · '+(e.deps||[]).length+' deps</span></div>').join(''):'<div class="dim" style="font-size:11px">No entities. <a href="#" onclick="newEntity()">Create one</a></div>'}).catch(()=>{$('wiki-list').innerHTML='<div class="dim" style="font-size:11px">Server offline</div>'})}
-function toggleSection(id){const el=document.getElementById(id);if(!el)return;const arrow=el.parentElement.querySelector('.arrow');if(el.classList.contains('collapsed')){el.classList.remove('collapsed');el.style.maxHeight='3000px';if(arrow)arrow.textContent='▼'}else{el.classList.add('collapsed');el.style.maxHeight='0px';if(arrow)arrow.textContent='▶'}}
-
-
-// ── Kanban ──
-let _kanbanNiches = [];
-let _kanbanTasks = [];
-
-function loadKanban() {
-  const sel = document.getElementById('kanban-niche');
-  if (!sel) return;
-  const nicheId = sel.value;
-  const url = nicheId ? '/kanban?niche_id='+encodeURIComponent(nicheId) : '/kanban';
-  fetch(url).then(r=>r.json()).then(d=>{
-    _kanbanNiches = d.niches || [];
-    _kanbanTasks = d.tasks || [];
-    // Populate dropdown with niches
-    if (_kanbanNiches.length && sel.options.length <= 1) {
-      sel.innerHTML = '<option value=\"\">Select a niche...</option>';
-      _kanbanNiches.forEach(function(n){
-        var opt = document.createElement('option');
-        opt.value = n.id;
-        opt.textContent = (n.archived ? '📦 ' : '') + (n.name||n.id);
-        sel.appendChild(opt);
-      });
-    }
-    renderKanban();
-  }).catch(e=>console.log('Kanban fetch error', e));
-}
-
-function renderKanban() {
-  const board = document.getElementById('kanban-board');
-  if (!board) return;
-  const sel = document.getElementById('kanban-niche');
-  const nicheId = sel ? sel.value : '';
-  const niche = _kanbanNiches.find(n=>n.id===nicheId);
-  const columns = niche ? niche.columns : ['Backlog','In Progress','Review','Done','Blocked'];
-  const tasks = nicheId ? _kanbanTasks : [];
-  
-  if (!nicheId) {
-    board.innerHTML = '<div style="flex:1;text-align:center;padding:40px;color:var(--dim);font-size:11px">Select a niche to show the board</div>';
-    return;
-  }
-  
-  // Count tasks by column for summary
-  const counts = {};
-  columns.forEach(c=>counts[c]=0);
-  tasks.forEach(t=>{ if(counts[t.status]!==undefined) counts[t.status]++; });
-  const total = tasks.length;
-  document.getElementById('summary-kanban').textContent = total + ' tasks';
-  
-  // Render columns
-  board.innerHTML = columns.map((col, ci) => {
-    const colTasks = tasks.filter(t=>t.status===col);
-    const colClass = "kanban-col-" + col.replace(/\s+/g,'-');
-    return '<div data-col="'+col+'" class="kanban-col '+colClass+'" style="min-width:200px;flex:1;background:rgba(20,20,35,.5);border-radius:12px;padding:10px;border:1px solid var(--border)">' +
-      '<div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;font-weight:600">' + col +
-      ' <span style="color:var(--acc);font-weight:700">' + colTasks.length + '</span></div>' +
-      colTasks.map(t => {
-        const prioIcon = {low:'▽',medium:'◇',high:'▲',critical:'!!'}[t.priority]||'◇';
-        const prioColor = {low:'var(--dim)',medium:'var(--text)',high:'var(--yellow)',critical:'var(--red)'}[t.priority]||'var(--text)';
-        const refs = [];
-        if(t.references && t.references.chains && t.references.chains.length) refs.push('🔗'+t.references.chains.length);
-        if(t.references && t.references.patterns && t.references.patterns.length) refs.push('🐞'+t.references.patterns.length);
-        if(t.references && t.references.decisions && t.references.decisions.length) refs.push('📋'+t.references.decisions.length);
-        const refStr = refs.length ? '<span style="font-size:8px;color:var(--purp)">'+refs.join(' ')+'</span>' : '';
-        return '<div class="card" style="cursor:grab;position:relative" draggable="true" data-task-id="'+t.id+'" data-column="'+col+'" ' +
-          'ondragstart="kanbanDrag(event)" ondrop="kanbanDrop(event)" ondragover="event.preventDefault()">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-          '<span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (t.title||'') + '</span>' +
-          '<span style="color:'+prioColor+';font-size:10px;margin-left:4px">' + prioIcon + '</span></div>' +
-          (t.desc ? '<div style="font-size:9px;color:var(--dim);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + t.desc.slice(0,60) + '</div>' : '') +
-          '<div style="font-size:9px;display:flex;gap:4px;align-items:center">' +
-          '<span class="mono" style="font-size:8px;color:var(--dim)">#'+t.id+'</span>' + refStr + '</div></div>';
-      }).join('') || '<div style="font-size:10px;color:var(--dim);padding:16px;text-align:center">Empty</div>' +
-      '</div>';
-  }).join('');
-  
-  // Fill niche selector (always update)
-  if(sel && _kanbanNiches.length){
-    const currentVal = sel.value;
-    sel.innerHTML = '<option value="">-- Select niche --</option>' +
-      _kanbanNiches.filter(n=>!n.archived).map(n=>'<option value="'+n.id+'" style="color:'+(n.color||'#22d3ee')+'">'+n.name+'</option>').join('');
-    if(currentVal) sel.value = currentVal;
-  }
-}
-
-function kanbanDrag(e) {
-  e.dataTransfer.setData('text/plain', e.target.getAttribute('data-task-id') + '|' + e.target.getAttribute('data-column'));
-  e.target.style.opacity = '0.5';
-  // Add drag-over class to all columns
-  document.querySelectorAll('.kanban-col').forEach(c=>c.classList.add('drag-over'));
-}
-document.addEventListener('dragend', function() {
-  document.querySelectorAll('.kanban-col').forEach(c=>c.classList.remove('drag-over'));
-});
-
-function kanbanDrop(e) {
-  e.preventDefault();
-  e.target.style.opacity = '';
-  const data = e.dataTransfer.getData('text/plain').split('|');
-  const taskId = data[0];
-  const fromCol = data[1];
-  // Determine the target column from the drop zone
-  const colHeader = e.target.closest('.kanban-col');
-  if (!colHeader) return;
-  const toCol = colHeader.getAttribute('data-col');
-  if (!toCol || toCol === fromCol) return;
-  
-  fetch('/kanban/move', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({task_id:taskId, to_column:toCol})
-  }).then(r=>r.json()).then(res=>{
-    if(res.status==='ok') loadKanban();
-    else console.log('Move error:', res);
-  }).catch(e=>console.log('Move fetch error:', e));
-}
-
-function createTask() {
-  const sel = document.getElementById('kanban-niche');
-  if (!sel || !sel.value) { alert('Select a niche first'); return; }
-  const title = prompt('Task title:');
-  if (!title) return;
-  const desc = prompt('Task description (optional):');
-  fetch('/kanban/move', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({task_id:'_new', to_column:'_create', niche_id:sel.value, title:title, desc:desc||''})
-  }).then(r=>r.json()).then(res=>{
-    if(res.status==='ok'||res.task_id) loadKanban();
-  loadWebSnapshots();
-  });
-}
-</script>
-  <!-- ═══════════════════════════════════════════ -->
-  <!-- 📸 Web Research                             -->
-  <!-- ═══════════════════════════════════════════ -->
-  >
-  <h3>💻 M Console</h3>
-  <div style="background:#0a0a0f;border:1px solid #22d3ee33;border-radius:8px;padding:12px;font-family:JetBrains Mono,monospace;font-size:13px;min-height:120px;max-height:450px;overflow-y:auto;white-space:pre-wrap;color:#22d3ee;line-height:1.5" onclick="mFocus()">
-    <div id="m-hist" style="color:#22d3ee">
-      <span style="color:#666">%SS 09:04:47  LUMEN M-Light v1.0<br>------------------------------------------------------------<br>Type MUMPS or MSM commands. Enter to run. Arrows for history.<br>  D ^%GL  |  D ^%SS  |  $O(^GLOB)</span>
-    </div>
-    <div id="m-line" style="display:flex;align-items:center;gap:4px;min-height:20px">
-      <span style="color:#888;user-select:none">M:\></span>
-      <span id="m-input" contenteditable="true" style="flex:1;outline:none;color:#22d3ee;white-space:pre;caret-color:#22d3ee" spellcheck="false"></span>
-    </div>
-  </div>
-</div>
-<script>
-var mHist=[], mHPos=-1;
-function mFocus(){ document.getElementById('m-input').focus(); }
-function mLine(t){ document.getElementById('m-input').textContent=t; }
-function mAddHist(h){ 
-  var div=document.getElementById('m-hist');
-  div.innerHTML+='<br><span style="color:#888">M:\\></span> <span style="color:#fff">'+h+'</span><br>';
-  div.scrollTop=div.scrollHeight;
-  var mterm=document.getElementById('m-term'); if(mterm)mterm.scrollTop=mterm.scrollHeight;
-}
-function mAddOut(t){ 
-  var div=document.getElementById('m-hist');
-  div.innerHTML+=t;
-  div.scrollTop=div.scrollHeight;
-}
-setTimeout(mFocus,500);
-
-document.addEventListener('keydown',function(e){
-  var el=document.getElementById('m-input');
-  if(document.activeElement!==el) return;
-  if(e.key==='Enter'){
-    e.preventDefault();
-    var cmd=el.textContent.trim();
-    if(!cmd || cmd.toUpperCase()=='CONTINUE' || cmd.toUpperCase()=='C') cmd='D ^%GL';
-    mHist.push(cmd); mHPos=mHist.length;
-    mAddHist(cmd);
-    el.textContent='';
-    fetch('/m',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cmd})})
-    .then(function(r){return r.json()})
-    .then(function(d){
-      var txt=(d.result||'').replace(/\n/g,'<br>');
-      var out=d.error?'<span style="color:#f55">! '+d.error+'</span>':'<span style="color:#22d3ee">'+txt+'</span>';
-      mAddOut(out);
-      mFocus();
-    })
-    .catch(function(err){
-      mAddOut('<span style="color:#f55">! '+err.message+'</span>');
-      mFocus();
-    });
-  }else if(e.key==='ArrowUp'){
-    e.preventDefault();
-    if(mHist.length===0) return;
-    mHPos=Math.max(0,mHPos-1);
-    el.textContent=mHist[mHPos];
-    if(window.getSelection){ var r=document.createRange(); r.selectNodeContents(el); r.collapse(false); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
-  }else if(e.key==='ArrowDown'){
-    e.preventDefault();
-    mHPos=Math.min(mHist.length,mHPos+1);
-    el.textContent=mHPos>=mHist.length?'':mHist[mHPos];
-    if(window.getSelection){ var r=document.createRange(); r.selectNodeContents(el); r.collapse(false); var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); }
-  }else if(e.key==='Escape'){
-    e.preventDefault();
-    el.textContent='';
-    mHPos=mHist.length;
-  }
-});
-</script>
-
-<div class="section" id="section-web" style="margin-top:16px">
-    <div class="collapsible" onclick="toggleSection('web')" style="cursor:pointer;user-select:none">
-      <span id="arrow-web" class="arrow" style="font-size:12px;margin-right:6px">▼</span>
-      <span>📸 Web Research</span>
-      <span id="summary-web" style="margin-left:8px;font-size:10px;color:var(--dim)">(loading...)</span>
-    </div>
-    <div id="content-web" style="display:none;margin-top:8px">
-      <div id="web-snapshots">
-        <div style="font-size:10px;color:var(--dim);padding:20px;text-align:center">Loading snapshots...</div>
+  <!-- Session Monitor -->
+  <div class="card">
+    <h2>📡 Sesiones (<span x-text="sessions.length"></span>)</h2>
+    <template x-for="s in sessions" :key="s.session_id">
+      <div class="entity">
+        <strong x-text="s.session_id"></strong>
+        <span style="font-size:.7rem;color:#64748b" x-text="s.label"></span>
+        <div style="font-size:.75rem">
+          🧵<span x-text="s.chains"></span>
+          🔧<span x-text="s.tool_calls"></span>
+          🧩<span x-text="s.model_entities"></span>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 
-<div class="glass" style="margin-top:16px"></div>
-</body></html>
+  <!-- Collisions -->
+  <div class="card">
+    <h2>⚠️ Colisiones</h2>
+    <template x-for="c in collisions" :key="c.file">
+      <div class="collision-warn">
+        📁 <strong x-text="c.file||c.path"></strong>
+        <span x-text="c.sessions?.length+' sesiones'"></span>
+      </div>
+    </template>
+    <div x-show="collisions.length===0" style="font-size:.8rem;color:#64748b">Sin colisiones</div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="card" style="max-height:400px;overflow-y:auto">
+    <h2>⏱️ Timeline</h2>
+    <template x-for="e in timeline" :key="e.ts+e.type+e.text">
+      <div class="event">
+        <span :class="'tag tag-'+e.type" x-text="e.type"></span>
+        <span style="font-size:.7rem;color:#64748b" x-text="e.session"></span>
+        <div style="font-size:.8rem" x-text="e.text"></div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Inbox -->
+  <div class="card">
+    <h2>📨 Inbox</h2>
+    <select x-model="inboxSession" style="margin-bottom:.5rem">
+      <option value="default">default</option>
+      <template x-for="s in sessions" :key="s.session_id">
+        <option :value="s.session_id" x-text="s.session_id"></option>
+      </template>
+    </select>
+    <textarea placeholder="Mensaje" x-model="msgText" rows="2"></textarea>
+    <button @click="sendMsg()">Enviar</button>
+    <template x-for="m in inbox" :key="m.timestamp">
+      <div class="msg">
+        <strong x-text="m.from_session"></strong>
+        <span style="font-size:.7rem;color:#64748b" x-text="new Date(m.timestamp*1000).toLocaleTimeString()"></span>
+        <div x-text="m.text"></div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script>
+function dashboard() {
+  return {
+    status: 'conectando...',
+    entities: [], sessions: [], collisions: [], timeline: [], inbox: [],
+    newEntity: {name:'',role:'',notes:'',relationships:'',properties:'{}'},
+    inboxSession: 'default', msgText: '',
+    API: 'http://127.0.0.1:9878',
+
+    async init() {
+      await this.refresh()
+      setInterval(() => this.refresh(), 5000)
+    },
+
+    async refresh() {
+      try {
+        let [e,s,c,t] = await Promise.all([
+          fetch(this.API+'/model/stats').then(r=>r.json()).catch(()=>({})),
+          fetch(this.API+'/sessions').then(r=>r.json()).catch(()=>({sessions:[]})),
+          fetch(this.API+'/collisions').then(r=>r.json()).catch(()=>[]),
+          fetch(this.API+'/timeline?limit=20').then(r=>r.json()).catch(()=>[]),
+        ])
+        this.entities = (e && e.entities) ? e.entities : []
+        this.sessions = (s && s.sessions) || []
+        this.collisions = Array.isArray(c) ? c : (c && c.collisions || [])
+        this.timeline = t || []
+        this.status = '✅ ' + new Date().toLocaleTimeString()
+      } catch(err) {
+        this.status = '❌ ' + err.message
+      }
+    },
+
+    async addEntity() {
+      let n = this.newEntity
+      let rels = n.relationships ? n.relationships.split(',').map(s=>s.trim()).filter(Boolean) : []
+      let props = {}
+      try { props = JSON.parse(n.properties||'{}') } catch {}
+      await fetch(this.API+'/model', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({entity:n.name, deps:rels, role:n.role, notes:n.notes, properties:props})
+      })
+      this.newEntity = {name:'',role:'',notes:'',relationships:'',properties:'{}'}
+      await this.refresh()
+    },
+
+    async sendMsg() {
+      if (!this.msgText.trim()) return
+      await fetch(this.API+'/inbox', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({to:this.inboxSession, from:'dashboard', text:this.msgText})
+      })
+      this.msgText = ''
+      // Reload inbox
+      let r = await fetch(this.API+'/inbox/'+this.inboxSession).then(r=>r.json())
+      this.inbox = r.messages || []
+    }
+  }
+}
+</script>
+</body>
+</html>
