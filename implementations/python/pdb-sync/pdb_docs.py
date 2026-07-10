@@ -216,12 +216,16 @@ def doc_get(ns: str, subs: list, execute: bool = True) -> Optional[dict]:
     # D5: M-code ejecutable — la KILL FEATURE
     if execute and doc.get("executable"):
         m_code = doc.get("content", "")
-        if m_code and m_code.strip().startswith(("$", "SET", "KILL", "DO", "FOR")):
+        if m_code and m_code.strip().startswith(("$", "S", "K", "D", "F", "W", "Q", "I")):
             try:
                 eval_result = tools.tool_m_eval({"expression": m_code})
                 doc["_executed"] = True
                 doc["_executed_at"] = _now_iso()
-                doc["_live_data"] = eval_result.get("result") if eval_result.get("success") else eval_result.get("error", "eval error")
+                # Capturar tanto 'result' como 'output' (WRITE va a output)
+                live = eval_result.get("result") if eval_result.get("success") else None
+                if live is None:
+                    live = eval_result.get("output", "").strip()
+                doc["_live_data"] = live if live is not None else eval_result.get("error", "eval error")
             except Exception as e:
                 doc["_executed"] = False
                 doc["_exec_error"] = str(e)
