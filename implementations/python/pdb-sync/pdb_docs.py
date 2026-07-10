@@ -261,6 +261,30 @@ def doc_history(ns: str, subs: list, limit: int = 10) -> list:
         count += 1
     return results
 
+def doc_diff(ns: str, subs: list, v1: str = None, v2: str = None) -> dict:
+    """Comparar dos versiones (None = versión actual)."""
+    tools = _get_pdb_tools()
+    def _get_ver(ts):
+        if ts is None: return doc_get(ns, subs)
+        r = tools.tool_get({"ns": HISTORY_NAMESPACE, "subs": ["history", ns] + subs + [ts]})
+        return r.get("value") if r.get("success") else None
+    d1, d2 = _get_ver(v1), _get_ver(v2)
+    if not d1 or not d2: return {"error": "version not found"}
+    c1, c2 = d1.get("content",""), d2.get("content","")
+    return {"v1": v1 or "current", "v2": v2 or "current", "changed": c1 != c2,
+            "conf_v1": d1.get("confidence"), "conf_v2": d2.get("confidence"),
+            "added": max(0,len(c2)-len(c1)), "removed": max(0,len(c1)-len(c2))}
+
+def doc_rollback(ns: str, subs: list, version_ts: str) -> dict:
+    """Restaurar versión anterior."""
+    tools = _get_pdb_tools()
+    r = tools.tool_get({"ns": HISTORY_NAMESPACE, "subs": ["history", ns] + subs + [version_ts]})
+    if not r.get("success") or r.get("value") is None: return {"success": False, "error": "version not found"}
+    old = r["value"]
+    old["rollback_from"] = version_ts
+    old["rollback_at"] = _now_iso()
+    return doc_set(ns, subs, old)
+
 # ── Search ───────────────────────────────────────────────────────────
 
 def doc_search(query: str, limit: int = 10) -> list:
