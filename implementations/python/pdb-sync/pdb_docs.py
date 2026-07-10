@@ -221,7 +221,7 @@ def doc_get(ns: str, subs: list, execute: bool = True) -> Optional[dict]:
                 eval_result = tools.tool_m_eval({"expression": m_code})
                 doc["_executed"] = True
                 doc["_executed_at"] = _now_iso()
-                doc["_live_data"] = eval_result.get("value") if eval_result.get("success") else eval_result.get("error", "eval error")
+                doc["_live_data"] = eval_result.get("result") if eval_result.get("success") else eval_result.get("error", "eval error")
             except Exception as e:
                 doc["_executed"] = False
                 doc["_exec_error"] = str(e)
@@ -243,7 +243,7 @@ def doc_exec(ns: str, subs: list) -> dict:
         "success": result.get("success", False),
         "doc": f"docs/{ns}/{'/'.join(str(s) for s in subs)}",
         "m_code": m_code[:100],
-        "result": result.get("value") if result.get("success") else result.get("error", "eval error"),
+        "result": result.get("result") if result.get("success") else result.get("error", "eval error"),
         "executed_at": _now_iso()
     }
 
