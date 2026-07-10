@@ -200,17 +200,52 @@ def doc_set(ns: str, subs: list, data: dict) -> dict:
         "error": result.get("error")
     }
 
-def doc_get(ns: str, subs: list) -> Optional[dict]:
-    """GET ^docs(ns, subs...)."""
+def doc_get(ns: str, subs: list, execute: bool = True) -> Optional[dict]:
+    """GET ^docs(ns, subs...). Si executable=true, evalúa M-code."""
     tools = _get_pdb_tools()
     full_subs = [ns] + subs
     result = tools.tool_get({
         "ns": DOCS_NAMESPACE,
         "subs": full_subs
     })
-    if result.get("success") and result.get("value") is not None:
-        return result["value"]
-    return None
+    if not result.get("success") or result.get("value") is None:
+        return None
+
+    doc = result["value"]
+
+    # D5: M-code ejecutable — la KILL FEATURE
+    if execute and doc.get("executable"):
+        m_code = doc.get("content", "")
+        if m_code and m_code.strip().startswith(("$", "SET", "KILL", "DO", "FOR")):
+            try:
+                eval_result = tools.tool_m_eval({"expression": m_code})
+                doc["_executed"] = True
+                doc["_executed_at"] = _now_iso()
+                doc["_live_data"] = eval_result.get("value") if eval_result.get("success") else eval_result.get("error", "eval error")
+            except Exception as e:
+                doc["_executed"] = False
+                doc["_exec_error"] = str(e)
+
+    return doc
+
+def doc_exec(ns: str, subs: list) -> dict:
+    """Ejecutar M-code en un documento marcado como executable."""
+    doc = doc_get(ns, subs, execute=False)  # raw, sin ejecutar
+    if not doc:
+        return {"success": False, "error": "doc not found"}
+    if not doc.get("executable"):
+        return {"success": False, "error": "doc is not executable"}
+
+    tools = _get_pdb_tools()
+    m_code = doc.get("content", "")
+    result = tools.tool_m_eval({"expression": m_code})
+    return {
+        "success": result.get("success", False),
+        "doc": f"docs/{ns}/{'/'.join(str(s) for s in subs)}",
+        "m_code": m_code[:100],
+        "result": result.get("value") if result.get("success") else result.get("error", "eval error"),
+        "executed_at": _now_iso()
+    }
 
 def doc_order(ns: str, subs: list, direction: int = 1) -> Optional[str]:
     """$ORDER(^docs(ns, subs...))."""
