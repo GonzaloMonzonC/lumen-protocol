@@ -324,6 +324,74 @@ def doc_rollback(ns: str, subs: list, version_ts: str) -> dict:
     old["rollback_at"] = _now_iso()
     return doc_set(ns, subs, old)
 
+# ── D6: Cross-refs inversas ─────────────────────────────────────────
+
+def doc_add_link(ns: str, subs: list, target: str) -> dict:
+    """Añadir un cross-ref a un documento.
+    target: "^decisions:1", "^learnings:42", "^patterns:5"
+    """
+    doc = doc_get(ns, subs, execute=False)
+    if not doc:
+        return {"success": False, "error": "doc not found"}
+
+    links = doc.get("links", [])
+    if target not in links:
+        links.append(target)
+    doc["links"] = links
+    return doc_set(ns, subs, doc)
+
+def doc_find_refs(target: str, limit: int = 20) -> list:
+    """Encontrar todos los docs que referencian un target.
+    Usa doc_list para iterar correctamente sobre la jerarquía.
+    """
+    refs = []
+    all_docs = doc_list(limit=200)
+    for entry in all_docs:
+        ns = entry.get("key", "")
+        if not ns: continue
+        docs_in_ns = doc_list(ns=ns, limit=200)
+        for d in docs_in_ns:
+            doc = d.get("data", {})
+            if doc and target in doc.get("links", []):
+                path = d.get("key", "")
+                refs.append({
+                    "doc": f"docs/{ns}/{path}",
+                    "ns": ns,
+                    "confidence": doc.get("confidence"),
+                    "links": doc.get("links", [])
+                })
+        if len(refs) >= limit:
+            break
+    return refs
+
+def doc_graph(center_ns: str, center_subs: list, depth: int = 1) -> dict:
+    """Construir grafo de referencias alrededor de un documento.
+    Claude Code: grep manual. Nosotros: query instantáneo.
+    """
+    center_doc = doc_get(center_ns, center_subs, execute=False)
+    if not center_doc:
+        return {"error": "doc not found"}
+
+    graph = {
+        "center": f"docs/{center_ns}/{'/'.join(str(s) for s in center_subs)}",
+        "links_out": center_doc.get("links", []),
+        "links_in": []
+    }
+
+    # Encontrar docs que referencian al centro
+    center_ref = f"^docs:{center_ns}/{'/'.join(str(s) for s in center_subs)}"
+    for link in center_doc.get("links", []):
+        refs = doc_find_refs(link, limit=10)
+        for ref in refs:
+            if ref["doc"] != graph["center"]:
+                graph["links_in"].append({
+                    "from": ref["doc"],
+                    "via": link,
+                    "confidence": ref.get("confidence")
+                })
+
+    return graph
+
 # ── Search ───────────────────────────────────────────────────────────
 
 def doc_search(query: str, limit: int = 10) -> list:
