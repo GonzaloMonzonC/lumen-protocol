@@ -42,6 +42,22 @@ SERVICE_DEFAULTS = {
     "help":         {"auth": "public", "entry": "lumen://help/v1", "auto_start": False},
 }
 
+# Return codes (como MSERVER lines 396-409)
+RETCODES = {
+    1: "OK",
+    2: "REROUTE PORT",
+    3: "REROUTE ADDRESS",
+    4: "REJECT",
+    41: "COMMAND ERROR",
+    42: "SERVICE DOES NOT MATCH",
+    43: "PASSWORD DOES NOT MATCH",
+    44: "NO PARTITION TO STARTUP SERVICE",
+    45: "SERVICE ROUTINE DOES NOT EXIST",
+    46: "MSM ERROR",
+    47: "VERSION DOES NOT MATCH",
+    48: "USER LICENSE LIMIT EXCEEDED",
+}
+
 def mserver_init():
     """Inicializar registro de servicios con defaults."""
     tool_set, tool_get, _, _ = _get_tools()
@@ -87,6 +103,103 @@ def mserver_unregister(name):
     _, _, _, tool_kill = _get_tools()
     tool_kill({"ns": MSERVER_NS, "subs": ["service", name]})
     return {"name": name, "status": "unregistered"}
+
+# ── Service Lifecycle (MSERVER STARTUP/SHUTDOWN) ─────────────────
+
+def mserver_start(name):
+    """Iniciar un servicio (MSERVER STARTUP).
+    
+    Equivalente LUMEN: marcar como active y registrar en pulse.
+    MSM: J startup^MSERVER + record jobno.
+    """
+    tool_set, tool_get, _, _ = _get_tools()
+    ts = _now_iso()
+    
+    r = tool_get({"ns": MSERVER_NS, "subs": ["service", name]})
+    svc = r.get("value") if r.get("success") else None
+    if not svc:
+        return {"success": False, "error": "Service not found", "retcode": 45}
+    
+    svc["status"] = "active"
+    svc["started_at"] = ts
+    tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": svc})
+    
+    # Actualizar pulse
+    r2 = tool_get({"ns": "System", "subs": ["pulse", name]})
+    pulse = r2.get("value") if r2.get("success") and r2.get("value") else {}
+    pulse["status"] = "online"
+    pulse["active_service"] = name
+    pulse["last_start"] = ts
+    tool_set({"ns": "System", "subs": ["pulse", name], "value": pulse})
+    
+    return {"success": True, "service": name, "entry": svc.get("entry"), "retcode": 1}
+
+def mserver_stop(name):
+    """Detener un servicio (MSERVER SHUTDOWN).
+    
+    MSM: KILL^KILLJOB + clear JOBNO.
+    Nosotros: marcar stopped, limpiar pulse.
+    """
+    tool_set, tool_get, _, _ = _get_tools()
+    ts = _now_iso()
+    
+    r = tool_get({"ns": MSERVER_NS, "subs": ["service", name]})
+    svc = r.get("value") if r.get("success") else None
+    if not svc:
+        return {"success": False, "error": "Service not found"}
+    
+    svc["status"] = "stopped"
+    svc["stopped_at"] = ts
+    tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": svc})
+    
+    # Limpiar pulse
+    r2 = tool_get({"ns": "System", "subs": ["pulse", name]})
+    pulse = r2.get("value") if r2.get("success") and r2.get("value") else {}
+    pulse["status"] = "offline"
+    pulse["last_stop"] = ts
+    tool_set({"ns": "System", "subs": ["pulse", name], "value": pulse})
+    
+    return {"success": True, "service": name, "retcode": 1}
+
+# ── Connection Validation (MSERVER validate + getcfg) ────────────
+
+def mserver_validate(service_name, client_id, token=None):
+    """Validar conexión: service existe + auth OK.
+    
+    MSERVER validate:
+      - CONNECT command
+      - SERVICE name match  
+      - PASSWORD match
+    
+    Nosotros equiparamos a:
+      - Service exists
+      - HMAC token (si HMAC)
+      - Cualquier cliente si public
+    """
+    s = mserver_get(service_name)
+    if not s:
+        return {"success": False, "retcode": 42, "error": "SERVICE DOES NOT MATCH"}
+    
+    if s.get("auth") == "public":
+        return {"success": True, "retcode": 1, "msg": "OK"}
+    
+    if not token:
+        return {"success": False, "retcode": 43, "error": "PASSWORD DOES NOT MATCH"}
+    
+    # Auth
+    auth = mserver_auth(service_name, client_id, token)
+    if auth.get("success"):
+        return {"success": True, "retcode": 1, "msg": "OK"}
+    
+    return {"success": False, "retcode": 43, "error": "PASSWORD DOES NOT MATCH"}
+
+def mserver_reply(msg, code=1):
+    """Formatear respuesta tipo MSERVER reply().
+    
+    MSM: W $ZCHAR(l/256,l#256),msg,!
+    Nosotros: dict con retcode + msg.
+    """
+    return {"retcode": code, "msg": msg, "desc": RETCODES.get(code, "UNKNOWN")}
 
 # ── Service Query ────────────────────────────────────────────────
 
@@ -196,6 +309,16 @@ if __name__ == "__main__":
         mserver_unregister(name)
         print(f"  Unregistered: {name}")
     
+    elif cmd == "start":
+        name = sys.argv[2]; r = mserver_start(name)
+        print(f"  {'✅' if r['success'] else '❌'} {name}: {r.get('msg', r.get('error', ''))}")
+    elif cmd == "stop":
+        name = sys.argv[2]; r = mserver_stop(name)
+        print(f"  {'✅' if r['success'] else '❌'} {name}: {r.get('msg', r.get('error', ''))}")
+    elif cmd == "validate":
+        svc = sys.argv[2]; client = sys.argv[3]; token = sys.argv[4] if len(sys.argv) > 4 else None
+        r = mserver_validate(svc, client, token)
+        print(f"  {'✅' if r['success'] else '❌'} {svc}@{client}: {r.get('desc', r.get('error',''))}")
     elif cmd == "status":
         s = mserver_status()
         print(f"📊 MSERVER — {s['total_services']} services")
