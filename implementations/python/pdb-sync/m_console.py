@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """M-Light Console — single-file terminal con WebSocket + HTTP."""
-import sys, os, json, time, asyncio, threading
+import sys, os, json, time, asyncio, threading, urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
