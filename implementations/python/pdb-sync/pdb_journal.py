@@ -44,7 +44,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-from pdb_tools import tool_set, tool_get, tool_order, tool_data
+from pdb_tools import tool_set, tool_get, tool_order, tool_data, tool_kill
 
 # ── Config ──────────────────────────────────────────────────────────
 
@@ -356,6 +356,65 @@ def jrnl_recovery(file_seq: int = None, verify: bool = True, limit: int = 100):
             tool_set({"ns": JOURNAL_NS, "subs": [CONTROL_KEY], "value": ctrl})
 
     return stats
+
+# ── A4: Journal→DDP Bridge (Zalo: flag dirty + buffer destino + cron) ─
+
+def jrnl_mark_dirty():
+    """Marcar que hay cambios pendientes de sync."""
+    tool_set({"ns": JOURNAL_NS, "subs": ["dirty"], "value": 1})
+
+def jrnl_is_dirty() -> bool:
+    """¿Hay cambios sin sincronizar?"""
+    r = tool_get({"ns": JOURNAL_NS, "subs": ["dirty"]})
+    return r.get("value") == 1 if r.get("success") else False
+
+def jrnl_clear_dirty():
+    """Limpiar flag dirty tras sync exitoso."""
+    tool_set({"ns": JOURNAL_NS, "subs": ["dirty"], "value": 0})
+
+def jrnl_buffer_push(destination: str, operation: dict):
+    """Añadir operación al buffer de salida DDP.
+    ^CHANGES("out",destino,seq) = operación
+    """
+    ctrl = jrnl_control()
+    seq = ctrl.get("out_seq", 0) if ctrl else 0
+    tool_set({"ns": JOURNAL_NS, "subs": ["out", destination, seq], "value": operation})
+    if ctrl:
+        ctrl["out_seq"] = seq + 1
+        tool_set({"ns": JOURNAL_NS, "subs": [CONTROL_KEY], "value": ctrl})
+    jrnl_mark_dirty()
+
+def jrnl_buffer_flush(destination: str, limit: int = 50) -> list:
+    """Vaciar buffer de salida para un destino. Devuelve operaciones pendientes."""
+    ops = []
+    seq = 0
+    while len(ops) < limit:
+        r = tool_get({"ns": JOURNAL_NS, "subs": ["out", destination, seq]})
+        if not r.get("success") or r.get("value") is None:
+            break
+        ops.append({"seq": seq, "op": r["value"]})
+        seq += 1
+    return ops
+
+def jrnl_sync_bridge():
+    """Cron: si dirty=1, vaciar buffer y enviar al Edge.
+    Integración con pdb-sync-bridge."""
+    if not jrnl_is_dirty():
+        return {"synced": 0, "status": "clean"}
+
+    # Enviar buffer a PRIVATE_REPO (simplificado para A4)
+    synced = 0
+    for dest in ["edge", "zalo", "lisa", "tom", "angi"]:
+        ops = jrnl_buffer_flush(dest)
+        if ops:
+            synced += len(ops)
+            # Limpiar buffer procesado
+            for op in ops:
+                tool_set({"ns": JOURNAL_NS, "subs": ["out", dest, op["seq"]], "value": None})
+
+    if synced > 0:
+        jrnl_clear_dirty()
+    return {"synced": synced, "status": "synced" if synced > 0 else "empty"}
 
 # ── CLI ──────────────────────────────────────────────────────────────
 
