@@ -351,26 +351,20 @@ class StackVM:
                 self.ops.append(result)
     
     def _eval_expr(self, expr: str) -> Any:
-        """Evaluar expresión simple.
-        
-        TODO v2: stack-based con precedencia de operadores.
-        Ahora: evalúa literales, variables, y operaciones básicas.
-        """
         expr = expr.strip()
-        if not expr:
-            return None
+        if not expr: return None
         
-        # Variable local
+        # Variable local (MUMPS: undefined = 0 en aritmética)
         if expr in self.vars:
-            return self.vars[expr]
+            v = self.vars[expr]
+            if v is None: return 0
+            return v
         
         # Número
         try:
-            if '.' in expr:
-                return float(expr)
+            if '.' in expr: return float(expr)
             return int(expr)
-        except:
-            pass
+        except: pass
         
         # String
         if expr.startswith('"') and expr.endswith('"'):
@@ -382,11 +376,12 @@ class StackVM:
                 parts = expr.split(op, 1)
                 left = self._eval_expr(parts[0].strip())
                 right = self._eval_expr(parts[1].strip())
-                if left is not None and right is not None:
-                    if op == '+': return left + right
-                    elif op == '-': return left - right
-                    elif op == '*': return left * right
-                    elif op == '/': return left / right
+                if left is None: left = 0
+                if right is None: right = 0
+                if op == '+': return left + right
+                elif op == '-': return left - right
+                elif op == '*': return left * right
+                elif op == '/': return left / right if right != 0 else 0
         
         # Comparación
         for op in ('>=', '<=', '!=', '>', '<', '='):
@@ -394,13 +389,14 @@ class StackVM:
                 parts = expr.split(op, 1)
                 left = self._eval_expr(parts[0].strip())
                 right = self._eval_expr(parts[1].strip())
-                if left is not None and right is not None:
-                    if op == '=': return left == right
-                    elif op == '>': return left > right
-                    elif op == '<': return left < right
-                    elif op == '>=': return left >= right
-                    elif op == '<=': return left <= right
-                    elif op == '!=': return left != right
+                if left is None: left = 0
+                if right is None: right = 0
+                if op == '=': return left == right
+                elif op == '>': return left > right
+                elif op == '<': return left < right
+                elif op == '>=': return left >= right
+                elif op == '<=': return left <= right
+                elif op == '!=': return left != right
         
         return None
     
