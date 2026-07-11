@@ -74,13 +74,13 @@ class SyncEngine:
         from pdb_journal import read, write, make_entry, pending as wal_pending
 
         # Push entries del WAL con source=local
-        entries = read(source="local", limit=100)
-        if not entries:
+        wal_entries = read(source="local", limit=100)
+        if not wal_entries:
             return {"status": "ok", "applied": 0}
         
         # Convertir a formato DDP (hex key)
         ddp_entries = []
-        for e in entries:
+        for e in wal_entries:
             ddp_entries.append({
                 "key": e["key"].encode().hex(),
                 "value": json.dumps(e),
@@ -89,12 +89,6 @@ class SyncEngine:
             })
         
         result = self.ddp.push(ns, ddp_entries)
-        
-        if "error" not in result:
-            # Marcar como enviados (o limpiar)
-            for e in pending:
-                e.source = "synced"
-        
         return result
     
     # ── Pull (cloud → local) ──
