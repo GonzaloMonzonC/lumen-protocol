@@ -58,13 +58,13 @@ RETCODES = {
 # MSM format: UCI,VGP;PSIZE;PASSWORD;AUTOSTART;ENTRY
 # Our format: handler;auth;auto_start;lumen_entry
 SERVICE_DEFS = {
-    "orchestrator": {"handler": "hermes", "auth": "HMAC", "auto_start": True, "entry": "lumen://hermes/orchestrate"},
-    "knowledge":    {"handler": "zalo",   "auth": "HMAC", "auto_start": True, "entry": "lumen://zalo/kb"},
-    "analyzer":     {"handler": "lisa",   "auth": "HMAC", "auto_start": True, "entry": "lumen://lisa/analyze"},
-    "worker":       {"handler": "tom",    "auth": "HMAC", "auto_start": True, "entry": "lumen://tom/process"},
-    "pm":           {"handler": "angi",   "auth": "HMAC", "auto_start": True, "entry": "lumen://angi/pm-track"},
-    "gateway":      {"handler": "hermes", "auth": "HMAC", "auto_start": True, "entry": "lumen://hermes/gateway"},
-    "help":         {"handler": "all",    "auth": "public","auto_start": False,"entry": "lumen://help/v1"},
+    "orchestrator": {"handler": "hermes", "auth": "HMAC", "auto_start": True, "entry": "lumen://hermes/orchestrate", "protocols": ["lumen", "direct"]},
+    "knowledge":    {"handler": "zalo",   "auth": "HMAC", "auto_start": True, "entry": "lumen://zalo/kb", "protocols": ["lumen"]},
+    "analyzer":     {"handler": "lisa",   "auth": "HMAC", "auto_start": True, "entry": "lumen://lisa/analyze", "protocols": ["lumen", "batch"]},
+    "worker":       {"handler": "tom",    "auth": "HMAC", "auto_start": True, "entry": "lumen://tom/process", "protocols": ["lumen", "batch"]},
+    "pm":           {"handler": "angi",   "auth": "HMAC", "auto_start": True, "entry": "lumen://angi/pm-track", "protocols": ["lumen"]},
+    "gateway":      {"handler": "hermes", "auth": "HMAC", "auto_start": True, "entry": "lumen://hermes/gateway", "protocols": ["lumen", "http"]},
+    "help":         {"handler": "all",    "auth": "public","auto_start": False,"entry": "lumen://help/v1", "protocols": ["lumen"]},
 }
 
 # ── Init ──
@@ -194,21 +194,42 @@ def mserver_auth(service_name, client_id, token=None):
     """Autenticar (retcode completo como MSM)."""
     return mserver_validate(service_name, client_id, token)
 
-# ── Route (MSM: G @entry_point) ──
-def mserver_route(service_name, payload=None):
+# ── Route (MSM: G @entry_point + K % context isolation) ──
+def mserver_route(service_name, payload=None, protocol="lumen"):
     """Enrutar petición al handler del servicio.
     
-    MSM: getcfg → UCI switch → G @entry_point
-    Nosotros: lookup handler → DDP circuit → route via LUMEN.
+    MSM pattern:
+      1. K %            — clear local context
+      2. $$getcfg()     — get service config 
+      3. V 2:$J:...:2   — switch to UCI
+      4. G @entry_point — GO TO entry
+    
+    Our pattern:
+      1. Lookup handler
+      2. Auto-start if needed
+      3. Build context (like MSM % array)
+      4. Return route info for dispatch
     """
     svc = mserver_get(service_name)
-    if not svc: return {"success": False, "retcode": 42}
+    if not svc:
+        return {"success": False, "retcode": 42, "error": RETCODES[42]}
+    
+    # Auto-start si está registrado (MSM: listener never exits)
     if svc.get("status") != "active":
-        # Auto-start si está registrado
         mserver_start(service_name)
     
     handler = svc.get("handler", "unknown")
     entry = svc.get("entry", f"lumen://{handler}/v1")
+    
+    # Context like MSM % array: {SERVICE, HANDLER, ENTRY, PAYLOAD, PROTOCOL}
+    ctx = {
+        "SERVICE": service_name,
+        "HANDLER": handler,
+        "ENTRY": entry,
+        "PAYLOAD": payload or {},
+        "PROTOCOL": protocol,
+        "ADDRESS": svc.get("entry", ""),
+    }
     
     return {
         "success": True,
@@ -216,8 +237,26 @@ def mserver_route(service_name, payload=None):
         "handler": handler,
         "entry": entry,
         "service": service_name,
-        "payload": payload or {},
+        "context": ctx,  # MSM % variable pattern
     }
+
+def mserver_listen(service_name):
+    """Listener persistente (MSM: G ntlisten — infinite loop).
+    
+    MSM listener nunca termina: open socket → accept → spawn handler.
+    Error → reinicia (G init).
+    
+    Nosotros: bucle que routea peticiones al handler.
+    """
+    import time
+    results = []
+    for attempt in range(3):  # MSM: retry indefinitely
+        r = mserver_route(service_name)
+        if r.get("success"):
+            results.append(r)
+        else:
+            time.sleep(1)
+    return results
 
 # ── Reply (MSM: reply() — length-prefixed binary) ──
 def mserver_reply(msg, code=1):
