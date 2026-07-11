@@ -328,16 +328,30 @@ class StackVM:
                 self.quit_flag = True
     
     def _exec_get(self, rest: str, inst=None):
-        """$GET(^ns(subs)) (MSM: B-tree opcode 'g')."""
-        self.ops.append(f"$GET({rest})")
+        """$GET(^ns(subs)) — llama a PDB tools."""
+        result = self._call_func("$G", rest)
+        self.ops.append(result)
+        return result
     
     def _exec_data(self, rest: str, inst=None):
-        """$DATA(^ns(subs)) (MSM: B-tree opcode 'q')."""
-        self.ops.append(f"$DATA({rest})")
+        """$DATA(^ns(subs)) — llama a PDB tools."""
+        result = self._call_func("$D", rest)
+        self.ops.append(result)
+        return result
     
     def _exec_order(self, rest: str, inst=None):
-        """$ORDER(^ns(subs)) (MSM: B-tree opcode 'o')."""
-        self.ops.append(f"$ORDER({rest})")
+        """$ORDER(^ns(subs)) — llama a PDB tools."""
+        result = self._call_func("$O", rest)
+        self.ops.append(result)
+        return result
+    
+    def _call_func(self, name: str, raw_args: str) -> Any:
+        """Llamar a $function desde la function table."""
+        try:
+            from m_funcs import eval_function
+            return eval_function(name, raw_args, self)
+        except ImportError:
+            return f"[{name} not available]"
     
     def _exec_indir(self, rest: str, inst=None):
         """^ (INDIRECT) — referencia dinámica (MSM: opcode '^')."""

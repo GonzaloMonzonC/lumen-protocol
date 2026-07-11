@@ -45,7 +45,7 @@ def func_get(args, vm=None):
             if '(' in ref:
                 ns = ref[1:ref.index('(')]
                 ss = ref[ref.index('(')+1:ref.rindex(')')]
-                subs = [s.strip().strip('"') for s in ss.split(',') if s.strip()]
+                subs = [s.strip().strip('"') for s in ss.split(',')]  # keep empty
                 r = tool_get({"ns": ns, "subs": subs})
                 if r.get("success") and r.get("value") is not None: return r["value"]
         except: pass
@@ -132,7 +132,7 @@ def func_data(args):
         if ref.startswith("^") and '(' in ref:
             ns = ref[1:ref.index('(')]
             ss = ref[ref.index('(')+1:ref.rindex(')')]
-            subs = [s.strip().strip('"') for s in ss.split(',') if s.strip()]
+            subs = [s.strip().strip('"') for s in ss.split(',')]  # keep empty
             r = tool_data({"ns": ns, "subs": subs})
             if r.get("success"): return r.get("value", 0)
     except: pass
@@ -148,8 +148,11 @@ def func_order(args):
         if ref.startswith("^") and '(' in ref:
             ns = ref[1:ref.index('(')]
             ss = ref[ref.index('(')+1:ref.rindex(')')]
-            subs = [s.strip().strip('"') for s in ss.split(',') if s.strip()]
-            r = tool_order({"ns": ns, "subs": subs + [""], "direction": 1})
+            parts = [s.strip().strip('"') for s in ss.split(',')]
+            # Último elemento es el starting key, no un subíndice
+            start_key = parts[-1] if parts else ""
+            base = parts[:-1]
+            r = tool_order({"ns": ns, "subs": base + [start_key], "direction": 1})
             if r.get("success"): return r.get("value", "")
     except: pass
     return ""
@@ -175,6 +178,10 @@ FUNC_TABLE = [
 
 def _parse_args(raw):
     args = []; cur = ""; instr = False; depth = 0
+    # Strip outer parens si existen
+    raw = raw.strip()
+    if raw.startswith('(') and raw.endswith(')'):
+        raw = raw[1:-1]
     for ch in raw:
         if ch == '"': instr = not instr; cur += ch
         elif ch == '(' and not instr: depth += 1; cur += ch
