@@ -29,13 +29,16 @@ def journal_file_create():
         "closed": None,
     }
     tool_set({"ns": CHANGES_NS, "subs": ["file", file_num], "value": file_entry})
-    ctrl["current_file"] = file_num
-    tool_set({"ns": CHANGES_NS, "subs": ["control"], "value": ctrl})
+    # Actualizar control block con archivo actual
+    ctrl = journal_get_control()
+    if ctrl:
+        ctrl["current_file"] = file_num
+        tool_set({"ns": CHANGES_NS, "subs": ["control"], "value": ctrl})
     return file_num
 
 def journal_file_get(file_num):
-    """Obtener info de un archivo de journal."""
-    r = tool_get({"ns": CHANGES_NS, "subs": ["file", file_num]})
+    """Obtener info de un archivo de journal (file_num puede ser float)."""
+    r = tool_get({"ns": CHANGES_NS, "subs": ["file", int(file_num) if isinstance(file_num, float) else file_num]})
     return r.get("value") if r.get("success") else None
 
 def journal_file_close(file_num):
@@ -62,7 +65,7 @@ def journal_file_list():
     key = ""
     while True:
         k = tool_order({"ns": CHANGES_NS, "subs": ["file", key], "direction": 1})
-        if not k.get("success") or not k.get("value"): break
+        if not k.get("success") or k.get("value") is None: break
         key = k["value"]
         f = journal_file_get(key)
         if f: r.append({"file": key, **f})
