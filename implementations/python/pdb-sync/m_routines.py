@@ -163,7 +163,15 @@ class RoutineExecutor:
             vm.vars.update(vars_in)
         
         # Compilar todo el script de una vez
-        vm.compile(code)
+        bc_key = f"BC_{name}"
+        cached = self._load_bc(name, bc_key, code)
+        if cached:
+            vm.instrs = cached
+        else:
+            vm.compile(code)
+            self._save_bc(name, bc_key, vm.instrs, code)
+
+        vm.vars[""] = name
         try:
             result = vm.exec()
             result["routine"] = name
@@ -200,6 +208,44 @@ class RoutineExecutor:
 
 
 # ── Integración con StackVM ──
+
+    def _save_bc(self, name, key, instrs, code=""):
+        try:
+            from pdb_tools import tool_set, tool_kill
+            import hashlib
+            tool_kill({"ns": "ROUTINE", "subs": [name, key]})
+            cs = hashlib.sha256(code.encode()).hexdigest()[:16]
+            tool_set({"ns": "ROUTINE", "subs": [name, key, "_cs"], "value": cs})
+            for idx, inst in enumerate(instrs):
+                tool_set({"ns": "ROUTINE", "subs": [name, key, str(idx)],
+                         "value": "%s|%s" % (inst.opcode, inst.args)})
+            return True
+        except: return False
+
+    def _load_bc(self, name, key, code=""):
+        try:
+            from pdb_tools import tool_order, tool_get
+            from m_stackvm import StackOp
+            import hashlib
+            r_cs = tool_get({"ns": "ROUTINE", "subs": [name, key, "_cs"]})
+            if r_cs.get("success") and r_cs.get("value"):
+                current_cs = hashlib.sha256(code.encode()).hexdigest()[:16]
+                if r_cs["value"] != current_cs: return None
+            else: return None
+            instrs = []
+            idx = ""
+            while True:
+                r = tool_order({"ns": "ROUTINE", "subs": [name, key, idx], "direction": 1})
+                if not r.get("success") or r.get("value") is None: break
+                idx = r["value"]
+                r2 = tool_get({"ns": "ROUTINE", "subs": [name, key, idx]})
+                if r2.get("success") and r2.get("value"):
+                    parts = str(r2["value"]).split("|", 1)
+                    if len(parts) == 2:
+                        import ast
+                        instrs.append(StackOp(parts[0], ast.literal_eval(parts[1])))
+            return instrs if instrs else None
+        except: return None
 
 def patch_stackvm():
     """Añadir DO ^routine al StackVM."""
