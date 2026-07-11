@@ -64,7 +64,7 @@ OP_TABLE = [  # sorted ASCII
     ("$O",   OP_ORDER),
     ("D",    OP_DO),
     ("F",    OP_FOR),
-    ("G",    OP_GET),
+    ("G",    OP_GOTO),  # G = GOTO (no GET, eso es \$G)
     ("I",    OP_IF),
     ("K",    OP_KILL),
     ("Q",    OP_QUIT),
@@ -128,30 +128,60 @@ class StackVM:
     # ── Compilación (MCompiler simplificado) ──
     
     def compile(self, code: str):
-        """Compilar código M a lista de StackOp."""
         self.instrs = []
+        self.labels = {}
+        self.call_stack = []
         for line in code.split('\n'):
             line = line.strip()
             if not line or line.startswith(';'):
                 continue
-            # Comando simple
-            token = line.split()[0] if line.split() else ""
-            # : (...) → token="$G"
-            if token.startswith("$") and "(" in token:
-                func_name = token.split("(")[0]
-                rest = line[len(func_name):].strip()
-                op = op_dispatch(func_name)
+            # Detectar label: "LABEL ; comment" o "LABEL ;"
+            # Una label es una palabra seguida de espacio, ; o final de línea
+            first_word = line.split()[0] if line.split() else ""
+            is_label = False
+            if first_word and first_word.isidentifier() and first_word == first_word.upper():
+                # No es un comando MUMPS conocido
+                cmd_tokens = {"S","SET","K","KILL","F","FOR","I","IF","W","WRITE",
+                             "Q","QUIT","D","DO","G","GOTO","R","READ","N","NEW",
+                             "O","OPEN","C","CLOSE","U","USE","ELSE","H","HALT"}
+                if first_word not in cmd_tokens:
+                    is_label = True
+            
+            if is_label:
+                # Extraer nombre de label y posible argumento
+                rest = line[len(first_word):].strip()
+                label_name = first_word
+                if ';' in rest:
+                    rest = rest.split(';')[0].strip()
+                self.labels[label_name] = len(self.instrs)
+                if rest:
+                    # Hay código después de la label
+                    token = rest.split()[0] if rest.split() else ""
+                    if token.startswith("$") and "(" in token:
+                        func_name = token.split("(")[0]
+                        op = op_dispatch(func_name)
+                        if op:
+                            self.instrs.append(StackOp(op, {"rest": rest[len(func_name):].strip()}, line))
+                            continue
+                    op = op_dispatch(token)
+                    if op:
+                        self.instrs.append(StackOp(op, {"rest": rest[len(token):].strip()}, line))
+                    else:
+                        self.instrs.append(StackOp(OP_NOP, {"expr": rest}, line))
             else:
-                op = op_dispatch(token)
+                # Comando normal
+                token = first_word
+                if token.startswith("$") and "(" in token:
+                    func_name = token.split("(")[0]
+                    op = op_dispatch(func_name)
+                else:
+                    op = op_dispatch(token)
                 if op:
                     rest = line[len(token):].strip()
-            if op:
-                rest = line[len(token):].strip()
-                self.instrs.append(StackOp(op, {"rest": rest}, line))
-            else:
-                self.instrs.append(StackOp(OP_NOP, {"expr": line}, line))
+                    self.instrs.append(StackOp(op, {"rest": rest}, line))
+                else:
+                    self.instrs.append(StackOp(OP_NOP, {"expr": line}, line))
         return self
-    
     def emit(self, opcode: str, args: dict = None, source: str = ""):
         """Emitir instrucción directamente."""
         self.instrs.append(StackOp(opcode, args, source))
@@ -200,6 +230,8 @@ class StackVM:
             OP_FOR:   self._exec_for,
             OP_KILL:  self._exec_kill,
             OP_QUIT:  self._exec_quit,
+            OP_DO:    self._exec_do,
+            OP_GOTO:  self._exec_goto,
             OP_GET:   self._exec_get,
             OP_DATA:  self._exec_data,
             OP_ORDER: self._exec_order,
@@ -336,6 +368,40 @@ class StackVM:
                 cond = rest.split('Q:',1)[1].strip()
                 if self._eval_expr(cond): break
 
+
+    def _exec_do(self, rest, inst=None):
+        '''DO label — llamar a subrutina con labels.'''
+        rest = rest.strip()
+        if not rest:
+            return
+        # Buscar label en este script
+        label = rest.split()[0] if rest.split() else rest
+        label = label.upper()
+        if '(' in label:
+            label = label.split('(')[0]
+        if label in self.labels:
+            # Guardar return address
+            self.call_stack.append(self.ip)
+            # Saltar a label
+            self.ip = self.labels[label]
+        else:
+            # Intentar como rutina externa DO ^routine
+            if label.startswith('^'):
+                from m_routines import RoutineExecutor
+                try:
+                    executor = RoutineExecutor()
+                    result = executor.do(rest, self)
+                    if result is not None:
+                        self.ops.append(result)
+                except Exception as e:
+                    self.ops.append(f'[DO error: {e}]')
+    
+    def _exec_goto(self, rest, inst=None):
+        '''G label — salto incondicional.'''
+        rest = rest.strip()
+        if rest in self.labels:
+            self.ip = self.labels[rest]
+
     def _exec_kill(self, rest: str, inst=None):
         """KILL var (MSM: B-tree opcode 'k')."""
         name = rest.strip()
@@ -343,13 +409,22 @@ class StackVM:
             del self.vars[name]
     
     def _exec_quit(self, rest: str, inst=None):
-        """QUIT[:cond] (MSM: B-tree opcode 'q')."""
-        if not rest:
-            self.quit_flag = True
-        else:
+        """QUIT[:cond] — salir de subrutina o script.
+        
+        Si hay call_stack: retorna a la subrutina llamante.
+        Si no: termina el script.
+        """
+        if rest:
             cond = self._eval_expr(rest)
-            if cond:
-                self.quit_flag = True
+            if not cond:
+                return
+        
+        if self.call_stack:
+            # Retornar de subrutina
+            self.ip = self.call_stack.pop()
+        else:
+            # Terminar script
+            self.quit_flag = True
     
     def _exec_get(self, rest: str, inst=None):
         """$GET(^ns(subs)) — llama a PDB tools."""
