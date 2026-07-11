@@ -97,7 +97,7 @@ class SyncEngine:
         
         Anti-bucle: ignora entries con source=local (vinieron de aquí).
         """
-        result = self.ddp.pull(ns, since=self.last_sync.get(ns))
+        result = self.ddp.pull(ns, since=self.last_sync.get(ns), batch_size=500)
         if "error" in result:
             return result
         
