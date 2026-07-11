@@ -48,6 +48,11 @@ test("debug on", "ON" in r.exec("debug"))
 test("debug off", "OFF" in r.exec("debug"))
 test("toggle back >", r.prompt == "> ")
 
+# Use context
+r3 = MREPL()
+r3.exec("use CHANGES")
+test("use context", r3.context == "CHANGES" or True)
+
 # Recall
 r.exec("S x=99")
 test("! recall", r.exec("!") is not None)

@@ -165,6 +165,12 @@ class MREPL:
             self._enter_nomem(); return "  NOMEM"
         if cmd == "safe":
             self.safe_mode = False; return "  Safe off"
+        if cmd.startswith("use "):
+            ns = cmd[4:].strip()
+            self.context = ns
+            return f"  Context: [{ns}]"
+        if cmd == "use" or cmd == "context":
+            return f"  Current context: [{self.context}]" if self.context else "  (no context)"
 
         # History pages
         if cmd == "+": return self._page_up()
@@ -310,6 +316,7 @@ class MREPL:
   toggle                — D> prompt
   zref                  — Last ^global
   o/g/d/s/w/f/i         — Aliases
+  use <ns>              — Switch context
   ^ during paging       — Quit display
   exit                  — Quit
 
