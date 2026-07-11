@@ -116,80 +116,98 @@ class MEvaluator:
 
     # ── Ejecutor de líneas ──
 
+    # ── Token Table (sorted for binary search, como MSM FUN_00494120) ──
+    TOKEN_TABLE = [
+        ("C", "CLOSE",   "_exec_close"),
+        ("D", "DO",      "_exec_do"),
+        ("ELSE", "ELSE", "_exec_else"),
+        ("F", "FOR",     "_exec_for"),
+        ("G", "GOTO",    "_exec_goto"),
+        ("I", "IF",      "_exec_if"),
+        ("K", "KILL",    "_exec_kill"),
+        ("N", "NEW",     "_exec_new"),
+        ("O", "OPEN",    "_exec_open"),
+        ("Q", "QUIT",    "_exec_quit"),
+        ("R", "READ",    "_exec_read"),
+        ("S", "SET",     "_exec_set"),
+        ("U", "USE",     "_exec_use"),
+        ("W", "WRITE",   "_exec_write"),
+    ]
+
+    def _dispatch_cmd(self, token):
+        """Binary search sobre TOKEN_TABLE (MSM FUN_00494120 pattern)."""
+        t = token.upper()
+        lo, hi = 0, len(self.TOKEN_TABLE) - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            short, full, method_name = self.TOKEN_TABLE[mid]
+            if t == short or t == full:
+                return getattr(self, method_name, None), full
+            elif (t < short) if len(t) <= 1 else (t < full):
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        return None, None
+
     def _exec_line(self, line: str) -> Any:
-        """Ejecuta una línea M (puede contener múltiples comandos separados por espacio)."""
+        """Ejecuta una l\xednea M. Dispatch via binary search (MSM token table)."""
         if not line or self._quit_flag:
             return None
-
-        # Eliminar comentarios (respetando strings)
-        # ; dentro de comillas dobles NO es comentario
-        stripped_line = ''
+        # Eliminar comentarios
+        stripped = ''
         in_str = False
-        i = 0
-        while i < len(line):
-            ch = line[i]
+        for ch in line:
             if ch == '"':
                 in_str = not in_str
-                stripped_line += ch
+                stripped += ch
             elif ch == ';' and not in_str:
-                break  # comment starts here
+                break
             else:
-                stripped_line += ch
-            i += 1
-        line = stripped_line
-
-        # Separar comandos en la misma línea
-        # En M, los comandos se separan por espacio
-        # Pero hay que respetar strings y expresiones anidadas
+                stripped += ch
+        line = stripped
         result = None
         pos = 0
         while pos < len(line) and not self._quit_flag:
-            # Saltar espacios
             while pos < len(line) and line[pos] == ' ':
                 pos += 1
             if pos >= len(line):
                 break
-
-            # Identificar el comando (con posible postconditional :cond)
-            cmd_match = re.match(r'(F(?:OR)?|S(?:ET)?|K(?:ILL)?|Q(?:UIT)?|I(?:F)?|ELSE|W(?:RITE)?|D(?:O)?|G(?:OTO)?|R(?:EAD)?|N(?:EW)?|O(?:PEN)?|U(?:SE)?|C(?:LOSE)?)((?:[:][^ ]+)?)(?:\s|$)', line[pos:])
-            if cmd_match:
-                cmd = cmd_match.group(1)[0]  # Primera letra del comando
-                pos += cmd_match.end()
-                if cmd in ('F',):
-                    pos = self._exec_for(line, pos)
-                elif cmd in ('S',):
-                    pos = self._exec_set(line, pos)
-                elif cmd in ('K',):
-                    pos = self._exec_kill(line, pos)
-                elif cmd in ('Q',):
-                    pos = self._exec_quit(line, pos, cmd_match.group(2) or "")
-                elif cmd in ('I',):
-                    pos = self._exec_if(line, pos)
-                elif cmd in ('W',):
-                    pos = self._exec_write(line, pos)
-                elif cmd in ('G',):
-                    pos = self._exec_goto(line, pos)
-                elif cmd in ('D',):
-                    pos = self._exec_do(line, pos)
-                elif cmd in ('R',):
-                    pos = self._exec_read(line, pos)
-                elif cmd in ('N',):
-                    pos = self._exec_new(line, pos)
-                elif cmd in ('O',):
-                    pos = self._exec_open(line, pos)
-                elif cmd in ('U',):
-                    pos = self._exec_use(line, pos)
-                elif cmd in ('C',):
-                    pos = self._exec_close(line, pos)
-                else:
+            # Extraer token
+            end = pos
+            while end < len(line) and line[end] not in (' ', ':', '\t'):
+                end += 1
+            token = line[pos:end]
+            # Postconditional
+            postcond = ""
+            if end < len(line) and line[end] == ':':
+                ce = end + 1
+                while ce < len(line) and line[ce] not in (' ', '\t'):
+                    ce += 1
+                postcond = line[end:ce]
+                end = ce
+            handler, full = self._dispatch_cmd(token)
+            if handler:
+                pos = end
+                while pos < len(line) and line[pos] == ' ':
                     pos += 1
+                if postcond:
+                    try:
+                        cv = self.eval_expr(postcond[1:])
+                        if not cv:
+                            continue
+                    except:
+                        pass
+                result = handler(line, pos)
+                if isinstance(result, int):
+                    pos = result
+                else:
+                    break
             else:
-                # Puede ser una expresión suelta o resto de la línea
+                er = self.eval_expr(line[pos:])
+                if er is not None:
+                    return er
                 break
-
         return result
-
-    # ── FOR loop ──
 
     def _exec_for(self, line: str, pos: int) -> int:
         """Ejecuta FOR. Soporta:
