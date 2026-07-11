@@ -479,9 +479,22 @@ class StackVM:
             return int(expr)
         except: pass
         
-        # String
+        # String (con o sin comillas)
         if expr.startswith('"') and expr.endswith('"'):
             return expr[1:-1]
+        # Unquoted string literal (no es variable conocida)
+        if expr.isidentifier() and expr not in self.vars:
+            return expr
+        
+        # $function en expresión
+        if expr.startswith("$") and "(" in expr:
+            func_name = expr.split("(")[0]
+            func_args = expr[len(func_name):].strip()
+            try:
+                from m_funcs import eval_function
+                return eval_function(func_name, func_args, self)
+            except:
+                pass
         
         # Operación aritmética simple
         for op in ('+', '-', '*', '/'):
