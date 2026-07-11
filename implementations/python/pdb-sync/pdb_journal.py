@@ -150,6 +150,43 @@ def jrnl_status():
 
 # ── Multi-file support ──────────────────────────────────────────────
 
+# A2: Políticas de rotación (Lisa: entradas + tiempo, el que primero se cumpla)
+MAX_ENTRIES_PER_FILE = 1000   # rotar cada 1000 entradas
+MAX_HOURS_PER_FILE = 24       # rotar cada 24h
+
+def jrnl_active_file():
+    """Obtener el archivo de journal activo (status=O). Si no hay, crear uno."""
+    ctrl = jrnl_control()
+    if not ctrl:
+        jrnl_init()
+        ctrl = jrnl_control()
+    seq = ctrl.get("active_file", -1)
+    if seq >= 0:
+        r = tool_get({"ns": JOURNAL_NS, "subs": [FILE_PREFIX, seq]})
+        if r.get("success") and r.get("value") and r["value"].get("status") == "O":
+            return {"seq": seq, "data": r["value"]}
+    # No hay activo → crear uno
+    return _create_active_file()
+
+def _create_active_file():
+    """Crear un nuevo archivo activo."""
+    from datetime import datetime
+    ctrl = jrnl_control()
+    seq = ctrl.get("file_count", 0)
+    now = datetime.now(timezone.utc)
+    filename = f"changes_{now.strftime('%Y%m%d_%H%M%S')}.jsonl"
+    file_data = {
+        "file": filename, "status": "O", "type": "A",
+        "size_bytes": 0, "entries": 0,
+        "created": now.isoformat(), "closed": None,
+        "first_seq_no": ctrl.get("seq_no", 0),
+    }
+    tool_set({"ns": JOURNAL_NS, "subs": [FILE_PREFIX, seq], "value": file_data})
+    ctrl["active_file"] = seq
+    ctrl["file_count"] = seq + 1
+    tool_set({"ns": JOURNAL_NS, "subs": [CONTROL_KEY], "value": ctrl})
+    return {"seq": seq, "data": file_data}
+
 def jrnl_file_create(filename: str, file_type: str = "A"):
     """Crear un nuevo archivo de journal (como JRNL de MSM)."""
     ctrl = jrnl_control()
