@@ -1,163 +1,226 @@
 #!/usr/bin/env python3
 """
-pdb_ddp.py — DDP Concurrency Control (Sprint B).
+pdb_ddp.py — DDP (Distributed Data Protocol) para CadencesLab.
 
-Patrones MSM adaptados (Zalo: 2 conceptos clave):
-  1. Batch sync + dirty flag → YA HECHO en A4
-  2. Turn-lock concurrency → ESTE MÓDULO
+Basado en DDP (134), DDPCIR (169), DDPCON (251) de MSM.
 
-MSM usaba locks por recurso para evitar starvation.
-Nosotros usamos HMAC + nonce: cada agente firma su operación,
-el worker valida el orden sin locks ni esperas.
+Conceptos MSM → Nuestra implementación:
+  DDP Link   → Service binding (CF Worker ↔ Worker)
+  DDP Circuit → Canal lógico entre agentes
+  DDP Node   → Agente registrado en ^System("identidad")
+  DDP Buffer → Cola de mensajes (Durable Object)
 
-Conceptos DDP de MSM adaptados:
-  - DDPCON → control de conexiones → nuestro AGENT_NS_MAP
-  - DDPSECU → seguridad por firma → nuestro HMAC + nonce
-  - SGDDP → configuración → nuestro ^System("gobernanza")
+Esquema:
+  ^DDP("links", nombre) = {target, type, status, last_heartbeat}
+  ^DDP("circuits", id) = {from_agent, to_agent, status, buffers}
+  ^DDP("nodes", agent_id) = {endpoint, capabilities, status}
 
-Author: Hermes + CadencesLab (Sprint B — MSM→Lumen)
-Date: 2026-07-11
+Autor: Hermes + CadencesLab (B1 — Sprint B MSM→Lumen)
+Licencia: MIT (lumen-protocol)
 """
 
-import sys, os, json, time, hashlib, hmac
+import sys, os, json
 from datetime import datetime, timezone
-from typing import Optional
-
-sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-from pdb_tools import tool_set, tool_get, tool_order
 
 # ── Config ──────────────────────────────────────────────────────────
 
-DDP_NS = "System"
-NONCE_KEY = "ddp_nonce"
+DDP_NS = "DDP"
 
-# ── Nonce-based concurrency (DDPSECU adaptado) ─────────────────────
+# Status de circuitos (como MSM: O=open, F=full, C=closed)
+CIRCUIT_STATUS = {"ACTIVE": "O", "IDLE": "I", "ERROR": "E", "CLOSED": "C"}
 
-def ddp_generate_nonce(agent_id: str) -> int:
-    """Generar nonce para una operación DDP (sin confirmar en PDB).
-    El nonce se confirma solo tras verificación exitosa."""
-    key = f"{NONCE_KEY}_{agent_id}"
-    r = tool_get({"ns": DDP_NS, "subs": [key]})
-    current = r.get("value", 0) if r.get("success") else 0
-    if not isinstance(current, int): current = 0
-    return current + 1
+# ── Helpers ─────────────────────────────────────────────────────────
 
-def ddp_validate_nonce(agent_id: str, nonce: int) -> bool:
-    """Validar que el nonce es el esperado (el último confirmado + 1)."""
-    key = f"{NONCE_KEY}_{agent_id}"
-    r = tool_get({"ns": DDP_NS, "subs": [key]})
-    # El nonce ya fue generado por sign, verificamos que es > último confirmado
-    last_confirmed = r.get("value", 0) if r.get("success") else 0
-    if not isinstance(last_confirmed, int):
-        last_confirmed = 0
-    return nonce > last_confirmed
+def _get_tools():
+    pdb_dir = os.path.expanduser(
+        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
+    )
+    if pdb_dir not in sys.path:
+        sys.path.insert(0, pdb_dir)
+    from pdb_tools import tool_set, tool_get, tool_order
+    return tool_set, tool_get, tool_order
 
-def ddp_sign_operation(agent_id: str, operation: dict, secret: str = None) -> dict:
-    """Firmar una operación DDP con HMAC-SHA256 + nonce.
-    Cada agente firma su cambio, el worker valida.
-    """
-    nonce = ddp_generate_nonce(agent_id)
-    payload = json.dumps({"agent": agent_id, "nonce": nonce, "op": operation}, sort_keys=True)
-    sig = hmac.new(
-        (secret or f"ddp_{agent_id}_2026").encode(),
-        payload.encode(),
-        hashlib.sha256
-    ).hexdigest()[:16]
-    return {"agent": agent_id, "nonce": nonce, "op": operation, "sig": sig}
+def _now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def ddp_verify_operation(signed_op: dict, secret: str = None) -> dict:
-    """Verificar firma HMAC y nonce de una operación DDP."""
-    agent = signed_op.get("agent", "")
-    nonce = signed_op.get("nonce", 0)
-    op = signed_op.get("op", {})
-    sig = signed_op.get("sig", "")
+# ── DDP Nodes ──────────────────────────────────────────────────────
 
-    # Validar nonce secuencial
-    if not ddp_validate_nonce(agent, nonce):
-        return {"valid": False, "reason": f"invalid nonce: {nonce}"}
-
-    # Validar firma HMAC
-    payload = json.dumps({"agent": agent, "nonce": nonce, "op": op}, sort_keys=True)
-    expected = hmac.new(
-        (secret or f"ddp_{agent}_2026").encode(),
-        payload.encode(),
-        hashlib.sha256
-    ).hexdigest()[:16]
-    if sig != expected:
-        return {"valid": False, "reason": "invalid signature"}
-
-    # Actualizar nonce confirmado
-    tool_set({"ns": DDP_NS, "subs": [f"{NONCE_KEY}_{agent}"], "value": nonce})
-    return {"valid": True, "agent": agent, "nonce": nonce}
-
-# ── DDP Link Status (DDPLNK adaptado) ──────────────────────────────
-
-def ddp_link_status(agent_id: str) -> dict:
-    """Estado de enlace DDP para un agente (como DDPLNK de MSM).
-    Nuestro equivalente: service binding status + nonce tracking.
-    """
-    nonce = tool_get({"ns": DDP_NS, "subs": [f"{NONCE_KEY}_{agent_id}"]})
-    pulse = tool_get({"ns": DDP_NS, "subs": ["pulse", agent_id]})
-
-    return {
-        "agent": agent_id,
-        "nonce": nonce.get("value", 0) if nonce.get("success") else 0,
-        "status": pulse.get("value", {}).get("status", "unknown") if pulse.get("success") else "unknown",
-        "last_activity": pulse.get("value", {}).get("last_activity", "") if pulse.get("success") else "",
-        "link_type": "service_binding"  # vs MSM: DDP/TCP/LAT
+def ddp_register_node(agent_id, endpoint, capabilities=None):
+    """Registrar un agente como nodo DDP (como MSM SGDDPNT)."""
+    tool_set, _, _ = _get_tools()
+    node = {
+        "agent_id": agent_id,
+        "endpoint": endpoint,
+        "capabilities": capabilities or [],
+        "status": "online",
+        "registered_at": _now(),
+        "last_heartbeat": _now(),
     }
+    tool_set({"ns": DDP_NS, "subs": ["nodes", agent_id], "value": node})
+    return node
 
-def ddp_all_links() -> list:
-    """Estado de todos los enlaces DDP (como SGDDP de MSM)."""
+def ddp_get_node(agent_id):
+    """Obtener info de un nodo DDP."""
+    _, tool_get, _ = _get_tools()
+    r = tool_get({"ns": DDP_NS, "subs": ["nodes", agent_id]})
+    return r.get("value") if r.get("success") else None
+
+def ddp_list_nodes():
+    """Listar todos los nodos DDP."""
+    _, _, tool_order = _get_tools()
+    nodes = []
+    key = ""
+    while True:
+        r = tool_order({"ns": DDP_NS, "subs": ["nodes", key], "direction": 1})
+        if not r.get("success") or r.get("value") is None: break
+        key = r["value"]
+        node = ddp_get_node(key)
+        if node: nodes.append(node)
+    return nodes
+
+# ── DDP Links ──────────────────────────────────────────────────────
+
+def ddp_add_link(name, target_url, link_type="service-binding"):
+    """Añadir un enlace DDP (como MSM DDPLNK)."""
+    tool_set, _, _ = _get_tools()
+    link = {
+        "name": name,
+        "target": target_url,
+        "type": link_type,
+        "status": "active",
+        "created": _now(),
+        "last_heartbeat": _now(),
+    }
+    tool_set({"ns": DDP_NS, "subs": ["links", name], "value": link})
+    return link
+
+def ddp_list_links():
+    """Listar todos los enlaces."""
+    _, _, tool_order = _get_tools()
     links = []
     key = ""
     while True:
-        r = tool_order({"ns": DDP_NS, "subs": ["pulse", key], "direction": 1})
-        if not r.get("success") or not r.get("value"):
-            break
+        r = tool_order({"ns": DDP_NS, "subs": ["links", key], "direction": 1})
+        if not r.get("success") or r.get("value") is None: break
         key = r["value"]
-        links.append(ddp_link_status(key))
+        lnk = ddp_get_link(key)
+        if lnk: links.append(lnk)
     return links
 
-# ── DDP Status Display (MAPDDP adaptado) ───────────────────────────
+def ddp_get_link(name):
+    """Obtener info de un enlace."""
+    _, tool_get, _ = _get_tools()
+    r = tool_get({"ns": DDP_NS, "subs": ["links", name]})
+    return r.get("value") if r.get("success") else None
 
-def ddp_status() -> str:
-    """MAPDDP-style display para nuestro DDP."""
-    links = ddp_all_links()
-    lines = []
-    lines.append("═" * 55)
-    lines.append("  🌐 DDP — Distributed Data Protocol (MSM→Lumen)")
-    lines.append("═" * 55)
-    lines.append(f"  Enlaces activos: {len(links)}")
-    lines.append(f"  Tipo: service_binding (~0ms)")
-    lines.append(f"  Auth: HMAC-SHA256 + nonce secuencial")
-    lines.append("─" * 55)
-    for link in links:
-        status_icon = "🟢" if link.get("status") == "online" else "⚫"
-        lines.append(f"  {status_icon} {link.get('agent','?'):15s} nonce={link.get('nonce',0):4d} {link.get('link_type','?')}")
-    lines.append("═" * 55)
-    return "\n".join(lines)
+# ── DDP Circuits ────────────────────────────────────────────────────
 
-# ── CLI ──────────────────────────────────────────────────────────────
+def ddp_open_circuit(from_agent, to_agent):
+    """Abrir un circuito DDP entre dos agentes (como MSM DDPCIR)."""
+    tool_set, tool_get, tool_order = _get_tools()
+    # Generar ID de circuito
+    circuit_id = f"{from_agent}→{to_agent}"
+    circuit = {
+        "id": circuit_id,
+        "from": from_agent,
+        "to": to_agent,
+        "status": "O",  # Open
+        "opened_at": _now(),
+        "last_activity": _now(),
+        "messages_sent": 0,
+        "messages_received": 0,
+    }
+    tool_set({"ns": DDP_NS, "subs": ["circuits", circuit_id], "value": circuit})
+    return circuit
+
+def ddp_close_circuit(circuit_id):
+    """Cerrar un circuito."""
+    tool_set, tool_get, _ = _get_tools()
+    r = tool_get({"ns": DDP_NS, "subs": ["circuits", circuit_id]})
+    circuit = r.get("value")
+    if circuit:
+        circuit["status"] = "C"
+        circuit["closed_at"] = _now()
+        tool_set({"ns": DDP_NS, "subs": ["circuits", circuit_id], "value": circuit})
+
+def ddp_list_circuits():
+    """Listar todos los circuitos."""
+    _, _, tool_order = _get_tools()
+    circuits = []
+    key = ""
+    while True:
+        r = tool_order({"ns": DDP_NS, "subs": ["circuits", key], "direction": 1})
+        if not r.get("success") or r.get("value") is None: break
+        key = r["value"]
+        c = ddp_get_circuit(key)
+        if c: circuits.append(c)
+    return circuits
+
+def ddp_get_circuit(circuit_id):
+    """Obtener info de un circuito."""
+    _, tool_get, _ = _get_tools()
+    r = tool_get({"ns": DDP_NS, "subs": ["circuits", circuit_id]})
+    return r.get("value") if r.get("success") else None
+
+# ── DDP Send/Receive ───────────────────────────────────────────────
+
+def ddp_send(circuit_id, message_type, payload):
+    """Enviar un mensaje a través de un circuito DDP (como MSM DDPCON)."""
+    tool_set, _, _ = _get_tools()
+    circuit = ddp_get_circuit(circuit_id)
+    if not circuit or circuit["status"] == "C":
+        return {"success": False, "error": "Circuit not open"}
+
+    now = _now()
+    msg_id = f"msg_{now.replace(':', '').replace('-', '')}"
+    msg = {
+        "id": msg_id,
+        "circuit_id": circuit_id,
+        "type": message_type,
+        "payload": payload,
+        "sent_at": _now(),
+    }
+
+    # Almacenar en cola del circuito
+    tool_set({"ns": DDP_NS, "subs": ["messages", circuit_id, msg["id"]], "value": msg})
+
+    # Actualizar contadores
+    circuit["messages_sent"] = circuit.get("messages_sent", 0) + 1
+    circuit["last_activity"] = _now()
+    tool_set({"ns": DDP_NS, "subs": ["circuits", circuit_id], "value": circuit})
+
+    return {"success": True, "msg_id": msg["id"]}
+
+# ── CLI ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    import sys; cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
 
-    if cmd == "sign":
-        agent = sys.argv[2] if len(sys.argv) > 2 else "test"
-        op = {"ns": "TEST", "subs": ["x"], "op": "SET", "value": 42}
-        print(json.dumps(ddp_sign_operation(agent, op), indent=2))
-    elif cmd == "verify":
-        signed = json.loads(sys.stdin.read()) if len(sys.argv) <= 2 else json.loads(sys.argv[2])
-        print(ddp_verify_operation(signed))
-    elif cmd == "links":
-        for link in ddp_all_links():
-            print(f"  {link['agent']}: nonce={link['nonce']} {link['status']}")
-    elif cmd == "status":
-        print(ddp_status())
+    if cmd == "register":
+        agent = sys.argv[2]; ep = sys.argv[3] if len(sys.argv) > 3 else "local"
+        r = ddp_register_node(agent, ep)
+        print(f"Node {agent} registered @ {r['endpoint']}")
+
+    elif cmd == "link-add":
+        name = sys.argv[2]; target = sys.argv[3]
+        r = ddp_add_link(name, target)
+        print(f"Link {name} → {target}")
+
+    elif cmd == "circuit-open":
+        f = sys.argv[2]; t = sys.argv[3]
+        r = ddp_open_circuit(f, t)
+        print(f"Circuit {r['id']} opened")
+
+    elif cmd == "list-nodes":
+        for n in ddp_list_nodes():
+            print(f"  🟢 {n['agent_id']} @ {n['endpoint']}")
+    elif cmd == "list-links":
+        for l in ddp_list_links():
+            print(f"  🔗 {l['name']} → {l['target']} ({l['status']})")
+    elif cmd == "list-circuits":
+        for c in ddp_list_circuits():
+            em = {"O":"🟢","C":"🔴","E":"⚠️"}.get(c['status'],"❓")
+            print(f"  {em} {c['id']} ({c['status']}) msgs_sent={c.get('messages_sent',0)}")
+
     else:
-        print("PDB DDP Concurrency Control (Sprint B)")
-        print("  sign <agent>        — Firmar operación con HMAC+nonce")
-        print("  verify '<json>'     — Verificar operación firmada")
-        print("  links / status      — Estado de enlaces DDP")
+        print("Uso: python pdb_ddp.py [register|link-add|circuit-open|list-nodes|list-links|list-circuits]")
