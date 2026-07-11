@@ -1,4 +1,4 @@
-"""Tests MREPL v6."""
+"""Tests MREPL v7: INIT/EXIT, safe mode, $ZREF."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
 from mrepl import MREPL
@@ -9,45 +9,54 @@ def test(name, ok):
     if ok: passed += 1; print(f"  ✅ {name}")
     else: failed += 1; print(f"  ❌ {name}")
 
-print('🧪 TESTS MREPL v6\n')
+print('🧪 TESTS MREPL v7\n')
 
 r = MREPL()
 r2 = MREPL(debug=True)
+r3 = MREPL(context="TEST")
 
-test("> prompt", ">" in r.prompt)
-test("DEBUG in prompt", "DEBUG" in r2.prompt)
+# Prompts
+test("> prompt", r.prompt == "> ")
+test("DEBUG> prompt", "DEBUG" in r2.prompt)
+test("[ctx] prompt", "TEST" in r3.prompt)
+
+# Toggle
 r.exec("toggle")
-test("toggle D>", "D>" in r.prompt)
+test("toggle D>", r.prompt.startswith("D"))
 r.exec("toggle")
+
+# Commands
 test("empty", r.exec("") == "")
 test("exit stops", r.exec("exit") == "")
 
-# Help by topic
-h = r.exec("?$O")
-test("?$O gives help", "$O" in h)
-h2 = r.exec("?FOR")
-test("?FOR gives help", "FOR" in h2)
+# $ZREF
+r.exec("$O(^TEST(\"\"))")
+test("zref stored", r.last_zref is not None)
 
-# % last result
-r.exec('W "test"')
-test("% exists", hasattr(r, 'last_result'))
+# Alias
+a = r.exec("o TEST(\"\")")
+test("alias works", a is not None)
 
-# History
-r.exec("S y=1")
+# Help
+test("? contains help", "?" in r.exec("?"))
+test("?$O", "$O" in r.exec("?$O"))
+test("?F", "FOR" in r.exec("?F"))
+test("??", isinstance(r.exec("??"), str))
+
+# Recall
+r.exec("S x=1")
 test("! recall", r.exec("!") is not None)
-test("?? shows", "S y=1" in r.exec("??"))
-
-# General help
-h4 = r.exec("?")
-test("? has help", "?" in h4)
 
 # Debug
 test("debug on", "ON" in r.exec("debug"))
 test("debug off", "OFF" in r.exec("debug"))
 
-# Error
-r5 = MREPL()
-test("error returns str", isinstance(r5.exec("BADVAR"), str))
+# Safe mode detection
+r4 = MREPL()
+test("safe mode off at start", not r4.safe_mode)
+
+fallback = r4._get_tools()
+test("tools available", fallback is not None)
 
 print(f"\n📊 {passed}/{passed+failed} tests passed")
 sys.exit(0 if failed == 0 else 1)

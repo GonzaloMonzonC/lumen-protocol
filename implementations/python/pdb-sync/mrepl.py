@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """
 mrepl.py — M-Light REPL (MSMSHELL auténtico, MS-DOS style).
-v6: Color, PDB history, % last result, help por comando, aliases.
+v7: INIT/EXIT hooks, safe mode, $ZREF.
 
 Features MSMSHELL nativas:
-  > $O()        Prompt normal
-  D> W $J       Device mode (Ctrl+R toggle)
-  [ctx] > ...   Context prompt
-  DEBUG> ...    Debug mode
+  > / D> / [ctx]> / DEBUG>  Prompts
   !N            Recall command
   ? / ?? / ?N   Help system
   %             Last result variable
-  o/g/d         Aliases: $O/$G/$D
-  
-v6 mejoras:
-  🎨 Color output (green=ok, red=error, yellow=warn)
-  💾 PDB history (^System("repl","history"))
-  %  variable con último resultado
-  ?comando      Ayuda específica (?for, ?set)
+  Ctrl+R        Toggle prompt
+  o/g/d/s/w/f/i Aliases
+  $ZREF         Last global referenced
+  INIT/EXIT     Session hooks (like MSMSHELL)
+  Safe mode     PDB unavailable → minimal mode
 
 Autor: Hermes + CadencesLab
 Licencia: MIT (lumen-protocol)
@@ -28,87 +23,65 @@ try: import readline
 except: readline = None
 
 HISTFILE = os.path.expanduser("~/.hermes/mrepl_history")
-TERM_LINES = 24
-LAST_RESULT = "%"  # como MSMSHELL
-
-# Colores ANSI
-C = type('',(),{})()
-C.OK = "\033[92m"    # verde
-C.WARN = "\033[93m"  # amarillo
-C.ERR = "\033[91m"   # rojo
-C.RST = "\033[0m"    # reset
-
-NAMESPACES = [
-    "System", "CHANGES", "ROUTINE", "DDP", "Agent", "BIJ", "docs",
-    "TEST", "LOGON", "MSAJOB", "MSASYS", "RTHIST", "CSFMON", "PDBMAP",
-    "CLIMA", "PROCESSES", "STRESS",
-]
-
-HELP_TOPICS = {
-    "$O": "  $O(^ns(sub))  → Siguiente subscript. Ej: $O(^System(\"\"))",
-    "$ORDER": "  $ORDER(^ns(sub))  → Igual que $O. Itera subíndices.",
-    "$G": "  $G(^ns(subs))  → Lee valor o \"\" si no existe. Ej: $G(^System(\"config\"))",
-    "$GET": "  $GET(^ns(subs))  → Igual que $G.",
-    "$D": "  $D(^ns(subs))  → 0=no existe, 1=valor, 10=hijos, 11=ambos",
-    "$DATA": "  $DATA(^ns(subs))  → Igual que $D.",
-    "S": "  SET x=valor  → Asigna variable local.",
-    "SET": "  SET x=valor  → Igual que S.",
-    "W": "  WRITE expr  → Muestra valor. W \"Hola\",!,\"Mundo\"",
-    "WRITE": "  WRITE expr  → Igual que W.",
-    "F": "  FOR i=1:1:10  → Bucle. Usar . para indentar cuerpo.",
-    "FOR": "  FOR i=1:1:10  → Igual que F.",
-    "I": "  IF cond  → Condicional. I x>5 W \"mayor\"",
-    "IF": "  IF cond  → Igual que I.",
-    "Q": "  QUIT  → Sale del bucle o rutina.",
-    "QUIT": "  QUIT  → Igual que Q.",
-}
-
-ALIASES = {
-    "o": "$O(^",
-    "g": "$G(^", 
-    "d": "$D(^",
-    "s": "S ",
-    "w": "W ",
-    "f": "F ",
-    "i": "I ",
-    "q": "Q ",
-}
-
-class Completer:
-    def __init__(self):
-        self.matches = []
-    def complete(self, text, state):
-        if state == 0:
-            self.matches = [ns for ns in NAMESPACES if ns.lower().startswith(text.lower())]
-        try: return self.matches[state]
-        except: return None
 
 class MREPL:
-    def __init__(self, debug=False, context=""):
+    def __init__(self, debug=False, context="", session_id=None):
         self.debug_mode = debug
         self.context = context
         self.running = True
         self.device_mode = False
         self.history_list = []
-        self.last_result = None  # variable %
+        self.last_result = None
+        self.last_zref = None
+        self.session_id = session_id or f"repl_{os.getpid()}"
+        self.safe_mode = False
+        self._cmds = 0
         self._setup_completion()
+        self._init_session()
         self._load_history_pdb()
 
     def _setup_completion(self):
         if readline:
-            readline.set_completer(Completer().complete)
+            readline.set_completer(self._complete)
             readline.parse_and_bind("tab: complete")
+
+    def _complete(self, text, state):
+        NAMESPACES = ["System","CHANGES","ROUTINE","DDP","Agent","BIJ","docs",
+                      "TEST","LOGON","MSAJOB","MSASYS","RTHIST","CSFMON","PDBMAP"]
+        if state == 0:
+            self._matches = [ns for ns in NAMESPACES if ns.lower().startswith(text.lower())]
+        try: return self._matches[state]
+        except: return None
 
     @property
     def prompt(self):
-        if self.debug_mode: return f"{C.WARN}DEBUG>{C.RST} "
-        if self.device_mode: return f"{C.OK}D>{C.RST} "
-        if self.context: return f"{C.OK}[{self.context}] >{C.RST} "
-        return f"{C.OK}>{C.RST} "
+        if self.safe_mode: return "!> "
+        if self.debug_mode: return "DEBUG> "
+        if self.device_mode: return "D> "
+        if self.context: return f"[{self.context}] > "
+        return "> "
 
-    # ── History PDB (^System("repl","history")) ──
+    # ── INIT/EXIT hooks (MSMSHELL: INIT()/EXIT()) ──
+    def _init_session(self):
+        """INIT() — Limpiar historial previo y preparar sesión."""
+        try:
+            from pdb_tools import tool_kill
+            tool_kill({"ns": "System", "subs": ["repl", "session", self.session_id]})
+        except:
+            self.safe_mode = True
+        atexit.register(self._exit_session)
+
+    def _exit_session(self):
+        """EXIT() — Guardar estado y limpiar."""
+        try:
+            from pdb_tools import tool_set
+            tool_set({"ns": "System", "subs": ["repl", "session", self.session_id], "value": {
+                "cmds": self._cmds, "closed": True
+            }})
+        except: pass
+
+    # ── History ──
     def _load_history_pdb(self):
-        """Cargar historial desde PDB (MSMSHELL usaba ^MSMSHIST)."""
         try:
             from pdb_tools import tool_order, tool_get
             key = ""
@@ -119,95 +92,53 @@ class MREPL:
                 r2 = tool_get({"ns": "System", "subs": ["repl", "history", key]})
                 if r2.get("success") and r2.get("value"):
                     self.history_list.append(r2["value"])
-            self.history_list = self.history_list[-200:]  # últimas 200
+            self.history_list = self.history_list[-200:]
         except: pass
 
     def _save_history_pdb(self):
-        """Guardar historial en PDB."""
         try:
             from pdb_tools import tool_set, tool_kill
-            # Limpiar historial anterior
             tool_kill({"ns": "System", "subs": ["repl", "history"]})
-            # Guardar últimas 100
             for i, cmd in enumerate(self.history_list[-100:]):
                 tool_set({"ns": "System", "subs": ["repl", "history", str(i+1)], "value": cmd})
         except: pass
 
-    # ── Help por comando ──
-    def _help_topic(self, topic):
-        topic = topic.upper()
-        if topic in HELP_TOPICS:
-            return HELP_TOPICS[topic]
-        for cmd, desc in HELP_TOPICS.items():
-            if topic in cmd or cmd in topic:
-                return desc
-        return f"  No help for '{topic}'. Try: ?$O, ?$G, ?S, ?F, ?W"
-
-    # ── Format output ──
-    def _colorize(self, text, type="ok"):
-        if type == "err": return f"{C.ERR}{text}{C.RST}"
-        if type == "warn": return f"{C.WARN}{text}{C.RST}"
-        return f"{C.OK}{text}{C.RST}"
-
-    def _page(self, text):
-        if not text: return
-        lines = text.split('\n')
-        for i, line in enumerate(lines):
-            print(line)
-            if (i + 1) % TERM_LINES == 0 and i + 1 < len(lines):
-                try: input("  --- More ---")
-                except: break
-
-    def _format_error(self, error_msg):
-        for code in ["SYNTX", "UNDEF", "DIVIDE"]:
-            if code.lower() in str(error_msg).lower():
-                return f"  ❌ {self._colorize(f'<{code}>', 'err')}"
-        return f"  🔴 {self._colorize(f'<ERROR> {error_msg}', 'err')}"
-
-    # ── Exec ──
+    # ── Commands ──
     def exec(self, cmd):
         if not cmd.strip(): return ""
+        self._cmds += 1
 
-        # ── Shell commands ──
+        # Shell commands
         if cmd in ("exit", "quit"):
             self._save_history_pdb()
+            self._exit_session()
             self.running = False
             return ""
-
         if cmd == "debug":
             self.debug_mode = not self.debug_mode
             return f"  Debug: {'ON' if self.debug_mode else 'OFF'}"
-
         if cmd in ("toggle", "\x12"):
             self.device_mode = not self.device_mode
             return f"  Prompt: {'D>' if self.device_mode else '>'}"
+        if cmd == "$ZREF" or cmd == "zref":
+            return f"  {self.last_zref or '(none)'}"
 
+        # ! recall
         if cmd.startswith("!"):
             n = cmd[1:].strip()
             recalled = self._recall(n if n else None)
             if recalled: return f"  {recalled}\n  {self.exec(recalled)}"
-            return self._colorize("  Not found", "warn")
+            return "  Not found"
 
-        if cmd == "?":
-            return self._help()
-        if cmd == "??":
-            return self._last10()
+        # ? help
+        if cmd == "?": return self._help()
+        if cmd == "??": return self._last10()
         if cmd.startswith("?") and cmd[1:].strip():
-            topic = cmd[1:].strip()
-            return self._help_topic(topic)
-        if cmd.startswith("?") and cmd[1:].strip().isdigit():
-            n = cmd[1:].strip()
-            try:
-                idx = int(n)
-                lines = []
-                for i in range(idx, min(idx + 10, len(self.history_list) + 1)):
-                    if i <= len(self.history_list):
-                        lines.append(f"  {i:4d}: {self.history_list[i-1]}")
-                return "\n".join(lines) if lines else self._colorize("  Not found", "warn")
-            except: pass
+            return self._help_topic(cmd[1:].strip())
 
-        # Aliases
-        if len(cmd) > 0 and cmd[0] in ALIASES and cmd[0] != cmd:
+        # Alias
+        ALIASES = {"o":"$O(^","g":"$G(^","d":"$D(^","s":"S ","w":"W ","f":"F ","i":"I ","q":"Q "}
+        if cmd and cmd[0] in ALIASES:
             cmd = ALIASES[cmd[0]] + cmd[1:]
 
         # History
@@ -219,76 +150,73 @@ class MREPL:
             while True:
                 try:
                     line = input("  . ")
-                    if line.strip() == "" or line.strip().upper() == "Q":
-                        break
+                    if not line.strip(): break
                     cmd += "\n" + line
                     if not self._needs_more(cmd): break
-                except (KeyboardInterrupt, EOFError):
-                    break
+                except (KeyboardInterrupt, EOFError): break
 
-        # ── Exec M-Light ──
+        # Detect $ZREF: extraer ^GLOBAL del comando
+        import re
+        zref_m = re.search(r'\^(\w+)', cmd)
+        if zref_m: self.last_zref = f"^{zref_m.group(1)}"
+
+        # M-Light eval
         tool_m_eval = self._get_tools()
+        if not tool_m_eval and self.safe_mode:
+            return "  !> Safe mode: PDB unavailable"
         try:
             import signal
-            class Timeout(Exception): pass
-            def handler(signum, frame): raise Timeout()
+            class TimeoutEx(Exception): pass
+            def handler(s, f): raise TimeoutEx()
             signal.signal(signal.SIGALRM, handler)
             signal.alarm(10)
             result = tool_m_eval({"expression": cmd})
             signal.alarm(0)
             if result.get("success"):
                 val = result.get("result", "")
-                output = result.get("output", "")
-                self.last_result = val  # % variable
-                parts = []
+                self.last_result = val if val != "" else self.last_result
                 if val is not None and val != "":
-                    parts.append(self._colorize(str(val)[:500]))
-                if output:
-                    parts.append(self._colorize(f"[OUT] {output[:200]}", "warn"))
-                if self.debug_mode:
-                    parts.append(self._colorize(f"[%={val}]", "warn"))
-                r = "\n".join(parts) if parts else self._colorize("(ok)")
-                return r
-            else:
-                return self._format_error(result.get('error', 'eval error'))
-        except Timeout:
+                    return f"  {str(val)[:500]}"
+                return "  (ok)"
+            return f"  ❌ {result.get('error', 'eval error')}"
+        except TimeoutEx:
             signal.alarm(0)
-            return self._colorize("⏱️ <TIMEOUT>", "err")
+            return "  ⏱️ Timeout"
         except Exception as e:
-            return self._format_error(str(e))
+            return f"  🔴 <DSCON> {e}"
 
     def run(self):
-        print(f"{C.OK}╔══════════════════════════════════════╗{C.RST}")
-        print(f"{C.OK}║   M-Light REPL  (MSMSHELL v6)        ║{C.RST}")
-        print(f"{C.OK}║   ?help  !recall  Ctrl+R  aliases    ║{C.RST}")
-        print(f"{C.OK}║   % = last result                    ║{C.RST}")
-        print(f"{C.OK}╚══════════════════════════════════════╝{C.RST}")
+        print("╔══════════════════════════════════════╗")
+        print("║   M-Light REPL  (MSMSHELL v7)        ║")
+        print("║   ?help  !recall  aliases  $ZREF     ║")
+        print("╚══════════════════════════════════════╝")
         while self.running:
             try:
                 cmd = input(self.prompt)
                 if cmd and not cmd.startswith(("!", "?")):
                     self.history_list.append(cmd)
                 r = self.exec(cmd)
-                if r: self._page(r)
+                if r: print(r)
             except KeyboardInterrupt:
-                print(f"\n  {self._colorize('<INRPT> Break', 'warn')}")
+                print("\n  <INRPT>")
             except EOFError:
                 self._save_history_pdb(); print(); break
 
     def _needs_more(self, cmd):
         last = cmd.strip().split('\n')[-1].strip()
-        if last.startswith("F ") and not any(c in last for c in [".", "D", "S ", "W "]):
-            return True
-        if last.startswith("I ") and not any(c in last for c in ["S ", "W ", "D ", "Q"]):
-            return True
+        if last.startswith("F ") and not any(c in last for c in [".","D","S ","W "]): return True
         if last.rstrip().endswith("="): return True
         return False
 
     def _get_tools(self):
-        pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
-        if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
-        from pdb_tools import tool_m_eval
-        return tool_m_eval
+        try:
+            pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+            if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
+            from pdb_tools import tool_m_eval
+            return tool_m_eval
+        except:
+            self.safe_mode = True
+            return None
 
     def _recall(self, n=None):
         if n is None: return self.history_list[-1] if self.history_list else ""
@@ -302,25 +230,41 @@ class MREPL:
         start = max(0, len(self.history_list) - 10)
         return "\n".join(f"  {i+1:4d}: {self.history_list[i]}" for i in range(start, len(self.history_list))) or "  (no history)"
 
-    def _help(self):
-        return """  M-Light REPL v6 — Ayuda rápida
-  ════════════════════════════════════
-  MUMPS:  $O  $G  $D  SET  WRITE  FOR  IF  QUIT
-  Shell:  !N recall  ? help  ?? last 10  ?comando
-  Alias:  o=$O(^  g=$G(^  d=$D(^  s=S  w=W  f=F  i=I
-  Toggle: Ctrl+R  →  > / D> prompt
-  Debug:  debug   →  modo debug
-  %             →  último resultado (como MSMSHELL)
-  Tab:    ^namespace completion
-  Exit:   exit / quit
+    def _help_topic(self, topic):
+        HELP = {
+            "$O": "  $O(^ns(sub))  → Next subscript. $O(^System(\"\"))",
+            "$G": "  $G(^ns(subs))  → Read value or \"\". $G(^System(\"config\"))",
+            "$D": "  $D(^ns(subs))  → 0/1/10/11 existence check",
+            "S": "  SET x=val  → Assign local variable",
+            "W": "  WRITE expr  → Output value. W \"Hello\",!,\"World\"",
+            "F": "  FOR i=1:1:10  → Loop. Use . for body",
+            "I": "  IF cond  → Conditional. I x>5 W \"big\"",
+            "Q": "  QUIT  → Exit loop or routine",
+            "$ZREF": "  Last ^global referenced. Type 'zref' to see it",
+        }
+        t = topic.upper()
+        if t in HELP: return HELP[t]
+        for k, v in HELP.items():
+            if t in k: return v
+        return f"  No help for '{topic}'"
 
-  > ?$O       → ayuda específica
-  > o TEST    → alias: $O(^TEST
-  > S x=42    → ejecuta
-  > W %       → muestra último resultado
+    def _help(self):
+        return """  M-Light REPL v7  (MSMSHELL)
+  ════════════════════════════════════
+  Commands: $O $G $D S W F I Q
+  Shell:    !N  ?  ??  ?topic  debug  toggle
+  Aliases:  o=$O(^ g=$G(^ d=$D(^ s=S w=W f=F i=I
+  Vars:     % = last result, $ZREF = last global
+  Exit:     exit / quit
+
+  > $O(^System(""))    → iterate
+  > S x=42             → assign
+  > W %                → 42
+  > zref               → ^System
 """
 
 def main():
+    import sys
     debug = "--debug" in sys.argv
     context = ""
     if "--context" in sys.argv:
