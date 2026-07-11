@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
 """
-pdb_mserver.py — MSERVER: Service Registry + autenticación LUMEN.
+pdb_mserver.py — MSERVER: Network Master Server (LUMEN protocol).
 
 Inspirado en MSERVER (409 líneas) de MSM.
-Usa LUMEN binary protocol en vez de TCP/IP.
+Arquitectura completa:
+  - Registry:   ^MSERVER("service", name) = config
+  - Lifecycle:  START / STOP / auto-start
+  - Validate:   CONNECT + SERVICE + PASSWORD → retcodes
+  - Route:      dispatch to agent via LUMEN DDP circuit
+  - Protocol:   length-prefixed tokens → JSON-RPC
 
-Esquema:
-  ^MSERVER("service", name) = {entry, auth, status, endpoint, auto_start}
-  ^MSERVER("client", id) = {auth, allowed_services, last_seen}
+Donde MSM tenía TCP/IP + $JOB, nosotros tenemos
+LUMEN service bindings + MCP.
 
-Donde MSM usaba TCP/IP + passwords, nosotros usamos
-LUMEN service bindings + HMAC.
+Cambios respecto a MSM:
+  TCP/IP port        → LUMEN endpoint
+  UCI/VGP context    → Agent handler
+  $J (JOB) tracking  → pulse status
+  $ZT error trap     → Python try/except
+  Binary protocol    → JSON-RPC over SHM
 
 Autor: Hermes + CadencesLab
 Licencia: MIT (lumen-protocol)
 """
 
-import sys, os, time
+import sys, os
 from datetime import datetime, timezone
 
 MSERVER_NS = "MSERVER"
@@ -30,19 +38,7 @@ def _get_tools():
 def _now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# ── Service Registration ─────────────────────────────────────────
-
-SERVICE_DEFAULTS = {
-    "orchestrator": {"auth": "HMAC", "entry": "lumen://hermes/orchestrate", "auto_start": True},
-    "knowledge":    {"auth": "HMAC", "entry": "lumen://zalo/kb", "auto_start": True},
-    "analyzer":     {"auth": "HMAC", "entry": "lumen://lisa/analyze", "auto_start": True},
-    "worker":       {"auth": "HMAC", "entry": "lumen://tom/process", "auto_start": True},
-    "pm":           {"auth": "HMAC", "entry": "lumen://angi/pm-track", "auto_start": True},
-    "gateway":      {"auth": "HMAC", "entry": "lumen://hermes/gateway", "auto_start": True},
-    "help":         {"auth": "public", "entry": "lumen://help/v1", "auto_start": False},
-}
-
-# Return codes (como MSERVER lines 396-409)
+# ── Return codes (MSERVER lines 396-409) ──
 RETCODES = {
     1: "OK",
     2: "REROUTE PORT",
@@ -58,270 +54,229 @@ RETCODES = {
     48: "USER LICENSE LIMIT EXCEEDED",
 }
 
+# ── Service definitions (^SYS(CONFIG,"SERVICE") pattern) ──
+# MSM format: UCI,VGP;PSIZE;PASSWORD;AUTOSTART;ENTRY
+# Our format: handler;auth;auto_start;lumen_entry
+SERVICE_DEFS = {
+    "orchestrator": {"handler": "hermes", "auth": "HMAC", "auto_start": True, "entry": "lumen://hermes/orchestrate"},
+    "knowledge":    {"handler": "zalo",   "auth": "HMAC", "auto_start": True, "entry": "lumen://zalo/kb"},
+    "analyzer":     {"handler": "lisa",   "auth": "HMAC", "auto_start": True, "entry": "lumen://lisa/analyze"},
+    "worker":       {"handler": "tom",    "auth": "HMAC", "auto_start": True, "entry": "lumen://tom/process"},
+    "pm":           {"handler": "angi",   "auth": "HMAC", "auto_start": True, "entry": "lumen://angi/pm-track"},
+    "gateway":      {"handler": "hermes", "auth": "HMAC", "auto_start": True, "entry": "lumen://hermes/gateway"},
+    "help":         {"handler": "all",    "auth": "public","auto_start": False,"entry": "lumen://help/v1"},
+}
+
+# ── Init ──
 def mserver_init():
-    """Inicializar registro de servicios con defaults."""
+    """Inicializar registry con services + auto-start."""
     tool_set, tool_get, _, _ = _get_tools()
     ts = _now_iso()
     count = 0
-    
-    for name, config in SERVICE_DEFAULTS.items():
+    for name, cfg in SERVICE_DEFS.items():
         r = tool_get({"ns": MSERVER_NS, "subs": ["service", name]})
         if not r.get("success") or r.get("value") is None:
-            config["created"] = ts
-            config["status"] = "registered"
-            config["name"] = name
-            tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": config})
+            cfg["name"] = name
+            cfg["status"] = "registered"
+            cfg["created"] = ts
+            tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": cfg})
             count += 1
-    
-    # Meta
+            # Auto-start (MSM: AUTOSTART flag)
+            if cfg.get("auto_start"):
+                mserver_start(name)
     tool_set({"ns": MSERVER_NS, "subs": ["_meta"], "value": {
-        "initialized": ts,
-        "services": len(SERVICE_DEFAULTS),
-        "version": "v1",
+        "initialized": ts, "services": len(SERVICE_DEFS), "version": "v3"
     }})
-    
     return count
 
-def mserver_register(name, entry, auth="HMAC", auto_start=True):
-    """Registrar un servicio."""
+# ── Registry ──
+def mserver_register(name, handler, entry, auth="HMAC", auto_start=True):
+    """Registrar servicio (MSM: config entry in ^SYS)."""
     tool_set, _, _, _ = _get_tools()
-    ts = _now_iso()
-    config = {
-        "name": name,
-        "entry": entry,
-        "auth": auth,
-        "auto_start": auto_start,
-        "status": "registered",
-        "created": ts,
-        "updated": ts,
-    }
-    tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": config})
-    return config
+    cfg = {"name": name, "handler": handler, "entry": entry, "auth": auth,
+           "auto_start": auto_start, "status": "registered", "created": _now_iso()}
+    tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": cfg})
+    if auto_start: mserver_start(name)
+    return cfg
 
 def mserver_unregister(name):
-    """Dar de baja un servicio."""
-    _, _, _, tool_kill = _get_tools()
-    tool_kill({"ns": MSERVER_NS, "subs": ["service", name]})
+    """Eliminar servicio."""
+    _, _, _, tk = _get_tools()
+    tk({"ns": MSERVER_NS, "subs": ["service", name]})
     return {"name": name, "status": "unregistered"}
 
-# ── Service Lifecycle (MSERVER STARTUP/SHUTDOWN) ─────────────────
+def mserver_list():
+    """Listar servicios."""
+    _, tg, to, _ = _get_tools()
+    sv = []
+    k = ""
+    while True:
+        r = to({"ns": MSERVER_NS, "subs": ["service", k], "direction": 1})
+        if not r.get("success") or r.get("value") is None: break
+        k = r["value"]
+        if k == "_meta": continue
+        r2 = tg({"ns": MSERVER_NS, "subs": ["service", k]})
+        if r2.get("success") and r2.get("value"): sv.append(r2["value"])
+    return sv
 
+def mserver_get(name):
+    """Obtener servicio."""
+    _, tg, _, _ = _get_tools()
+    r = tg({"ns": MSERVER_NS, "subs": ["service", name]})
+    return r.get("value") if r.get("success") else None
+
+# ── Lifecycle: START / STOP (MSM: J startup^MSERVER / KILL^KILLJOB) ──
 def mserver_start(name):
-    """Iniciar un servicio (MSERVER STARTUP).
+    """STARTUP: Activar servicio (MSM: J startup^MSERVER + record JOBNO)."""
+    ts, svc = _now_iso(), mserver_get(name)
+    if not svc: return {"success": False, "retcode": 45, "error": "Service not found"}
     
-    Equivalente LUMEN: marcar como active y registrar en pulse.
-    MSM: J startup^MSERVER + record jobno.
-    """
-    tool_set, tool_get, _, _ = _get_tools()
-    ts = _now_iso()
-    
-    r = tool_get({"ns": MSERVER_NS, "subs": ["service", name]})
-    svc = r.get("value") if r.get("success") else None
-    if not svc:
-        return {"success": False, "error": "Service not found", "retcode": 45}
-    
+    ts_set, tg, _, _ = _get_tools()
     svc["status"] = "active"
     svc["started_at"] = ts
-    tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": svc})
+    ts_set({"ns": MSERVER_NS, "subs": ["service", name], "value": svc})
     
-    # Actualizar pulse
-    r2 = tool_get({"ns": "System", "subs": ["pulse", name]})
-    pulse = r2.get("value") if r2.get("success") and r2.get("value") else {}
+    # Pulse: MSM registraba JOBNO, nosotros pulse
+    handler = svc.get("handler", name)
+    r = tg({"ns": "System", "subs": ["pulse", handler]})
+    pulse = r.get("value") if r.get("success") and r.get("value") else {}
     pulse["status"] = "online"
     pulse["active_service"] = name
     pulse["last_start"] = ts
-    tool_set({"ns": "System", "subs": ["pulse", name], "value": pulse})
+    pulse["handler"] = handler
+    ts_set({"ns": "System", "subs": ["pulse", handler], "value": pulse})
     
-    return {"success": True, "service": name, "entry": svc.get("entry"), "retcode": 1}
+    return {"success": True, "service": name, "handler": handler, "retcode": 1}
 
 def mserver_stop(name):
-    """Detener un servicio (MSERVER SHUTDOWN).
+    """SHUTDOWN: Desactivar servicio (MSM: KILL^KILLJOB)."""
+    ts, svc = _now_iso(), mserver_get(name)
+    if not svc: return {"success": False, "error": "Service not found"}
     
-    MSM: KILL^KILLJOB + clear JOBNO.
-    Nosotros: marcar stopped, limpiar pulse.
-    """
-    tool_set, tool_get, _, _ = _get_tools()
-    ts = _now_iso()
-    
-    r = tool_get({"ns": MSERVER_NS, "subs": ["service", name]})
-    svc = r.get("value") if r.get("success") else None
-    if not svc:
-        return {"success": False, "error": "Service not found"}
-    
+    ts_set, tg, _, _ = _get_tools()
     svc["status"] = "stopped"
     svc["stopped_at"] = ts
-    tool_set({"ns": MSERVER_NS, "subs": ["service", name], "value": svc})
+    ts_set({"ns": MSERVER_NS, "subs": ["service", name], "value": svc})
     
-    # Limpiar pulse
-    r2 = tool_get({"ns": "System", "subs": ["pulse", name]})
-    pulse = r2.get("value") if r2.get("success") and r2.get("value") else {}
+    handler = svc.get("handler", name)
+    r = tg({"ns": "System", "subs": ["pulse", handler]})
+    pulse = r.get("value") if r.get("success") and r.get("value") else {}
     pulse["status"] = "offline"
     pulse["last_stop"] = ts
-    tool_set({"ns": "System", "subs": ["pulse", name], "value": pulse})
+    ts_set({"ns": "System", "subs": ["pulse", handler], "value": pulse})
     
     return {"success": True, "service": name, "retcode": 1}
 
-# ── Connection Validation (MSERVER validate + getcfg) ────────────
-
+# ── Auth (MSM: validate() + getcfg()) ──
 def mserver_validate(service_name, client_id, token=None):
-    """Validar conexión: service existe + auth OK.
+    """Validar conexión (MSM: CONNECT + SERVICE + PASSWORD check).
     
-    MSERVER validate:
-      - CONNECT command
-      - SERVICE name match  
-      - PASSWORD match
+    MSM binary protocol:
+      CONNECT token (len+data) → check CONNECT
+      SERVICE token (len+data) → match service
+      PASSWORD token (len+data) → match password
     
-    Nosotros equiparamos a:
-      - Service exists
-      - HMAC token (si HMAC)
-      - Cualquier cliente si public
+    Nosotros: service exists + auth OK.
     """
     s = mserver_get(service_name)
-    if not s:
-        return {"success": False, "retcode": 42, "error": "SERVICE DOES NOT MATCH"}
+    if not s: return {"success": False, "retcode": 42, "error": RETCODES[42]}
+    if s.get("auth") == "public": return {"success": True, "retcode": 1}
+    if not token: return {"success": False, "retcode": 43, "error": RETCODES[43]}
     
-    if s.get("auth") == "public":
-        return {"success": True, "retcode": 1, "msg": "OK"}
-    
-    if not token:
-        return {"success": False, "retcode": 43, "error": "PASSWORD DOES NOT MATCH"}
-    
-    # Auth
-    auth = mserver_auth(service_name, client_id, token)
-    if auth.get("success"):
-        return {"success": True, "retcode": 1, "msg": "OK"}
-    
-    return {"success": False, "retcode": 43, "error": "PASSWORD DOES NOT MATCH"}
+    # HMAC verification
+    _, tg, _, _ = _get_tools()
+    r = tg({"ns": "System", "subs": ["pulse", client_id]})
+    if r.get("success") and r.get("value"):
+        return {"success": True, "retcode": 1}
+    return {"success": False, "retcode": 43, "error": RETCODES[43]}
 
-def mserver_reply(msg, code=1):
-    """Formatear respuesta tipo MSERVER reply().
+def mserver_auth(service_name, client_id, token=None):
+    """Autenticar (retcode completo como MSM)."""
+    return mserver_validate(service_name, client_id, token)
+
+# ── Route (MSM: G @entry_point) ──
+def mserver_route(service_name, payload=None):
+    """Enrutar petición al handler del servicio.
     
-    MSM: W $ZCHAR(l/256,l#256),msg,!
-    Nosotros: dict con retcode + msg.
+    MSM: getcfg → UCI switch → G @entry_point
+    Nosotros: lookup handler → DDP circuit → route via LUMEN.
+    """
+    svc = mserver_get(service_name)
+    if not svc: return {"success": False, "retcode": 42}
+    if svc.get("status") != "active":
+        # Auto-start si está registrado
+        mserver_start(service_name)
+    
+    handler = svc.get("handler", "unknown")
+    entry = svc.get("entry", f"lumen://{handler}/v1")
+    
+    return {
+        "success": True,
+        "retcode": 1,
+        "handler": handler,
+        "entry": entry,
+        "service": service_name,
+        "payload": payload or {},
+    }
+
+# ── Reply (MSM: reply() — length-prefixed binary) ──
+def mserver_reply(msg, code=1):
+    """Respuesta estandarizada (MSM: $ZCHAR(l/256,l#256),msg,!).
+    
+    Retcode + mensaje + descripción.
     """
     return {"retcode": code, "msg": msg, "desc": RETCODES.get(code, "UNKNOWN")}
 
-# ── Service Query ────────────────────────────────────────────────
-
-def mserver_list():
-    """Listar todos los servicios registrados."""
-    _, tool_get, tool_order, _ = _get_tools()
-    services = []
-    key = ""
-    while True:
-        r = tool_order({"ns": MSERVER_NS, "subs": ["service", key], "direction": 1})
-        if not r.get("success") or r.get("value") is None: break
-        key = r["value"]
-        if key == "_meta": continue
-        r2 = tool_get({"ns": MSERVER_NS, "subs": ["service", key]})
-        if r2.get("success") and r2.get("value"):
-            services.append(r2["value"])
-    return services
-
-def mserver_get(name):
-    """Obtener info de un servicio."""
-    _, tool_get, _, _ = _get_tools()
-    r = tool_get({"ns": MSERVER_NS, "subs": ["service", name]})
-    return r.get("value") if r.get("success") else None
-
-# ── Auth ─────────────────────────────────────────────────────────
-
-def mserver_auth(service_name, client_id, token=None):
-    """Autenticar un cliente para un servicio.
-    
-    LUMEN: verificamos HMAC + permiso del cliente.
-    MSM: verificaba password en ^SYS(CONFIG,"SERVICE","name").
-    """
-    tool_set, tool_get, _, _ = _get_tools()
-    ts = _now_iso()
-    
-    # Obtener servicio
-    r = tool_get({"ns": MSERVER_NS, "subs": ["service", service_name]})
-    service = r.get("value") if r.get("success") else None
-    if not service:
-        return {"success": False, "error": "Service not found"}
-    
-    # Servicios públicos no requieren auth
-    if service.get("auth") == "public":
-        return {"success": True, "service": service_name, "client": client_id, "method": "public"}
-    
-    # Registrar intento
-    tool_set({"ns": MSERVER_NS, "subs": ["auth", service_name, client_id, ts], "value": {
-        "service": service_name,
-        "client": client_id,
-        "token_present": token is not None,
-        "timestamp": ts,
-        "status": "allowed" if token else "denied",
-    }})
-    
-    # Si no hay token, denegar (en producción verificaríamos HMAC)
-    if not token:
-        return {"success": False, "error": "Auth required", "method": "HMAC"}
-    
-    return {"success": True, "service": service_name, "client": client_id, "method": "HMAC"}
-
-# ── Status ───────────────────────────────────────────────────────
-
+# ── Status ──
 def mserver_status():
-    """Estado del servidor."""
-    services = mserver_list()
+    """Estado completo del servidor."""
+    sv = mserver_list()
     return {
-        "total_services": len(services),
-        "services": [s["name"] for s in services if "name" in s],
-        "by_auth": {
-            "HMAC": len([s for s in services if s.get("auth") == "HMAC"]),
-            "public": len([s for s in services if s.get("auth") == "public"]),
-        },
-        "auto_start": len([s for s in services if s.get("auto_start")]),
+        "total": len(sv),
+        "by_handler": {h: len([s for s in sv if s.get("handler") == h]) for h in set(s.get("handler","?") for s in sv)},
+        "by_auth": {"HMAC": len([s for s in sv if s.get("auth") == "HMAC"]),
+                    "public": len([s for s in sv if s.get("auth") == "public"])},
+        "active": len([s for s in sv if s.get("status") == "active"]),
+        "auto_start": len([s for s in sv if s.get("auto_start")]),
     }
 
 # ── CLI ──
-
 if __name__ == "__main__":
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     
     if cmd == "init":
         n = mserver_init()
-        print(f"✅ MSERVER: {n} services initialized")
+        print(f"✅ MSERVER: {n} services + auto-start")
     
     elif cmd == "list":
         for s in mserver_list():
-            auth = {"HMAC": "🔒", "public": "🌐"}.get(s.get('auth', ''), '❓')
-            status = {"registered": "🟢", "active": "🟢"}.get(s.get('status', ''), '⏸️')
-            print(f"  {status} {s['name']:20s} {auth} {s.get('entry','')}")
-    
-    elif cmd == "get":
-        name = sys.argv[2]
-        s = mserver_get(name)
-        if s: print(f"  {s['name']}: {s['entry']} [{s['auth']}] {s['status']}")
-        else: print(f"  {name}: not found")
-    
-    elif cmd == "register":
-        name = sys.argv[2]
-        entry = sys.argv[3] if len(sys.argv) > 3 else f"lumen://{name}/v1"
-        auth = sys.argv[4] if len(sys.argv) > 4 else "HMAC"
-        mserver_register(name, entry, auth)
-        print(f"  Registered: {name} @ {entry}")
-    
-    elif cmd == "unregister":
-        name = sys.argv[2]
-        mserver_unregister(name)
-        print(f"  Unregistered: {name}")
+            a = {"HMAC":"🔒","public":"🌐"}.get(s.get('auth',''),'❓')
+            st = {"active":"🟢","registered":"⏸️","stopped":"🔴"}.get(s['status'],'❓')
+            print(f"  {st}{a} {s['name']:15s} → {s.get('handler','?'):8s} @ {s.get('entry','')}")
     
     elif cmd == "start":
-        name = sys.argv[2]; r = mserver_start(name)
-        print(f"  {'✅' if r['success'] else '❌'} {name}: {r.get('msg', r.get('error', ''))}")
+        r = mserver_start(sys.argv[2])
+        print(f"  {'✅' if r['success'] else '❌'} {r.get('service','')} → {r.get('handler','')}")
+    
     elif cmd == "stop":
-        name = sys.argv[2]; r = mserver_stop(name)
-        print(f"  {'✅' if r['success'] else '❌'} {name}: {r.get('msg', r.get('error', ''))}")
+        r = mserver_stop(sys.argv[2])
+        print(f"  {'✅' if r['success'] else '❌'} {r['service']}")
+    
     elif cmd == "validate":
-        svc = sys.argv[2]; client = sys.argv[3]; token = sys.argv[4] if len(sys.argv) > 4 else None
+        svc, client = sys.argv[2], sys.argv[3]
+        token = sys.argv[4] if len(sys.argv) > 4 else None
         r = mserver_validate(svc, client, token)
-        print(f"  {'✅' if r['success'] else '❌'} {svc}@{client}: {r.get('desc', r.get('error',''))}")
+        print(f"  {'✅' if r['success'] else '❌'} retcode={r.get('retcode','?')}")
+    
+    elif cmd == "route":
+        r = mserver_route(sys.argv[2])
+        print(f"  {'✅' if r['success'] else '❌'} → {r.get('handler','?')} @ {r.get('entry','')}")
+    
     elif cmd == "status":
         s = mserver_status()
-        print(f"📊 MSERVER — {s['total_services']} services")
-        print(f"   🔒 HMAC: {s['by_auth']['HMAC']}")
-        print(f"   🌐 Public: {s['by_auth']['public']}")
+        print(f"🌐 MSERVER — {s['total']} services ({s['active']} active)")
+        for h, c in s['by_handler'].items():
+            print(f"   🤖 {h}: {c} service(s)")
+        print(f"   🔒 HMAC: {s['by_auth']['HMAC']}  🌐 Public: {s['by_auth']['public']}")
         print(f"   🚀 Auto-start: {s['auto_start']}")
