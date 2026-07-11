@@ -92,10 +92,8 @@ def bij_record(ns, subs, old_value, tx_id=None):
     return entry
 
 def bij_commit(tx_id):
-    """Marcar una transacción como completada.
-    Los before-images ya no son necesarios → se archivan.
-    """
-    tool_set, tool_get, _, _ = _get_tools()
+    """Marcar una transacción como completada."""
+    tool_set, tool_get, tool_order, _ = _get_tools()
     seq = 0
     while True:
         r = tool_order({"ns": BIJ_NS, "subs": ["tx", tx_id, seq], "direction": 1})
