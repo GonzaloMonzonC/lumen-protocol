@@ -649,12 +649,15 @@ class MEvaluator:
                         return lv + rv
 
         # $GET(^ns(subs)) — también $G (soporta multi-nivel)
-        m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\((.+)\)\s*\)', token)
+        m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\((.+?)\)\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
             self._last_ref = ns
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
+            # DEBUG $GET FIX
+            if r.get("value") is not None:
+                import sys; print(f'[M-Light $GET FIX] {ns}{subs} = {r.get("value")}', file=sys.stderr)
             return r.get("value")
 
         # $GET(^barename) — $G con global sin subíndices
@@ -672,7 +675,7 @@ class MEvaluator:
             return var if var is not None else ""
 
         # $DATA(^ns(subs)) — también $D (soporta multi-nivel)
-        m = re.match(r'\$(?:DATA|D)\s*\(\^(\w+)\((.+)\)\s*\)', token)
+        m = re.match(r'\$(?:DATA|D)\s*\(\^(\w+)\((.+?)\)\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
@@ -868,7 +871,7 @@ class MEvaluator:
                     return int(result) if result == int(result) else result
 
         # ^ns(subs) — referencia directa a global (soporta multi-nivel)
-        m = re.match(r'\^(\w+)\((.+)\)', token)
+        m = re.match(r'\^(\w+)\((.+?)\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
@@ -946,9 +949,15 @@ class MEvaluator:
         return bool(val) if val is not None else False
 
     def _parse_subs(self, subs_str: str) -> list:
-        """Parsea subíndices '42, "name"' → [42, 'name']"""
+        """Parsea subíndices '42, "name"' → [42, 'name'].
+        Respeta strings literales — NO evalúa aritmética en strings."""
         subs = []
         for part in subs_str.split(","):
             part = part.strip()
-            subs.append(self._resolve(part))
+            # Si es string literal, devolver tal cual (sin evaluar aritmética)
+            if (part.startswith('"') and part.endswith('"')) or \
+               (part.startswith("'") and part.endswith("'")):
+                subs.append(part[1:-1])
+            else:
+                subs.append(self._resolve(part))
         return subs
