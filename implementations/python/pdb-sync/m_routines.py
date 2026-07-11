@@ -229,6 +229,37 @@ def patch_stackvm():
 
 # ── CLI ──
 
+    def _save_bc(self, name, key, instrs):
+        '''Guardar bytecode compilado en ^ROUTINE(name,key).'''
+        try:
+            from pdb_tools import tool_set, tool_kill
+            tool_kill({"ns": "ROUTINE", "subs": [name, key]})
+            for idx, inst in enumerate(instrs):
+                tool_set({"ns": "ROUTINE", "subs": [name, key, str(idx)],
+                         "value": f"{inst.opcode}|{inst.args}"})
+            return True
+        except: return False
+
+    def _load_bc(self, name, key):
+        '''Cargar bytecode cacheado desde ^ROUTINE.'''
+        try:
+            from pdb_tools import tool_order, tool_get
+            from m_stackvm import StackOp
+            instrs = []
+            idx = ""
+            while True:
+                r = tool_order({"ns": "ROUTINE", "subs": [name, key, idx], "direction": 1})
+                if not r.get("success") or r.get("value") is None: break
+                idx = r["value"]
+                r2 = tool_get({"ns": "ROUTINE", "subs": [name, key, idx]})
+                if r2.get("success") and r2.get("value"):
+                    parts = str(r2["value"]).split("|", 1)
+                    if len(parts) == 2:
+                        import ast
+                        instrs.append(StackOp(parts[0], ast.literal_eval(parts[1])))
+            return instrs if instrs else None
+        except: return None
+
 if __name__ == "__main__":
     import sys
     
