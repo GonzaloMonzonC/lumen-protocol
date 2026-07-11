@@ -226,12 +226,50 @@ class StackVM:
                 raise MError(3, f"SET error: {e}", {"var": name, "val": val})
     
     def _exec_write(self, rest: str, inst=None):
-        """WRITE expr (MSM: B-tree opcode 'w')."""
-        if rest:
-            result = self._eval_expr(rest)
-            self.ops.append(result)
-            if hasattr(self, '_on_write') and self._on_write:
-                self._on_write(str(result))
+        """WRITE expr — soporta strings, newline, concatenación.
+        
+        MSM: W "texto",!,"a",var → W "texto",!,var
+        """
+        if not rest:
+            return
+        
+        # Parsear argumentos separados por coma
+        parts = self._parse_write_args(rest)
+        output = ""
+        for part in parts:
+            if part == "!":
+                output += "\n"
+            elif part.startswith('"') and part.endswith('"'):
+                output += part[1:-1]
+            else:
+                val = self._eval_expr(part)
+                if val is not None:
+                    output += str(val)
+        
+        self.ops.append(output)
+        if hasattr(self, '_on_write') and self._on_write:
+            self._on_write(output)
+    
+    def _parse_write_args(self, s: str) -> list:
+        """Parsear argumentos de WRITE separados por coma.
+        
+        "a",!,"b",var → ["a", "!", "b", "var"]
+        """
+        args = []
+        cur = ""
+        in_str = False
+        for ch in s:
+            if ch == '"':
+                in_str = not in_str
+                cur += ch
+            elif ch == ',' and not in_str:
+                args.append(cur.strip())
+                cur = ""
+            else:
+                cur += ch
+        if cur.strip():
+            args.append(cur.strip())
+        return args
     
     def _exec_if(self, rest: str, inst=None):
         """IF cond {body} (MSM: B-tree opcode 'i')."""
