@@ -1,14 +1,15 @@
 """Tests IMP-04: DO subrutina con labels."""
-import sys, os; sys.path.insert(0, os.path.dirname(__file__))
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
 from m_stackvm import StackVM
 from m_routines import RoutineExecutor, register
 
-p = f = 0
+p = fail = 0
 def t(n,o):
-    global p,f
+    global p,fail
     if o: p+=1; print(f"  ✅ {n}")
-    else: f+=1; print(f"  ❌ {n}")
+    else: fail+=1; print(f"  ❌ {n}")
 
 print('🧪 TESTS IMP-04: DO subrutina\n')
 

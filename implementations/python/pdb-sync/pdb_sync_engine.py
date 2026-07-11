@@ -71,12 +71,24 @@ class SyncEngine:
     # ── Push (local → cloud) ──
     def push_pending(self, ns: str) -> dict:
         """Enviar entries locales pendientes al cloud."""
-        pending = [e for e in self.journal if e.source == "local"]
-        if not pending:
+        from pdb_journal import read, write, make_entry, pending as wal_pending
+
+        # Push entries del WAL con source=local
+        entries = read(source="local", limit=100)
+        if not entries:
             return {"status": "ok", "applied": 0}
         
-        entries = [e.to_dict() for e in pending]
-        result = self.ddp.push(ns, entries)
+        # Convertir a formato DDP (hex key)
+        ddp_entries = []
+        for e in entries:
+            ddp_entries.append({
+                "key": e["key"].encode().hex(),
+                "value": json.dumps(e),
+                "source": "local",
+                "updated_at": e["ts"],
+            })
+        
+        result = self.ddp.push(ns, ddp_entries)
         
         if "error" not in result:
             # Marcar como enviados (o limpiar)
@@ -100,16 +112,38 @@ class SyncEngine:
         skipped = 0
         
         for entry_data in entries:
-            entry = JournalEntry.from_entry(ns, entry_data)
+            key_bytes = bytes.fromhex(entry_data["key"]) if isinstance(entry_data.get("key"), str) and all(c in '0123456789abcdefABCDEF' for c in entry_data["key"]) else entry_data.get("key", "").encode()
+            key = key_bytes.decode() if isinstance(key_bytes, bytes) else key_bytes
+            
+            source = entry_data.get("source", "cloud")
             
             # ⚠️ Anti-bucle: si el entry vino de "local", lo saltamos
-            if entry.source == self.source:
+            if source == self.source:
                 skipped += 1
                 continue
             
-            # Aplicar localmente (depende del namespace)
-            self._apply_entry(entry)
-            applied += 1
+            # Aplicar localmente
+            try:
+                import sys, os
+                sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+                if sp not in sys.path: sys.path.insert(0, sp)
+                from pdb_tools import tool_set
+                val = entry_data.get("value", "")
+                # Extraer el valor real del entry del journal
+                try:
+                    parsed = json.loads(val)
+                    actual_val = parsed.get("value", val) if isinstance(parsed, dict) else val
+                    actual_ns = parsed.get("ns", ns) if isinstance(parsed, dict) else ns
+                    actual_key = parsed.get("key", key) if isinstance(parsed, dict) else key
+                except:
+                    actual_val = val
+                    actual_ns = ns
+                    actual_key = key
+                
+                tool_set({"ns": actual_ns, "subs": [actual_key], "value": actual_val})
+                applied += 1
+            except Exception as e:
+                self._log(f"Apply error: {e}")
         
         if result.get("since"):
             self.last_sync[ns] = result["since"]
