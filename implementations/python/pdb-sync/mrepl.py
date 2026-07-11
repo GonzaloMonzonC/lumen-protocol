@@ -152,27 +152,59 @@ class MREPL:
         if not cmd.startswith(("!", "?")):
             self.history_list.append(cmd)
 
+        # Multi-line: F, S, I incompletos → seguir leyendo
+        if self._needs_more(cmd):
+            continuation = True
+            while continuation:
+                try:
+                    line = input("  > ")
+                    if line.rstrip().endswith("Q") or line.rstrip() == "":
+                        continuation = False
+                    cmd += "\n" + line
+                    continuation = self._needs_more(cmd)
+                except (KeyboardInterrupt, EOFError):
+                    continuation = False
+
         # ── M-Light ──
         tool_m_eval = self._get_tools()
         try:
-            result = tool_m_eval({"expression": cmd})
-            if result.get("success"):
-                val = result.get("result", "")
-                output = result.get("output", "")
-                if self.debug_mode:
-                    parts = []
-                    if val: parts.append(f"= {val}")
-                    return "  " + "  ".join(parts) if parts else "  (ok)"
-                if val or val == 0:
-                    val_str = str(val)
-                    if len(val_str) > 500:
-                        return f"  {val_str[:500]}..."
-                    return f"  {val_str}"
-                return "  (ok)"
-            else:
-                return self._format_error(result.get('error', 'eval error'))
+            import signal
+            class TimeoutError(Exception): pass
+            def handler(signum, frame): raise TimeoutError("Interrupted")
+            signal.signal(signal.SIGALRM, handler)
+            signal.alarm(10)  # 10s timeout
+
+            try:
+                result = tool_m_eval({"expression": cmd})
+                signal.alarm(0)
+                if result.get("success"):
+                    val = result.get("result", "")
+                    output = result.get("output", "")
+                    # Mostrar WRITE output (como MSMSHELL)
+                    write_output = ""
+                    if output:
+                        write_output = f"  [OUT] {output[:200]}"
+                    if self.debug_mode:
+                        parts = []
+                        if val is not None and val != "": parts.append(f"= {val}")
+                        r = "  " + "  ".join(parts) if parts else "  (ok)"
+                        return (r + "\n" + write_output) if write_output else r
+                    if val is not None and val != "":
+                        val_str = str(val)
+                        if len(val_str) > 500: val_str = val_str[:500] + "..."
+                        r = f"  {val_str}"
+                        return (r + "\n" + write_output) if write_output else r
+                    return write_output if write_output else "  (ok)"
+                else:
+                    return self._format_error(result.get('error', 'eval error'))
+            except TimeoutError:
+                signal.alarm(0)
+                return "  ⏱️ <TIMEOUT> Expression took >10s"
+            except Exception as e:
+                signal.alarm(0)
+                return f"  🔴 <DSCON> {e}"
         except Exception as e:
-            return f"  🔴 <DSCON> {e}"
+            return f"  🔴 <ERROR> {e}"
 
     def run(self):
         print("╔══════════════════════════════════════╗")
@@ -211,6 +243,23 @@ class MREPL:
             lines.append(f"  {i+1:4d}: {self.history_list[i]}")
         return "\n".join(lines) if lines else "  (no history)"
 
+    def _needs_more(self, cmd):
+        """Detectar si el comando necesita más líneas (multi-line)."""
+        last_line = cmd.strip().split('\n')[-1].strip()
+        # FOR sin cuerpo completo
+        if last_line.startswith("F ") and not any(c in last_line for c in [".", "D", "S ", "W "]):
+            return True
+        # DO sin argumento completo
+        if last_line.startswith("D ") and not last_line.rstrip().endswith("."):
+            return True
+        # IF sin acción
+        if last_line.startswith("I ") and not any(c in last_line for c in ["S ", "W ", "D ", "Q"]):
+            return True
+        # SET incompleto
+        if last_line.rstrip().endswith("="):
+            return True
+        return False
+
     def _get_tools(self):
         pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
         if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
@@ -223,6 +272,7 @@ class MREPL:
   MUMPS:  $O  $G  $D  S  W  F
   Shell:  !N recall  ? help  ?? last 10
   Toggle: Ctrl+R or 'toggle' — prompt > / D>
+  Multi:  Incomplete F/I/D lines continue
   Debug:  'debug' — toggle debug mode
   Tab:    Complete ^namespace names
   Exit:   exit / quit
