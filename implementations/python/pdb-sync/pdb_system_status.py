@@ -85,7 +85,41 @@ def ss_errors():
             if len(errors) >= 5: break
     return errors
 
-def ss_dashboard():
+def ss_ddp_circuits():
+    """Circuitos DDP activos."""
+    _, tool_get, tool_order = _get_tools()
+    circuits = []
+    key = ""
+    while True:
+        r = tool_order({"ns": "System", "subs": ["ddp", "circuits", key], "direction": 1})
+        if not r.get("success") or r.get("value") is None: break
+        key = r["value"]
+        if key == "request": continue
+        r2 = tool_get({"ns": "System", "subs": ["ddp", "circuits", key]})
+        if r2.get("success") and r2.get("value"):
+            c = r2["value"]
+            circuits.append({
+                "id": key,
+                "status": c.get("status", "?"),
+                "source": c.get("source", ""),
+                "target": c.get("target", ""),
+            })
+    return circuits
+
+def ss_workspaces():
+    """Workspaces activos."""
+    _, tool_get, tool_order = _get_tools()
+    workspaces = []
+    key = ""
+    while True:
+        r = tool_order({"ns": "Agent", "subs": [key], "direction": 1})
+        if not r.get("success") or r.get("value") is None: break
+        key = r["value"]
+        if key == "index": continue
+        r2 = tool_get({"ns": "Agent", "subs": [key, "data", ""]})
+        active = r2.get("success") and r2.get("value") is not None
+        workspaces.append({"agent": key, "active": bool(active)})
+    return workspaces
     """Dashboard completo como %SS display."""
     agents = ss_agents()
     journal = ss_journal()
