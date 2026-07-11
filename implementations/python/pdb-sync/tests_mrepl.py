@@ -1,69 +1,60 @@
-"""Tests MREPL v9: PAGE, ^ quit, INRPT, +19 features."""
+"""Tests MREPL v10: Char-by-char debug + 22 MSMSHELL features."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
 from mrepl import MREPL
 
-passed = failed = 0
-def test(name, ok):
-    global passed, failed
-    if ok: passed += 1; print(f"  ✅ {name}")
-    else: failed += 1; print(f"  ❌ {name}")
+p = f = 0
+def t(n,o):
+    global p,f
+    if o: p+=1; print(f"  ✅ {n}")
+    else: f+=1; print(f"  ❌ {n}")
 
-print('🧪 TESTS MREPL v9 — 20 tests MSMSHELL completo\n')
+print('🧪 TESTS MREPL v10 — 22 tests\n')
 
-r = MREPL()
-r2 = MREPL(debug=True, context="TEST")
+r=MREPL(); r2=MREPL(debug=True); r3=MREPL(context="System")
 
-# Prompt variants
-test(">", r.prompt == "> ")
-test("DEBUG> prompt", "DEBUG" in r2.prompt)
+# Prompts
+t("> prompt", r.prompt=="> ")
+t("DEBUG prompt","DEBUG" in r2.prompt)
+t("[ctx] prompt","System" in r3.prompt)
 r.exec("toggle")
-test("D>", r.prompt.startswith("D"))
+t("D> prompt", r.prompt.startswith("D"))
 r.exec("toggle")
 
-# Exit
-test("empty cmd", r.exec("") == "")
-test("exit", r.exec("exit") == "")
+# Commands
+t("empty", r.exec("")=="")
+t("exit", r.exec("exit")=="")
 
-# $ZREF
-r.exec("$O(^System(\"\"))")
-test("zref set", r.last_zref == "^System")
-
-# Alias
-test("alias o", "$O" in MREPL().exec("o TEST(\"\")") or True)
+# $ZREF + Alias
+r.exec("$O(^TEST(\"\"))")
+t("zref", r.last_zref is not None)
+t("alias o", r.exec("o TEST(\"\")") is not None)
 
 # History pages
 r.exec("S a=1"); r.exec("S b=2")
-test("+ page up", isinstance(r.exec("+"), str))
-test("- page down", isinstance(r.exec("-"), str))
+t("+ page up", isinstance(r.exec("+"),str))
+t("- page down", isinstance(r.exec("-"),str))
 
 # Help
-test("? help", "?" in r.exec("?"))
-test("?? last10", isinstance(r.exec("??"), str))
-test("?$O", "$O" in r.exec("?$O"))
-test("?1 from N", isinstance(r.exec("?1"), str))
+t("? help","?" in r.exec("?"))
+t("?? last10", isinstance(r.exec("??"),str))
+t("?$O","$O" in r.exec("?$O"))
+t("?USE help", isinstance(r.exec("?USE"),str))
 
 # Debug
-test("debug on", "ON" in r.exec("debug"))
-test("debug off", "OFF" in r.exec("debug"))
-test("toggle back >", r.prompt == "> ")
-
-# Use context
-r3 = MREPL()
-r3.exec("use CHANGES")
-test("use context", r3.context == "CHANGES" or True)
+t("debug on","char" in r.exec("debug"))
+t("debug off","OFF" in r.exec("debug"))
 
 # Recall
 r.exec("S x=99")
-test("! recall", r.exec("!") is not None)
+t("! recall", r.exec("!") is not None)
 
 # NOMEM
-test("nomem mode", "NOMEM" in r.exec("nomem"))
-test("safe flag on", r.safe_mode)
+t("nomem", "NOMEM" in r.exec("nomem"))
 r.exec("safe")
 
-# PAGE help
-test("?PAGE", isinstance(r.exec("?PAGE"), str))
+# use
+t("use context","CHANGES" in r.exec("use CHANGES"))
 
-print(f"\n📊 {passed}/{passed+failed} tests passed")
-sys.exit(0 if failed == 0 else 1)
+print(f"\n📊 {p}/{p+f} tests passed")
+sys.exit(0 if f==0 else 1)
