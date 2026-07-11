@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """
-mrepl.py — M-Light REPL (MSMSHELL auténtico MS-DOS style).
-v4: Paging, Toggle, multi-line, MSM error codes.
+mrepl.py — M-Light REPL (MSMSHELL auténtico, MS-DOS style).
+v6: Color, PDB history, % last result, help por comando, aliases.
 
-Features nativas de MSMSHELL:
+Features MSMSHELL nativas:
   > $O()        Prompt normal
   D> W $J       Device mode (Ctrl+R toggle)
   [ctx] > ...   Context prompt
   DEBUG> ...    Debug mode
   !N            Recall command
   ? / ?? / ?N   Help system
-  Ctrl+R        Toggle prompt mode
-  --- More ---  Paging output > 24 lines
+  %             Last result variable
+  o/g/d         Aliases: $O/$G/$D
+  
+v6 mejoras:
+  🎨 Color output (green=ok, red=error, yellow=warn)
+  💾 PDB history (^System("repl","history"))
+  %  variable con último resultado
+  ?comando      Ayuda específica (?for, ?set)
 
 Autor: Hermes + CadencesLab
 Licencia: MIT (lumen-protocol)
@@ -23,21 +29,49 @@ except: readline = None
 
 HISTFILE = os.path.expanduser("~/.hermes/mrepl_history")
 TERM_LINES = 24
-TERM_COLS = 80
+LAST_RESULT = "%"  # como MSMSHELL
+
+# Colores ANSI
+C = type('',(),{})()
+C.OK = "\033[92m"    # verde
+C.WARN = "\033[93m"  # amarillo
+C.ERR = "\033[91m"   # rojo
+C.RST = "\033[0m"    # reset
 
 NAMESPACES = [
     "System", "CHANGES", "ROUTINE", "DDP", "Agent", "BIJ", "docs",
     "TEST", "LOGON", "MSAJOB", "MSASYS", "RTHIST", "CSFMON", "PDBMAP",
-    "CLIMA", "PROCESSES", "STRESS", "COMPARE_TEST",
+    "CLIMA", "PROCESSES", "STRESS",
 ]
 
-ERROR_CODES = {
-    "SYNTX": "Invalid M syntax",
-    "UNDEF": "Undefined variable",
-    "DIVIDE": "Division by zero",
-    "NOMEM": "Out of memory",
-    "INRPT": "Interrupted",
-    "DSCON": "Device disconnected",
+HELP_TOPICS = {
+    "$O": "  $O(^ns(sub))  → Siguiente subscript. Ej: $O(^System(\"\"))",
+    "$ORDER": "  $ORDER(^ns(sub))  → Igual que $O. Itera subíndices.",
+    "$G": "  $G(^ns(subs))  → Lee valor o \"\" si no existe. Ej: $G(^System(\"config\"))",
+    "$GET": "  $GET(^ns(subs))  → Igual que $G.",
+    "$D": "  $D(^ns(subs))  → 0=no existe, 1=valor, 10=hijos, 11=ambos",
+    "$DATA": "  $DATA(^ns(subs))  → Igual que $D.",
+    "S": "  SET x=valor  → Asigna variable local.",
+    "SET": "  SET x=valor  → Igual que S.",
+    "W": "  WRITE expr  → Muestra valor. W \"Hola\",!,\"Mundo\"",
+    "WRITE": "  WRITE expr  → Igual que W.",
+    "F": "  FOR i=1:1:10  → Bucle. Usar . para indentar cuerpo.",
+    "FOR": "  FOR i=1:1:10  → Igual que F.",
+    "I": "  IF cond  → Condicional. I x>5 W \"mayor\"",
+    "IF": "  IF cond  → Igual que I.",
+    "Q": "  QUIT  → Sale del bucle o rutina.",
+    "QUIT": "  QUIT  → Igual que Q.",
+}
+
+ALIASES = {
+    "o": "$O(^",
+    "g": "$G(^", 
+    "d": "$D(^",
+    "s": "S ",
+    "w": "W ",
+    "f": "F ",
+    "i": "I ",
+    "q": "Q ",
 }
 
 class Completer:
@@ -46,8 +80,7 @@ class Completer:
     def complete(self, text, state):
         if state == 0:
             self.matches = [ns for ns in NAMESPACES if ns.lower().startswith(text.lower())]
-        try:
-            return self.matches[state]
+        try: return self.matches[state]
         except: return None
 
 class MREPL:
@@ -55,11 +88,11 @@ class MREPL:
         self.debug_mode = debug
         self.context = context
         self.running = True
-        self.device_mode = False  # D> prompt
+        self.device_mode = False
         self.history_list = []
-        self.line_count = 0
+        self.last_result = None  # variable %
         self._setup_completion()
-        self._load_history()
+        self._load_history_pdb()
 
     def _setup_completion(self):
         if readline:
@@ -68,76 +101,101 @@ class MREPL:
 
     @property
     def prompt(self):
-        if self.debug_mode: return "DEBUG> "
-        if self.device_mode: return "D> "
-        if self.context: return f"[{self.context}] > "
-        return "> "
+        if self.debug_mode: return f"{C.WARN}DEBUG>{C.RST} "
+        if self.device_mode: return f"{C.OK}D>{C.RST} "
+        if self.context: return f"{C.OK}[{self.context}] >{C.RST} "
+        return f"{C.OK}>{C.RST} "
 
-    def _load_history(self):
+    # ── History PDB (^System("repl","history")) ──
+    def _load_history_pdb(self):
+        """Cargar historial desde PDB (MSMSHELL usaba ^MSMSHIST)."""
         try:
-            if readline and os.path.exists(HISTFILE):
-                readline.read_history_file(HISTFILE)
+            from pdb_tools import tool_order, tool_get
+            key = ""
+            while True:
+                r = tool_order({"ns": "System", "subs": ["repl", "history", key], "direction": 1})
+                if not r.get("success") or r.get("value") is None: break
+                key = r["value"]
+                r2 = tool_get({"ns": "System", "subs": ["repl", "history", key]})
+                if r2.get("success") and r2.get("value"):
+                    self.history_list.append(r2["value"])
+            self.history_list = self.history_list[-200:]  # últimas 200
         except: pass
-        atexit.register(self._save_history)
 
-    def _save_history(self):
+    def _save_history_pdb(self):
+        """Guardar historial en PDB."""
         try:
-            os.makedirs(os.path.dirname(HISTFILE), exist_ok=True)
-            if readline: readline.write_history_file(HISTFILE)
+            from pdb_tools import tool_set, tool_kill
+            # Limpiar historial anterior
+            tool_kill({"ns": "System", "subs": ["repl", "history"]})
+            # Guardar últimas 100
+            for i, cmd in enumerate(self.history_list[-100:]):
+                tool_set({"ns": "System", "subs": ["repl", "history", str(i+1)], "value": cmd})
         except: pass
+
+    # ── Help por comando ──
+    def _help_topic(self, topic):
+        topic = topic.upper()
+        if topic in HELP_TOPICS:
+            return HELP_TOPICS[topic]
+        for cmd, desc in HELP_TOPICS.items():
+            if topic in cmd or cmd in topic:
+                return desc
+        return f"  No help for '{topic}'. Try: ?$O, ?$G, ?S, ?F, ?W"
+
+    # ── Format output ──
+    def _colorize(self, text, type="ok"):
+        if type == "err": return f"{C.ERR}{text}{C.RST}"
+        if type == "warn": return f"{C.WARN}{text}{C.RST}"
+        return f"{C.OK}{text}{C.RST}"
 
     def _page(self, text):
-        """Paging estilo MSMSHELL: --- More ---"""
         if not text: return
         lines = text.split('\n')
         for i, line in enumerate(lines):
             print(line)
             if (i + 1) % TERM_LINES == 0 and i + 1 < len(lines):
-                try:
-                    input("  --- More ---")
-                except (KeyboardInterrupt, EOFError):
-                    print()
-                    break
+                try: input("  --- More ---")
+                except: break
 
     def _format_error(self, error_msg):
-        """$ZE-style error: <ERROR> message"""
-        for code, desc in ERROR_CODES.items():
+        for code in ["SYNTX", "UNDEF", "DIVIDE"]:
             if code.lower() in str(error_msg).lower():
-                return f"  ❌ <{code}> {desc}"
-        return f"  ❌ <ERROR> {error_msg}"
+                return f"  ❌ {self._colorize(f'<{code}>', 'err')}"
+        return f"  🔴 {self._colorize(f'<ERROR> {error_msg}', 'err')}"
 
+    # ── Exec ──
     def exec(self, cmd):
-        if not cmd.strip():
-            return ""
+        if not cmd.strip(): return ""
 
-        # ── Comandos del shell ──
+        # ── Shell commands ──
         if cmd in ("exit", "quit"):
+            self._save_history_pdb()
             self.running = False
             return ""
 
         if cmd == "debug":
             self.debug_mode = not self.debug_mode
-            return f"  Debug mode: {'ON 🐛' if self.debug_mode else 'OFF'}"
+            return f"  Debug: {'ON' if self.debug_mode else 'OFF'}"
 
-        # Ctrl+R toggle device mode
-        if cmd == "toggle" or cmd == "\x12":  # \x12 = Ctrl+R
+        if cmd in ("toggle", "\x12"):
             self.device_mode = not self.device_mode
             return f"  Prompt: {'D>' if self.device_mode else '>'}"
 
-        # !N recall
         if cmd.startswith("!"):
             n = cmd[1:].strip()
             recalled = self._recall(n if n else None)
-            if recalled:
-                return f"  {recalled}\n  {self.exec(recalled)}"
-            return "  Not found"
+            if recalled: return f"  {recalled}\n  {self.exec(recalled)}"
+            return self._colorize("  Not found", "warn")
 
-        # ? help
         if cmd == "?":
             return self._help()
         if cmd == "??":
             return self._last10()
         if cmd.startswith("?") and cmd[1:].strip():
+            topic = cmd[1:].strip()
+            return self._help_topic(topic)
+        if cmd.startswith("?") and cmd[1:].strip().isdigit():
             n = cmd[1:].strip()
             try:
                 idx = int(n)
@@ -145,119 +203,85 @@ class MREPL:
                 for i in range(idx, min(idx + 10, len(self.history_list) + 1)):
                     if i <= len(self.history_list):
                         lines.append(f"  {i:4d}: {self.history_list[i-1]}")
-                return "\n".join(lines) if lines else "  Not found"
+                return "\n".join(lines) if lines else self._colorize("  Not found", "warn")
             except: pass
+
+        # Aliases
+        if len(cmd) > 0 and cmd[0] in ALIASES and cmd[0] != cmd:
+            cmd = ALIASES[cmd[0]] + cmd[1:]
 
         # History
         if not cmd.startswith(("!", "?")):
             self.history_list.append(cmd)
 
-        # Multi-line: F, S, I incompletos → seguir leyendo
+        # Multi-line
         if self._needs_more(cmd):
-            continuation = True
-            while continuation:
+            while True:
                 try:
-                    line = input("  > ")
-                    if line.rstrip().endswith("Q") or line.rstrip() == "":
-                        continuation = False
+                    line = input("  . ")
+                    if line.strip() == "" or line.strip().upper() == "Q":
+                        break
                     cmd += "\n" + line
-                    continuation = self._needs_more(cmd)
+                    if not self._needs_more(cmd): break
                 except (KeyboardInterrupt, EOFError):
-                    continuation = False
+                    break
 
-        # ── M-Light ──
+        # ── Exec M-Light ──
         tool_m_eval = self._get_tools()
         try:
             import signal
-            class TimeoutError(Exception): pass
-            def handler(signum, frame): raise TimeoutError("Interrupted")
+            class Timeout(Exception): pass
+            def handler(signum, frame): raise Timeout()
             signal.signal(signal.SIGALRM, handler)
-            signal.alarm(10)  # 10s timeout
-
-            try:
-                result = tool_m_eval({"expression": cmd})
-                signal.alarm(0)
-                if result.get("success"):
-                    val = result.get("result", "")
-                    output = result.get("output", "")
-                    # Mostrar WRITE output (como MSMSHELL)
-                    write_output = ""
-                    if output:
-                        write_output = f"  [OUT] {output[:200]}"
-                    if self.debug_mode:
-                        parts = []
-                        if val is not None and val != "": parts.append(f"= {val}")
-                        r = "  " + "  ".join(parts) if parts else "  (ok)"
-                        return (r + "\n" + write_output) if write_output else r
-                    if val is not None and val != "":
-                        val_str = str(val)
-                        if len(val_str) > 500: val_str = val_str[:500] + "..."
-                        r = f"  {val_str}"
-                        return (r + "\n" + write_output) if write_output else r
-                    return write_output if write_output else "  (ok)"
-                else:
-                    return self._format_error(result.get('error', 'eval error'))
-            except TimeoutError:
-                signal.alarm(0)
-                return "  ⏱️ <TIMEOUT> Expression took >10s"
-            except Exception as e:
-                signal.alarm(0)
-                return f"  🔴 <DSCON> {e}"
+            signal.alarm(10)
+            result = tool_m_eval({"expression": cmd})
+            signal.alarm(0)
+            if result.get("success"):
+                val = result.get("result", "")
+                output = result.get("output", "")
+                self.last_result = val  # % variable
+                parts = []
+                if val is not None and val != "":
+                    parts.append(self._colorize(str(val)[:500]))
+                if output:
+                    parts.append(self._colorize(f"[OUT] {output[:200]}", "warn"))
+                if self.debug_mode:
+                    parts.append(self._colorize(f"[%={val}]", "warn"))
+                r = "\n".join(parts) if parts else self._colorize("(ok)")
+                return r
+            else:
+                return self._format_error(result.get('error', 'eval error'))
+        except Timeout:
+            signal.alarm(0)
+            return self._colorize("⏱️ <TIMEOUT>", "err")
         except Exception as e:
-            return f"  🔴 <ERROR> {e}"
+            return self._format_error(str(e))
 
     def run(self):
-        print("╔══════════════════════════════════════╗")
-        print("║   M-Light REPL  (MSMSHELL v4)        ║")
-        print("║   ? help  ! recall  Ctrl+R toggle    ║")
-        print("║   Tab completion for ^namespaces     ║")
-        print("╚══════════════════════════════════════╝")
+        print(f"{C.OK}╔══════════════════════════════════════╗{C.RST}")
+        print(f"{C.OK}║   M-Light REPL  (MSMSHELL v6)        ║{C.RST}")
+        print(f"{C.OK}║   ?help  !recall  Ctrl+R  aliases    ║{C.RST}")
+        print(f"{C.OK}║   % = last result                    ║{C.RST}")
+        print(f"{C.OK}╚══════════════════════════════════════╝{C.RST}")
         while self.running:
             try:
                 cmd = input(self.prompt)
                 if cmd and not cmd.startswith(("!", "?")):
                     self.history_list.append(cmd)
-                result = self.exec(cmd)
-                if result:
-                    self._page(result)
+                r = self.exec(cmd)
+                if r: self._page(r)
             except KeyboardInterrupt:
-                print("\n  <INRPT> Break")
+                print(f"\n  {self._colorize('<INRPT> Break', 'warn')}")
             except EOFError:
-                print()
-                break
-
-    def _recall(self, n=None):
-        if n is None:
-            return self.history_list[-1] if self.history_list else ""
-        try:
-            idx = int(n)
-            if 1 <= idx <= len(self.history_list):
-                return self.history_list[idx - 1]
-        except: pass
-        return ""
-
-    def _last10(self):
-        start = max(0, len(self.history_list) - 10)
-        lines = []
-        for i in range(start, len(self.history_list)):
-            lines.append(f"  {i+1:4d}: {self.history_list[i]}")
-        return "\n".join(lines) if lines else "  (no history)"
+                self._save_history_pdb(); print(); break
 
     def _needs_more(self, cmd):
-        """Detectar si el comando necesita más líneas (multi-line)."""
-        last_line = cmd.strip().split('\n')[-1].strip()
-        # FOR sin cuerpo completo
-        if last_line.startswith("F ") and not any(c in last_line for c in [".", "D", "S ", "W "]):
+        last = cmd.strip().split('\n')[-1].strip()
+        if last.startswith("F ") and not any(c in last for c in [".", "D", "S ", "W "]):
             return True
-        # DO sin argumento completo
-        if last_line.startswith("D ") and not last_line.rstrip().endswith("."):
+        if last.startswith("I ") and not any(c in last for c in ["S ", "W ", "D ", "Q"]):
             return True
-        # IF sin acción
-        if last_line.startswith("I ") and not any(c in last_line for c in ["S ", "W ", "D ", "Q"]):
-            return True
-        # SET incompleto
-        if last_line.rstrip().endswith("="):
-            return True
+        if last.rstrip().endswith("="): return True
         return False
 
     def _get_tools(self):
@@ -266,21 +290,34 @@ class MREPL:
         from pdb_tools import tool_m_eval
         return tool_m_eval
 
+    def _recall(self, n=None):
+        if n is None: return self.history_list[-1] if self.history_list else ""
+        try:
+            idx = int(n)
+            if 1 <= idx <= len(self.history_list): return self.history_list[idx-1]
+        except: pass
+        return ""
+
+    def _last10(self):
+        start = max(0, len(self.history_list) - 10)
+        return "\n".join(f"  {i+1:4d}: {self.history_list[i]}" for i in range(start, len(self.history_list))) or "  (no history)"
+
     def _help(self):
-        return """  M-Light REPL  (MSMSHELL-style v4)
+        return """  M-Light REPL v6 — Ayuda rápida
   ════════════════════════════════════
-  MUMPS:  $O  $G  $D  S  W  F
-  Shell:  !N recall  ? help  ?? last 10
-  Toggle: Ctrl+R or 'toggle' — prompt > / D>
-  Multi:  Incomplete F/I/D lines continue
-  Debug:  'debug' — toggle debug mode
-  Tab:    Complete ^namespace names
+  MUMPS:  $O  $G  $D  SET  WRITE  FOR  IF  QUIT
+  Shell:  !N recall  ? help  ?? last 10  ?comando
+  Alias:  o=$O(^  g=$G(^  d=$D(^  s=S  w=W  f=F  i=I
+  Toggle: Ctrl+R  →  > / D> prompt
+  Debug:  debug   →  modo debug
+  %             →  último resultado (como MSMSHELL)
+  Tab:    ^namespace completion
   Exit:   exit / quit
 
-  > $O(^System(""))
-  > S x=5  W x
-  > toggle
-  D> W "device mode"
+  > ?$O       → ayuda específica
+  > o TEST    → alias: $O(^TEST
+  > S x=42    → ejecuta
+  > W %       → muestra último resultado
 """
 
 def main():
@@ -293,8 +330,7 @@ def main():
         idx = sys.argv.index("--cmd") + 1
         if idx < len(sys.argv):
             r = MREPL(); print(r.exec(sys.argv[idx])); return
-    r = MREPL(debug=debug, context=context)
-    r.run()
+    MREPL(debug=debug, context=context).run()
 
 if __name__ == "__main__":
     main()

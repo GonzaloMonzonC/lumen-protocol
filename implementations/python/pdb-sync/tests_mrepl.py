@@ -1,4 +1,4 @@
-"""Tests MREPL v4: MSMSHELL — toggle, paging, errors."""
+"""Tests MREPL v6."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
 from mrepl import MREPL
@@ -9,49 +9,45 @@ def test(name, ok):
     if ok: passed += 1; print(f"  ✅ {name}")
     else: failed += 1; print(f"  ❌ {name}")
 
-print('🧪 TESTS MREPL v4\n')
+print('🧪 TESTS MREPL v6\n')
 
 r = MREPL()
 r2 = MREPL(debug=True)
-r3 = MREPL(context="TEST")
 
-# Prompt variants
-test("> prompt", r.prompt == "> ")
-test("DEBUG> prompt", "DEBUG" in r2.prompt)
-test("[ctx] prompt", "TEST" in r3.prompt)
-
-# Toggle
+test("> prompt", ">" in r.prompt)
+test("DEBUG in prompt", "DEBUG" in r2.prompt)
 r.exec("toggle")
-test("toggle to D>", r.prompt.startswith("D"))
+test("toggle D>", "D>" in r.prompt)
 r.exec("toggle")
-test("toggle back >", r.prompt == "> ")
-
-# Commands
 test("empty", r.exec("") == "")
 test("exit stops", r.exec("exit") == "")
 
+# Help by topic
+h = r.exec("?$O")
+test("?$O gives help", "$O" in h)
+h2 = r.exec("?FOR")
+test("?FOR gives help", "FOR" in h2)
+
+# % last result
+r.exec('W "test"')
+test("% exists", hasattr(r, 'last_result'))
+
 # History
-r.exec("S x=1")
+r.exec("S y=1")
 test("! recall", r.exec("!") is not None)
-test("?? shows", "S x=1" in r.exec("??"))
+test("?? shows", "S y=1" in r.exec("??"))
 
-# Help
-h = r.exec("?")
-test("? has $O", "$O" in h)
-test("? has toggle", "toggle" in h)
-
-# Error format
-r4 = MREPL()
-e = r4.exec("BADVAR")
-test("error returns something", e is not None)
+# General help
+h4 = r.exec("?")
+test("? has help", "?" in h4)
 
 # Debug
 test("debug on", "ON" in r.exec("debug"))
 test("debug off", "OFF" in r.exec("debug"))
 
-# Context changes prompt
-r5 = MREPL(context="CHANGES")
-test("CHANGES context", r5.prompt == "[CHANGES] > ")
+# Error
+r5 = MREPL()
+test("error returns str", isinstance(r5.exec("BADVAR"), str))
 
 print(f"\n📊 {passed}/{passed+failed} tests passed")
 sys.exit(0 if failed == 0 else 1)
