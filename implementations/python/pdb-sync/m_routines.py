@@ -162,18 +162,9 @@ class RoutineExecutor:
         if vars_in:
             vm.vars.update(vars_in)
         
-        # Tag de entrada
-        vm.vars["$ZTAG"] = name
-        
-        # Ejecutar
+        # Compilar todo el script de una vez
+        vm.compile(code)
         try:
-            # Compilar línea por línea
-            for line in code.split('\n'):
-                line = line.strip()
-                if not line or line.startswith(';'):
-                    continue
-                vm.compile(line)
-            
             result = vm.exec()
             result["routine"] = name
             result["args"] = args
