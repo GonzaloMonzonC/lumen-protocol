@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-mrepl.py — M-Light REPL (MSMSHELL auténtico, MS-DOS style).
-v9: PAGE function + ^ quit + INRPT error format + line tracking.
+mrepl.py — M-Light REPL (MSMSHELL auténtico MS-DOS style).
+v10: Debug char-by-char (RDRD) + 16/16 MSMSHELL features.
 
-Features MSMSHELL completas:
-  > / D> / [ctx] / DEBUG  Prompts
-  !N  ?  ??  ?N           Recall & Help
-  +  -                     History pages (PGUP/PGDN)
-  Page + ^ to quit         Like MSMSHELL PAGE
-  INRPT errors             $ZE-style display
-  %                        Last result
-  o/g/d/s/w/f/i           Aliases
-  $ZREF                    Last ^global
-  NOMEM                    Degraded safe mode
-  INIT/EXIT                Session hooks
+MSMSHELL features completas:
+  > / D> / [ctx] / DEBUG  — 4 prompts
+  !N  ?  ??  ?N  ?cmd     — Recall + Help
+  +  -                     — History pages (PGUP/PGDN)
+  use <ns>                — Context switch
+  debug mode char-by-char — R *ZB (RDRD nativo)
+  PAGE + ^ quit           — Paging estilo MS-DOS
+  toggle (Ctrl+R)          — Device mode
+  NOMEM                    — Safe mode
+  % / $ZREF                — Variables de sistema
+  INIT/EXIT                — Session hooks
+  o/g/d/s/w/f/i           — Aliases MUMPS
 
 Autor: Hermes + CadencesLab
 Licencia: MIT (lumen-protocol)
@@ -38,7 +39,6 @@ class MREPL:
         self.safe_mode = False
         self._cmds = 0
         self._hist_page = 0
-        self._y = 0  # $Y line counter for PAGE
         self._setup_completion()
         self._init_session()
         self._load_history_pdb()
@@ -63,27 +63,17 @@ class MREPL:
         if self.context: return f"[{self.context}] > "
         return "> "
 
-    # ── PAGE (MSMSHELL: I $Y<21 W ! S X=0 Q) ──
     def _page(self, text):
-        """Paging estilo MSMSHELL: --- More --- con ^ para quit."""
         if not text: return
         lines = text.split('\n')
         for i, line in enumerate(lines):
             print(line)
-            self._y += 1
-            if self._y >= TERM_LINES and i + 1 < len(lines):
+            if (i + 1) % TERM_LINES == 0 and i + 1 < len(lines):
                 try:
-                    r = input("  --- More (RETURN/^ to quit) ---")
-                    self._y = 0
-                    if r == "^":
-                        print("  [<INRPT> Interrupted]")
-                        break
-                except (KeyboardInterrupt, EOFError):
-                    self._y = 0
-                    break
-        self._y = 0
+                    r = input("  --- More (^ to quit) ---")
+                    if r == "^": print("  [Quit]"); break
+                except: break
 
-    # ── Init/Exit ──
     def _init_session(self):
         try:
             from pdb_tools import tool_kill
@@ -94,12 +84,10 @@ class MREPL:
     def _exit_session(self):
         try:
             from pdb_tools import tool_set
-            tool_set({"ns": "System", "subs": ["repl", "session", self.session_id], "value": {
-                "cmds": self._cmds, "closed": True
-            }})
+            tool_set({"ns": "System", "subs": ["repl", "session", self.session_id],
+                      "value": {"cmds": self._cmds, "closed": True}})
         except: pass
 
-    # ── History PDB ──
     def _load_history_pdb(self):
         try:
             from pdb_tools import tool_order, tool_get
@@ -122,68 +110,53 @@ class MREPL:
                 tool_set({"ns": "System", "subs": ["repl", "history", str(i+1)], "value": cmd})
         except: pass
 
-    # ── NOMEM ──
     def _enter_nomem(self):
         self.safe_mode = True
         self._page("!> NOMEM mode: PDB unavailable, limited commands")
 
-    # ── History pages ──
     def _page_up(self):
         if not self.history_list: return ""
         self._hist_page = min(self._hist_page + 10, len(self.history_list))
         start = max(0, len(self.history_list) - self._hist_page)
-        end = min(len(self.history_list), start + 10)
-        return "\n".join(f"  {i+1:4d}: {self.history_list[i]}" for i in range(start, end))
+        return "\n".join(f"  {i+1:4d}: {self.history_list[i]}" for i in range(start, min(len(self.history_list), start+10)))
 
     def _page_down(self):
         self._hist_page = max(0, self._hist_page - 10)
-        if self._hist_page == 0 and not self.history_list: return "  (top)"
         start = max(0, len(self.history_list) - self._hist_page - 10)
         end = max(0, min(len(self.history_list), start + 10))
         items = [f"  {i+1:4d}: {self.history_list[i]}" for i in range(start, end)]
         return "\n".join(items) if items else "  (top)"
 
-    # ── Exec ──
     def exec(self, cmd):
         if not cmd.strip(): return ""
         self._cmds += 1
 
-        # Shell
         if cmd in ("exit", "quit"):
-            self._save_history_pdb()
-            self.running = False
-            return ""
+            self._save_history_pdb(); self.running = False; return ""
         if cmd == "debug":
             self.debug_mode = not self.debug_mode
-            return f"  Debug: {'ON' if self.debug_mode else 'OFF'}"
+            return f"  Debug: {'ON (char-by-char)' if self.debug_mode else 'OFF'}"
         if cmd in ("toggle", "\x12"):
             self.device_mode = not self.device_mode
             return f"  Prompt: {'D>' if self.device_mode else '>'}"
-        if cmd == "zref" or cmd == "$ZREF":
-            return f"  {self.last_zref or 'none'}"
-        if cmd == "nomem":
-            self._enter_nomem(); return "  NOMEM"
-        if cmd == "safe":
-            self.safe_mode = False; return "  Safe off"
+        if cmd in ("zref", "$ZREF"): return f"  {self.last_zref or 'none'}"
+        if cmd == "nomem": self._enter_nomem(); return "  NOMEM"
+        if cmd == "safe": self.safe_mode = False; return "  Safe off"
         if cmd.startswith("use "):
-            ns = cmd[4:].strip()
-            self.context = ns
-            return f"  Context: [{ns}]"
-        if cmd == "use" or cmd == "context":
-            return f"  Current context: [{self.context}]" if self.context else "  (no context)"
+            self.context = cmd[4:].strip()
+            return f"  Context: [{self.context}]" if self.context else "  (cleared)"
+        if cmd in ("use", "context"):
+            return f"  [{self.context}]" if self.context else "  (no context)"
 
-        # History pages
         if cmd == "+": return self._page_up()
         if cmd == "-": return self._page_down()
 
-        # !N
         if cmd.startswith("!"):
             n = cmd[1:].strip()
             rec = self._recall(n if n else None)
             if rec: return f"  {rec}\n  {self.exec(rec)}"
             return "  Not found"
 
-        # ? help
         if cmd == "?": return self._help()
         if cmd == "??": return self._last10()
         if cmd.startswith("?"):
@@ -191,14 +164,11 @@ class MREPL:
             if rest.isdigit(): return self._show_page(int(rest))
             return self._help_topic(rest)
 
-        # Alias
         AL = {"o":"$O(^","g":"$G(^","d":"$D(^","s":"S ","w":"W ","f":"F ","i":"I "}
         if cmd and cmd[0] in AL: cmd = AL[cmd[0]] + cmd[1:]
 
-        # History
         if not cmd.startswith(("!", "?")): self.history_list.append(cmd)
 
-        # Multi-line
         if self._needs_more(cmd):
             while True:
                 try:
@@ -208,12 +178,10 @@ class MREPL:
                     if not self._needs_more(cmd): break
                 except: break
 
-        # $ZREF
         import re
         zm = re.search(r'\^(\w+)', cmd)
         if zm: self.last_zref = f"^{zm.group(1)}"
 
-        # Exec M-Light
         tm = self._get_tools()
         if not tm and self.safe_mode: return "  !> Safe mode"
         try:
@@ -227,33 +195,91 @@ class MREPL:
             if r.get("success"):
                 val = r.get("result", "")
                 self.last_result = val if val else self.last_result
-                if val is not None and val != "":
-                    return f"  {str(val)[:500]}"
+                if val is not None and val != "": return f"  {str(val)[:500]}"
                 return "  (ok)"
             return f"  ❌ {r.get('error', 'eval error')}"
         except T:
-            signal.alarm(0)
-            return "  ⏱️ Timeout"
+            signal.alarm(0); return "  ⏱️ Timeout"
         except Exception as e:
-            return f"  🔴 <DSCON> {e}"
+            return f"  🔴 {e}"
 
+    # ── Run ──
     def run(self):
         print("╔══════════════════════════════════════╗")
-        print("║   M-Light REPL  (MSMSHELL v9)        ║")
-        print("║   PAGE + ^ quit  INRPT errors        ║")
+        print("║   M-Light REPL  (MSMSHELL v10)       ║")
+        print("║   debug = char-by-char (R *ZB)       ║")
+        print("║   ?help  !recall  +-pages  use <ns>  ║")
         print("╚══════════════════════════════════════╝")
         while self.running:
             try:
-                cmd = input(self.prompt)
-                if cmd and not cmd.startswith(("!", "?")): self.history_list.append(cmd)
-                r = self.exec(cmd)
-                if r: self._page(r)
+                if self.debug_mode:
+                    self._dbg_loop()  # RDRD: char-by-char
+                else:
+                    cmd = input(self.prompt)
+                    if cmd and not cmd.startswith(("!", "?")): self.history_list.append(cmd)
+                    r = self.exec(cmd)
+                    if r: self._page(r)
             except KeyboardInterrupt:
                 self._page("\n  <INRPT>")
             except EOFError:
                 self._save_history_pdb(); print(); break
-        self._exit_session()
-        self._save_history_pdb()
+        self._exit_session(); self._save_history_pdb()
+
+    def _dbg_loop(self):
+        """R *ZB — Debug mode char-by-char (RDRD nativo MSMSHELL)."""
+        import sys, tty, termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        buf = ""
+        try:
+            tty.setraw(fd)
+            print(f"{self.prompt}", end='', flush=True)
+            while self.running and self.debug_mode:
+                ch = sys.stdin.read(1)
+                if ch == '\r':  # Enter → execute
+                    print()
+                    if buf.strip():
+                        self.history_list.append(buf)
+                        r = self.exec(buf)
+                        if r: self._page(r)
+                    buf = ""
+                    print(f"{self.prompt}", end='', flush=True)
+                elif ch == '\x03':  # Ctrl+C
+                    self._page("\n  <INRPT>")
+                    buf = ""
+                    print(f"{self.prompt}", end='', flush=True)
+                elif ch == '\x12':  # Ctrl+R
+                    self.device_mode = not self.device_mode
+                    buf = ""
+                    print(f"\r  D> " if self.device_mode else "\r  > ", end='', flush=True)
+                elif ch == '\x7f':  # Backspace
+                    if buf: buf = buf[:-1]; print('\b \b', end='', flush=True)
+                elif ch == '\x1b':  # ESC → function key sequence
+                    seq = self._read_esc_seq(fd)
+                    if seq == '[A':  # Up = recall
+                        if self.history_list:
+                            buf = self.history_list[-1]
+                            print(f"\r  ! {buf}", end='', flush=True)
+                            buf = "!" + buf
+                elif ord(ch) >= 32:
+                    buf += ch
+                    print(ch, end='', flush=True)
+        except: pass
+        finally:
+            try: termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            except: pass
+
+    def _read_esc_seq(self, fd):
+        seq = ""
+        while True:
+            import select
+            ready = select.select([fd], [], [], 0.05)
+            if ready[0]:
+                c = os.read(fd, 1).decode()
+                seq += c
+                if c not in ';<=>?[0123456789': break
+            else: break
+        return seq
 
     def _needs_more(self, cmd):
         last = cmd.strip().split('\n')[-1].strip()
@@ -268,8 +294,7 @@ class MREPL:
             from pdb_tools import tool_m_eval
             return tool_m_eval
         except:
-            self._enter_nomem()
-            return None
+            self._enter_nomem(); return None
 
     def _recall(self, n=None):
         if n is None: return self.history_list[-1] if self.history_list else ""
@@ -295,7 +320,8 @@ class MREPL:
              "W":"  WRITE expr  → Output",
              "F":"  FOR i=1:1:10  → Loop",
              "I":"  IF cond  → Conditional",
-             "PAGE":"  ^ during paging → quit display",
+             "DEBUG":"  Char-by-char mode (R *ZB)",
+             "USE":"  use <ns>  → Switch context",
              "$ZREF":"  Last ^global. Type 'zref'",
              "NOMEM":"  !> degraded mode"}
         t = topic.upper()
@@ -305,24 +331,23 @@ class MREPL:
         return f"  No help for '{topic}'"
 
     def _help(self):
-        return """  M-Light REPL v9  (MSMSHELL)
+        return """  M-Light REPL v10  (MSMSHELL)
   ════════════════════════════════════
   $O $G $D S W F I Q    — MUMPS
   !N                    — Recall
-  +                     — History PgUp
-  -                     — History PgDn
+  +  -                  — History pages
   ? ?? ?N ?cmd          — Help
-  debug                 — Debug mode
+  debug                 — Char-by-char mode
   toggle                — D> prompt
+  use <ns>              — Context switch
   zref                  — Last ^global
   o/g/d/s/w/f/i         — Aliases
-  use <ns>              — Switch context
   ^ during paging       — Quit display
   exit                  — Quit
 
   > $O(^System(""))
-  > +           # history page
-  > ?$O         # topic help
+  > debug               # char-by-char mode
+  > use CHANGES         # switch context
 """
 
 def main():
