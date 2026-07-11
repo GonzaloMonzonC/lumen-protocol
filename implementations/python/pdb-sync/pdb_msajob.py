@@ -173,6 +173,53 @@ def agent_status(agent_id):
     r = tool_get({"ns": "System", "subs": ["pulse", agent_id]})
     return r.get("value") if r.get("success") and r.get("value") else {"status": "unknown"}
 
+# ── Agent introspection (MSSJEX) ─────────────────────────────────
+
+def agent_info(agent_id):
+    """Información detallada de un agente (MSSJEX GETJOB).
+    
+    Retorna: estado pulse + micro_status + sesión activa + operación actual.
+    """
+    _, tool_get, _, _ = _get_tools()
+    
+    # Pulse
+    r = tool_get({"ns": "System", "subs": ["pulse", agent_id]})
+    pulse = r.get("value") if r.get("success") and r.get("value") else {}
+    
+    # Estado de sesión
+    r2 = tool_get({"ns": "LOGON", "subs": ["session", agent_id]})
+    session = r2.get("value") if r2.get("success") and r2.get("value") else {}
+    
+    # Workspace activo
+    r3 = tool_get({"ns": "Agent", "subs": [agent_id, "data"]})
+    workspace = r3.get("value") if r3.get("success") and r3.get("value") else {}
+    
+    # Errores recientes
+    errors = []
+    from pdb_tools import tool_order
+    key = ""
+    while True:
+        r4 = tool_order({"ns": "System", "subs": ["errors", key], "direction": -1})
+        if not r4.get("success") or r4.get("value") is None: break
+        key = r4["value"]
+        r5 = tool_get({"ns": "System", "subs": ["errors", key]})
+        if r5.get("success") and r5.get("value"):
+            e = r5["value"]
+            if e.get("agent") == agent_id:
+                errors.append(e.get("error", "")[:60])
+            if len(errors) >= 3: break
+    
+    return {
+        "agent": agent_id,
+        "status": pulse.get("status", "unknown"),
+        "load": pulse.get("load", 0),
+        "micro_status": pulse.get("micro_status", ""),
+        "last_activity": pulse.get("last_activity", ""),
+        "session": session.get("status", "none") if isinstance(session, dict) else "none",
+        "workspace_keys": list(workspace.keys()) if isinstance(workspace, dict) else [],
+        "recent_errors": errors,
+    }
+
 # ── CLI ──
 
 if __name__ == "__main__":
