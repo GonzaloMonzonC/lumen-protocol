@@ -220,6 +220,143 @@ def jrnl_file_status(seq: int, new_status: str):
     tool_set({"ns": JOURNAL_NS, "subs": [FILE_PREFIX, seq], "value": f})
     return {"success": True, "seq": seq, "status": new_status}
 
+# ── A3: Recovery VERIFY mode (Zalo: 3 checks) ─────────────────────
+
+def jrnl_verify_entry(change_data: dict) -> dict:
+    """Zalo CHECK 1: Integridad estructural — validar que la entrada es JSON correcto."""
+    required = ["op", "ns", "subs", "timestamp"]
+    for field in required:
+        if field not in change_data:
+            return {"valid": False, "reason": f"missing field: {field}", "action": "skip"}
+    if change_data["op"] not in ("SET", "KILL"):
+        return {"valid": False, "reason": f"invalid op: {change_data['op']}", "action": "skip"}
+    if not isinstance(change_data.get("subs"), list):
+        return {"valid": False, "reason": "subs not a list", "action": "skip"}
+    return {"valid": True, "action": "continue"}
+
+def jrnl_verify_temporal(change_data: dict, checkpoint_ts: str) -> dict:
+    """Zalo CHECK 2: timestamp debe ser posterior al checkpoint."""
+    ts = change_data.get("timestamp", "")
+    if ts <= checkpoint_ts:
+        return {"valid": False, "reason": f"already applied (ts={ts[:19]} <= ckpt={checkpoint_ts[:19]})", "action": "skip"}
+    return {"valid": True, "action": "continue"}
+
+def jrnl_verify_precondition(change_data: dict) -> dict:
+    """Zalo CHECK 3: valor actual en PDB debe coincidir con old_value."""
+    ns = change_data.get("ns", "")
+    subs = change_data.get("subs", [])
+    old_val = change_data.get("old_value")
+    op = change_data.get("op", "SET")
+
+    current = tool_get({"ns": ns, "subs": subs})
+    current_val = current.get("value") if current.get("success") else None
+
+    if op == "SET":
+        # Para SET, old_value debe coincidir con el valor actual (o ambos None)
+        if old_val != current_val:
+            return {"valid": False, "reason": f"conflict: old={old_val}, current={current_val}",
+                    "action": "reject", "current": current_val}
+    elif op == "KILL":
+        # Para KILL, el nodo debe existir con old_value
+        if current_val is None and old_val is not None:
+            return {"valid": False, "reason": "node already deleted", "action": "skip"}
+    return {"valid": True, "action": "apply"}
+
+def jrnl_replay_entry(change_data: dict) -> dict:
+    """Aplicar una entrada verificada a la PDB."""
+    ns = change_data["ns"]
+    subs = change_data["subs"]
+    op = change_data["op"]
+
+    if op == "SET":
+        return tool_set({"ns": ns, "subs": subs, "value": change_data.get("new_value")})
+    elif op == "KILL":
+        return tool_kill({"ns": ns, "subs": subs})
+    return {"success": False, "error": f"unknown op: {op}"}
+
+def jrnl_recovery(file_seq: int = None, verify: bool = True, limit: int = 100):
+    """DEJRNL recovery: aplicar cambios de un archivo de journal con VERIFY mode.
+    
+    Args:
+        file_seq: archivo a recuperar (None = todos los pendientes)
+        verify: activar VERIFY mode (3 checks de Zalo)
+        limit: máximo de entradas a procesar
+    
+    Returns:
+        {applied, skipped, rejected, conflicts, checkpoint}
+    """
+    from pdb_tools import tool_order as _order
+    
+    stats = {"applied": 0, "skipped": 0, "rejected": 0, "conflicts": [], "checkpoint": ""}
+    ctrl = jrnl_control()
+    checkpoint = ctrl.get("last_checkpoint", "") if ctrl else ""
+
+    # Leer entradas de ^CHANGES desde el checkpoint
+    key = ""
+    processed = 0
+    while processed < limit:
+        r = tool_order({"ns": JOURNAL_NS, "subs": [key], "direction": 1})
+        if not r.get("success") or not r.get("value"):
+            break
+        key = r["value"]
+        if key in (CONTROL_KEY,):  # saltar nodos de control
+            continue
+
+        entry = tool_get({"ns": JOURNAL_NS, "subs": [key]})
+        if not entry.get("success") or entry.get("value") is None:
+            continue
+
+        change = entry["value"]
+        if isinstance(change, str):
+            try: change = json.loads(change)
+            except: continue
+
+        # Zalo's 3 checks
+        if verify:
+            v1 = jrnl_verify_entry(change)
+            if not v1["valid"]:
+                stats["skipped"] += 1
+                processed += 1
+                continue
+
+            v2 = jrnl_verify_temporal(change, checkpoint)
+            if not v2["valid"]:
+                stats["skipped"] += 1
+                processed += 1
+                continue
+
+            v3 = jrnl_verify_precondition(change)
+            if not v3["valid"]:
+                if v3["action"] == "reject":
+                    stats["rejected"] += 1
+                    stats["conflicts"].append({"key": key, "reason": v3["reason"], "current": v3.get("current")})
+                    # Guardar conflicto
+                    tool_set({"ns": JOURNAL_NS, "subs": ["conflicts", key], "value": {
+                        "change": change, "reason": v3["reason"], "current": v3.get("current")
+                    }})
+                else:
+                    stats["skipped"] += 1
+                processed += 1
+                continue
+
+        # Aplicar cambio
+        result = jrnl_replay_entry(change)
+        if result.get("success"):
+            stats["applied"] += 1
+            checkpoint = change.get("timestamp", checkpoint)
+        else:
+            stats["rejected"] += 1
+        processed += 1
+
+    # Actualizar checkpoint
+    if stats["applied"] > 0 and checkpoint:
+        stats["checkpoint"] = checkpoint
+        if ctrl:
+            ctrl["last_checkpoint"] = checkpoint
+            tool_set({"ns": JOURNAL_NS, "subs": [CONTROL_KEY], "value": ctrl})
+
+    return stats
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
