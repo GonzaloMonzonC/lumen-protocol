@@ -1,3 +1,6 @@
+# ── VM Version ──
+VM_VERSION = "2.0.0"
+
 #!/usr/bin/env python3
 """
 m_stackvm.py — Stack-based expression evaluator para M-Light v2.
@@ -467,11 +470,49 @@ class StackVM:
         expr = expr.strip()
         if not expr: return None
         
-        # Variable local (MUMPS: undefined = 0 en aritmética)
+        # Variable local
         if expr in self.vars:
             v = self.vars[expr]
             if v is None: return 0
             return v
+        
+        # Operación aritmética simple
+        for op in ('+', '-', '*', '/'):
+            if op in expr:
+                parts = expr.split(op, 1)
+                left = self._eval_expr(parts[0].strip())
+                right = self._eval_expr(parts[1].strip())
+                # MUMPS: undefined en aritmética = 0
+                if left is None or isinstance(left, str) and not left.isdigit():
+                    left = 0
+                if right is None or isinstance(right, str) and not right.isdigit():
+                    right = 0
+                try:
+                    left = int(left) if isinstance(left, str) and left.isdigit() else (float(left) if isinstance(left, str) and '.' in left else left)
+                    right = int(right) if isinstance(right, str) and right.isdigit() else (float(right) if isinstance(right, str) and '.' in right else right)
+                except: pass
+                if op == '+': return left + right
+                elif op == '-': return left - right
+                elif op == '*': return left * right
+                elif op == '/': return left / right if right != 0 else 0
+        
+        # Número
+        try:
+            if '.' in expr: return float(expr)
+            return int(expr)
+        except: pass
+        
+        # String (con comillas)
+        if expr.startswith('"') and expr.endswith('"'):
+            return expr[1:-1]
+        
+        # Identificador solo → string literal (S x=System → "System")
+        if expr.isidentifier() and not expr.isupper():
+            return expr
+        
+        # Identificador mayúscula → 0 (undefined variable)
+        if expr.isidentifier():
+            return 0
         
         # Número
         try:
