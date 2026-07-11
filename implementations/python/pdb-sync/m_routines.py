@@ -164,6 +164,8 @@ class RoutineExecutor:
         
         # Compilar todo el script de una vez
         bc_key = f"BC_{name}"
+        from m_stackvm import VM_VERSION
+        bc_key = f"BC_{name}_v{VM_VERSION}"
         cached = self._load_bc(name, bc_key, code)
         if cached:
             vm.instrs = cached
