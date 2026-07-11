@@ -648,8 +648,8 @@ class MEvaluator:
                         rv = str(self._resolve(right))
                         return lv + rv
 
-        # $GET(^ns(subs)) — también $G
-        m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
+        # $GET(^ns(subs)) — también $G (soporta multi-nivel)
+        m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\((.+)\)\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
@@ -671,8 +671,8 @@ class MEvaluator:
             var = self.scope.get(m.group(1))
             return var if var is not None else ""
 
-        # $DATA(^ns(subs)) — también $D
-        m = re.match(r'\$(?:DATA|D)\s*\(\^(\w+)\(([^)]+)\)\s*\)', token)
+        # $DATA(^ns(subs)) — también $D (soporta multi-nivel)
+        m = re.match(r'\$(?:DATA|D)\s*\(\^(\w+)\((.+)\)\s*\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
@@ -867,8 +867,8 @@ class MEvaluator:
                     elif op == '#': result = int(lv % rv) if rv != 0 else 0
                     return int(result) if result == int(result) else result
 
-        # ^ns(subs) — referencia directa a global (sin $GET)
-        m = re.match(r'\^(\w+)\(([^)]+)\)', token)
+        # ^ns(subs) — referencia directa a global (soporta multi-nivel)
+        m = re.match(r'\^(\w+)\((.+)\)', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
