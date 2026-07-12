@@ -38,12 +38,13 @@ class MEvaluator:
         self.pdb = pdb_tools_module
         self.scope = MScope()
         self._quit_flag = False
+        self._quit_stack = []  # stack para QUIT por nivel (FOR anidados)
         self._labels = {}
         self._label_mode = False
         self._goto_target = None
         self._call_stack = []
         self._do_call = False
-        self._last_ref = None  # naked reference: último ^GLOBAL accedido
+        self._last_ref = None  # naked reference: {"ns": name, "subs": [...]}
         self._device_manager = device_manager  # DeviceManager para I/O
         self._current_io = current_io  # $IO — dispositivo activo
 
@@ -150,7 +151,7 @@ class MEvaluator:
         return None, None
 
     def _exec_line(self, line: str) -> Any:
-        """Ejecuta una l\xednea M. Dispatch via binary search (MSM token table)."""
+        """Ejecuta una línea M. Itera TODOS los comandos en la línea."""
         if not line or self._quit_flag:
             return None
         # Eliminar comentarios
@@ -167,16 +168,20 @@ class MEvaluator:
         line = stripped
         result = None
         pos = 0
+        
         while pos < len(line) and not self._quit_flag:
+            # Saltar whitespace
             while pos < len(line) and line[pos] == ' ':
                 pos += 1
             if pos >= len(line):
                 break
-            # Extraer token
+            
+            # Extraer token comando
             end = pos
             while end < len(line) and line[end] not in (' ', ':', '\t'):
                 end += 1
             token = line[pos:end]
+            
             # Postconditional
             postcond = ""
             if end < len(line) and line[end] == ':':
@@ -185,6 +190,7 @@ class MEvaluator:
                     ce += 1
                 postcond = line[end:ce]
                 end = ce
+            
             handler, full = self._dispatch_cmd(token)
             if handler:
                 pos = end
@@ -192,14 +198,21 @@ class MEvaluator:
                     pos += 1
                 if postcond:
                     try:
-                        cv = self.eval_expr(postcond[1:])
+                        cv = self._eval_condition(postcond[1:])
                         if not cv:
+                            # Pos ya apunta al siguiente comando (pos=end + espacios)
                             continue
                     except:
                         pass
                 result = handler(line, pos)
                 if isinstance(result, int):
-                    pos = result
+                    # Avanzar al siguiente comando usando _cmd_boundary
+                    rest = line[result:]
+                    boundary = self._cmd_boundary(rest)
+                    if boundary < len(rest):
+                        pos = result + boundary
+                    else:
+                        pos = result  # seguirá siendo len(line) → sale del while
                 else:
                     break
             else:
@@ -235,32 +248,31 @@ class MEvaluator:
             body = range_match.group(5).strip()
             pos += range_match.end()
             val = start
-            while val <= end and not self._quit_flag:
+            self._quit_stack.append(False)
+            while val <= end and not self._quit_stack[-1]:
                 child.set(var_name, val)
                 if body.startswith('{'):
-                    # Bloque con llaves
                     block_end = self._find_block_end(body)
                     self._exec_line(body[1:block_end])
-                    pos = pos + block_end + 1
                 else:
                     self._exec_line(body)
                 val += step
+            self._quit_stack.pop()
 
         else:
             # FOR infinito: F  S N=$O(...) Q:cond
             body = line[pos:].strip()
             _max_iter = 100000
             _iter = 0
-            while not self._quit_flag and _iter < _max_iter:
+            self._quit_stack.append(False)
+            while not self._quit_stack[-1] and _iter < _max_iter:
                 _iter += 1
-                old_quit = self._quit_flag
                 if body.startswith('{'):
                     block_end = self._find_block_end(body)
                     self.eval(body[1:block_end])
                 else:
                     self.eval(body)
-                if self._quit_flag or old_quit:
-                    break
+            self._quit_stack.pop()
 
         self.scope = old_scope
         # Propagar variables del child scope al parent (MUMPS semantics)
@@ -314,15 +326,22 @@ class MEvaluator:
                         continue
                     break
 
-            # ^(subs)=value — naked reference SET
+            # ^(subs)=value — naked reference SET (reemplaza último subíndice)
             naked_match = re.match(r'\^\(([^)]+)\)\s*=\s*(.+)', rest)
             if naked_match and self.pdb and self._last_ref:
-                ns = self._last_ref
-                subs = self._parse_subs(naked_match.group(1))
+                ns = self._last_ref["ns"]
+                naked_subs = self._parse_subs(naked_match.group(1))
+                # Reemplazar último subíndice de last_ref por los nuevos
+                base = list(self._last_ref["subs"])
+                if base and len(base) > 0:
+                    subs = base[:-1] + naked_subs
+                else:
+                    subs = naked_subs
                 value_expr = naked_match.group(2)
                 value_end = self._cmd_boundary(value_expr)
                 value = self._resolve(value_expr[:value_end].strip())
                 self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
+                self._last_ref = {"ns": ns, "subs": list(subs)}
                 chunk = len(naked_match.group(0)) - (len(value_expr) - value_end)
                 consumed += chunk
                 rest = rest[chunk:]
@@ -336,7 +355,7 @@ class MEvaluator:
                 value_expr = g_match.group(3)
                 value_end = self._cmd_boundary(value_expr)
                 value = self._resolve(value_expr[:value_end].strip())
-                self._last_ref = ns
+                self._last_ref = {"ns": ns, "subs": list(subs)}
                 self.pdb.tool_set({"ns": ns, "subs": subs, "value": value})
                 chunk = len(g_match.group(0)) - (len(value_expr) - value_end)
                 consumed += chunk
@@ -354,7 +373,7 @@ class MEvaluator:
                 value_expr = b_match.group(2)
                 value_end = self._cmd_boundary(value_expr)
                 value = self._resolve(value_expr[:value_end].strip())
-                self._last_ref = ns
+                self._last_ref = {"ns": ns, "subs": []}
                 self.pdb.tool_set({"ns": ns, "subs": [], "value": value})
                 chunk = len(b_match.group(0)) - (len(value_expr) - value_end)
                 consumed += chunk
@@ -486,14 +505,20 @@ class MEvaluator:
 
     def _exec_quit(self, line: str, pos: int, postcond: str = "") -> int:
         """QUIT[:condition] — sale del bucle actual si se cumple la condición.
-        postcond viene ya extraído por cmd_match. Si está vacío, QUIT sin condición."""
+        Usa _quit_stack para FOR anidados (cada nivel tiene su flag)."""
         if postcond and postcond.startswith(':'):
             cond = postcond[1:].strip()
             if self._eval_condition(cond):
-                self._quit_flag = True
+                if self._quit_stack:
+                    self._quit_stack[-1] = True
+                else:
+                    self._quit_flag = True
             return pos
         else:
-            self._quit_flag = True
+            if self._quit_stack:
+                self._quit_stack[-1] = True
+            else:
+                self._quit_flag = True
             return len(line)
 
     # ── IF ──
@@ -643,6 +668,40 @@ class MEvaluator:
                 pass
         return len(line)
 
+    # ── Helper: dividir argumentos por coma respetando paréntesis ──
+    # Necesario para $P($G(...),...) y otras funciones anidadas
+    def _split_args_by_parens(self, s: str) -> list:
+        args = []
+        depth = 0
+        current = ""
+        in_string = False
+        str_char = None
+        for c in s:
+            if in_string:
+                current += c
+                if c == str_char:
+                    in_string = False
+                continue
+            if c in ('"', "'"):
+                in_string = True
+                str_char = c
+                current += c
+                continue
+            if c == '(':
+                depth += 1
+                current += c
+            elif c == ')':
+                depth -= 1
+                current += c
+            elif c == ',' and depth == 0:
+                args.append(current.strip())
+                current = ""
+            else:
+                current += c
+        if current.strip():
+            args.append(current.strip())
+        return args
+
     # ── Evaluación de expresiones ──
 
     def _resolve(self, token: str) -> Any:
@@ -671,18 +730,15 @@ class MEvaluator:
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
-            self._last_ref = ns
+            self._last_ref = {"ns": ns, "subs": list(subs)}
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
-            # DEBUG $GET FIX
-            if r.get("value") is not None:
-                import sys; print(f'[M-Light $GET FIX] {ns}{subs} = {r.get("value")}', file=sys.stderr)
             return r.get("value")
 
         # $GET(^barename) — $G con global sin subíndices
         m = re.match(r'\$(?:GET|G)\s*\(\^(\w+)\)\s*', token)
         if m and self.pdb:
             ns = m.group(1)
-            self._last_ref = ns
+            self._last_ref = {"ns": ns, "subs": []}
             r = self.pdb.tool_get({"ns": ns, "subs": []})
             return r.get("value")
 
@@ -697,7 +753,7 @@ class MEvaluator:
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
-            self._last_ref = ns
+            self._last_ref = {"ns": ns, "subs": list(subs)}
             r = self.pdb.tool_data({"ns": ns, "subs": subs})
             return r.get("value", 0)
 
@@ -707,62 +763,69 @@ class MEvaluator:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
             direction = int(m.group(3)) if m.group(3) else 1
-            self._last_ref = ns
+            self._last_ref = {"ns": ns, "subs": list(subs)}
             r = self.pdb.tool_order({"ns": ns, "subs": subs, "direction": direction})
             # MUMPS $ORDER returns "" (empty string) when no more elements
             val = r.get("value")
             return val if val is not None else ""
 
-        # $PIECE(string, delim, n) — también $P
-        m = re.match(r'\$(?:PIECE|P)\s*\(\s*([^,]+)\s*,\s*["\']([^"\']+)["\']\s*,\s*(\d+)\s*\)', token)
+        # $PIECE(string, delim, n) — también $P (con paréntesis anidados)
+        m = re.match(r'\$(?:PIECE|P)\s*\((.+)\)\s*$', token)
         if m:
-            string = self._resolve(m.group(1))
-            delim = m.group(2)
-            n = int(m.group(3))
-            parts = str(string).split(delim)
-            return parts[n-1] if n <= len(parts) else ""
+            args = self._split_args_by_parens(m.group(1))
+            if len(args) >= 3:
+                string = self._resolve(args[0])
+                delim = args[1].strip().strip("'\"")
+                n = int(self._resolve(args[2]))
+                parts = str(string).split(delim)
+                return parts[n-1] if n <= len(parts) else ""
 
-        # $EXTRACT(string, from, to?) — también $E
-        m = re.match(r'\$(?:EXTRACT|E)\s*\(\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*\)', token)
+        # $EXTRACT(string, from, to?) — también $E (con paréntesis anidados)
+        m = re.match(r'\$(?:EXTRACT|E)\s*\((.+)\)\s*$', token)
         if m:
-            string = str(self._resolve(m.group(1)))
-            frm = int(m.group(2)) - 1
-            to = int(m.group(3)) if m.group(3) else frm + 1
-            return string[frm:to]
+            args = self._split_args_by_parens(m.group(1))
+            if len(args) >= 2:
+                string = str(self._resolve(args[0]))
+                frm = int(self._resolve(args[1])) - 1
+                to = int(self._resolve(args[2])) if len(args) >= 3 else frm + 1
+                return string[frm:to]
 
         # $SELECT(cond1:val1, ..., 1:default) — también $S
         m = re.match(r'\$(?:SELECT|S)\s*\(\s*(.+)\s*\)', token)
         if m:
-            pairs = m.group(1).split(",")
+            pairs = self._split_args_by_parens(m.group(1))
             for pair in pairs:
-                pair = pair.strip()
                 if ":" in pair:
                     cond, val = pair.split(":", 1)
                     if self._eval_condition(cond.strip()):
                         return self._resolve(val.strip())
             return None
 
-        # $LENGTH(string) — también $L
-        m = re.match(r'\$(?:LENGTH|L)\s*\(\s*([^)]+)\s*\)', token)
+        # $LENGTH(string [,delim]) — también $L
+        m = re.match(r'\$(?:LENGTH|L)\s*\((.+)\)\s*$', token)
         if m:
-            val = str(self._resolve(m.group(1)))
+            args = self._split_args_by_parens(m.group(1))
+            val = str(self._resolve(args[0]))
+            if len(args) >= 2:
+                delim = args[1].strip().strip("'\"")
+                return len(val.split(delim))
             return len(val)
 
         # $FIND(string,substring) — también $F
-        m = re.match(r'\$(?:FIND|F)\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)', token)
+        m = re.match(r'\$(?:FIND|F)\s*\((.+)\)\s*$', token)
         if m:
-            haystack = str(self._resolve(m.group(1)))
-            needle = str(self._resolve(m.group(2)))
-            pos = haystack.find(needle)
-            return pos + len(needle) + 1 if pos >= 0 else 0
+            args = self._split_args_by_parens(m.group(1))
+            if len(args) >= 2:
+                haystack = str(self._resolve(args[0]))
+                needle = str(self._resolve(args[1]))
+                pos = haystack.find(needle)
+                return pos + len(needle) + 1 if pos >= 0 else 0
 
-        # $CHAR(code) — también $C. Devuelve carácter para código ASCII
-        # $CHAR(c1,c2,...) devuelve string con múltiples caracteres
+        # $CHAR(code1,code2,...) — también $C. Devuelve string con caracteres
         m = re.match(r'\$(?:CHAR|C)\s*\(\s*(.+)\s*\)', token)
         if m:
-            args_str = m.group(1)
             codes = []
-            for arg in args_str.split(","):
+            for arg in self._split_args_by_parens(m.group(1)):
                 arg = arg.strip()
                 codes.append(int(self._resolve(arg)))
             return ''.join(chr(c) for c in codes)
@@ -807,11 +870,17 @@ class MEvaluator:
             try: return float(val) if '.' in str(val) else int(float(val))
             except: return 0
 
-        # ^(subs) — naked reference (usa el último ^GLOBAL accedido)
+        # ^(subs) — naked reference (reemplaza último subíndice)
         m = re.match(r'\^\(([^)]+)\)', token)
         if m and self.pdb and self._last_ref:
-            ns = self._last_ref
-            subs = self._parse_subs(m.group(1))
+            ns = self._last_ref["ns"]
+            naked_subs = self._parse_subs(m.group(1))
+            base = list(self._last_ref["subs"])
+            if base and len(base) > 0:
+                subs = base[:-1] + naked_subs
+            else:
+                subs = naked_subs
+            self._last_ref = {"ns": ns, "subs": list(subs)}
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
@@ -820,7 +889,7 @@ class MEvaluator:
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
-            self._last_ref = ns  # para naked reference
+            self._last_ref = {"ns": ns, "subs": list(subs)}  # para naked reference
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
@@ -828,7 +897,7 @@ class MEvaluator:
         m = re.match(r'\^(\w+)$', token)
         if m and self.pdb:
             ns = m.group(1)
-            self._last_ref = ns
+            self._last_ref = {"ns": ns, "subs": []}
             r = self.pdb.tool_get({"ns": ns, "subs": []})
             return r.get("value")
 
@@ -847,6 +916,12 @@ class MEvaluator:
         # Variable no definida en M = cadena vacía
         if re.match(r'^[A-Z][A-Z0-9]*$', token, re.IGNORECASE):
             return ""
+
+        # Literal — DEBE IR ANTES del bloque aritmético (que detecta # como módulo)
+        if token.startswith('"') and token.endswith('"'):
+            return token[1:-1]
+        if token.startswith("'") and token.endswith("'"):
+            return token[1:-1]
 
         # Arithmetic expression — MUMPS evalúa left-to-right SIN precedencia
         # Soporta: +, -, *, /, \\ (div), # (mod), ** (exp)
@@ -893,13 +968,10 @@ class MEvaluator:
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
-            self._last_ref = ns
+            self._last_ref = {"ns": ns, "subs": list(subs)}
             r = self.pdb.tool_get({"ns": ns, "subs": subs})
             return r.get("value")
 
-        # Literal
-        if token.startswith('"') and token.endswith('"'):
-            return token[1:-1]
         try:
             return int(token)
         except ValueError:
