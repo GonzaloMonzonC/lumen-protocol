@@ -1,0 +1,74 @@
+[
+  {
+    "name": "compile simple (1 line)",
+    "total_ms": 2.04,
+    "avg_ms": 0.0102,
+    "iterations": 200
+  },
+  {
+    "name": "compile script (4 lines)",
+    "total_ms": 6.88,
+    "avg_ms": 0.0344,
+    "iterations": 200
+  },
+  {
+    "name": "SET x=42 + exec",
+    "total_ms": 2.36,
+    "avg_ms": 0.0118,
+    "iterations": 200
+  },
+  {
+    "name": "SET + aritm\u00e9tica (3 ops)",
+    "total_ms": 3.34,
+    "avg_ms": 0.0167,
+    "iterations": 200
+  },
+  {
+    "name": "FOR 1:1:100 loop",
+    "total_ms": 129.69,
+    "avg_ms": 2.5939,
+    "iterations": 50
+  },
+  {
+    "name": "$P piece (a,b,c \u2192 b)",
+    "total_ms": 7.09,
+    "avg_ms": 0.0142,
+    "iterations": 500
+  },
+  {
+    "name": "$E extract (3,7)",
+    "total_ms": 9.18,
+    "avg_ms": 0.0184,
+    "iterations": 500
+  },
+  {
+    "name": "$TR translate (aeiou\u2192-----)",
+    "total_ms": 12.93,
+    "avg_ms": 0.0259,
+    "iterations": 500
+  },
+  {
+    "name": "DO ^script (simple)",
+    "total_ms": 22914.28,
+    "avg_ms": 114.5714,
+    "iterations": 200
+  },
+  {
+    "name": "DO ^script with args",
+    "total_ms": 20109.53,
+    "avg_ms": 100.5477,
+    "iterations": 200
+  },
+  {
+    "name": "DDP health check",
+    "total_ms": 1493.26,
+    "avg_ms": 149.3257,
+    "iterations": 10
+  },
+  {
+    "name": "DDP status",
+    "total_ms": 1938.53,
+    "avg_ms": 193.8533,
+    "iterations": 10
+  }
+]
