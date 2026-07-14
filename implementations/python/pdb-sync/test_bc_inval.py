@@ -1,7 +1,6 @@
 """Test BC cache invalidation on source change."""
 import sys, os
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 from m_routines import RoutineExecutor, register
 from pdb_tools import tool_get, tool_set

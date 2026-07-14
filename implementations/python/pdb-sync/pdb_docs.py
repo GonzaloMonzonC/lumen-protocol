@@ -41,6 +41,7 @@ License: MIT (lumen-protocol)
 """
 
 import json
+import _paths  # rutas repo-relativas
 import os
 import sys
 import time
@@ -49,9 +50,7 @@ from typing import Any, Optional
 
 # ── Config ──────────────────────────────────────────────────────────
 
-PDB_PATH = os.path.expanduser(
-    "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db"
-)
+PDB_PATH = _paths.DB_PATH
 
 DOCS_NAMESPACE = "docs"
 HISTORY_NAMESPACE = "docs_history"
@@ -144,9 +143,7 @@ def doc_touch(ns: str, subs: list):
 
 def _get_pdb_tools():
     """Importar pdb_tools desde el path."""
-    pdb_dir = os.path.expanduser(
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
-    )
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path:
         sys.path.insert(0, pdb_dir)
     import pdb_tools

@@ -18,14 +18,14 @@ Licencia: MIT (lumen-protocol)
 import sys, os, json, re
 from datetime import datetime, timezone
 
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync/auto-memory"))
+import _paths  # noqa: F401  # sys.path del stack PDB
+import _paths; sys.path.insert(0, _paths.AUTO_MEMORY_DIR_S)
 
 def _now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def _get_tools():
-    pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
     from pdb_tools import tool_set, tool_get
     return tool_set, tool_get

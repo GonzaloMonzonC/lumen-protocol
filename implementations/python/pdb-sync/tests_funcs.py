@@ -1,6 +1,6 @@
 """Tests ML-VM-02: Function Table Runtime."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from m_funcs import *
 
 p = f = 0

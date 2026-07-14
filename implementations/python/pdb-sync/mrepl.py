@@ -21,6 +21,7 @@ Licencia: MIT (lumen-protocol)
 """
 
 import sys, os, atexit
+import _paths  # rutas repo-relativas
 try: import readline
 except: readline = None
 
@@ -289,7 +290,7 @@ class MREPL:
 
     def _get_tools(self):
         try:
-            pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+            pdb_dir = _paths.PDB_DIR_S
             if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
             from pdb_tools import tool_m_eval
             return tool_m_eval

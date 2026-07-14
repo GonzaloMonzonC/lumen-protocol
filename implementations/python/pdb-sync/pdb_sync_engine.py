@@ -13,6 +13,7 @@ Flujo:
 """
 
 import os, json, time, hashlib
+import _paths  # rutas repo-relativas
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -119,7 +120,7 @@ class SyncEngine:
             # Aplicar localmente
             try:
                 import sys, os
-                sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+                sp = _paths.PDB_DIR_S
                 if sp not in sys.path: sys.path.insert(0, sp)
                 from pdb_tools import tool_set
                 val = entry_data.get("value", "")

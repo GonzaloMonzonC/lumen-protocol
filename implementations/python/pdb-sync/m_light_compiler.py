@@ -142,7 +142,7 @@ class MCompiler:
 
 if __name__ == "__main__":
     code = sys.argv[1] if len(sys.argv) > 1 else "S x=42 W x"
-    sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+    import _paths  # noqa: F401  # sys.path del stack PDB
     from m_light import MEvaluator
     ev = MEvaluator()
     comp = MCompiler(ev)

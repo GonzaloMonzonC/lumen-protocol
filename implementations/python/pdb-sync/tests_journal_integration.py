@@ -1,7 +1,7 @@
 """Tests JRN-05: Journaling integración + Benchmark."""
 import sys, os, time, json
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 from pdb_journal import *
 

@@ -15,10 +15,11 @@ Licencia: MIT (lumen-protocol)
 """
 
 import sys, os
+import _paths  # rutas repo-relativas
 from datetime import datetime, timezone
 
 def _get_tools():
-    pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
     from pdb_tools import tool_set, tool_get, tool_order
     return tool_set, tool_get, tool_order
@@ -86,7 +87,7 @@ def help_init():
 def help_get(topic):
     """Obtener ayuda de un tópico vía SQL directo."""
     import sqlite3, os, json
-    pdb_path = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db")
+    pdb_path = _paths.DB_PATH
     db = sqlite3.connect(f"file:{pdb_path}?mode=ro", uri=True)
     from pdb_tools import encode_subkey, _decode_value
     parts = topic.split(":")
@@ -100,7 +101,7 @@ def help_get(topic):
 def help_categories():
     """Listar categorías vía SQL directo."""
     import sqlite3, os
-    pdb_path = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db")
+    pdb_path = _paths.DB_PATH
     db = sqlite3.connect(f"file:{pdb_path}?mode=ro", uri=True)
     from pdb_tools import encode_subkey, decode_subkey
     prefix = encode_subkey(["help", "data"])
