@@ -3,6 +3,24 @@
 **Date:** 2026-07-12
 **Environment:** Python 3.11, Windows 10, AMD Ryzen
 
+## PDB storage — SQLite WAL (added 2026-07-14, macOS/Apple Silicon)
+
+Tras centralizar PRAGMAs en `_apply_pragmas()` (WAL + synchronous=NORMAL +
+mmap 256MB). BD scratch sin triggers/índices; un commit por SET como hace
+`tool_set`.
+
+| Escenario | Resultado |
+|-----------|-----------|
+| SQL crudo, journal DELETE (antes) | 5.066 SET/s |
+| SQL crudo, journal WAL (ahora) | 88.696 SET/s (~18×) |
+| `tool_set` API, sin lectores | 21.359 SET/s |
+| `tool_set` API, sostenido 6s con 3 lectores concurrentes | **15.212 SET/s, 0 errores** |
+| 3 lectores (`tool_get`+`tool_order`) durante escritura sostenida | ~22.000 ops/s cada uno, **0 `database is locked`** |
+
+Referencia pre-WAL en producción: ~115-130 SET/s (bloqueo escritor↔lectores).
+El salto real de la API es ~120×. WAL es persistente en el fichero de BD:
+las conexiones que no tocan el pragma lo heredan automáticamente.
+
 ## Micro-operations (microseconds)
 
 | Operation | Time (μs) | Description |
