@@ -21,13 +21,14 @@ Licencia: MIT (lumen-protocol)
 """
 
 import os, sys, json, time, threading
+import _paths  # rutas repo-relativas
 from datetime import datetime, timezone
 
 DAEMON_NS = "CHANGES"
 CHECKPOINT_FILE = os.path.expanduser("~/.hermes/pdb-journal-daemon-checkpoint.json")
 
 def _get_tools():
-    pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
     from pdb_tools import tool_set, tool_get, tool_order
     return tool_set, tool_get, tool_order

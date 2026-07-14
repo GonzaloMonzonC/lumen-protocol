@@ -18,6 +18,7 @@ Date: 2026-07-11
 """
 
 import json
+import _paths  # rutas repo-relativas
 import os
 import sys
 import time
@@ -32,9 +33,7 @@ PDB_EDGE_KEY = os.environ.get("PDB_EDGE_KEY", "pdb_hermes_2026")
 
 def get_pdb_tools():
     """Importar pdb_tools desde el path correcto."""
-    pdb_path = os.path.expanduser(
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
-    )
+    pdb_path = _paths.PDB_DIR_S
     sys.path.insert(0, pdb_path)
     from pdb_tools import tool_set
     return tool_set

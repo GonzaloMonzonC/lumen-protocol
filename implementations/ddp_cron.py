@@ -7,8 +7,7 @@ Sin output = sin novedades = sin mensaje al usuario.
 import sys, os
 
 # Añadir el directorio a path
-sys.path.insert(0, os.path.expanduser(
-    "~/Documents/GitHub/lumen-protocol/implementations"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ddp_sync import sync_pull, get_sync_ts, set_sync_ts
 

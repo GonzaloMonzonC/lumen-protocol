@@ -1,6 +1,6 @@
 """Tests IMP-05: FOR + $O loop."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from m_stackvm import StackVM
 from m_routines import RoutineExecutor, register
 

@@ -9,8 +9,7 @@ Prueba final que ejercita TODO el ecosistema:
 """
 import sys, os, time, json
 
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 from pdb_tools import tool_set, tool_get, tool_kill
 from pdb_journal import make_entry, write, read, pending

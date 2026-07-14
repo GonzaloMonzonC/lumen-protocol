@@ -2,7 +2,7 @@
 """Test Sprint A2-A4: Multi-file, Recovery, DDP Bridge."""
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from pdb_tools import tool_set
 from pdb_journal import *
 
