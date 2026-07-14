@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """_paths.py — rutas del repo calculadas desde __file__ (cero hardcode).
 
-Sustituye a los sys.path.insert("~/Documents/GitHub/...") que quedaron
+Sustituye a los sys.path.insert con rutas absolutas que quedaron
 rotos al mover el repo. Prioridad para la BD: env PDB_PATH > env PDB_DB >
 ruta por defecto dentro del repo.
 

@@ -13,14 +13,12 @@ import json, os, sqlite3, sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-PDB_PATH = os.environ.get("PDB_PATH") or str(
-    Path(__file__).resolve().parent.parent / "pdb" / "lumen-pdb.db"
-)
+import _pdb
+
+PDB_PATH = _pdb.PDB_PATH
 
 def get_pdb_conn():
-    conn = sqlite3.connect(PDB_PATH, timeout=3)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return _pdb.pdb_connect(timeout=3)
 
 def get_namespaces():
     conn = get_pdb_conn()

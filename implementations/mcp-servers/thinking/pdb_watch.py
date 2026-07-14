@@ -18,12 +18,14 @@ import time
 import re
 from pathlib import Path
 
+import _pdb
+
 HERE = Path(__file__).parent
-_PDB_PATH = HERE.parent / "pdb" / "lumen-pdb.db"
+_PDB_PATH = Path(_pdb.PDB_PATH)
 
 
 def _get_conn():
-    return sqlite3.connect(str(_PDB_PATH))
+    return _pdb.pdb_connect()
 
 
 def _encode(val):

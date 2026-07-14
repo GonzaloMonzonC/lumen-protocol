@@ -91,8 +91,10 @@ def _load_db_map():
 def _get_db_path() -> str:
     global _DB_PATH
     if _DB_PATH is None:
-        _DB_PATH = os.environ.get("PDB_PATH") or str(
-            Path(__file__).resolve().parent / "lumen-pdb.db"
+        _DB_PATH = (
+            os.environ.get("PDB_PATH")
+            or os.environ.get("PDB_DB")
+            or str(Path(__file__).resolve().parent / "lumen-pdb.db")
         )
     return _DB_PATH
 
@@ -105,6 +107,24 @@ def _apply_pragmas(c: sqlite3.Connection, busy_timeout: int = 5000) -> None:
     c.execute(f"PRAGMA busy_timeout={busy_timeout}")
     c.execute("PRAGMA cache_size=-8000")  # 8 MB
     c.execute("PRAGMA mmap_size=268435456")  # 256 MB
+
+def pdb_connect(readonly: bool = False, timeout: float = 5.0) -> sqlite3.Connection:
+    """Punto de entrada público del contrato PDB (Fase 1b).
+
+    Única forma legítima de abrir una conexión SQLite al PDB fuera de este
+    módulo: centraliza ruta (env PDB_PATH > PDB_DB > default), PRAGMAs (WAL)
+    y, en el futuro, la elección de motor (PDB_ENGINE). Devuelve una conexión
+    NUEVA que el llamante debe cerrar. Para operar sobre globals usa las
+    tool_* de este módulo, que comparten conexión y aplican triggers/índices.
+
+    readonly usa query_only (compatible con WAL, a diferencia de mode=ro
+    por URI, que falla si -wal/-shm no existen)."""
+    c = sqlite3.connect(_get_db_path(), timeout=timeout, check_same_thread=False)
+    _apply_pragmas(c, busy_timeout=int(timeout * 1000))
+    if readonly:
+        c.execute("PRAGMA query_only=ON")
+    c.row_factory = sqlite3.Row
+    return c
 
 def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
     """Get a connection for the given namespace.

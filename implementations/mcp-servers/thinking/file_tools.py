@@ -19,8 +19,10 @@ import difflib
 from pathlib import Path
 from typing import Optional
 
+import _pdb
+
 HERE = Path(__file__).parent
-_PDB_PATH = HERE.parent / "pdb" / "lumen-pdb.db"
+_PDB_PATH = Path(_pdb.PDB_PATH)
 MAX_VERSIONS = 5
 
 
@@ -30,7 +32,7 @@ def _normalize_path(path: str) -> str:
 
 
 def _get_pdb_connection():
-    return sqlite3.connect(str(_PDB_PATH))
+    return _pdb.pdb_connect()
 
 
 def _all_versions(path: str) -> list[dict]:
