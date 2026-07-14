@@ -1,7 +1,6 @@
 """Test final: REPORT.m completo con aserciones."""
 import sys, os
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 from pdb_tools import tool_set, tool_kill
 from m_routines import RoutineExecutor
@@ -15,7 +14,7 @@ def t(n,o):
 print('🧪 TEST FINAL: DO ^REPORT\n')
 
 # Load REPORT.m
-with open(os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync/routines/REPORT.m")) as f:
+with open(_paths.REPORT_M) as f:
     code = f.read()
 
 t("script loaded", len(code) > 100)

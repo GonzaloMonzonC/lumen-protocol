@@ -6,6 +6,7 @@ Inspirado en MSM std_func_handler + func_lookup.
 """
 
 import sys, os, time
+import _paths  # rutas repo-relativas
 from typing import Any, Optional
 
 # ═══════════════════════════════════════════════════
@@ -39,7 +40,7 @@ def func_get(args, vm=None):
     if vm and ref in vm.vars: return vm.vars[ref]
     if ref.startswith("^"):
         try:
-            sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+            sp = _paths.PDB_DIR_S
             if sp not in sys.path: sys.path.insert(0, sp)
             from pdb_tools import tool_get
             if '(' in ref:
@@ -125,7 +126,7 @@ def func_dispatch(name):
 def func_data(args):
     if not args: return 0
     try:
-        sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+        sp = _paths.PDB_DIR_S
         if sp not in sys.path: sys.path.insert(0, sp)
         from pdb_tools import tool_data
         ref = str(args[0])
@@ -141,7 +142,7 @@ def func_data(args):
 def func_order(args):
     if not args: return ""
     try:
-        sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+        sp = _paths.PDB_DIR_S
         if sp not in sys.path: sys.path.insert(0, sp)
         from pdb_tools import tool_order
         ref = str(args[0])
