@@ -96,6 +96,16 @@ def _get_db_path() -> str:
         )
     return _DB_PATH
 
+def _apply_pragmas(c: sqlite3.Connection, busy_timeout: int = 5000) -> None:
+    """PRAGMAs estándar para toda conexión PDB.
+    WAL es persistente en la BD: no mezclar con journal_mode=DELETE
+    (pdb_ttl.py también usa WAL — mantener consistente)."""
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA synchronous=NORMAL")
+    c.execute(f"PRAGMA busy_timeout={busy_timeout}")
+    c.execute("PRAGMA cache_size=-8000")  # 8 MB
+    c.execute("PRAGMA mmap_size=268435456")  # 256 MB
+
 def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
     """Get a connection for the given namespace.
     If ns has subs and a partition config, routes to the correct partition.
@@ -128,10 +138,7 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
         if mapped_path:
             if ns not in _db_connections:
                 c = sqlite3.connect(mapped_path, timeout=5, check_same_thread=False)
-                c.execute("PRAGMA journal_mode=DELETE")
-                c.execute("PRAGMA synchronous=NORMAL")
-                c.execute("PRAGMA busy_timeout=5000")
-                c.execute("PRAGMA cache_size=-8000")
+                _apply_pragmas(c, busy_timeout=5000)
                 c.row_factory = sqlite3.Row
                 _init_schema(c)
                 _db_connections[ns] = c
@@ -143,10 +150,7 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
             if _conn is None:
                 path = _get_db_path()
                 c = sqlite3.connect(path, timeout=10, check_same_thread=False)
-                c.execute("PRAGMA journal_mode=DELETE")
-                c.execute("PRAGMA synchronous=NORMAL")
-                c.execute("PRAGMA busy_timeout=30000")
-                c.execute("PRAGMA cache_size=-8000")  # 8 MB
+                _apply_pragmas(c, busy_timeout=30000)
                 c.row_factory = sqlite3.Row
                 _init_schema(c)
                 _conn = c
@@ -165,10 +169,7 @@ def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
     if key in _db_connections:
         return _db_connections[key]
     c = sqlite3.connect(path, timeout=5, check_same_thread=False)
-    c.execute("PRAGMA journal_mode=DELETE")
-    c.execute("PRAGMA synchronous=NORMAL")
-    c.execute("PRAGMA busy_timeout=5000")
-    c.execute("PRAGMA cache_size=-8000")
+    _apply_pragmas(c, busy_timeout=5000)
     c.row_factory = sqlite3.Row
     _init_schema(c)
     _db_connections[key] = c
@@ -220,7 +221,7 @@ def tool_partition_define(args: dict) -> dict:
             path = Path(r.get("path", "")).resolve()
             path.parent.mkdir(parents=True, exist_ok=True)
             test = sqlite3.connect(str(path), timeout=2)
-            test.execute("PRAGMA journal_mode=DELETE")
+            test.execute("PRAGMA journal_mode=WAL")
             test.close()
             r["path"] = str(path)
         # Store config
@@ -286,7 +287,7 @@ def tool_map_set(args: dict) -> dict:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Test connection
         test_conn = sqlite3.connect(str(path), timeout=2)
-        test_conn.execute("PRAGMA journal_mode=DELETE")
+        test_conn.execute("PRAGMA journal_mode=WAL")
         test_conn.close()
         # Store mapping
         c = _get_conn(ns)

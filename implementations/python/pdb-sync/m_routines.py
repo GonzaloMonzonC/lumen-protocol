@@ -17,6 +17,7 @@ Licencia: MIT
 """
 
 import sys, os, json
+import _paths  # rutas repo-relativas
 from typing import Any, Optional
 
 # ── Runtime Registry ──
@@ -38,9 +39,7 @@ def load_from_pdb(name: str) -> Optional[str]:
     """
     try:
         import sqlite3, os
-        db_path = os.path.expanduser(
-            "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db"
-        )
+        db_path = _paths.DB_PATH
         conn = sqlite3.connect(db_path)
         conn.text_factory = bytes
         cur = conn.cursor()
@@ -100,7 +99,7 @@ def list_routines() -> list:
     """Listar rutinas disponibles."""
     names = list(_routines.keys())
     try:
-        sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+        sp = _paths.PDB_DIR_S
         if sp not in sys.path: sys.path.insert(0, sp)
         from pdb_tools import tool_order
         key = ""
@@ -132,7 +131,7 @@ class RoutineExecutor:
     def _import_vm(self):
         if self.vm_class is None:
             try:
-                sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync")
+                sp = _paths.SYNC_DIR_S
                 if sp not in sys.path: sys.path.insert(0, sp)
                 from m_stackvm import StackVM
                 self.vm_class = StackVM
@@ -261,7 +260,7 @@ class RoutineExecutor:
 def patch_stackvm():
     """Añadir DO ^routine al StackVM."""
     try:
-        sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync")
+        sp = _paths.SYNC_DIR_S
         if sp not in sys.path: sys.path.insert(0, sp)
         from m_stackvm import StackVM, OP_DO
         

@@ -12,9 +12,10 @@ Licencia: MIT (lumen-protocol)
 """
 
 import sys, os, fnmatch, re
+import _paths  # rutas repo-relativas
 
 def _get_tools():
-    pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
     from pdb_tools import tool_get, tool_order, tool_data
     return tool_get, tool_order, tool_data
