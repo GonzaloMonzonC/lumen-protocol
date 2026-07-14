@@ -47,6 +47,36 @@ class MEvaluator:
         self._last_ref = None  # naked reference: {"ns": name, "subs": [...]}
         self._device_manager = device_manager  # DeviceManager para I/O
         self._current_io = current_io  # $IO — dispositivo activo
+        # MSM job memory simulation for $V()
+        self._job_memory = {}
+        self._sys_memory = {
+            -5: bytearray(512),
+            -4: bytearray(512),
+            -3: bytearray(2048),
+            -2: bytearray(256),
+        }
+        sm3 = self._sys_memory[-3]
+        sm3[0:2] = (4).to_bytes(2, 'little')
+        sm3[2:4] = (2).to_bytes(2, 'little')
+        sm5 = self._sys_memory[-5]
+        sm5[3] = 2
+        sm5[5] = 0
+        sm5[7] = 4
+        sm4 = self._sys_memory[-4]
+        sm4[0:2] = (0x0b | 0x08).to_bytes(2, 'little')
+        sm4[2:4] = (8).to_bytes(2, 'little')
+        sm4[116:120] = (128).to_bytes(4, 'little')
+        sm4[168:170] = (2).to_bytes(2, 'little')
+        sm4[272:276] = (0).to_bytes(4, 'little')
+        sm4[284] = 100
+        sm4[287] = 90
+        sm4[288:292] = (1000).to_bytes(4, 'little')
+        sm4[304:308] = (10).to_bytes(4, 'little')
+        self._job_memory[0] = bytearray(1200)
+        jm0 = self._job_memory[0]
+        jm0[6:8] = (1).to_bytes(2, 'little')
+        jm0[8:10] = (1).to_bytes(2, 'little')
+        jm0[44:46] = (0).to_bytes(2, 'little')
 
     # ── API pública ──
 
@@ -132,7 +162,9 @@ class MEvaluator:
         ("R", "READ",    "_exec_read"),
         ("S", "SET",     "_exec_set"),
         ("U", "USE",     "_exec_use"),
+        ("V", "VIEW",    "_exec_view"),
         ("W", "WRITE",   "_exec_write"),
+        ("ZQ", "ZQ",     "_exec_zq"),
     ]
 
     def _dispatch_cmd(self, token):
@@ -222,6 +254,24 @@ class MEvaluator:
                 break
         return result
 
+    def _split_for_ranges(self, s: str):
+        parts = []
+        depth = 0
+        current = ""
+        for ch in s:
+            if ch == ',' and depth == 0:
+                parts.append(current)
+                current = ""
+            else:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                current += ch
+        if current:
+            parts.append(current)
+        return parts
+
     def _exec_for(self, line: str, pos: int) -> int:
         """Ejecuta FOR. Soporta:
            F  {...}                    → infinito con Q:cond
@@ -238,25 +288,69 @@ class MEvaluator:
         self.scope = child
 
         # Determinar tipo de FOR
-        # FOR con variable: 'VAR=start:step:end'
-        range_match = re.match(r'(\w+)\s*=\s*([^:]+):([^:]+):([^\s{]+)\s*(.*)', line[pos:])
-        if range_match:
-            var_name = range_match.group(1)
-            start = float(self._resolve(range_match.group(2).strip()))
-            step = float(self._resolve(range_match.group(3).strip()))
-            end = float(self._resolve(range_match.group(4).strip()))
-            body = range_match.group(5).strip()
-            pos += range_match.end()
-            val = start
-            self._quit_stack.append(False)
-            while val <= end and not self._quit_stack[-1]:
-                child.set(var_name, val)
-                if body.startswith('{'):
-                    block_end = self._find_block_end(body)
-                    self._exec_line(body[1:block_end])
+        # FOR con variable: 'VAR=range1,range2,...'
+        var_match = re.match(r'(\w+)\s*=\s*(.+)', line[pos:])
+        if var_match:
+            var_name = var_match.group(1)
+            ranges_str = var_match.group(2)
+            rest = line[pos + var_match.end():].strip()
+
+            # Separar body del último rango
+            body = ""
+            depth = 0
+            split_pos = -1
+            for i, ch in enumerate(ranges_str):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                elif ch == ' ' and depth == 0:
+                    split_pos = i
+                    break
+            if split_pos >= 0:
+                body = ranges_str[split_pos:].strip() + " " + rest
+                ranges_str = ranges_str[:split_pos]
+            elif rest:
+                body = rest
+
+            # Parsear rangos respetando paréntesis anidados
+            range_parts = self._split_for_ranges(ranges_str)
+            ranges = []
+            for rp in range_parts:
+                rp = rp.strip()
+                parts = rp.split(':')
+                if len(parts) == 3:
+                    ranges.append((parts[0].strip(), parts[1].strip(), parts[2].strip()))
+                elif len(parts) == 2:
+                    ranges.append((parts[0].strip(), '1', parts[1].strip()))
                 else:
-                    self._exec_line(body)
-                val += step
+                    ranges.append((rp, '0', rp))
+
+            self._quit_stack.append(False)
+            for start_str, step_str, end_str in ranges:
+                start_val = float(self._resolve(start_str))
+                step_val = float(self._resolve(step_str)) if step_str != '0' else 0
+                end_val = float(self._resolve(end_str))
+                val = start_val
+                while True:
+                    if self._quit_stack[-1]:
+                        break
+                    if step_val > 0 and val > end_val:
+                        break
+                    if step_val < 0 and val < end_val:
+                        break
+                    if step_val == 0:
+                        child.set(var_name, val)
+                    else:
+                        child.set(var_name, val)
+                    if body.startswith('{'):
+                        block_end = self._find_block_end(body)
+                        self._exec_line(body[1:block_end])
+                    elif body:
+                        self._exec_line(body)
+                    if step_val == 0:
+                        break
+                    val += step_val
             self._quit_stack.pop()
 
         else:
@@ -477,6 +571,65 @@ class MEvaluator:
                     return s[:i].strip()
         return s.strip()
 
+    # ── MSM $V() memory simulation ──
+
+    def _msm_job_mem(self, job: int) -> bytearray:
+        if job < 0:
+            if job in self._sys_memory:
+                return self._sys_memory[job]
+            return bytearray(256)
+        if job not in self._job_memory:
+            self._job_memory[job] = bytearray(51200)
+        return self._job_memory[job]
+
+    def _msm_view(self, offset: int, job: int, size: int = 1) -> int:
+        mem = self._msm_job_mem(job)
+        if offset < 0 or offset >= len(mem):
+            return 0
+        if size == 0 or size == 2:
+            if offset + 2 > len(mem): return 0
+            return int.from_bytes(mem[offset:offset+2], 'little')
+        elif size == 4:
+            if offset + 4 > len(mem): return 0
+            return int.from_bytes(mem[offset:offset+4], 'little')
+        else:
+            return mem[offset] if offset < len(mem) else 0
+
+    def _msm_setview(self, offset: int, job: int, value: int, size: int = 1):
+        mem = self._msm_job_mem(job)
+        if offset < 0 or offset >= len(mem): return
+        if size == 0 or size == 2:
+            if offset + 2 <= len(mem):
+                mem[offset:offset+2] = (value & 0xFFFF).to_bytes(2, 'little')
+        elif size == 4:
+            if offset + 4 <= len(mem):
+                mem[offset:offset+4] = (value & 0xFFFFFFFF).to_bytes(4, 'little')
+        else:
+            mem[offset] = value & 0xFF
+
+    def _exec_view(self, line: str, pos: int) -> int:
+        rest = line[pos:].strip()
+        m = re.match(r'(\d+):(-?\d+):(\d+):(\d+)', rest)
+        if m:
+            offset = int(m.group(1))
+            job = int(m.group(2))
+            value = int(m.group(3))
+            size = int(m.group(4))
+            self._msm_setview(offset, job, value, size)
+            return pos + m.end()
+        m2 = re.match(r'(\d+):(-?\d+):(\d+)', rest)
+        if m2:
+            offset = int(m2.group(1))
+            job = int(m2.group(2))
+            value = int(m2.group(3))
+            self._msm_setview(offset, job, value, 1)
+            return pos + m2.end()
+        return len(line)
+
+    def _exec_zq(self, line: str, pos: int) -> int:
+        self._quit_flag = True
+        return len(line)
+
     # ── KILL ──
 
     def _exec_kill(self, line: str, pos: int) -> int:
@@ -580,22 +733,41 @@ class MEvaluator:
         for item in items:
             if not item: continue
             if item.replace('!', '') == '':
-                output.append('\n' * len(item))
+                n = len(item)
+                output.append('\n' * n)
+                self.scope.set('$Y', (self.scope.get('$Y') or 0) + n)
+                self.scope.set('$X', 0)
             elif item.startswith('*'):
                 try:
                     code = int(self._resolve(item[1:]))
-                    output.append(chr(code))
+                    ch = chr(code)
+                    output.append(ch)
+                    self.scope.set('$X', (self.scope.get('$X') or 0) + 1)
                 except:
                     output.append(f'[{item}]')
             elif item.startswith('?'):
                 try:
                     col = int(self._resolve(item[1:]))
-                    output.append(' ' * max(0, col - len(''.join(output))))
+                    cur_x = self.scope.get('$X') or 0
+                    if col < cur_x:
+                        output.append('\n')
+                        self.scope.set('$Y', (self.scope.get('$Y') or 0) + 1)
+                        cur_x = 0
+                    output.append(' ' * (col - cur_x))
+                    self.scope.set('$X', col)
                 except:
                     output.append(f'[{item}]')
             else:
                 val = self._resolve(item)
-                output.append(str(val) if val is not None else '')
+                s = str(val) if val is not None else ''
+                output.append(s)
+                # Update $X/$Y based on written content
+                lines_in_output = s.count('\n')
+                if lines_in_output:
+                    self.scope.set('$Y', (self.scope.get('$Y') or 0) + lines_in_output)
+                    self.scope.set('$X', len(s) - s.rfind('\n') - 1)
+                else:
+                    self.scope.set('$X', (self.scope.get('$X') or 0) + len(s))
 
         text = ''.join(output)
         # Rutear al dispositivo activo si hay DeviceManager
@@ -608,24 +780,77 @@ class MEvaluator:
     def _exec_read(self, line: str, pos: int) -> int:
         """READ prompt:var — lee del dispositivo activo ($IO)."""
         rest = line[pos:].strip()
-        if ':' in rest:
-            prompt, var = rest.split(':', 1)
-            var = var.strip()
-            if prompt:
-                prompt_text = str(self._resolve(prompt.strip()))
-                # Write prompt to device
+        # Parse READ: puede tener timeout (:N) y asterisco (*)
+        # Formato: READ "prompt",var:timeout  o  READ *var  o  READ var
+        if rest.startswith('*'):
+            # READ *var — read single char
+            var = rest[1:].strip()
+            value = ' '
+            if self._device_manager:
+                value = self._device_manager.read(self._current_io, raw=True) or ' '
+            self.scope.set(var, value)
+            return len(line)
+        # Split by comma at depth 0: "prompt",var:timeout
+        items = []
+        depth = 0
+        current = ""
+        for ch in rest:
+            if ch == '(':
+                depth += 1
+                current += ch
+            elif ch == ')':
+                depth -= 1
+                current += ch
+            elif ch == ',' and depth == 0:
+                items.append(current.strip())
+                current = ""
+            else:
+                current += ch
+        if current.strip():
+            items.append(current.strip())
+
+        for item in items:
+            item = item.strip()
+            if not item:
+                continue
+            # Check for timeout: var:timeout
+            if ':' in item:
+                # Could be "prompt":timeout or var:timeout
+                parts = item.split(':')
+                if len(parts) >= 2 and item.startswith('"') and item.count('"') >= 2:
+                    # "prompt":timeout — write prompt but don't read
+                    prompt_text = str(self._resolve(parts[0]))
+                    if self._device_manager:
+                        self._device_manager.write(self._current_io, prompt_text)
+                    else:
+                        pass  # no prompt output
+                elif len(parts) == 2:
+                    # var:timeout — read with timeout
+                    var = parts[0].strip()
+                    timeout = parts[1].strip()
+                    # timeout 0 = non-blocking, just return empty
+                    value = ''
+                    if self._device_manager and timeout != '0':
+                        value = self._device_manager.read(self._current_io).strip()
+                    self.scope.set(var, value)
+                elif len(parts) >= 2:
+                    var = parts[0].strip()
+                    value = ''
+                    if self._device_manager:
+                        value = self._device_manager.read(self._current_io).strip()
+                    self.scope.set(var, value)
+            elif item.startswith('"'):
+                # Just a prompt string (write it)
+                prompt_text = str(self._resolve(item))
                 if self._device_manager:
                     self._device_manager.write(self._current_io, prompt_text)
-            # Read from device
-            value = ''
-            if self._device_manager:
-                value = self._device_manager.read(self._current_io).strip()
-            self.scope.set(var, value)
-        elif rest:
-            value = ''
-            if self._device_manager:
-                value = self._device_manager.read(self._current_io).strip()
-            self.scope.set(rest.strip(), value)
+            else:
+                # Plain variable read
+                var = item.strip()
+                value = ''
+                if self._device_manager:
+                    value = self._device_manager.read(self._current_io).strip()
+                self.scope.set(var, value)
         return len(line)
 
     def _exec_new(self, line, pos):
@@ -832,7 +1057,19 @@ class MEvaluator:
 
         # System variables: $J (job), $H (horolog), $IO (device)
         if token == '$J':
+            # $J = $JOB (job number), $J(...) = $JUSTIFY
             return self.scope.get('$J') or '0'
+        # $JUSTIFY(string, width [,decimal]) — también $J()
+        m = re.match(r'\$(?:JUSTIFY|J)\s*\((.+)\)\s*$', token)
+        if m:
+            args = self._split_args_by_parens(m.group(1))
+            val = str(self._resolve(args[0]))
+            width = int(self._resolve(args[1])) if len(args) >= 2 else 0
+            decimal = int(self._resolve(args[2])) if len(args) >= 3 else -1
+            if decimal >= 0:
+                try: return str(round(float(val), decimal)).rjust(width)
+                except: return val.rjust(width)
+            return val.rjust(width)
         if token == '$H':
             import time, datetime
             now = datetime.datetime.now()
@@ -844,10 +1081,37 @@ class MEvaluator:
             return self.scope.get('$IO') or '0'
         if token == '$ZV':
             return 'LUMEN M-Light v1.0'
+        # $ZMSM(code, ...) — MSM system info stub
+        m = re.match(r'\$ZMSM\s*\(\s*(.+)\s*\)\s*$', token)
+        if m:
+            return 0  # stub — return 0 for all $ZMSM calls
+
+        # $ZB(expr, start, count) — bit field extraction
+        m = re.match(r'\$ZB\s*\(\s*(.+)\s*\)\s*$', token)
+        if m:
+            args = self._split_args_by_parens(m.group(1))
+            if len(args) >= 3:
+                expr = int(self._resolve(args[0]))
+                start = int(self._resolve(args[1]))
+                count = int(self._resolve(args[2]))
+                mask = (1 << count) - 1
+                return (expr >> start) & mask
+            return 0
+
+        # $V(offset, job, size) — memory peek
+        m = re.match(r'\$V\s*\(\s*(.+)\s*\)\s*$', token)
+        if m:
+            args = self._split_args_by_parens(m.group(1))
+            if len(args) >= 2:
+                offset = int(self._resolve(args[0]))
+                job = int(self._resolve(args[1]))
+                size = int(self._resolve(args[2])) if len(args) >= 3 else 1
+                return self._msm_view(offset, job, size)
+
         if token == '$X':
-            return 0
+            return int(self.scope.get('$X') or 0)
         if token == '$Y':
-            return 0
+            return int(self.scope.get('$Y') or 0)
 
         # $TRANSLATE(string,old,new) — también $TR
         m = re.match(r'\$(?:TRANSLATE|TR)\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)', token)
@@ -927,13 +1191,27 @@ class MEvaluator:
         # Soporta: +, -, *, /, \\ (div), # (mod), ** (exp)
         # Ej: T+$G(^X(I)), 5*$G(^A)+$G(^B), I\\100000#10*2
         # Busca operadores fuera de paréntesis (depth=0)
-        if any(op in token for op in ['\\','#','*','/','+','-']):
+        # Strip outer parentheses for arithmetic evaluation
+        stripped = token
+        while stripped.startswith('(') and stripped.endswith(')'):
+            inner = stripped[1:-1].strip()
+            depth = 0
+            balanced = True
+            for c in inner:
+                if c == '(': depth += 1
+                elif c == ')': depth -= 1
+                if depth < 0: balanced = False; break
+            if balanced and depth == 0:
+                stripped = inner
+            else:
+                break
+        if any(op in stripped for op in ['\\','#','*','/','+','-']):
             # Find operators at depth=0
             depth = 0
             ops_at_depth0 = []
             # Check operators in order: ** first, then \\, #, *, /, +, -
             # (MUMPS is left-to-right, but we split on outermost operators)
-            for i, ch in enumerate(token):
+            for i, ch in enumerate(stripped):
                 if ch == '(':
                     depth += 1
                 elif ch == ')':
@@ -941,7 +1219,7 @@ class MEvaluator:
                 elif depth == 0:
                     if ch == '+' or ch == '-':
                         # Skip unary: if it's the first char or after another operator
-                        if i == 0 or token[i-1] in ('*', '/', '\\', '#', '(', '+', '-'):
+                        if i == 0 or stripped[i-1] in ('*', '/', '\\', '#', '(', '+', '-'):
                             continue
                         ops_at_depth0.append((i, ch))
                     elif ch in ('*', '/', '\\', '#'):
@@ -950,8 +1228,8 @@ class MEvaluator:
             if ops_at_depth0:
                 # Take the LAST operator at depth 0 (rightmost = left-to-right eval)
                 pos, op = ops_at_depth0[-1]
-                left = token[:pos].strip()
-                right = token[pos+1:].strip()
+                left = stripped[:pos].strip()
+                right = stripped[pos+1:].strip()
                 if left and right:
                     lv = self._resolve_num(left)
                     rv = self._resolve_num(right)

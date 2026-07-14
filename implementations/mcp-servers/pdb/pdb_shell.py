@@ -517,40 +517,12 @@ def _cmd_percent_gl_json(args: list[str]) -> dict:
     return {"type": "namespace", "ns": ns_name, "entries": entries}
 
 def _cmd_percent_ss(args: list[str], json_out: bool = False) -> str | dict:
-    """D ^%SS — System Status Summary"""
+    """D ^%SS — PDB System Status (nativo, no MSM)"""
     try:
-        schema = HANDLERS["pdb_schema"]({})
-        if not isinstance(schema, dict):
-            schema = {}
-
-        namespaces = schema.get("namespaces", [])
-        db_path = schema.get("database") or _get_db_path()
-        db_size = Path(db_path).stat().st_size if Path(db_path).exists() else 0
-
+        from pdb_ss import ss, ss_json
         if json_out:
-            return {
-                "database": db_path,
-                "size_bytes": db_size,
-                "namespaces": len(namespaces),
-                "total_nodes": sum(n.get("nodes", 0) for n in namespaces),
-            }
-
-        lines = [
-            _BOLD("PDB System Status"),
-            _DIM("─" * _term_width()),
-            f"  Database:  {_CYAN(db_path)}",
-            f"  Size:      {_format_bytes(db_size)}",
-            f"  Namespaces: {len(namespaces)}",
-            f"  Total nodes: {sum(n.get('nodes', 0) for n in namespaces)}",
-            "",
-            _BOLD("Namespaces:"),
-        ]
-        for ns in sorted(namespaces, key=lambda n: n.get("nodes", 0), reverse=True):
-            nname = ns.get("ns", "?")
-            nnodes = ns.get("nodes", 0)
-            nvals = ns.get("with_values", 0)
-            lines.append(f"  {_GREEN('^'+nname):25s} {_DIM(str(nnodes)+' nodes'):15s} {nnodes - nvals} structural")
-        return "\n".join(lines)
+            return json.loads(ss_json())
+        return ss()
     except Exception as e:
         return {"error": str(e)} if json_out else _RED(f"Error: {e}")
 
