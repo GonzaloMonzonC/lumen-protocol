@@ -6,7 +6,7 @@ Catálogo unificado de códigos de error en ^System("errors","catalog").
 Incluye MSM + agentes CadencesLab + M-Light.
 """
 import sys, os, re
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 MSM_ERRORS = {}
 

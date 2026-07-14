@@ -19,6 +19,7 @@ License: MIT (lumen-protocol)
 """
 
 import os, sys, json
+import _paths  # rutas repo-relativas
 from datetime import datetime, timezone
 
 # ── Config ──────────────────────────────────────────────────────────
@@ -28,9 +29,7 @@ CHANGES_NS = "CHANGES"
 # ── Helpers ─────────────────────────────────────────────────────────
 
 def _get_tools():
-    pdb_dir = os.path.expanduser(
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
-    )
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path:
         sys.path.insert(0, pdb_dir)
     from pdb_tools import tool_set, tool_get, tool_order, tool_kill
@@ -101,9 +100,7 @@ def recovery_apply(entries, dry_run=False):
     Returns:
         dict con resultados
     """
-    pdb_dir = os.path.expanduser(
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
-    )
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path:
         sys.path.insert(0, pdb_dir)
     import pdb_tools
@@ -173,9 +170,7 @@ def recovery_apply(entries, dry_run=False):
 def recovery_from_changes(limit=1000, dry_run=False):
     """Recuperar desde ^CHANGES usando VERIFY mode y SQL directo."""
     import sys, os
-    pdb_dir = os.path.expanduser(
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
-    )
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path:
         sys.path.insert(0, pdb_dir)
     import pdb_tools

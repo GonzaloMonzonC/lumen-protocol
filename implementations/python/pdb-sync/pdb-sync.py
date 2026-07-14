@@ -22,6 +22,7 @@ Date: 2026-07-10
 """
 
 import json
+import _paths  # rutas repo-relativas
 import os
 import sqlite3
 import sys
@@ -33,9 +34,7 @@ from pathlib import Path
 # ── Config ──────────────────────────────────────────────────────────
 
 # PDB local
-PDB_PATH = os.path.expanduser(
-    "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db"
-)
+PDB_PATH = _paths.DB_PATH
 
 # PDB Edge Worker (Cloudflare)
 EDGE_URL = os.environ.get("PDB_EDGE_URL", "https://pdb-edge.cadenceslab.workers.dev")

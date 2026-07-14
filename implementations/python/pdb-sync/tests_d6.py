@@ -1,6 +1,6 @@
 """Tests D6: Cross-refs inversas."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from pdb_docs import doc_set, doc_get, doc_add_link, doc_find_refs, doc_graph
 
 passed = failed = 0

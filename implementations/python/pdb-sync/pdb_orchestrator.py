@@ -20,7 +20,7 @@ import sys, os, json, time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from pdb_tools import tool_set, tool_get, tool_order, tool_data, tool_m_eval
 
 # ── Config ──────────────────────────────────────────────────────────
