@@ -1,6 +1,6 @@
 """Tests MREPL v10: Char-by-char debug + 22 MSMSHELL features."""
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from mrepl import MREPL
 
 p = f = 0

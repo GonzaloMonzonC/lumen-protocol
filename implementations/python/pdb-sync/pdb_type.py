@@ -13,16 +13,17 @@ Licencia: MIT (lumen-protocol)
 """
 
 import sys, os, json, sqlite3
+import _paths  # rutas repo-relativas
 
 def _get_tools():
-    pdb_dir = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+    pdb_dir = _paths.PDB_DIR_S
     if pdb_dir not in sys.path: sys.path.insert(0, pdb_dir)
     from pdb_tools import tool_get, tool_order, tool_data, tool_set
     return tool_get, tool_order, tool_data, tool_set
 
 def _get_db():
     """Conectar a PDB SQLite directamente para info de nodo."""
-    pdb_path = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db")
+    pdb_path = _paths.DB_PATH
     conn = sqlite3.connect(pdb_path)
     conn.row_factory = sqlite3.Row
     return conn

@@ -1,7 +1,7 @@
 """Tests del pipeline completo: Compiler → Bytecode → VM Execution.
 Basado en el patrón MSM FUN_00440ca0 (bytecode executor)."""
 import sys, os
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 from m_light import MEvaluator
 sys.path.insert(0, os.path.dirname(__file__))
 from m_light_compiler import *

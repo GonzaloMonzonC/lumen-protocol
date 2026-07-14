@@ -1,5 +1,6 @@
 """Run all test suites."""
 import os, subprocess, sys
+import _paths  # rutas repo-relativas
 
 tests_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -24,7 +25,7 @@ tests = [
 ]
 
 env = os.environ.copy()
-env['PYTHONPATH'] = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+env['PYTHONPATH'] = _paths.PDB_DIR_S
 
 passed = 0
 failed = 0

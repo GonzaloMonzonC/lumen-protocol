@@ -9,13 +9,14 @@ Anti-bucle: source="local" → se replica. source="cloud" → no se re-replica.
 """
 
 import json, os, sys
+import _paths  # rutas repo-relativas
 from datetime import datetime, timezone
 
 JOURNAL_NS = "CHANGES"
 JOURNAL_SUB = "journal"
 
 def _tools():
-    sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
+    sp = _paths.PDB_DIR_S
     if sp not in sys.path: sys.path.insert(0, sp)
     from pdb_tools import tool_set, tool_kill, tool_order, tool_get
     return tool_set, tool_kill, tool_order, tool_get

@@ -2,8 +2,7 @@
 """Test M-Light v2 con scripts M reales — progresivo."""
 
 import sys, os
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/python/pdb-sync"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 from pdb_tools import tool_set
 from m_routines import RoutineExecutor, register
