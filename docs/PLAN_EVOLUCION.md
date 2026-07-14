@@ -90,13 +90,13 @@ para el pragma.
 
 | Problema | Impacto | Causa raíz |
 |----------|---------|------------|
-| Escritura lenta | ~115-130 SET/s vs miles de GET/s | `PRAGMA journal_mode=DELETE` en pdb_tools.py (líneas 131,146,168,223,289) |
-| **Conflicto WAL/DELETE activo** | Posibles `database is locked` intermitentes HOY | `pdb_ttl.py` pone WAL sobre la misma BD que pdb_tools fuerza a DELETE; salir de WAL exige lock exclusivo |
+| ~~Escritura lenta~~ ✅ RESUELTO 2026-07-14 | Era ~115-130 SET/s; ahora 15-21K SET/s vía tool_set (ver BENCHMARKS.md) | `journal_mode=DELETE` → WAL centralizado en `_apply_pragmas()` |
+| ~~Conflicto WAL/DELETE activo~~ ✅ RESUELTO 2026-07-14 | Producía `database is locked` intermitentes | Todas las conexiones usan ya WAL; verificado 1 escritor + 3 lectores concurrentes sin errores |
 | Sin concurrencia real | Una conexión SQLite única con lock de thread | `check_same_thread=False` + single connection |
 | DDP duplicado | Dos implementaciones divergentes | `ddp_sync.py` (push no-op) vs suite pdb-sync (funcional) |
 | Journal sin seq monótono | Ordenación/colisiones por timestamp ISO | `pdb_journal.py` indexa ^CHANGES por ts, no por seq |
 | 22 accesos directos a SQLite (~14 en producción) | Si cambiamos el motor, se rompen | Consumidores que abren sqlite3.connect() fuera de la API; ~8 son bench/tests exentables |
-| Rutas hardcodeadas rotas | Módulos pdb-sync apuntan a `~/Documents/GitHub/` pero el repo vive en `~/Desktop/projects2/` | sys.path y PDB_PATH copiados a mano en cada fichero |
+| ~~Rutas hardcodeadas rotas~~ ✅ RESUELTO 2026-07-14 | 83 ficheros migrados a `_paths.py` (repo-relativo) | Quedan solo scripts legacy de bench/debug con rutas Windows |
 | Sin spec formal | El código ES la especificación | No hay documento normativo del subset M |
 | Sin multi-tenancy | Agentes externos no pueden tener permisos por namespace | Sin caveats en acceso a datos |
 | Sin TSTART/TCOMMIT | Dos agentes no pueden mantener invariantes atómicos | Falta transacciones multi-clave |
@@ -174,8 +174,9 @@ Fase 6:  MVM sobre tokio (2 sem)
 
 1. ✅ `PRAGMA journal_mode=WAL` + `synchronous=NORMAL` + `mmap_size=256MB`
    centralizados en `_apply_pragmas()` (pdb_tools.py) — resuelve el
-   conflicto activo con pdb_ttl.py. Benchmark: 5.066 → 88.696 SET/s
-   commiteados (~18× en dev; el factor real depende de triggers/índices)
+   conflicto activo con pdb_ttl.py. Benchmark vía API: 15-21K SET/s
+   sostenidos (era ~115-130); 1 escritor + 3 lectores concurrentes en
+   procesos separados, 0 `database is locked` (ver BENCHMARKS.md)
 2. ✅ Rutas unificadas: `pdb-sync/_paths.py` (repo-relativo desde
    `__file__`, env `PDB_PATH` > `PDB_DB` > default) — 81 ficheros de
    pdb-sync migrados + ddp_sync.py + ddp_cron.py

@@ -388,14 +388,16 @@ def tool_journal_status(args: dict) -> dict:
     return {"success": True, "status": results}
 
 def tool_journal_backup(args: dict) -> dict:
-    """Create a consistent backup of the main PDB (with WAL checkpoint).
+    """Create a consistent backup of the main PDB (SQLite Online Backup API,
+    safe with concurrent writers under WAL — no checkpoint+copy race).
     Optionally specify backup path. Default: lumen-pdb.backup.db"""
     backup_path = args.get("backup_path", str(Path(_get_db_path()).parent / "lumen-pdb.backup.db"))
     try:
         c = _get_conn()
-        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        from shutil import copy2
-        copy2(_get_db_path(), backup_path)
+        dst = sqlite3.connect(backup_path)
+        with dst:
+            c.backup(dst)
+        dst.close()
         size = os.path.getsize(backup_path)
         return {"success": True, "backup_path": backup_path, "size_bytes": size}
     except Exception as e:
