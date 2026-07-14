@@ -8,6 +8,7 @@
 | Doc | Qué es | Estado |
 |-----|--------|--------|
 | [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) | **Plan canónico** PDB + M-Light + MVM, fases y ROI | ✅ Vigente (2026-07-14) |
+| [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (Fase 0, v0.1) | ✅ Vigente (2026-07-14) |
 | [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado del subset M, v1 + v2, pendientes | ✅ Vigente (2026-07-14) |
 | `../ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
 | `../alternativas.md` / `../alternativa2.md` | Análisis de motores de almacenamiento (redb, LMDB, fjall...) | ✅ Vigente (2026-07-14) |

@@ -95,7 +95,7 @@ para el pragma.
 | Sin concurrencia real | Una conexión SQLite única con lock de thread | `check_same_thread=False` + single connection |
 | DDP duplicado | Dos implementaciones divergentes | `ddp_sync.py` (push no-op) vs suite pdb-sync (funcional) |
 | Journal sin seq monótono | Ordenación/colisiones por timestamp ISO | `pdb_journal.py` indexa ^CHANGES por ts, no por seq |
-| 22 accesos directos a SQLite (~14 en producción) | Si cambiamos el motor, se rompen | Consumidores que abren sqlite3.connect() fuera de la API; ~8 son bench/tests exentables |
+| ~~22 accesos directos a SQLite~~ ✅ RESUELTO 2026-07-14 | 15 consumidores migrados a `pdb_connect()`/`_pdb.py`; guard ratchet en `tests_contract.py` | Quedan solo bench/tests exentos |
 | ~~Rutas hardcodeadas rotas~~ ✅ RESUELTO 2026-07-14 | 83 ficheros migrados a `_paths.py` (repo-relativo) | Quedan solo scripts legacy de bench/debug con rutas Windows |
 | Sin spec formal | El código ES la especificación | No hay documento normativo del subset M |
 | Sin multi-tenancy | Agentes externos no pueden tener permisos por namespace | Sin caveats en acceso a datos |
@@ -161,9 +161,9 @@ Alternativa: marcarlos explícitamente como "spec v2".
 
 ```
 Fase 1a: Fix WAL + rutas                 ✅ HECHA (2026-07-14, ver §3.1)
-Fase 0:  Spec M-Agent (1 semana)         ◄── ESTAMOS AQUÍ
-Fase 1b: Contrato PDB API (días)
-Fase 2:  DDP: consolidar + seq monótono (3-5 días, era 1-2 sem)
+Fase 1b: Contrato PDB API                ✅ HECHA (2026-07-14, ver §3.2)
+Fase 0:  Spec M-Agent                    ✅ v0.1 ENTREGADA (spec-m-agent.md)
+Fase 2:  DDP: consolidar + seq monótono  ◄── SIGUIENTE (3-5 días)
 Fase 3:  Macaroons por namespace (1 sem)
 Fase 4:  Crate lumen-pdb (redb, 2-3 sem)
 Fase 5:  M-Light en Rust (3-4 sem)
@@ -191,17 +191,29 @@ Fase 6:  MVM sobre tokio (2 sem)
   a pelo deben hacer checkpoint antes o copiar los tres ficheros
 - Revertir requiere `PRAGMA wal_checkpoint(TRUNCATE)` previo
 
-### Fase 0 — Spec M-Agent (~1 semana, en paralelo)
+### Fase 0 — Spec M-Agent — ✅ v0.1 ENTREGADA (2026-07-14)
 
-**Entregable:** `spec-m-agent.md` + suite de conformidad (tests existentes
-organizados por categoría — hay >100 ficheros de test en pdb-sync que
-sirven de base).
+- `docs/spec-m-agent.md`: subset M, semántica de globals (encode_subkey
+  normativa, $ORDER/$DATA/KILL/LOCK), modelo MVM (estados/gas/mailboxes),
+  convención de namespaces, contrato de acceso, versionado
+- `pdb-sync/run_conformance.py`: suite por categorías con fixture
+  autocontenido. Baseline: **396/411** (4 desviaciones documentadas en
+  la spec, todas preexistentes)
+- Pendiente v0.x: cerrar baseline a 0; revisar la spec con Gonzalo (visión)
 
-**Quién:** Gonzalo (visión) + Hermes (extraer de código existente).
+### Fase 1b — Contrato PDB API — ✅ HECHA (2026-07-14)
 
-### Fase 1b — Contrato PDB API (~3-5 días)
-
-Inventario de los ~14 accesos directos de producción y cierre (ver §2.1).
+1. ✅ `pdb_connect(readonly=)` público en pdb_tools (ruta env-aware
+   PDB_PATH>PDB_DB, PRAGMAs WAL, readonly vía query_only) + `thinking/_pdb.py`
+2. ✅ 15 consumidores de producción migrados (~30 sitios): thinking/
+   (server, objective_loop, pdb_ns, m_commands, file_tools, pdb_watch,
+   fuzzy_search, d_routine_server, replace_gl), pdb-sync (ttl, type,
+   help_system, m_routines, pdb-sync.py), ddp_sync.py
+3. ✅ Bonus: los dos bridge plugins tenían `_find_server()` roto
+   (solo miraba ~/Documents/GitHub) — arreglados con __file__-relativo
+   + env LUMEN_PDB_SERVER
+4. ✅ Guard ratchet `tests_contract.py` (5/5): prohíbe sqlite3.connect
+   y rutas hardcodeadas fuera del allowlist; el allowlist solo encoge
 
 ### Fase 2 — DDP: consolidar + seq monótono (~3-5 días)
 

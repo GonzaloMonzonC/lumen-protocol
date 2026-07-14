@@ -60,5 +60,5 @@ vm8.compile("D NONEXISTENT\nQ")
 r8 = vm8.exec()
 t("DO nonexistent", r8 is not None)
 
-print(f"\n📊 {p}/{p+f} tests passed")
-sys.exit(0 if f==0 else 1)
+print(f"\n📊 {p}/{p+fail} tests passed")
+sys.exit(0 if fail==0 else 1)
