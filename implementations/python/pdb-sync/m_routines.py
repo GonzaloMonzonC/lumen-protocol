@@ -33,34 +33,43 @@ def register(name: str, code: str):
 
 def load_from_pdb(name: str) -> Optional[str]:
     """Cargar script desde ^ROUTINE en PDB.
-    
-    MSM: G @entry^routine
-    PDB: lee de ^ROUTINE("name",n) y reconstruye
+
+    Lee directamente de _globals en SQLite usando el formato raw de subkeys.
     """
     try:
-        sp = os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb")
-        if sp not in sys.path: sys.path.insert(0, sp)
-        from pdb_tools import tool_order, tool_get
-        
+        import sqlite3, os
+        db_path = os.path.expanduser(
+            "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db"
+        )
+        conn = sqlite3.connect(db_path)
+        conn.text_factory = bytes
+        cur = conn.cursor()
+
+        target = name.upper().encode()
+        prefix = bytes([2]) + target + bytes([255])
+
+        cur.execute(
+            "SELECT subkey, value FROM _globals WHERE ns='ROUTINE' AND subkey >= ? ORDER BY subkey",
+            (prefix,)
+        )
+        rows = cur.fetchall()
+        conn.close()
+
         lines = []
-        key = ""
-        while True:
-            r = tool_order({"ns": "ROUTINE", "subs": [key], "direction": 1})
-            if not r.get("success") or r.get("value") is None:
-                break
-            key = r["value"]
-            r2 = tool_get({"ns": "ROUTINE", "subs": [name, key]})
-            if r2.get("success") and r2.get("value") is not None:
-                lines.append(str(r2["value"]))
-        
+        for sk, val in rows:
+            if len(sk) > len(prefix) and sk[:len(prefix)] == prefix:
+                v = val.decode('utf-8', errors='replace').strip('"') if val else ''
+                lines.append(v)
+
         if lines:
-            code = "\n".join(lines)
+            # Strip first line if it's just 'None' (root marker)
+            clean = [l for l in lines if l and l != 'None']
+            code = chr(10).join(clean)
             register(name, code)
             return code
-    except:
-        pass
+    except Exception as e:
+        print(f"[load_from_pdb] Error: {e}", file=__import__('sys').stderr)
     return None
-
 def get_routine(name: str) -> Optional[str]:
     """Obtener script por nombre.
     
