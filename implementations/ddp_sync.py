@@ -105,9 +105,15 @@ def edge_push(ns: str, entries: list) -> dict:
 
 # ── Local PDB ──
 
+_PDB_TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp-servers", "pdb")
+if _PDB_TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _PDB_TOOLS_DIR)
+
+
 def pdb_conn():
-    """Open connection to local PDB."""
-    return sqlite3.connect(PDB_DB)
+    """Open connection to local PDB (contrato Fase 1b: vía pdb_tools)."""
+    from pdb_tools import pdb_connect
+    return pdb_connect()
 
 
 def pdb_apply_entry(ns: str, key_hex: str, value: str, updated_at: str) -> dict:

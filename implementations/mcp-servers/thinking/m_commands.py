@@ -22,9 +22,8 @@ def zw_handler(code):
     ZW ^GLOBAL(sub1,sub2)   → show entry and children
     """
     _enc, _dec = _get_enc_dec()
-    _pd = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pdb')
-    _dbp = os.path.join(_pd, 'lumen-pdb.db')
-    _cx = sqlite3.connect(_dbp)
+    import _pdb
+    _cx = _pdb.pdb_connect()
     
     # Parse ^GLOBAL or ^GLOBAL(subs)
     _m = re.search(r'\^(\w+)', code)
@@ -99,9 +98,8 @@ def gl_handler(code):
     """Handle D ^%GL commands with interactive state."""
     global _GL_STATE
     _enc, _dec = _get_enc_dec()
-    _pd = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pdb')
-    _dbp = os.path.join(_pd, 'lumen-pdb.db')
-    _cx = sqlite3.connect(_dbp)
+    import _pdb
+    _cx = _pdb.pdb_connect()
     _arg = code.strip()
     
     # Quit/exit from pagination

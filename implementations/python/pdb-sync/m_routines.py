@@ -38,9 +38,8 @@ def load_from_pdb(name: str) -> Optional[str]:
     Lee directamente de _globals en SQLite usando el formato raw de subkeys.
     """
     try:
-        import sqlite3, os
-        db_path = _paths.DB_PATH
-        conn = sqlite3.connect(db_path)
+        from pdb_tools import pdb_connect
+        conn = pdb_connect()
         conn.text_factory = bytes
         cur = conn.cursor()
 

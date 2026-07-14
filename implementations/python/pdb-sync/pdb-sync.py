@@ -50,9 +50,8 @@ CHECKPOINT_FILE = os.path.expanduser("~/.hermes/pdb-sync-checkpoint.json")
 
 def get_db():
     """Conectar a PDB local (read-only para sync)."""
-    db = sqlite3.connect(f"file:{PDB_PATH}?mode=ro", uri=True)
-    db.row_factory = sqlite3.Row
-    return db
+    from pdb_tools import pdb_connect
+    return pdb_connect(readonly=True)
 
 def decode_subs_from_subkey(subkey_blob):
     """Decodificar subkey MUMPS → lista de subscripts."""

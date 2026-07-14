@@ -41,23 +41,15 @@ _HERMES_VENV_PYTHON = os.path.join(
 
 def _find_server() -> str:
     candidates = [
-        os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-                os.path.abspath(__file__))))),
-            "Documents", "GitHub", "lumen-protocol",
-            "implementations", "mcp-servers", "pdb", "server.py",
-        ),
-        os.path.join(os.path.expanduser("~"),
-            "Documents", "GitHub", "lumen-protocol",
-            "implementations", "mcp-servers", "pdb", "server.py",
-        ),
+        os.environ.get("LUMEN_PDB_SERVER", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.py"),
     ]
     for c in candidates:
-        if os.path.exists(c):
+        if c and os.path.exists(c):
             return c
     raise FileNotFoundError(
-        "Cannot find PDBM-Lumen server. Expected at: "
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/server.py"
+        "Cannot find PDBM-Lumen server. Set LUMEN_PDB_SERVER or place this "
+        "plugin next to server.py"
     )
 
 

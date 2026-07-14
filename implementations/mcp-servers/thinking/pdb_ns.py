@@ -30,9 +30,8 @@ def pdb_ns_tool_set(args: dict) -> dict:
         value = str(value)
     server._pdb_save_lock.acquire()
     try:
-        import sqlite3
-        conn = sqlite3.connect(str(server._PDB_PATH))
-        conn.execute("PRAGMA synchronous=NORMAL")
+        import _pdb
+        conn = _pdb.pdb_connect()
         conn.execute(
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
             (ns, key.encode(), value.encode())
@@ -55,8 +54,8 @@ def pdb_ns_tool_get(args: dict) -> dict:
     if not ns or not key:
         return {"content": [{"type": "text", "text": "Error: 'ns' and 'key' required."}]}
     try:
-        import sqlite3
-        conn = sqlite3.connect(str(server._PDB_PATH))
+        import _pdb
+        conn = _pdb.pdb_connect()
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT value FROM _globals WHERE ns=? AND subkey=?",
@@ -90,8 +89,8 @@ def pdb_ns_tool_kill(args: dict) -> dict:
     if not ns or not key:
         return {"content": [{"type": "text", "text": "Error: 'ns' and 'key' required."}]}
     try:
-        import sqlite3
-        conn = sqlite3.connect(str(server._PDB_PATH))
+        import _pdb
+        conn = _pdb.pdb_connect()
         cursor = conn.execute(
             "DELETE FROM _globals WHERE ns=? AND subkey=?",
             (ns, key.encode())
@@ -113,8 +112,8 @@ def pdb_ns_tool_order(args: dict) -> dict:
     prefix = args.get("prefix", "")
     limit = min(args.get("limit", 20), 100)
     try:
-        import sqlite3
-        conn = sqlite3.connect(str(server._PDB_PATH))
+        import _pdb
+        conn = _pdb.pdb_connect()
         conn.row_factory = sqlite3.Row
         if prefix:
             # Use LIKE with prefix — SQLite can use index for prefix queries

@@ -87,9 +87,8 @@ def help_init():
 def help_get(topic):
     """Obtener ayuda de un tópico vía SQL directo."""
     import sqlite3, os, json
-    pdb_path = _paths.DB_PATH
-    db = sqlite3.connect(f"file:{pdb_path}?mode=ro", uri=True)
-    from pdb_tools import encode_subkey, _decode_value
+    from pdb_tools import encode_subkey, _decode_value, pdb_connect
+    db = pdb_connect(readonly=True)
     parts = topic.split(":")
     sk = encode_subkey(["help", "data"] + parts)
     row = db.execute("SELECT value FROM _globals WHERE ns='System' AND subkey=?", (sk,)).fetchone()
@@ -101,9 +100,8 @@ def help_get(topic):
 def help_categories():
     """Listar categorías vía SQL directo."""
     import sqlite3, os
-    pdb_path = _paths.DB_PATH
-    db = sqlite3.connect(f"file:{pdb_path}?mode=ro", uri=True)
-    from pdb_tools import encode_subkey, decode_subkey
+    from pdb_tools import encode_subkey, decode_subkey, pdb_connect
+    db = pdb_connect(readonly=True)
     prefix = encode_subkey(["help", "data"])
     rows = db.execute(
         "SELECT DISTINCT substr(subkey, ?, ?) FROM _globals WHERE ns='System' AND subkey LIKE ?",
