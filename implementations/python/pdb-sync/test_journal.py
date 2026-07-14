@@ -17,7 +17,7 @@ Author: Hermes + CadencesLab (Sprint A1)
 
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+import _paths  # noqa: F401  # sys.path del stack PDB
 
 from pdb_journal import (
     jrnl_init, jrnl_control, jrnl_incr, jrnl_status,

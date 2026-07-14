@@ -33,12 +33,12 @@ PEDGE_API_KEY = os.environ.get("PEDGE_API_KEY", "pdb_dev_2026")
 DEFAULT_NS = "ROUTINE"
 SYNC_INTERVAL = 30  # segundos
 
-# PDB local
-PDB_DB = os.environ.get(
-    "PDB_DB",
-    os.path.expanduser(
-        "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db"
-    )
+# PDB local (env PDB_PATH/PDB_DB > ruta dentro del repo)
+PDB_DB = (
+    os.environ.get("PDB_PATH")
+    or os.environ.get("PDB_DB")
+    or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                    "mcp-servers", "pdb", "lumen-pdb.db")
 )
 
 

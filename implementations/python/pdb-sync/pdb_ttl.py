@@ -32,6 +32,7 @@ Date: 2026-07-10
 """
 
 import json
+import _paths  # rutas repo-relativas
 import os
 import re
 import sqlite3
@@ -42,9 +43,7 @@ from pathlib import Path
 
 # ── Config ──────────────────────────────────────────────────────────
 
-PDB_PATH = os.path.expanduser(
-    "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb/lumen-pdb.db"
-)
+PDB_PATH = _paths.DB_PATH
 
 # TTL en segundos por namespace (patrón glob)
 NAMESPACE_TTL = [
