@@ -23,10 +23,8 @@ def _get_tools():
 
 def _get_db():
     """Conectar a PDB SQLite directamente para info de nodo."""
-    pdb_path = _paths.DB_PATH
-    conn = sqlite3.connect(pdb_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    from pdb_tools import pdb_connect
+    return pdb_connect()
 
 def node_type(ns, subs):
     """Determinar tipo de nodo (TTEST).

@@ -141,7 +141,8 @@ _next_session_num = 1
 # ═══════════════════════════════════════════════════════════════════════
 
 _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
-_PDB_PATH = Path(__file__).parent.parent / "pdb" / "lumen-pdb.db"  # shared PDB database
+import _pdb
+_PDB_PATH = Path(_pdb.PDB_PATH)  # shared PDB database (env-aware, contrato Fase 1b)
 _SAVE_INTERVAL = 50  # auto-save every N tool calls (was 10 — saves were bottlenecking SHM)
 _JSON_SNAPSHOT_INTERVAL = 1  # JSON snapshot every save (no more lost kanban data)
 _MAX_SESSIONS = 5  # prune old sessions to prevent memory leak
@@ -315,9 +316,7 @@ def _pdb_save_all() -> None:
     """Write ALL thinking state to PDB as individual records. Single ACID transaction."""
     _pdb_save_lock.acquire()
     try:
-        conn = sqlite3.connect(str(_PDB_PATH))
-        conn.execute("PRAGMA synchronous=NORMAL")  # 2x faster writes, still crash-safe
-        conn.execute("PRAGMA journal_size_limit=16777216")  # 16MB max WAL
+        conn = _pdb.pdb_connect()
         conn.execute("DELETE FROM _globals WHERE ns='STATE'")
         pairs = []
         for sid, sess in _sessions.items():
@@ -387,9 +386,7 @@ def _pdb_load_all() -> bool:
             _safe_print(f"[lumen-thinking] PDB size: {_PDB_PATH.stat().st_size}")
         if not _PDB_PATH.exists():
             return False
-        conn = sqlite3.connect(str(_PDB_PATH))
-        conn.execute("PRAGMA synchronous=NORMAL")  # 2x faster writes, still crash-safe
-        conn.execute("PRAGMA journal_size_limit=16777216")  # 16MB max WAL
+        conn = _pdb.pdb_connect()
         rows = conn.execute("SELECT subkey, value FROM _globals WHERE ns='STATE'").fetchall()
         conn.close()
         if not rows:
@@ -2613,8 +2610,7 @@ def tool_agent_message(args: dict) -> dict:
     # Persist to PDB immediately
     try:
         import sqlite3, json as _j, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
-        _c = sqlite3.connect(_pdb_path)
+        _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                    ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
         _c.commit(); _c.close()
@@ -2703,8 +2699,7 @@ def tool_pattern_record(args: dict) -> dict:
     # Persist to PDB immediately
     try:
         import sqlite3, json as _j, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
-        _c = sqlite3.connect(_pdb_path)
+        _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                    ('STATE', f'global:pattern:{pid}'.encode(), _j.dumps(pattern).encode()))
         _c.commit(); _c.close()
@@ -2803,8 +2798,7 @@ def tool_decision_log(args: dict) -> dict:
     # Persist to PDB immediately
     try:
         import sqlite3, json as _j, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
-        _c = sqlite3.connect(_pdb_path)
+        _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                    ('STATE', f'global:decision:{did}'.encode(), _j.dumps(decision).encode()))
         _c.commit(); _c.close()
@@ -3045,8 +3039,7 @@ def tool_web_snapshot(args: dict) -> dict:
     # Persist to PDB immediately
     try:
         import sqlite3, json as _j, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
-        _c = sqlite3.connect(_pdb_path)
+        _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                    ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
         _c.commit(); _c.close()
@@ -3098,8 +3091,7 @@ def tool_qa_ask(args: dict) -> dict:
     # Persist to PDB immediately
     try:
         import sqlite3, json as _j, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
-        _c = sqlite3.connect(_pdb_path)
+        _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                    ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
         _c.commit(); _c.close()
@@ -3141,8 +3133,7 @@ def tool_qa_link(args: dict) -> dict:
     # Persist to PDB immediately
     try:
         import sqlite3, json as _j, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'pdb', 'lumen-pdb.db')
-        _c = sqlite3.connect(_pdb_path)
+        _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                    ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
         _c.commit(); _c.close()
@@ -4430,8 +4421,7 @@ def _start_dashboard(port: int = 9876) -> None:
                             import sqlite3, os as _osx
                             _parts = code.upper().split()
                             _opt = _parts[2] if len(_parts) > 2 else ""
-                            _dbp = _osx.path.join(_osx.path.dirname(_osx.path.abspath(__file__)), "..", "pdb", "lumen-pdb.db")
-                            _cx = sqlite3.connect(_dbp)
+                            _cx = _pdb.pdb_connect()
                             if _opt == "G":
                                 # Global buffer stats (size per namespace)
                                 _cur = _cx.execute("SELECT ns, COUNT(*), SUM(LENGTH(value)) FROM _globals GROUP BY ns ORDER BY 3 DESC LIMIT 15")

@@ -65,8 +65,7 @@ DEFAULT_TTL = 2592000  # 30 días por defecto
 
 def migrate():
     """Añadir columna expires_at a _globals."""
-    db = sqlite3.connect(PDB_PATH)
-    db.execute("PRAGMA journal_mode=WAL")
+    db = pdb_connect()
 
     # Verificar si la columna ya existe
     cols = db.execute("PRAGMA table_info(_globals)").fetchall()
@@ -143,8 +142,7 @@ def set_with_ttl(ns, subs, value, ttl=None):
 
 def cleanup_expired():
     """Eliminar nodos expirados de la PDB."""
-    db = sqlite3.connect(PDB_PATH)
-    db.execute("PRAGMA journal_mode=WAL")
+    db = pdb_connect()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Contar antes
@@ -169,8 +167,7 @@ def cleanup_expired():
 
 def stats():
     """Estadísticas de TTL en la PDB."""
-    db = sqlite3.connect(PDB_PATH)
-    db.execute("PRAGMA journal_mode=WAL")
+    db = pdb_connect()
 
     total = db.execute("SELECT COUNT(*) FROM _globals").fetchone()[0]
     with_ttl = db.execute("SELECT COUNT(*) FROM _globals WHERE expires_at IS NOT NULL").fetchone()[0]

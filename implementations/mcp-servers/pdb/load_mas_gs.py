@@ -1,6 +1,6 @@
 """Cargar ^%HELP y ^%MSA de mas.GS a PDB."""
 import sys, os, re
-sys.path.insert(0, os.path.expanduser("~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdb_tools import tool_set
 
 lines = open('C:/msm/mas.GS', 'r', encoding='utf-8', errors='replace').readlines()

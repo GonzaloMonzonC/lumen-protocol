@@ -22,9 +22,7 @@ Date: 2026-07-11
 
 import sys, os, re
 
-sys.path.insert(0, os.path.expanduser(
-    "~/Documents/GitHub/lumen-protocol/implementations/mcp-servers/pdb"
-))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdb_tools import tool_set
 
 def load_routines(filepath):

@@ -17,14 +17,16 @@ import difflib
 from pathlib import Path
 from typing import Optional
 
+import _pdb
+
 HERE = Path(__file__).parent
-_PDB_PATH = HERE.parent / "pdb" / "lumen-pdb.db"
+_PDB_PATH = Path(_pdb.PDB_PATH)
 
 MAX_CACHE_AGE = 300  # 5 min cache TTL
 
 
 def _get_conn():
-    return sqlite3.connect(str(_PDB_PATH))
+    return _pdb.pdb_connect()
 
 
 def _lev_ratio(a: str, b: str) -> float:

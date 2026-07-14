@@ -140,8 +140,8 @@ def tool_objective_create(args: dict) -> dict:
     # Persist to PDB immediately (direct SQLite, no server dependency)
     try:
         import sqlite3, json, os
-        _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        import _pdb
+        _conn = _pdb.pdb_connect()
         # Save objectives
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
@@ -208,8 +208,8 @@ def tool_objective_judge(args: dict) -> dict:
     # Persist to PDB immediately (direct SQLite, no server dependency)
     try:
         import sqlite3, json, os
-        _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        import _pdb
+        _conn = _pdb.pdb_connect()
         # Save objectives
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
@@ -271,8 +271,8 @@ def tool_objective_plan(args: dict) -> dict:
     # Persist to PDB immediately (direct SQLite, no server dependency)
     try:
         import sqlite3, json, os
-        _pdb_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        import _pdb
+        _conn = _pdb.pdb_connect()
         # Save objectives
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
@@ -333,8 +333,8 @@ def tool_objective_task_done(args: dict) -> dict:
 
     try:
         import sqlite3, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        import _pdb
+        _conn = _pdb.pdb_connect()
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                          ('STATE', f'global:objective:{_gid}'.encode(), json.dumps(_obj).encode()))
@@ -392,8 +392,8 @@ def tool_checklist(args: dict) -> dict:
 
     try:
         import sqlite3, json as _j, os, time as _t
-        db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        conn = sqlite3.connect(db_path)
+        import _pdb
+        conn = _pdb.pdb_connect()
 
         if action == "get":
             # Try raw JSON at def:{task_type}
@@ -489,8 +489,8 @@ def tool_objective_archive(args: dict) -> dict:
     # Persist to PDB (same as other tools)
     try:
         import sqlite3, json as _json, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        import _pdb
+        _conn = _pdb.pdb_connect()
         for _gid, _obj in _objectives.items():
             _conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                          ('STATE', f'global:objective:{_gid}'.encode(), _json.dumps(_obj).encode()))
@@ -519,8 +519,8 @@ def tool_objective_delete(args: dict) -> dict:
     # Persist removal to PDB
     try:
         import sqlite3, json as _json, os as _os
-        _pdb_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "pdb", "lumen-pdb.db")
-        _conn = sqlite3.connect(_pdb_path); _conn.execute('PRAGMA synchronous=NORMAL'); _conn.execute('PRAGMA journal_size_limit=16777216')
+        import _pdb
+        _conn = _pdb.pdb_connect()
         # Delete specific objective
         _conn.execute("DELETE FROM _globals WHERE ns='STATE' AND subkey = ?",
                       (f'global:objective:{goal_id}'.encode(),))
