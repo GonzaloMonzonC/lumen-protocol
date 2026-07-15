@@ -23,6 +23,8 @@ pub enum Opcode {
     TStart,
     TCommit,
     TRollback,
+    Lock,
+    Unlock,
     Expr,
     Label,
 }
@@ -145,6 +147,8 @@ fn opcode(token: &str) -> Option<Opcode> {
         "TS" | "TSTART" => Some(Opcode::TStart),
         "TC" | "TCOMMIT" => Some(Opcode::TCommit),
         "TR" | "TROLLBACK" => Some(Opcode::TRollback),
+        "L" | "LOCK" => Some(Opcode::Lock),
+        "UNLOCK" => Some(Opcode::Unlock),
         _ => None,
     }
 }

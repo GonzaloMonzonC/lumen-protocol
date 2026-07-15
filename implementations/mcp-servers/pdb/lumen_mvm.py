@@ -137,6 +137,10 @@ class _PdbBridge:
     def dispatch(self, operation, args):
         if operation in ("get", "set", "kill", "data", "order", "routine"):
             return self._global_operation(operation, args)
+        if operation == "lock":
+            return self._lock(args)
+        if operation == "unlock":
+            return self._unlock(args)
         if operation == "transaction_start":
             return self._transaction_start(int(args["pid"]))
         if operation == "transaction_commit":
@@ -266,6 +270,37 @@ class _PdbBridge:
             return {"success": True, "source": "\n".join(lines) if lines else None}
         finally:
             self._clear_transaction_context()
+
+    def _lock(self, args):
+        """LOCK de un job M: owner mvm_<pid> en _lock_table (multi-proceso).
+
+        Sin timeout la VM Rust hace un intento no bloqueante (timeout=0) y
+        cede/reintenta cooperativamente (BLOCKED); nunca bloquea el scheduler.
+        Con timeout explícito se delega el presupuesto a tool_lock. El
+        resultado va SIEMPRE con success=True: `locked` es el dato, no un error.
+        """
+        pid = int(args.get("pid", 0))
+        timeout = args.get("timeout")
+        result = self.pdb.tool_lock(
+            {
+                "ns": args["ns"],
+                "subs": args.get("subs", []),
+                "timeout": 0 if timeout is None else float(timeout),
+                "owner": f"mvm_{pid}",
+            }
+        )
+        return {"success": True, "locked": bool(result.get("locked"))}
+
+    def _unlock(self, args):
+        pid = int(args.get("pid", 0))
+        owner = f"mvm_{pid}"
+        if args.get("all"):
+            self.pdb.tool_unlock({"all": True, "owner": owner})
+            return {"success": True}
+        self.pdb.tool_unlock(
+            {"ns": args["ns"], "subs": args.get("subs", []), "owner": owner}
+        )
+        return {"success": True}
 
     def _transaction_start(self, pid):
         transaction = self._transactions.get(pid)

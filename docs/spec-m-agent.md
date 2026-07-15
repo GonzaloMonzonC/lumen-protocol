@@ -1,9 +1,9 @@
-# Spec M-Agent v0.2 — lenguaje M + modelo de ejecución LUMEN
+# Spec M-Agent v0.3 — lenguaje M + modelo de ejecución LUMEN
 
 > Documento normativo del subset M soportado, la semántica de los globals,
 > el modelo de jobs (MVM) y el contrato de acceso a datos.
 >
-> Fecha: 2026-07-15 · Estado: **v0.2** (Fases 0-5 del PLAN_EVOLUCION)
+> Fecha: 2026-07-15 · Estado: **v0.3** (Fases 0-6 del PLAN_EVOLUCION)
 > Fuente de verdad: este documento + la suite de conformidad (§9).
 > Cualquier motor (Python hoy, Rust mañana) DEBE pasar la suite sin leer
 > la implementación de referencia.
@@ -90,15 +90,23 @@ de BD entre motores.
 ## 4. LOCK
 
 ```
-LOCK ^NS(s...) [timeout]    → adquirir
-UNLOCK ^NS(s...)            → liberar; sin args libera todos los del proceso
+LOCK ^NS(s...)[:timeout]    → adquirir (comando M: LOCK/L)
+UNLOCK ^NS(s...)[,...]      → liberar; sin args libera todos los del proceso
+LOCK                        → sin argumento libera todos (M estándar)
 ```
 
-- Multi-proceso: el lock vive en SQLite (tabla propia), no en memoria.
-- `owner = pid_threadid`. Reentrada del mismo owner PUEDE permitirse.
-- `timeout=None` bloquea indefinidamente; con timeout devuelve
-  `{"locked": false, "error": "timeout"}` — el llamante DEBE comprobarlo.
-- No hay detección de deadlock en v0.1: la prevención es responsabilidad
+- Multi-proceso: el lock vive en SQLite (`_lock_table`), no en memoria.
+- `owner = pid_threadid` para llamadas por tools; los jobs MVM usan
+  `owner = mvm_<$J>`. La reentrada del mismo owner adquiere (contador).
+- **Comando M (v0.3, stack-VM Rust)**: sin timeout el LOCK bloquea
+  *cooperativamente* — la VM hace un intento no bloqueante y, si falla,
+  cede el slice y el job queda `BLOCKED`; el scheduler reintenta la misma
+  instrucción en ticks posteriores. Nunca se bloquea el scheduler.
+- Con `:timeout` (segundos; `0` = un intento) el resultado queda en
+  `$TEST` y la ejecución continúa — el llamante DEBE comprobarlo.
+  Vía tools, el timeout devuelve `{"locked": false, "error": "timeout"}`.
+- Un job que muere (`DEAD`) libera automáticamente todos sus locks.
+- No hay detección de deadlock en v0.3: la prevención es responsabilidad
   del llamante (adquirir siempre en el mismo orden). *(spec v2: detección)*
 
 ## 5. Lenguaje M-Agent (subset M)
@@ -110,18 +118,24 @@ UNLOCK ^NS(s...)            → liberar; sin args libera todos los del proceso
 `QUIT/Q` (con postcondicional `Q:cond`) · `GOTO/G label` ·
 `DO/D label|^RUTINA` (call stack, args `$1..$n`) · `WRITE/W`
 (`!`, `?n`, `*n`, texto) · `READ/R prompt:var` · `OPEN/USE/CLOSE` ·
-`HALT` · comentario `;`
+`LOCK/L` / `UNLOCK` (v0.3, semántica en §4) · `HALT` · comentario `;`
 
 ### 5.2 Funciones intrínsecas
 
 `$GET/$G` · `$DATA/$D` · `$ORDER/$O` · `$PIECE/$P` · `$EXTRACT/$E` ·
-`$SELECT/$S` · `$LENGTH/$L` · `$FIND/$F` · `$TRANSLATE/$TR` · `$VIEW`
-(emulación de memoria MSM; ver `pdb/references/zfuncs-runtime-dispatch.md`)
+`$SELECT/$S` · `$LENGTH/$L` · `$FIND/$F` · `$TRANSLATE/$TR` ·
+`$ASCII/$A` (posición 1-based; fuera de rango → -1) ·
+`$CHAR/$C` (código inválido → `?`, paridad con la referencia) ·
+`$FNUMBER/$FN` (v0.3; códigos `,` `+` `-` `T` `P`, redondeo mitad-lejos-de-cero) ·
+`$VIEW` (emulación de memoria MSM; ver `pdb/references/zfuncs-runtime-dispatch.md`)
 
 ### 5.3 Variables de sistema
 
 `$J` (pid del job) · `$IO` (dispositivo actual) · `$ECODE`/`$ZERROR`
-(error trap nativo en la stack-VM)
+(error trap nativo en la stack-VM) · `$TLEVEL` (nivel de transacción) ·
+`$HOROLOG/$H` (v0.3; `días,segundos` desde 1840-12-31 **en UTC** —
+determinismo entre motores y nodos) · `$TEST/$T` (v0.3; resultado del
+último LOCK con timeout, serializado en el estado del job)
 
 ### 5.4 Semántica de evaluación
 
@@ -157,6 +171,8 @@ Un **job** es un proceso M cooperativo persistido en PDB:
 - `$J`: entero secuencial. Estado en `^PROCESSES($J)` + `^STATE($J,...)`.
 - **Estados**: `READY → RUNNING → WAITING|BLOCKED → READY → ... → DEAD`,
   más `HALTED` (pausa externa) e `HIBERNATE` (despierta vía `^SCHEDULE`).
+  `BLOCKED` = LOCK sin adquirir: el scheduler reintenta la misma
+  instrucción en cada tick; al morir el job se liberan sus locks.
 - **Gas**: `gas_limit` = instrucciones por tick (default 1000);
   `gas_budget` = presupuesto de vida (0 = ilimitado). Agotar el budget →
   error `GAS_EXHAUSTED` y el proceso muere.
@@ -296,5 +312,12 @@ Tests hechos autocontenidos: `tests_msajob` (siembra sus pulses),
 - v0.1 addendum (2026-07-14): macaroons por namespace (§8.1, Fase 3).
 - v0.2 (2026-07-15): `@`, TSTART/TCOMMIT/TROLLBACK y contrato de estado/gas
   serializable; implementación Rust + golden compartido (§5.5, Fase 5).
-- v0.3 (previsto): changefeed de suscripciones, detección de deadlock y
+- v0.3 (2026-07-15): comando `LOCK/UNLOCK` en la stack-VM Rust (bloqueo
+  cooperativo, estado `BLOCKED`, `$TEST`, liberación al morir, owner
+  `mvm_<$J>` sobre `_lock_table`); `$ASCII/$A` y `$CHAR/$C` (paridad con
+  la referencia Python); `$FNUMBER/$FN` (ambos motores) y `$HOROLOG/$H`
+  en UTC (stack-VM Rust); `RedbHost` — el trait Host de la VM directamente
+  sobre el crate lumen-pdb (redb), con TSTART anidado por undo-log: la VM
+  Rust corre standalone sin el puente Python.
+- v0.4 (previsto): changefeed de suscripciones, detección de deadlock y
   verificación de macaroons en el edge worker.

@@ -3,6 +3,10 @@ use crate::host::Host;
 use crate::{Subscript, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Días $HOROLOG del epoch Unix (día 0 = 1840-12-31).
+const HOROLOG_UNIX_EPOCH_DAYS: u64 = 47117;
 
 pub const VM_VERSION: &str = "3.0.0-rust";
 
@@ -55,6 +59,9 @@ pub struct VmState {
     pub gas_used: u64,
     #[serde(default)]
     pub halted: bool,
+    /// $TEST: resultado del último LOCK con timeout.
+    #[serde(default)]
+    pub test: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<VmError>,
 }
@@ -86,6 +93,7 @@ impl VmState {
             gas_budget: 0,
             gas_used: 0,
             halted: false,
+            test: false,
             error: None,
         }
     }
@@ -355,6 +363,8 @@ impl<'a, H: Host> Vm<'a, H> {
                 .host
                 .transaction_rollback()
                 .map_err(|e| VmError::new("MTRANSACTION", e, instruction.line))?,
+            Opcode::Lock => return self.exec_lock(&instruction.argument, instruction.line),
+            Opcode::Unlock => self.exec_unlock(&instruction.argument, instruction.line)?,
             Opcode::Expr => {
                 let value = self.eval_expr(&instruction.argument, instruction.line)?;
                 self.state.stack.push(value);
@@ -404,6 +414,63 @@ impl<'a, H: Host> Vm<'a, H> {
             self.state.ip = destination;
         }
         Ok(Control::Continue)
+    }
+
+    /// `LOCK ^NS(subs)[:timeout]` — spec §4. Sin timeout la VM bloquea
+    /// cooperativamente: un intento no bloqueante y, si falla, rebobina el IP
+    /// y cede el slice (el scheduler reintenta la misma instrucción). Con
+    /// timeout el resultado queda en $TEST y la ejecución continúa.
+    /// `LOCK` sin argumento libera todos los locks del job (M estándar).
+    fn exec_lock(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
+        let argument = argument.trim();
+        if argument.is_empty() {
+            self.host
+                .unlock_all()
+                .map_err(|e| VmError::new("MLOCK", e, line))?;
+            return Ok(Control::Continue);
+        }
+        let (reference, timeout) = match find_top_level(argument, ":") {
+            Some(index) => {
+                let timeout = self
+                    .eval_expr(argument[index + 1..].trim(), line)?
+                    .as_number()
+                    .max(0.0);
+                (argument[..index].trim(), Some(timeout))
+            }
+            None => (argument, None),
+        };
+        let resolved = self.resolve_target(reference, line)?;
+        let (ns, subs) = self.parse_global(&resolved, line)?;
+        let acquired = self
+            .host
+            .lock(&ns, &subs, timeout)
+            .map_err(|e| VmError::new("MLOCK", e, line))?;
+        if timeout.is_some() {
+            self.state.test = acquired;
+        } else if !acquired {
+            self.state.ip = self.state.ip.saturating_sub(1);
+            return Ok(Control::Yield);
+        }
+        Ok(Control::Continue)
+    }
+
+    /// `UNLOCK ^NS(subs)[,...]` — sin argumento libera todos los del job.
+    fn exec_unlock(&mut self, argument: &str, line: usize) -> Result<(), VmError> {
+        let argument = argument.trim();
+        if argument.is_empty() {
+            return self
+                .host
+                .unlock_all()
+                .map_err(|e| VmError::new("MLOCK", e, line));
+        }
+        for raw in split_top_level(argument, ',') {
+            let resolved = self.resolve_target(raw.trim(), line)?;
+            let (ns, subs) = self.parse_global(&resolved, line)?;
+            self.host
+                .unlock(&ns, &subs)
+                .map_err(|e| VmError::new("MLOCK", e, line))?;
+        }
+        Ok(())
     }
 
     fn exec_set(&mut self, argument: &str, line: usize) -> Result<(), VmError> {
@@ -559,6 +626,10 @@ impl<'a, H: Host> Vm<'a, H> {
                     Control::Quit => return Ok(Control::Continue),
                     Control::Halt => return Ok(Control::Halt),
                     Control::Yield => {
+                        // La instrucción cedió pidiendo reintento (READ sin
+                        // entrada, LOCK sin adquirir): rebobinar el body_ip
+                        // para no saltársela al reanudar.
+                        frame.body_ip = frame.body_ip.saturating_sub(1);
                         self.state.loop_frames.insert(instruction_ip, frame);
                         self.state.ip = instruction_ip;
                         return Ok(Control::Yield);
@@ -743,6 +814,19 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             "$TLEVEL" => return Ok(Value::Number(self.host.transaction_level() as f64)),
             "$J" => return Ok(Value::Number(self.state.job_id as f64)),
+            "$T" | "$TEST" => return Ok(Value::Number(u8::from(self.state.test) as f64)),
+            "$H" | "$HOROLOG" => {
+                // UTC en ambos motores: determinismo entre nodos.
+                let unix = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                return Ok(Value::String(format!(
+                    "{},{}",
+                    HOROLOG_UNIX_EPOCH_DAYS + unix / 86_400,
+                    unix % 86_400
+                )));
+            }
             _ => {}
         }
         Ok(self.state.vars.get(atom).cloned().unwrap_or(Value::Null))
@@ -917,6 +1001,56 @@ impl<'a, H: Host> Vm<'a, H> {
                 }
                 Ok(Value::Null)
             }
+            "$A" | "$ASCII" => {
+                let value = self
+                    .eval_expr(args.first().map_or("", String::as_str), line)?
+                    .as_string();
+                let position = args
+                    .get(1)
+                    .map(|v| self.eval_expr(v, line).map(|x| x.as_number() as i64))
+                    .transpose()?
+                    .unwrap_or(1);
+                // Mismo contrato que func_ascii de la referencia Python:
+                // posición 1-based, fuera de rango → -1.
+                let code = if position < 1 {
+                    -1.0
+                } else {
+                    value
+                        .chars()
+                        .nth(position as usize - 1)
+                        .map_or(-1.0, |ch| ch as u32 as f64)
+                };
+                Ok(Value::Number(code))
+            }
+            "$C" | "$CHAR" => {
+                let mut result = String::new();
+                for argument in &args {
+                    let code = self.eval_expr(argument, line)?.as_number() as i64;
+                    // Referencia Python (func_char): código inválido → "?".
+                    match u32::try_from(code).ok().and_then(char::from_u32) {
+                        Some(ch) => result.push(ch),
+                        None => result.push('?'),
+                    }
+                }
+                Ok(Value::String(result))
+            }
+            "$FN" | "$FNUMBER" => {
+                let number = self
+                    .eval_expr(args.first().map_or("", String::as_str), line)?
+                    .as_number();
+                let codes = self
+                    .eval_expr(args.get(1).map_or("\"\"", String::as_str), line)?
+                    .as_string()
+                    .to_ascii_uppercase();
+                let decimals = args
+                    .get(2)
+                    .map(|v| {
+                        self.eval_expr(v, line)
+                            .map(|x| x.as_number().max(0.0) as usize)
+                    })
+                    .transpose()?;
+                Ok(Value::String(format_fnumber(number, &codes, decimals)))
+            }
             "$V" | "$VIEW" => Ok(Value::Number(0.0)),
             _ => Err(VmError::new(
                 "MFUNCTION",
@@ -965,6 +1099,60 @@ impl<'a, H: Host> Vm<'a, H> {
         }
         Ok((name.to_string(), subs))
     }
+}
+
+/// $FNUMBER: códigos `,` (miles) `+` (signo en positivos) `-` (suprime el
+/// menos) `T` (signo al final) `P` (negativos entre paréntesis).
+fn format_fnumber(value: f64, codes: &str, decimals: Option<usize>) -> String {
+    let mut body = match decimals {
+        // Redondeo M: mitad lejos de cero (f64::round), no banker's rounding.
+        Some(digits) => {
+            let factor = 10f64.powi(digits as i32);
+            format!("{:.*}", digits, (value.abs() * factor).round() / factor)
+        }
+        None => Value::Number(value.abs()).as_string(),
+    };
+    // -0.4 con 0 decimales redondea a "0": sin signo.
+    let negative = value < 0.0 && body.parse::<f64>().unwrap_or(0.0) != 0.0;
+    if codes.contains(',') {
+        let (integer, fraction) = body
+            .split_once('.')
+            .map_or((body.as_str(), None), |(i, f)| (i, Some(f)));
+        let mut grouped = String::new();
+        for (index, ch) in integer.chars().enumerate() {
+            if index > 0 && (integer.len() - index) % 3 == 0 {
+                grouped.push(',');
+            }
+            grouped.push(ch);
+        }
+        body = match fraction {
+            Some(fraction) => format!("{grouped}.{fraction}"),
+            None => grouped,
+        };
+    }
+    if negative && codes.contains('P') {
+        return format!("({body})");
+    }
+    let trailing = codes.contains('T');
+    let mut result = String::new();
+    if negative {
+        if !trailing && !codes.contains('-') {
+            result.push('-');
+        }
+    } else if !trailing && codes.contains('+') {
+        result.push('+');
+    }
+    result.push_str(&body);
+    if trailing {
+        if negative {
+            if !codes.contains('-') {
+                result.push('-');
+            }
+        } else if codes.contains('+') {
+            result.push('+');
+        }
+    }
+    result
 }
 
 fn is_identifier(value: &str) -> bool {
@@ -1101,6 +1289,9 @@ fn split_if(value: &str) -> (&str, &str, &str) {
                     | "QUIT"
                     | "H"
                     | "HALT"
+                    | "L"
+                    | "LOCK"
+                    | "UNLOCK"
             ) {
                 return (value[..index].trim(), candidate, "");
             }

@@ -331,6 +331,35 @@ persiste mensaje y transición WAITING→READY; el Python medido ya había dejad
 morir esos lectores. El objetivo sigue siendo aislamiento, reanudación exacta
 y timers reactivos, no reemplazar la decisión SQLite de Fase 4.
 
+### Fase 5.1 — Cierre post-revisión de F5/F6 — ✅ HECHA (2026-07-15)
+
+Gaps señalados en la revisión externa de F5, verificados e implementados
+(spec M-Agent v0.3):
+
+1. ✅ **LOCK/UNLOCK como comando M** en compilador + stack-VM Rust.
+   Sin timeout: bloqueo cooperativo (la VM cede y el job queda `BLOCKED`;
+   el scheduler Tokio reintenta la instrucción en cada tick — nunca se
+   bloquea el scheduler). Con `:timeout`: resultado en `$TEST`. Jobs
+   muertos liberan sus locks. El puente usa `pdb_lock`/`pdb_unlock` con
+   `owner=mvm_<pid>` (reentrada del mismo owner = adquirido) sobre
+   `_lock_table` — contención real multi-proceso.
+2. ✅ **Funciones $**: `$A/$ASCII` y `$C/$CHAR` (paridad exacta con la
+   referencia Python), `$FN/$FNUMBER` (en ambos motores, redondeo
+   mitad-lejos-de-cero) y `$H/$HOROLOG` en UTC. `$T/$TEST` serializado
+   en VmState. Nota de la revisión: $H/$FN **no** estaban en la spec
+   v0.2 ni en la referencia Python — se añadieron como extensión v0.3,
+   no eran un incumplimiento.
+3. ✅ **RedbHost** (`lumen-pdb/src/host.rs`): el trait `Host` de la VM
+   directamente sobre redb — la VM Rust corre standalone sin el puente
+   Python. TSTART/TCOMMIT/TROLLBACK anidados vía undo-log por nivel
+   sobre una WriteTransaction (los savepoints de redb exigen transacción
+   limpia); rutinas desde ^ROUTINE; mismo formato de valores JSON que
+   SQLite/migrador. 7 tests de integración VM↔redb.
+4. ✅ Fix de corrección en la VM: un READ/LOCK que cede dentro de un
+   cuerpo FOR rebobina `body_ip` — antes la instrucción se saltaba al
+   reanudar.
+5. ✅ Suite de conformidad completa tras los cambios: **519/519**.
+
 ---
 
 ## 4. Lo que NO cambia (el producto)

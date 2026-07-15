@@ -2,7 +2,7 @@ mod ffi;
 mod host;
 
 use host::{CallbackBridge, LiveHost};
-use lumen_mlight::{Compiler, Execution, Program, Vm, VmState};
+use lumen_mlight::{Compiler, Execution, Host, Program, Vm, VmState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeMap, VecDeque};
@@ -19,6 +19,7 @@ pub use host::HostCallback;
 const READY: &str = "READY";
 const RUNNING: &str = "RUNNING";
 const WAITING: &str = "WAITING";
+const BLOCKED: &str = "BLOCKED";
 const HIBERNATE: &str = "HIBERNATE";
 const DEAD: &str = "DEAD";
 
@@ -144,10 +145,11 @@ async fn job_actor(
     while let Some(command) = rx.recv().await {
         match command {
             JobCommand::Tick { gas, reply } => {
-                if snapshot.status == READY {
+                if snapshot.status == READY || snapshot.status == BLOCKED {
                     snapshot.status = RUNNING.to_string();
                     snapshot.last_run = now();
                     host.empty_read = false;
+                    host.lock_blocked = false;
                     while let Some(message) = snapshot.mailbox.pop_front() {
                         host.push_input(match message.content {
                             JsonValue::String(value) => value,
@@ -177,10 +179,15 @@ async fn job_actor(
                         .unwrap_or_else(|| snapshot.error.clone());
                     snapshot.status = match execution {
                         _ if host.empty_read => WAITING,
+                        _ if host.lock_blocked => BLOCKED,
                         Execution::Yielded => READY,
                         Execution::Completed | Execution::Halted | Execution::Error => DEAD,
                     }
                     .to_string();
+                    if snapshot.status == DEAD {
+                        // Un job muerto nunca libera por sí mismo: soltar sus locks.
+                        let _ = host.unlock_all();
+                    }
                     let persisted = persist(&host, &snapshot);
                     let _ = reply.send(persisted.map(|_| snapshot.clone()));
                 } else {
@@ -219,6 +226,7 @@ async fn job_actor(
             JobCommand::Kill { reply } => {
                 snapshot.status = DEAD.to_string();
                 snapshot.wake_at = None;
+                let _ = host.unlock_all();
                 let persisted = persist(&host, &snapshot);
                 let _ = reply.send(persisted.map(|_| snapshot.clone()));
             }
@@ -488,7 +496,8 @@ impl Scheduler {
             let Some(job) = self.jobs.get_mut(&pid) else {
                 continue;
             };
-            if job.snapshot.status != READY {
+            // BLOCKED también se tickea: reintenta el LOCK pendiente.
+            if job.snapshot.status != READY && job.snapshot.status != BLOCKED {
                 continue;
             }
             let (tx, rx) = oneshot::channel();
@@ -808,5 +817,118 @@ mod tests {
             .unwrap();
         assert_eq!(second["processes"][0]["status"], DEAD);
         assert_eq!(second["processes"][0]["gas_total"], 2);
+    }
+
+    // ── LOCK: tabla de locks compartida para simular pdb_lock ──
+
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::Mutex;
+
+    static NEXT_PID: AtomicI64 = AtomicI64::new(1);
+    static LOCKS: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
+
+    unsafe extern "C" fn lock_callback(
+        _context: *mut std::ffi::c_void,
+        request: *const std::ffi::c_char,
+        output: *mut u8,
+        capacity: usize,
+    ) -> isize {
+        let request: JsonValue =
+            serde_json::from_str(CStr::from_ptr(request).to_str().unwrap()).unwrap();
+        let args = &request["args"];
+        let key = || {
+            format!(
+                "{}|{}",
+                args["ns"].as_str().unwrap_or_default(),
+                args["subs"].to_string()
+            )
+        };
+        let response = match request["op"].as_str().unwrap() {
+            "allocate_pid" => {
+                json!({"success": true, "pid": NEXT_PID.fetch_add(1, Ordering::SeqCst)})
+            }
+            "load_jobs" => json!({"success": true, "jobs": []}),
+            "get" => json!({"success": true, "found": false, "value": null}),
+            "data" => json!({"success": true, "value": 0}),
+            "order" => json!({"success": true, "value": null}),
+            "lock" => {
+                let pid = args["pid"].as_i64().unwrap();
+                let mut table = LOCKS.lock().unwrap();
+                let table = table.get_or_insert_with(HashMap::new);
+                let owner = *table.entry(key()).or_insert(pid);
+                json!({"success": true, "locked": owner == pid})
+            }
+            "unlock" => {
+                let pid = args["pid"].as_i64().unwrap();
+                let mut table = LOCKS.lock().unwrap();
+                let table = table.get_or_insert_with(HashMap::new);
+                if args["all"].as_bool() == Some(true) {
+                    table.retain(|_, owner| *owner != pid);
+                } else {
+                    let key = key();
+                    if table.get(&key) == Some(&pid) {
+                        table.remove(&key);
+                    }
+                }
+                json!({"success": true})
+            }
+            _ => json!({"success": true}),
+        };
+        let bytes = response.to_string().into_bytes();
+        if output.is_null() || capacity == 0 {
+            return bytes.len() as isize;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len());
+        bytes.len() as isize
+    }
+
+    #[test]
+    fn lock_contention_blocks_and_releases_when_the_holder_dies() {
+        let bridge = CallbackBridge::new(lock_callback, std::ptr::null_mut());
+        let mvm = TokioMvm::start(bridge).unwrap();
+        let code = "L ^MUTEX(1)\nS x=1\nS x=2\nS x=3";
+        let first = mvm
+            .call(json!({"op":"spawn","args":{"code":code,"name":"holder","gas_limit":2}}))
+            .unwrap()["pid"]
+            .as_i64()
+            .unwrap();
+        let second = mvm
+            .call(json!({"op":"spawn","args":{"code":code,"name":"waiter","gas_limit":2}}))
+            .unwrap()["pid"]
+            .as_i64()
+            .unwrap();
+
+        let status = |response: &JsonValue, pid: i64| {
+            response["processes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|process| process["pid"] == pid)
+                .unwrap()["status"]
+                .clone()
+        };
+
+        // Tick 1: holder adquiere y cede por gas; waiter no adquiere → BLOCKED.
+        let tick1 = mvm
+            .call(json!({"op":"tick","args":{"max_per_process":2}}))
+            .unwrap();
+        assert_eq!(status(&tick1, first), READY);
+        assert_eq!(status(&tick1, second), BLOCKED);
+
+        // Tick 2: holder termina (DEAD → unlock_all); waiter reintenta el
+        // mismo LOCK, lo adquiere y sigue ejecutando.
+        let tick2 = mvm
+            .call(json!({"op":"tick","args":{"max_per_process":2}}))
+            .unwrap();
+        assert_eq!(status(&tick2, first), DEAD);
+        assert_eq!(status(&tick2, second), READY);
+
+        // El waiter acaba y suelta también su lock: tabla vacía.
+        let tick3 = mvm
+            .call(json!({"op":"tick","args":{"max_per_process":10}}))
+            .unwrap();
+        assert_eq!(status(&tick3, second), DEAD);
+        assert!(LOCKS.lock().unwrap().as_ref().unwrap().is_empty());
     }
 }

@@ -68,6 +68,9 @@ pub struct LiveHost {
     transaction_level: usize,
     input: VecDeque<String>,
     pub empty_read: bool,
+    /// Un LOCK sin timeout no se pudo adquirir: el job pasa a BLOCKED y el
+    /// scheduler reintenta la misma instrucción en ticks posteriores.
+    pub lock_blocked: bool,
 }
 
 impl LiveHost {
@@ -78,6 +81,7 @@ impl LiveHost {
             transaction_level: 0,
             input: VecDeque::new(),
             empty_read: false,
+            lock_blocked: false,
         }
     }
 
@@ -200,5 +204,38 @@ impl Host for LiveHost {
 
     fn read_would_block(&self) -> bool {
         self.empty_read
+    }
+
+    // Locks multi-proceso: viven en la tabla _lock_table de SQLite vía
+    // pdb_lock/pdb_unlock, con owner "mvm_<pid>" por job. El intento es
+    // siempre no bloqueante desde el punto de vista del scheduler; un LOCK
+    // sin timeout que falla marca lock_blocked y la VM cede/reintenta.
+    fn lock(
+        &mut self,
+        ns: &str,
+        subs: &[Subscript],
+        timeout: Option<f64>,
+    ) -> Result<bool, String> {
+        let result = self.bridge.call(
+            "lock",
+            json!({"pid": self.pid, "ns": ns, "subs": subs, "timeout": timeout}),
+        )?;
+        let locked = result.get("locked").and_then(JsonValue::as_bool) == Some(true);
+        if !locked && timeout.is_none() {
+            self.lock_blocked = true;
+        }
+        Ok(locked)
+    }
+
+    fn unlock(&mut self, ns: &str, subs: &[Subscript]) -> Result<(), String> {
+        self.bridge
+            .call("unlock", json!({"pid": self.pid, "ns": ns, "subs": subs}))?;
+        Ok(())
+    }
+
+    fn unlock_all(&mut self) -> Result<(), String> {
+        self.bridge
+            .call("unlock", json!({"pid": self.pid, "all": true}))?;
+        Ok(())
     }
 }
