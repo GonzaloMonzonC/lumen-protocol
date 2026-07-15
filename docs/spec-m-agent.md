@@ -158,6 +158,11 @@ determinismo entre motores y nodos) · `$TEST/$T` (v0.3; resultado del
 - Una sección transaccional es atómica también para el scheduler: NO cede
   por `gas_limit` entre `TSTART` y commit/rollback. `gas_budget` sí se aplica
   y evita una transacción infinita.
+- **Las rutinas externas (`D ^RUTINA`) son igualmente atómicas respecto al
+  scheduler** (v0.3): no ceden por `gas_limit` a mitad — una rutina
+  reiniciada a mitad repetiría efectos. `gas_budget` sí las corta. Un
+  `READ`/`LOCK` bloqueante dentro de una rutina externa reinicia la rutina
+  al reintentar: mantenerlos en el código top-level del job.
 
 Continúan fuera del subset: `$QUERY`, `$NAME`, `XECUTE` y patrones `?`.
 
