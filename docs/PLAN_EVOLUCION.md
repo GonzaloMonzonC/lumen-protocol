@@ -93,8 +93,8 @@ para el pragma.
 | ~~Escritura lenta~~ ✅ RESUELTO 2026-07-14 | Era ~115-130 SET/s; ahora 15-21K SET/s vía tool_set (ver BENCHMARKS.md) | `journal_mode=DELETE` → WAL centralizado en `_apply_pragmas()` |
 | ~~Conflicto WAL/DELETE activo~~ ✅ RESUELTO 2026-07-14 | Producía `database is locked` intermitentes | Todas las conexiones usan ya WAL; verificado 1 escritor + 3 lectores concurrentes sin errores |
 | Sin concurrencia real | Una conexión SQLite única con lock de thread | `check_same_thread=False` + single connection |
-| DDP duplicado | Dos implementaciones divergentes | `ddp_sync.py` (push no-op) vs suite pdb-sync (funcional) |
-| Journal sin seq monótono | Ordenación/colisiones por timestamp ISO | `pdb_journal.py` indexa ^CHANGES por ts, no por seq |
+| ~~DDP duplicado~~ ✅ RESUELTO 2026-07-14 | `ddp_sync.py` es wrapper deprecated de la suite pdb-sync; push ya no es no-op | Una sola implementación canónica |
+| ~~Journal sin seq monótono~~ ✅ RESUELTO 2026-07-14 | `^CHANGES("journal", seq)` + cursores + migrate_legacy | Orden total de replay garantizado |
 | ~~22 accesos directos a SQLite~~ ✅ RESUELTO 2026-07-14 | 15 consumidores migrados a `pdb_connect()`/`_pdb.py`; guard ratchet en `tests_contract.py` | Quedan solo bench/tests exentos |
 | ~~Rutas hardcodeadas rotas~~ ✅ RESUELTO 2026-07-14 | 83 ficheros migrados a `_paths.py` (repo-relativo) | Quedan solo scripts legacy de bench/debug con rutas Windows |
 | Sin spec formal | El código ES la especificación | No hay documento normativo del subset M |
@@ -163,7 +163,7 @@ Alternativa: marcarlos explícitamente como "spec v2".
 Fase 1a: Fix WAL + rutas                 ✅ HECHA (2026-07-14, ver §3.1)
 Fase 1b: Contrato PDB API                ✅ HECHA (2026-07-14, ver §3.2)
 Fase 0:  Spec M-Agent                    ✅ v0.1 ENTREGADA (spec-m-agent.md)
-Fase 2:  DDP: consolidar + seq monótono  ◄── SIGUIENTE (3-5 días)
+Fase 2:  DDP: consolidar + seq monótono  ✅ HECHA (2026-07-14, ver §3.3)
 Fase 3:  Macaroons por namespace (1 sem)
 Fase 4:  Crate lumen-pdb (redb, 2-3 sem)
 Fase 5:  M-Light en Rust (3-4 sem)
@@ -215,16 +215,23 @@ Fase 6:  MVM sobre tokio (2 sem)
 4. ✅ Guard ratchet `tests_contract.py` (5/5): prohíbe sqlite3.connect
    y rutas hardcodeadas fuera del allowlist; el allowlist solo encoge
 
-### Fase 2 — DDP: consolidar + seq monótono (~3-5 días)
+### Fase 2 — DDP: consolidar + seq monótono — ✅ HECHA (2026-07-14)
 
-**Re-scoped (corrección v1.1):** el grueso ya existe en pdb-sync (journal,
-sync engine, mirroring bidireccional validado). Lo que queda:
-
-1. **Consolidar**: retirar `ddp_sync.py` o convertirlo en wrapper de la suite
-   pdb-sync (una sola implementación DDP)
-2. **Seq monótono**: migrar el journal ^CHANGES de clave-timestamp a
-   secuencia monótona (elimina colisiones y da orden total para replay)
-3. Changefeed para suscripciones
+1. ✅ **Journal v2**: `^CHANGES("journal", seq)` con seq atómico
+   ($INCREMENT), cursores por consumidor (`^CHANGES("cursor", name)`) y
+   `migrate_legacy()` idempotente para las entries v1 ts-keyed.
+   Verificado: 15/15 tests nuevos (`tests_journal_seq.py`) — colisiones
+   de ts resueltas, orden total, purge por seq
+2. ✅ **Push incremental**: `SyncEngine.push_pending` usa cursor "push"
+   (at-least-once; el cursor solo avanza tras push confirmado)
+3. ✅ **Consolidación**: `ddp_sync.py` es ahora wrapper deprecated de la
+   suite pdb-sync (misma API para `ddp_cron.py`); su push ya NO es no-op
+4. ✅ **Bugs reales cazados por el smoke E2E contra el edge vivo**:
+   `pull_and_apply` crasheaba con claves formato encode_subkey (las que
+   subió full_sync) y `SyncEngine._log` no existía
+5. ✅ **Verificado contra edge real** (ddp-v0.2): pull 500 entries,
+   pull incremental por checkpoint, round-trip journal→push→edge
+6. Pendiente: changefeed para suscripciones (mover a Fase 3+, sin bloqueo)
 
 ### Fase 3 — Macaroons por namespace (~1 semana)
 
