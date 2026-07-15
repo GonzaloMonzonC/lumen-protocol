@@ -9,6 +9,7 @@ Key format: plain text string, e.g. "contacts:1", "health:mood:2026-07-04"
 """
 
 import json
+import sqlite3
 import time
 from typing import Any
 
