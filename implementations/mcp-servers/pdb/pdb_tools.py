@@ -108,7 +108,7 @@ def _apply_pragmas(c: sqlite3.Connection, busy_timeout: int = 5000) -> None:
     c.execute("PRAGMA cache_size=-8000")  # 8 MB
     c.execute("PRAGMA mmap_size=268435456")  # 256 MB
 
-def pdb_connect(readonly: bool = False, timeout: float = 5.0) -> sqlite3.Connection:
+def pdb_connect(readonly: bool = False, timeout: float = 5.0, path: str = None) -> sqlite3.Connection:
     """Punto de entrada público del contrato PDB (Fase 1b).
 
     Única forma legítima de abrir una conexión SQLite al PDB fuera de este
@@ -118,8 +118,11 @@ def pdb_connect(readonly: bool = False, timeout: float = 5.0) -> sqlite3.Connect
     tool_* de este módulo, que comparten conexión y aplican triggers/índices.
 
     readonly usa query_only (compatible con WAL, a diferencia de mode=ro
-    por URI, que falla si -wal/-shm no existen)."""
-    c = sqlite3.connect(_get_db_path(), timeout=timeout, check_same_thread=False)
+    por URI, que falla si -wal/-shm no existen).
+
+    path: override explícito para tooling (migradores, inspección de
+    copias). Por defecto, la BD canónica."""
+    c = sqlite3.connect(path or _get_db_path(), timeout=timeout, check_same_thread=False)
     _apply_pragmas(c, busy_timeout=int(timeout * 1000))
     if readonly:
         c.execute("PRAGMA query_only=ON")

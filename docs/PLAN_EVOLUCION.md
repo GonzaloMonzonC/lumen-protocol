@@ -165,8 +165,8 @@ Fase 1b: Contrato PDB API                ✅ HECHA (2026-07-14, ver §3.2)
 Fase 0:  Spec M-Agent                    ✅ v0.1 ENTREGADA (spec-m-agent.md)
 Fase 2:  DDP: consolidar + seq monótono  ✅ HECHA (2026-07-14, ver §3.3)
 Fase 3:  Macaroons por namespace         ✅ HECHA (2026-07-14, ver §3.4)
-Fase 4:  Crate lumen-pdb (redb, 2-3 sem) ◄── SIGUIENTE
-Fase 5:  M-Light en Rust (3-4 sem)
+Fase 4:  Crate lumen-pdb (redb)           ✅ HECHA (2026-07-15, ver §3.5)
+Fase 5:  M-Light en Rust (3-4 sem)       ◄── SIGUIENTE
 Fase 6:  MVM sobre tokio (2 sem)
 ```
 
@@ -252,16 +252,26 @@ Fase 6:  MVM sobre tokio (2 sem)
 
 **Por qué:** multi-agente externo seguro. La sinergia LUMEN+PDB está aquí.
 
-### Fase 4 — Crate lumen-pdb (redb) vía FFI (~2-3 semanas)
+### Fase 4 — Crate lumen-pdb (redb) vía FFI — ✅ HECHA (2026-07-15)
 
-1. `subkey.rs`: puerto 1:1 de `encode_subkey`/`decode_subkey` (tests golden
-   byte a byte contra la implementación Python)
-2. `globals.rs`: SET/GET/$ORDER/$DATA/KILL/$INCREMENT/MERGE sobre redb
-3. `ffi.rs`: C ABI (mismo patrón que `ffi.rs` actual del protocolo)
-4. Flag `PDB_ENGINE=redb|sqlite` con fallback automático
-5. Migrador one-shot: `pdb_migrate.py` bulk-insert con journal desactivado
+1. ✅ `subkey.rs`: puerto 1:1 de `encode_subkey`/`decode_subkey`; 31 vectores
+   golden Python fijan vacíos, `None`, negativos, floats, Unicode y multinivel.
+2. ✅ `globals.rs`: SET/GET/$ORDER/$DATA/KILL/$INCREMENT/MERGE sobre redb.
+3. ✅ `ffi.rs`: C ABI + `cdylib`, bulk set y flush durable.
+4. ✅ `lumen_pdb.py`: wrapper ctypes y `PDB_ENGINE=redb|sqlite` con fallback.
+5. ✅ `pdb_migrate.py`: bulk SQLite→redb, destino seguro y verificación raw
+   completa opcional.
+6. ✅ `tests_redb.py` incorporado a conformidad: storage 38/38; suite offline
+   completa 494/494. Rust: 4/4 + fmt + clippy sin warnings.
+7. ✅ Benchmark reproducible y JSON raw en `implementations/rust/lumen-pdb/`.
 
 **Riesgo:** divergencias en el encoding — mitigado con tests golden.
+
+**Resultado de rendimiento local:** GET equivalente (~321k SQLite vs ~328k
+redb ops/s), pero redb pierde claramente en commits unitarios (~5.5k vs ~90k
+SET/s). No cambiar el motor por rendimiento sin benchmark concurrente/batch en
+el hardware objetivo. La API redb cubre el núcleo; extensiones como historial,
+triggers, particionado y SQL libre permanecen SQLite-only.
 
 ### Fase 5 — M-Light en Rust (~3-4 semanas)
 

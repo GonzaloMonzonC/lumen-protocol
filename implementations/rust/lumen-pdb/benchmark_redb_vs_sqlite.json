@@ -1,0 +1,72 @@
+{
+  "benchmark": "lumen-pdb core API",
+  "iterations": 3000,
+  "python": "3.14.6",
+  "platform": "macOS-15.7.7-arm64-arm-64bit-Mach-O",
+  "durability": {
+    "sqlite": "WAL + synchronous=NORMAL",
+    "redb": "eventual"
+  },
+  "results": {
+    "sqlite": [
+      {
+        "name": "set_bulk_1_tx",
+        "operations": 3000,
+        "seconds": 0.002019,
+        "ops_per_second": 1486099.0,
+        "microseconds_per_op": 0.67
+      },
+      {
+        "name": "set_commit",
+        "operations": 3000,
+        "seconds": 0.033288,
+        "ops_per_second": 90122.2,
+        "microseconds_per_op": 11.1
+      },
+      {
+        "name": "get_existing",
+        "operations": 12000,
+        "seconds": 0.037339,
+        "ops_per_second": 321376.6,
+        "microseconds_per_op": 3.11
+      },
+      {
+        "name": "increment_commit",
+        "operations": 3000,
+        "seconds": 0.0309,
+        "ops_per_second": 97088.0,
+        "microseconds_per_op": 10.3
+      }
+    ],
+    "redb": [
+      {
+        "name": "set_bulk_1_tx",
+        "operations": 3000,
+        "seconds": 0.005257,
+        "ops_per_second": 570654.1,
+        "microseconds_per_op": 1.75
+      },
+      {
+        "name": "set_commit",
+        "operations": 3000,
+        "seconds": 0.544743,
+        "ops_per_second": 5507.2,
+        "microseconds_per_op": 181.58
+      },
+      {
+        "name": "get_existing",
+        "operations": 12000,
+        "seconds": 0.03653,
+        "ops_per_second": 328498.2,
+        "microseconds_per_op": 3.04
+      },
+      {
+        "name": "increment_commit",
+        "operations": 3000,
+        "seconds": 0.481032,
+        "ops_per_second": 6236.6,
+        "microseconds_per_op": 160.34
+      }
+    ]
+  }
+}
