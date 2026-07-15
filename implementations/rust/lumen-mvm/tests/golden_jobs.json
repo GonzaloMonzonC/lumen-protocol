@@ -1,0 +1,26 @@
+[
+  {
+    "name": "locals_resume",
+    "source": "S a=2\nS b=a+3\nS ^GOLDEN(\"sum\")=b",
+    "slice": 1,
+    "seed": [],
+    "checks": [["sum"]],
+    "expected": [5]
+  },
+  {
+    "name": "live_get",
+    "source": "S x=$G(^GOLDEN(\"base\"))\nS ^GOLDEN(\"copy\")=x+1",
+    "slice": 1,
+    "seed": [["base", 7]],
+    "checks": [["copy"]],
+    "expected": [8]
+  },
+  {
+    "name": "ordered_first_child",
+    "source": "S n=\"\"\nS n=$O(^GOLDEN(\"items\",n))\nS ^GOLDEN(\"first\")=n",
+    "slice": 1,
+    "seed": [["items", "b", 2], ["items", "a", 1]],
+    "checks": [["first"]],
+    "expected": ["a"]
+  }
+]

@@ -15,10 +15,30 @@ strings; son el coste observable desde Python, no un benchmark nativo ideal.
 | FOR 1→100 | 269,875 µs | 67,959 µs | Rust **3,97× más rápido** |
 
 Conclusión: el port ya gana cuando hay trabajo real dentro del VM. En scripts
-de 1-4 instrucciones la ABI JSON cuesta más que la ejecución; Fase 6 puede
-eliminar esa copia manteniendo handles/programas residentes en el scheduler.
+de 1-4 instrucciones la ABI JSON cuesta más que la ejecución; Fase 6 elimina
+esa copia en Jobs manteniendo handles/programas residentes en el scheduler.
 SQLite no participa en esta medición y continúa como almacenamiento canónico.
 Raw reproducible: `implementations/rust/lumen-m-light/benchmark_rust_vs_python.json`.
+
+## MVM Tokio — Fase 6 (2026-07-15)
+
+Mismo Apple Silicon y misma SQLite vía `pdb_tools` para ambos schedulers.
+Workload: 50 Jobs de 5 SET locales, 50 mensajes durables y restore de 100
+Jobs. No es un benchmark de VM puro: mide deliberadamente persistencia.
+
+| Escenario | Python | Rust Tokio | Lectura |
+|-----------|-------:|-----------:|---------|
+| spawn | 1.362 Jobs/s | 1.347 Jobs/s | equivalentes (Rust -1,1%) |
+| tick completo | 1.376 Jobs/s | 1.365 Jobs/s | equivalentes (Rust -0,8%) |
+| mailbox durable | 20.495 msg/s | 3.959 msg/s | Python legacy no deja READ en WAITING; no son garantías equivalentes |
+| restore 100 Jobs | 10,76 ms | **4,16 ms** | Rust 2,58× más rápido |
+
+La cifra de mailbox no es un speedup objetivo ni una comparación semántica
+perfecta: el scheduler Python actual termina el Job ante READ vacío en ese
+workload, mientras Rust persiste el mensaje y la transición WAITING→READY.
+La conclusión útil es que el callback/SQLite, no Tokio ni el bytecode, domina
+Jobs diminutos. Raw reproducible:
+`implementations/rust/lumen-mvm/benchmark_tokio_vs_python.json`.
 
 **Date:** 2026-07-12
 **Environment:** Python 3.11, Windows 10, AMD Ryzen
