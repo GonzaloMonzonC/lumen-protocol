@@ -1,6 +1,6 @@
 # M-Light Roadmap — MSM Compatibility Plan
 
-> Actualizado 2026-07-14. Estado real verificado contra código y git log.
+> Actualizado 2026-07-15. Estado real verificado contra código y tests.
 > Plan general: [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md)
 
 ## ✅ OBJ-1: String Functions ($L, $F, $TR)
@@ -49,14 +49,21 @@ Benchmarks M-Light v2: compile 5μs, SET 17μs, DO ^script 104ms (commit edb2dca
   runtime en .rdata (VA 0x004bebea), no funciones independientes
 - Doc: `mcp-servers/pdb/references/zfuncs-runtime-dispatch.md`
 
-## 🎯 Pendiente (ver PLAN_EVOLUCION.md Fases 0-5)
+## ✅ v3: Port Rust (Fase 5, julio 2026)
 
-- **Indirection `@`** como operador M — existe embrión a nivel tool
-  (`pdb-sync/pdb_indirect.py` + tests); falta integrarlo en el evaluador
-- **TSTART/TCOMMIT** — transacciones multi-clave
-- **Spec M-Agent** — documento normativo del subset + suite de conformidad
-  (Fase 0)
-- **Port a Rust** — contra spec + tests golden, no contra el código (Fase 5)
+- `rust/lumen-m-light`: bytecode SHA256 + stack-VM resumible, C ABI JSON.
+- `@` local/global en lectura y escritura; TSTART/TCOMMIT/TROLLBACK.
+- Gas por slice y budget; frames FOR, call stack y scopes serializables.
+- `lumen_mlight.py`: ctypes + snapshot/diff sobre SQLite vía `pdb_tools`.
+- `MLIGHT_ENGINE=rust|python` (default Python durante la transición).
+- Golden compartido de 8 programas + tests Rust/Python y benchmark raw.
+
+## 🎯 Pendiente (Fase 6)
+
+- Host SQLite live/callback bajo el scheduler Tokio para aislamiento entre
+  ejecuciones concurrentes sobre las mismas claves.
+- Jobs Tokio, mailboxes y persistencia/restore automático por tick.
+- Ampliar golden con rutinas MSM reales y differential testing continuo.
 
 ## Lo que soporta M-Light ahora
 
