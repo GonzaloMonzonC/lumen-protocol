@@ -175,10 +175,10 @@ class RoutineExecutor:
         bc_key = f"BC_{name}_v{VM_VERSION}"
         cached = self._load_bc(name, bc_key, code)
         if cached:
-            vm.instrs = cached
+            vm.instrs, vm.labels = cached
         else:
             vm.compile(code)
-            self._save_bc(name, bc_key, vm.instrs, code)
+            self._save_bc(name, bc_key, vm.instrs, code, vm.labels)
 
         vm.vars[""] = name
         try:
@@ -218,42 +218,58 @@ class RoutineExecutor:
 
 # ── Integración con StackVM ──
 
-    def _save_bc(self, name, key, instrs, code=""):
+    def _save_bc(self, name, key, instrs, code="", labels=None):
         try:
             from pdb_tools import tool_set, tool_kill
-            import hashlib
+            import hashlib, json
             tool_kill({"ns": "ROUTINE", "subs": [name, key]})
             cs = hashlib.sha256(code.encode()).hexdigest()[:16]
             tool_set({"ns": "ROUTINE", "subs": [name, key, "_cs"], "value": cs})
+            # labels: sin ellas, D/G label falla al ejecutar desde cache
+            tool_set({"ns": "ROUTINE", "subs": [name, key, "_labels"],
+                      "value": json.dumps(labels or {})})
+            # idx numérico: como string, $ORDER devolvía "10" antes que "2"
+            # y el bytecode se restauraba desordenado (≥11 instrucciones)
             for idx, inst in enumerate(instrs):
-                tool_set({"ns": "ROUTINE", "subs": [name, key, str(idx)],
+                tool_set({"ns": "ROUTINE", "subs": [name, key, idx],
                          "value": "%s|%s" % (inst.opcode, inst.args)})
             return True
         except: return False
 
     def _load_bc(self, name, key, code=""):
+        """→ (instrs, labels) o None. Caches legacy (idx string) devuelven
+        None y se recompilan/re-guardan en el formato nuevo."""
         try:
             from pdb_tools import tool_order, tool_get
             from m_stackvm import StackOp
-            import hashlib
+            import hashlib, json
             r_cs = tool_get({"ns": "ROUTINE", "subs": [name, key, "_cs"]})
             if r_cs.get("success") and r_cs.get("value"):
                 current_cs = hashlib.sha256(code.encode()).hexdigest()[:16]
                 if r_cs["value"] != current_cs: return None
             else: return None
-            instrs = []
+            r_lb = tool_get({"ns": "ROUTINE", "subs": [name, key, "_labels"]})
+            if not (r_lb.get("success") and r_lb.get("value") is not None):
+                return None  # cache legacy sin labels: recompilar
+            labels = json.loads(r_lb["value"]) if isinstance(r_lb["value"], str) else r_lb["value"]
+            pairs = []
             idx = ""
             while True:
                 r = tool_order({"ns": "ROUTINE", "subs": [name, key, idx], "direction": 1})
-                if not r.get("success") or r.get("value") is None: break
+                if not r.get("success") or r.get("value") in ("", None): break
                 idx = r["value"]
+                if not isinstance(idx, (int, float)):
+                    continue  # "_cs"/"_labels" o restos legacy con idx string
                 r2 = tool_get({"ns": "ROUTINE", "subs": [name, key, idx]})
                 if r2.get("success") and r2.get("value"):
                     parts = str(r2["value"]).split("|", 1)
                     if len(parts) == 2:
                         import ast
-                        instrs.append(StackOp(parts[0], ast.literal_eval(parts[1])))
-            return instrs if instrs else None
+                        pairs.append((int(idx), StackOp(parts[0], ast.literal_eval(parts[1]))))
+            if not pairs:
+                return None
+            pairs.sort(key=lambda p: p[0])
+            return [inst for _, inst in pairs], labels
         except: return None
 
 def patch_stackvm():

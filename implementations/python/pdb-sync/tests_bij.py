@@ -15,7 +15,10 @@ def test(name, ok):
 
 print('🧪 TESTS BIJ\n')
 
-# Setup
+# Setup — limpiar estado de ejecuciones previas (test autocontenido)
+for _tx in ('test-bij-1', 'test-bij-2'):
+    t.tool_kill({'ns': 'BIJ', 'subs': ['tx', _tx]})
+t.tool_kill({'ns': 'BIJ_TEST', 'subs': []})
 bij_init()
 
 # Test 1: Init creates control block
