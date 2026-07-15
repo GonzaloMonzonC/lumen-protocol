@@ -1,0 +1,305 @@
+[
+ {
+  "subs": [],
+  "hex": "",
+  "decoded": []
+ },
+ {
+  "subs": [
+   "ext",
+   ".py",
+   "foo.py"
+  ],
+  "hex": "02657874ff022e7079ff02666f6f2e7079ff",
+  "decoded": [
+   "ext",
+   ".py",
+   "foo.py"
+  ]
+ },
+ {
+  "subs": [
+   "ext",
+   "",
+   "foo"
+  ],
+  "hex": "02657874ff02ff02666f6fff",
+  "decoded": [
+   "ext",
+   "",
+   "foo"
+  ]
+ },
+ {
+  "subs": [
+   ""
+  ],
+  "hex": "02ff",
+  "decoded": [
+   ""
+  ]
+ },
+ {
+  "subs": [
+   null
+  ],
+  "hex": "00",
+  "decoded": [
+   null
+  ]
+ },
+ {
+  "subs": [
+   "a",
+   null
+  ],
+  "hex": "0261ff00",
+  "decoded": [
+   "a",
+   null
+  ]
+ },
+ {
+  "subs": [
+   0
+  ],
+  "hex": "018000000000000000ff",
+  "decoded": [
+   0.0
+  ]
+ },
+ {
+  "subs": [
+   1
+  ],
+  "hex": "01bff0000000000000ff",
+  "decoded": [
+   1.0
+  ]
+ },
+ {
+  "subs": [
+   -1
+  ],
+  "hex": "01400fffffffffffffff",
+  "decoded": [
+   -1.0
+  ]
+ },
+ {
+  "subs": [
+   0.5
+  ],
+  "hex": "01bfe0000000000000ff",
+  "decoded": [
+   0.5
+  ]
+ },
+ {
+  "subs": [
+   -0.5
+  ],
+  "hex": "01401fffffffffffffff",
+  "decoded": [
+   -0.5
+  ]
+ },
+ {
+  "subs": [
+   42
+  ],
+  "hex": "01c045000000000000ff",
+  "decoded": [
+   42.0
+  ]
+ },
+ {
+  "subs": [
+   -0.0
+  ],
+  "hex": "017fffffffffffffffff",
+  "decoded": [
+   -0.0
+  ]
+ },
+ {
+  "subs": [
+   0.0
+  ],
+  "hex": "018000000000000000ff",
+  "decoded": [
+   0.0
+  ]
+ },
+ {
+  "subs": [
+   1e+300
+  ],
+  "hex": "01fe37e43c8800759cff",
+  "decoded": [
+   1e+300
+  ]
+ },
+ {
+  "subs": [
+   -1e+300
+  ],
+  "hex": "0101c81bc377ff8a63ff",
+  "decoded": [
+   -1e+300
+  ]
+ },
+ {
+  "subs": [
+   123456789
+  ],
+  "hex": "01c19d6f3454000000ff",
+  "decoded": [
+   123456789.0
+  ]
+ },
+ {
+  "subs": [
+   3.14159
+  ],
+  "hex": "01c00921f9f01b866eff",
+  "decoded": [
+   3.14159
+  ]
+ },
+ {
+  "subs": [
+   -2.718281828
+  ],
+  "hex": "013ffa40f574fb6e64ff",
+  "decoded": [
+   -2.718281828
+  ]
+ },
+ {
+  "subs": [
+   9007199254740993
+  ],
+  "hex": "01c340000000000000ff",
+  "decoded": [
+   9007199254740992.0
+  ]
+ },
+ {
+  "subs": [
+   42,
+   "x"
+  ],
+  "hex": "01c045000000000000ff0278ff",
+  "decoded": [
+   42.0,
+   "x"
+  ]
+ },
+ {
+  "subs": [
+   "x",
+   42
+  ],
+  "hex": "0278ff01c045000000000000ff",
+  "decoded": [
+   "x",
+   42.0
+  ]
+ },
+ {
+  "subs": [
+   "ñandú"
+  ],
+  "hex": "02c3b1616e64c3baff",
+  "decoded": [
+   "ñandú"
+  ]
+ },
+ {
+  "subs": [
+   "日本語"
+  ],
+  "hex": "02e697a5e69cace8aa9eff",
+  "decoded": [
+   "日本語"
+  ]
+ },
+ {
+  "subs": [
+   "🔥",
+   "fuego"
+  ],
+  "hex": "02f09f94a5ff02667565676fff",
+  "decoded": [
+   "🔥",
+   "fuego"
+  ]
+ },
+ {
+  "subs": [
+   "System",
+   "pulse",
+   "hermes"
+  ],
+  "hex": "0253797374656dff0270756c7365ff026865726d6573ff",
+  "decoded": [
+   "System",
+   "pulse",
+   "hermes"
+  ]
+ },
+ {
+  "subs": [
+   1,
+   2.5,
+   "tres",
+   "",
+   -4
+  ],
+  "hex": "01bff0000000000000ff01c004000000000000ff0274726573ff02ff013fefffffffffffffff",
+  "decoded": [
+   1.0,
+   2.5,
+   "tres",
+   "",
+   -4.0
+  ]
+ },
+ {
+  "subs": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "hex": "02616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161ff",
+  "decoded": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ]
+ },
+ {
+  "subs": [
+   "a"
+  ],
+  "hex": "0261ff",
+  "decoded": [
+   "a"
+  ]
+ },
+ {
+  "subs": [
+   "ab"
+  ],
+  "hex": "026162ff",
+  "decoded": [
+   "ab"
+  ]
+ },
+ {
+  "subs": [
+   "b"
+  ],
+  "hex": "0262ff",
+  "decoded": [
+   "b"
+  ]
+ }
+]
