@@ -1,0 +1,32 @@
+{
+  "schema": "lumen-mvm-benchmark-v1",
+  "python": "3.14.6",
+  "platform": "macOS-15.7.7-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "storage": "SQLite via pdb_tools for both schedulers",
+  "workload": "50 jobs x 5 local SET; 50 durable mailbox sends; restore",
+  "metrics": {
+    "python": {
+      "jobs": 50,
+      "spawn_seconds": 0.03670587499800604,
+      "spawn_jobs_s": 1362.1797601260325,
+      "tick_seconds": 0.03634929200052284,
+      "tick_jobs_s": 1375.5426102736972,
+      "mailbox_seconds": 0.00243958300416125,
+      "mailbox_messages_s": 20495.305925116674,
+      "restore_seconds": 0.010759040997072589,
+      "restored_jobs": 100
+    },
+    "rust_tokio": {
+      "jobs": 50,
+      "spawn_seconds": 0.037108208001882304,
+      "spawn_jobs_s": 1347.410793791599,
+      "tick_seconds": 0.03662337500281865,
+      "tick_jobs_s": 1365.2482873616057,
+      "mailbox_seconds": 0.012630958000954706,
+      "mailbox_messages_s": 3958.527927669522,
+      "restore_seconds": 0.004163042001891881,
+      "restored_jobs": 100
+    }
+  }
+}

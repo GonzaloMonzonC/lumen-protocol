@@ -329,7 +329,13 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             Opcode::Do => return self.exec_do(&instruction.argument, instruction.line),
             Opcode::Write => self.exec_write(&instruction.argument, instruction.line)?,
-            Opcode::Read => self.exec_read(&instruction.argument, instruction.line)?,
+            Opcode::Read => {
+                self.exec_read(&instruction.argument, instruction.line)?;
+                if self.host.read_would_block() {
+                    self.state.ip = self.state.ip.saturating_sub(1);
+                    return Ok(Control::Yield);
+                }
+            }
             Opcode::Open | Opcode::Close => {}
             Opcode::Use => {
                 self.state.current_io = self

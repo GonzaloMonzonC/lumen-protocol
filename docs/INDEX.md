@@ -63,15 +63,12 @@
 | [token-efficient-tools-2026-06-20.md](token-efficient-tools-2026-06-20.md) | 5 tools token-efficient (junio) |
 | `../revisions/` | Actas de revisión y auditorías |
 
-## Deuda documental conocida (2026-07-14)
+## Deuda documental conocida (2026-07-15)
 
-1. El Host Rust→SQLite live queda para la Fase 6; el adaptador actual usa
-   snapshot optimista + commit atómico del diff por `pdb_tools`, con conflicto
-   si una clave tocada cambió desde el snapshot.
-2. La suite pdb-sync (journal DDP, sync engine, consola, vm_api) solo está
+1. La suite pdb-sync (journal DDP, sync engine, consola, vm_api) solo está
    documentada en commits y docstrings — el PLAN_EVOLUCION §1 es ahora el
    resumen de referencia.
-3. `COGNITIVE_OS.md` y `README.md` citan tool-counts de junio; verificar
+2. `COGNITIVE_OS.md` y `README.md` citan tool-counts de junio; verificar
    tras el cierre del contrato PDB (Fase 1b).
-4. Terminología: "WAL" del equipo = journal DDP en ^CHANGES (pdb_journal.py),
+3. Terminología: "WAL" del equipo = journal DDP en ^CHANGES (pdb_journal.py),
    no el `journal_mode=WAL` de SQLite. Docs nuevos deben desambiguar.

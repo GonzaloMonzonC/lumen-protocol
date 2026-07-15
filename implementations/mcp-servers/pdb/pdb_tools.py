@@ -196,6 +196,20 @@ def _maybe_commit(conn: sqlite3.Connection) -> None:
     if not getattr(_atomic_ctx, "active", False):
         conn.commit()
 
+
+def _publish_atomic_changes(connection: sqlite3.Connection, pending: list) -> None:
+    """Publish CDC/event-route notifications after an atomic commit is visible."""
+    for change_data, op, routed_value in pending:
+        _publish_change(change_data)
+        _check_event_routes(
+            change_data["ns"],
+            change_data["subs"],
+            op,
+            routed_value,
+            connection,
+        )
+
+
 def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
     """Get or create a connection for a mapped path. Used by mapping and partitioning."""
     if key in _db_connections:
@@ -1330,15 +1344,7 @@ def tool_apply_batch(args: dict) -> dict:
         return {"success": False, "error": batch_error}
 
     try:
-        for change_data, op, routed_value in pending:
-            _publish_change(change_data)
-            _check_event_routes(
-                change_data["ns"],
-                change_data["subs"],
-                op,
-                routed_value,
-                connection,
-            )
+        _publish_atomic_changes(connection, pending)
     finally:
         connection.close()
     return {"success": True, "operations": len(operations)}

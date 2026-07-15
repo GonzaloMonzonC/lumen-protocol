@@ -242,7 +242,7 @@ Un motor es conforme si pasa todas las categorías **offline**:
 | globals | tests_type, tests_contains, tests_d6, tests_bij |
 | rutinas | tests_routines, tests_mrepl |
 | journal | tests_journal, tests_journal_integration, tests_journal_daemon |
-| mvm | tests_msajob, tests_msasys |
+| mvm | tests_msajob, tests_msasys, tests_mvm_rust (Tokio/live SQLite), tests_mvm_differential |
 | contrato | tests_contract |
 | M-Light Rust | tests_rust_mlight (golden compartido, FFI, gas, SQLite) |
 | integridad | tests_integrity, tests_watchdog |
@@ -260,7 +260,7 @@ autocontenida en una BD nueva. En la BD del equipo el fixture no escribe.
 
 ### Baseline de la implementación de referencia (2026-07-15)
 
-**✅ 515/515 — baseline cerrado a 0**. Incluye `storage` redb (38),
+**✅ 519/519 — baseline cerrado a 0**. Incluye `storage` redb (38),
 `seguridad` macaroons (31) y `mlight_rust` (21), además del baseline Python.
 La persistencia canónica usada por conformidad continúa siendo SQLite.
 

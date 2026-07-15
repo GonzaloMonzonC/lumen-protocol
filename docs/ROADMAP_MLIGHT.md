@@ -58,12 +58,22 @@ Benchmarks M-Light v2: compile 5μs, SET 17μs, DO ^script 104ms (commit edb2dca
 - `MLIGHT_ENGINE=rust|python` (default Python durante la transición).
 - Golden compartido de 8 programas + tests Rust/Python y benchmark raw.
 
-## 🎯 Pendiente (Fase 6)
+## ✅ v4: MVM Tokio (Fase 6, julio 2026)
 
-- Host SQLite live/callback bajo el scheduler Tokio para aislamiento entre
-  ejecuciones concurrentes sobre las mismas claves.
-- Jobs Tokio, mailboxes y persistencia/restore automático por tick.
-- Ampliar golden con rutinas MSM reales y differential testing continuo.
+- `rust/lumen-mvm`: tasks Tokio, `mpsc`, gas cooperativo y C ABI JSON.
+- Host SQLite live por callback a `pdb_tools`; sin snapshot de namespaces en
+  Jobs, con mapping, triggers, índices, CDC y journal intactos.
+- `^STATE(pid,"rust_snapshot")` atómico + campos legacy; restore por tick.
+- READ/mailbox WAITING→READY durable; HIBERNATE y cron con `tokio::time`,
+  `^SCHEDULE` y `^CRON`.
+- `MVM_ENGINE=rust|python` opt-in con fallback y API MCP estable.
+- 3 Jobs golden compartidos verifican differential Python↔Rust en cada suite.
+
+## 🎯 Pendiente posterior
+
+- Ampliar el differential ya activo con rutinas MSM reales.
+- Reducir escrituras de compatibilidad legacy cuando todos los consumidores
+  lean el snapshot v4 directamente.
 
 ## Lo que soporta M-Light ahora
 

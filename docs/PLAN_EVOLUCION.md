@@ -167,7 +167,7 @@ Fase 2:  DDP: consolidar + seq monótono  ✅ HECHA (2026-07-14, ver §3.3)
 Fase 3:  Macaroons por namespace         ✅ HECHA (2026-07-14, ver §3.4)
 Fase 4:  Crate lumen-pdb (redb)           ✅ HECHA (2026-07-15, ver §3.5)
 Fase 5:  M-Light en Rust                  ✅ HECHA (2026-07-15, ver §3.6)
-Fase 6:  MVM sobre tokio (2 sem)         ◄── SIGUIENTE
+Fase 6:  MVM sobre tokio                  ✅ HECHA (2026-07-15, ver §3.7)
 ```
 
 ### Fase 1a — Fix WAL + rutas — ✅ HECHA (2026-07-14)
@@ -296,17 +296,40 @@ experimental/intercambiable y prueba de portabilidad, no como default.
 **Límite deliberado de Fase 5:** el adaptador SQLite usa snapshot optimista
 de los namespaces referenciados y aplica el diff final en una transacción
 SQLite única por la API PDB. El commit es atómico y valida precondiciones para
-rechazar lost updates sobre las claves tocadas. El Host live del scheduler
-Tokio (Fase 6) eliminará el snapshot y cubrirá namespaces mapeados/partidos.
+rechazar lost updates sobre las claves tocadas. Ese límite solo aplica a
+`execute_sqlite()` aislado: el Host live de Fase 6 ya elimina el snapshot para
+Jobs y cubre namespaces mapeados/partidos.
 
 **Importante:** no se sustituye M por otro lenguaje. M es el ISA de los
 agentes. Se porta, no se reemplaza.
 
-### Fase 6 — MVM sobre tokio (~2 semanas)
+### Fase 6 — MVM sobre tokio — ✅ HECHA (2026-07-15)
 
-1. Jobs M → tasks tokio con mailbox `mpsc`
-2. Estados y gas persistidos en ^STATE (el modelo no cambia)
-3. HIBERNATE/cron con `tokio::time` + tabla ^SCHEDULE
+1. ✅ Crate `lumen-mvm`: un actor/task Tokio por Job, scheduler cooperativo
+   round-robin y mailbox `tokio::sync::mpsc`.
+2. ✅ Host SQLite live mediante callback C ABI: `$GET/SET/$ORDER/$DATA/KILL`,
+   rutinas y TSTART/TCOMMIT/TROLLBACK pasan por `pdb_tools`; desaparece el
+   snapshot/diff de Fase 5 para Jobs y funcionan namespaces mapeados.
+3. ✅ Estado completo M-Light + gas persistido automáticamente por transición
+   en `^STATE(pid,"rust_snapshot")`, junto con los campos legacy, mediante un
+   batch SQLite atómico. Restore automático al crear el scheduler.
+4. ✅ `READ` sin entrada produce `WAITING` sin avanzar el IP; un mensaje
+   durable despierta el Job y reintenta la misma instrucción.
+5. ✅ `HIBERNATE` y restore del tiempo restante con `tokio::time` +
+   `^SCHEDULE`; cron M persistente en `^CRON`, también sin polling.
+6. ✅ C ABI + wrapper `lumen_mvm.py`; `MVM_ENGINE=rust|python`, Rust opt-in y
+   fallback Python si la dylib no está disponible. Las herramientas MCP no
+   cambian de API.
+7. ✅ Integración real SQLite cubre yield/gas, mapping, transacciones,
+   mailbox, timer, restart y cron. Benchmark reproducible en
+   `rust/lumen-mvm/benchmark_tokio_vs_python.json`.
+
+**Lectura del benchmark:** con 50 Jobs pequeños, spawn y tick quedan
+equivalentes (diferencia <1,1%) aun persistiendo snapshot + legacy. Rust
+restaura 100 Jobs ~2,6× más rápido. El mailbox Rust es más costoso porque sí
+persiste mensaje y transición WAITING→READY; el Python medido ya había dejado
+morir esos lectores. El objetivo sigue siendo aislamiento, reanudación exacta
+y timers reactivos, no reemplazar la decisión SQLite de Fase 4.
 
 ---
 

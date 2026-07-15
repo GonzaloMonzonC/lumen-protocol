@@ -1,0 +1,16 @@
+[package]
+name = "lumen-mvm"
+version = "0.1.0"
+edition = "2021"
+description = "Tokio job scheduler for the LUMEN M virtual machine"
+license = "MIT"
+
+[lib]
+name = "lumen_mvm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lumen-m-light = { path = "../lumen-m-light" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "time"] }

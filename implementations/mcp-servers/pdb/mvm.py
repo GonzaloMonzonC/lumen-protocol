@@ -1543,3 +1543,15 @@ class CronScheduler:
         else:
             # Ejecutar código M directamente
             self.mvm.spawn(action, name=f"cron:{name}")
+
+
+# Fase 6 is opt-in while the Python scheduler remains the safe fallback. The
+# public MVM name stays stable for pdb_tools and every MCP bridge.
+PythonMVM = MVM
+if os.environ.get("MVM_ENGINE", "python").strip().lower() in ("rust", "tokio"):
+    try:
+        from lumen_mvm import TokioMVM, available as _tokio_mvm_available
+        if _tokio_mvm_available():
+            MVM = TokioMVM
+    except (ImportError, OSError, RuntimeError):
+        MVM = PythonMVM
