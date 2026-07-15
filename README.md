@@ -255,8 +255,9 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 | Doc | Content |
 |-----|---------|
-| **[docs/INDEX.md](docs/INDEX.md)** | 📍 Documentation map — start here (updated 2026-07-14) |
+| **[docs/INDEX.md](docs/INDEX.md)** | 📍 Documentation map — start here (updated 2026-07-15) |
 | **[docs/PLAN_EVOLUCION.md](docs/PLAN_EVOLUCION.md)** | Evolution plan: PDB + M-Light + MVM roadmap by ROI |
+| **[docs/CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md)** | Agent-to-agent use cases: shared Namespaces, hibernation and node migration |
 | **[README_EXT.md](README_EXT.md)** | Protocol spec, all benchmarks, architecture deep-dive (EN) |
 | **[RFC_LUMEN.md](RFC_LUMEN.md)** | Formal IETF-style protocol RFC |
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |
