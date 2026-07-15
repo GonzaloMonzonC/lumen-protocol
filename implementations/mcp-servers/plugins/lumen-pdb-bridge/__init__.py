@@ -102,6 +102,20 @@ def _rpc(msg: dict) -> dict:
 
 def _call_tool(name: str, args: dict) -> str:
     """Call tool and return serialized JSON string for Hermes content field."""
+    # Fase 3: gate de macaroons (activo con PDB_MACAROON_REQUIRED=1).
+    # El token viaja en args["_macaroon"] o en env PDB_MACAROON.
+    if os.environ.get("PDB_MACAROON_REQUIRED") == "1":
+        token = (args or {}).pop("_macaroon", None) or os.environ.get("PDB_MACAROON", "")
+        try:
+            _pdb_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "pdb")
+            if _pdb_dir not in sys.path:
+                sys.path.insert(0, _pdb_dir)
+            from pdb_macaroon import authorize_tool
+            ok, reason = authorize_tool(token, name, args)
+        except Exception as e:
+            ok, reason = False, f"authz no disponible: {e}"
+        if not ok:
+            return json.dumps({"success": False, "error": f"macaroon: {reason}"})
     result = _rpc({"method": "tools/call", "params": {"name": name, "arguments": args}})
     content = result.get("content", [])
     if content and content[0].get("type") == "text":

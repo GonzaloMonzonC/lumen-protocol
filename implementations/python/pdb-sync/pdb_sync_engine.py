@@ -58,6 +58,19 @@ class SyncEngine:
         self.journal = []  # WAL local
         self.last_sync = {}
         self.source = "local"  # Identidad de este nodo
+
+    def _authz(self, ns: str, op: str):
+        """Gate de macaroons (Fase 3). Con env DDP_MACAROON, el token debe
+        autorizar el ns. Convención: pull/apply escribe local → op=write;
+        push lee local → op=read. Sin token, authz desactivada."""
+        token = os.environ.get("DDP_MACAROON", "")
+        if not token:
+            return True, "authz desactivada"
+        try:
+            from pdb_macaroon import check_access
+            return check_access(token, ns, op)
+        except Exception as e:
+            return False, f"authz no disponible: {e}"
     
     # ── Journal (WAL) ──
     def write(self, ns: str, key: str, value: str) -> JournalEntry:
@@ -76,6 +89,9 @@ class SyncEngine:
         Incremental por cursor de seq: solo entries posteriores al último
         push confirmado. El cursor avanza únicamente si el push tuvo éxito,
         así un fallo de red reintenta el mismo tramo (at-least-once)."""
+        ok, reason = self._authz(ns, "read")
+        if not ok:
+            return {"error": f"macaroon: {reason}"}
         from pdb_journal import read_after_cursor, cursor_set
 
         wal_entries = read_after_cursor("push", source="local", limit=100)
@@ -104,6 +120,9 @@ class SyncEngine:
         
         Anti-bucle: ignora entries con source=local (vinieron de aquí).
         """
+        ok, reason = self._authz(ns, "write")
+        if not ok:
+            return {"error": f"macaroon: {reason}"}
         result = self.ddp.pull(ns, since=self.last_sync.get(ns), batch_size=500)
         if "error" in result:
             return result

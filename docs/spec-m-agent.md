@@ -193,6 +193,32 @@ su dueño (hasta que existan macaroons por namespace — Fase 3).
 3. Rutas → `_paths.py` (pdb-sync) / `_pdb.py` (thinking). Cero absolutas.
 4. El guard es `tests_contract.py`; su allowlist solo puede encoger.
 
+### 8.1 Autorización por namespace: macaroons (Fase 3)
+
+Tokens de capacidad atenuables, port 1:1 de `rust/src/macaroon.rs`
+(`pdb/pdb_macaroon.py`) — **compatibilidad byte a byte verificada con
+test golden cruzado** (`rust/tests/macaroon_golden.rs`).
+
+- **Cadena**: `sig = HMAC-SHA256(root_key, id)`; cada caveat encadena
+  `sig = HMAC-SHA256(sig, caveat)`. Atenuar NO requiere la root key;
+  solo estrecha permisos.
+- **Caveats PDB**: `ns_prefix = X` (el ns accedido DEBE empezar por X;
+  varios = intersección) · `op = read|write` · `expiry < ISO8601`
+  (auto-verificado) · `tool = nombre`. Caveat desconocido → rechazo
+  (fail-closed).
+- **Root key**: env `PDB_MACAROON_KEY` (hex 64) > `~/.hermes/pdb-macaroon.key`
+  (auto-generada, 0600).
+- **Enforcement**: bridge PDB (`PDB_MACAROON_REQUIRED=1`, token en
+  `args["_macaroon"]` o env `PDB_MACAROON`; tools de lectura en
+  `READ_TOOLS`, el resto es write fail-closed) y DDP (env `DDP_MACAROON`:
+  header `X-DDP-Macaroon` hacia el edge + gate local en SyncEngine —
+  pull/apply=write, push=read).
+- **CLI**: `pdb_macaroon.py keygen|mint|inspect|verify`.
+
+*Rationale*: multi-agente externo con permisos por subárbol sin
+coordinar con el emisor — un agente puede delegar a otro un token más
+estrecho que el suyo.
+
 ## 9. Suite de conformidad
 
 Runner: `implementations/python/pdb-sync/run_conformance.py`.
@@ -222,8 +248,9 @@ autocontenida en una BD nueva. En la BD del equipo el fixture no escribe.
 
 ### Baseline de la implementación de referencia (2026-07-14)
 
-**✅ 425/425 — baseline cerrado a 0**, estable en doble pasada (BD virgen
-y re-ejecución sobre la misma BD).
+**✅ 456/456 — baseline cerrado a 0**, estable en doble pasada (BD virgen
+y re-ejecución sobre la misma BD). Incluye la categoría `seguridad`
+(31 tests de macaroons, Fase 3).
 
 Bugs de motor encontrados y arreglados al cerrar el baseline (regla de
 la spec: test incorrecto → se arregla el test; motor incorrecto → se
@@ -254,5 +281,6 @@ Tests hechos autocontenidos: `tests_msajob` (siembra sus pulses),
 - v0.1 (2026-07-14): estado actual congelado. Cambios de semántica → PR
   que toque spec + tests a la vez. Incluye journal DDP v2 (seq monótono
   + cursores, Fase 2).
+- v0.1 addendum (2026-07-14): macaroons por namespace (§8.1, Fase 3).
 - v2 (previsto): `@`, TSTART/TCOMMIT, changefeed de suscripciones,
-  detección de deadlock, macaroons por namespace.
+  detección de deadlock, verificación de macaroons en el edge worker.
