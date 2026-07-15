@@ -32,6 +32,9 @@ pub trait Host {
     fn read(&mut self) -> Result<String, String> {
         Ok(String::new())
     }
+    fn read_would_block(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Default)]

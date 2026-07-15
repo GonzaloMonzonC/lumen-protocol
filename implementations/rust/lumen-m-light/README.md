@@ -31,13 +31,14 @@ qué namespace precargar. En ese caso el adaptador exige
 `execute_sqlite(source, namespaces=["NS1", "NS2"])`; falla explícitamente en
 vez de devolver una lectura vacía silenciosa.
 
-El snapshot cubre el fichero SQLite canónico. Namespaces redirigidos por
-`MAP_CFG` o `PART_CFG` se rechazan hasta que el Host live pueda coordinar más
-de una conexión en Fase 6.
+El snapshot cubre el fichero SQLite canónico. Para Jobs persistentes de Fase 6,
+`lumen-mvm` usa el Host live y admite namespaces redirigidos por `MAP_CFG` o
+`PART_CFG`; `execute_sqlite()` aislado conserva deliberadamente su frontera de
+snapshot.
 
 El estado incluye IP, variables, pila, call stack, scopes `NEW`, frames de
 `FOR`, output, errores y contadores de gas. Las transacciones son secciones no
 yielding y hacen rollback automático en error. El commit del diff es atómico y
 comprueba que las claves tocadas no cambiaron desde el snapshot; si cambiaron,
-devuelve `PDB_CONFLICT` en lugar de sobrescribir. El Host live se conectará al
-scheduler Tokio en Fase 6.
+devuelve `PDB_CONFLICT` en lugar de sobrescribir. El Host live está implementado
+en `../lumen-mvm` y conecta cada operación directamente con `pdb_tools`.
