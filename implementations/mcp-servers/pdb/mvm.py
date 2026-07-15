@@ -161,7 +161,7 @@ class MProcess:
                 if m._quit_flag:
                     m._quit_flag = False
                     if self.pc >= len(lines):
-                        self.status = DEAD
+                        self.pc = 0
                         break
 
         except Exception as e:
@@ -179,7 +179,8 @@ class MProcess:
             self.status = READY
 
         if self.pc >= len(lines):
-            self.status = DEAD
+            self.pc = 0
+            self.status = READY
 
         self._save_state()
         return self.status != DEAD
