@@ -174,7 +174,7 @@ proceso ES datos en ^STATE, no un proceso de OS.
 | `^PROCESSES` | tabla de procesos MVM | MVM |
 | `^SCHEDULE` | despertares HIBERNATE/cron | MVM |
 | `^ROUTINE` | rutinas M + bytecode cache (SHA256) | M-Light |
-| `^CHANGES` | journal DDP (source tagging, anti-bucle) | pdb_journal |
+| `^CHANGES` | journal DDP v2: `("seq")` contador, `("journal",seq)` entries, `("cursor",name)` consumidores | pdb_journal |
 | `^IDX` | auto-índices | pdb_tools |
 | `^SUBSCRIPTIONS` | suscripciones persistentes | pdb_tools |
 | `^CONTEXT` | memoria de trabajo cognitiva (con GC) | agentes |
@@ -222,8 +222,9 @@ autocontenida en una BD nueva. En la BD del equipo el fixture no escribe.
 
 ### Baseline de la implementación de referencia (2026-07-14)
 
-**396/411 en BD nueva.** Desviaciones conocidas (preexistentes,
-verificadas idénticas en HEAD antes de los cambios de Fase 1b):
+**411/426 en BD nueva** (tras Fase 2, incluye `tests_journal_seq.py`).
+Desviaciones conocidas (preexistentes, verificadas idénticas en HEAD
+antes de los cambios de Fase 1b):
 
 - `tests_msajob.py` 11/21 — L1/L2 requieren ^MSA real (dump mas.GS de
   MSM Windows, no reproducible en fixture)
@@ -240,6 +241,7 @@ su print/exit final — nunca había reportado resultado.
 ## 10. Versionado de la spec
 
 - v0.1 (2026-07-14): estado actual congelado. Cambios de semántica → PR
-  que toque spec + tests a la vez.
-- v2 (previsto): `@`, TSTART/TCOMMIT, journal con seq monótono,
+  que toque spec + tests a la vez. Incluye journal DDP v2 (seq monótono
+  + cursores, Fase 2).
+- v2 (previsto): `@`, TSTART/TCOMMIT, changefeed de suscripciones,
   detección de deadlock, macaroons por namespace.
