@@ -111,7 +111,7 @@ def main():
             return 2
 
     print("=" * 60)
-    print("🏛  Conformidad Spec M-Agent v0.2")
+    print("🏛  Conformidad Spec M-Agent v0.3")
     print(f"    PDB: {os.environ.get('PDB_PATH', '(default del repo)')}")
     print("=" * 60)
 

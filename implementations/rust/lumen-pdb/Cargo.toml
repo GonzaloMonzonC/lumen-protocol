@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 redb = "2"
+lumen-m-light = { path = "../lumen-m-light" }
+serde_json = "1"
 
 [dev-dependencies]
-serde_json = "1"

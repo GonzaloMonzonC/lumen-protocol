@@ -65,6 +65,27 @@ assert vm.get_process(reader).status == "READY"
 vm.tick_all(20)
 assert pdb_tools.tool_get({"ns":"MAIL","subs":["got"]})["value"] == '{"hello":"tokio"}'
 
+# LOCK entre jobs: contención real vía _lock_table (SQLite, owner mvm_<pid>).
+holder = vm.spawn('L ^MUTEX("res")\nS ^LOCKED("holder")=1\nS pad=1\nS pad=2', name="holder", gas_limit=2)
+waiter = vm.spawn('L ^MUTEX("res")\nS ^LOCKED("waiter")=1', name="waiter", gas_limit=2)
+vm.tick_all(2)  # holder adquiere y cede por gas; waiter no adquiere
+assert vm.get_process(holder).status == "READY"
+assert vm.get_process(waiter).status == "BLOCKED"
+assert pdb_tools.tool_get({"ns":"LOCKED","subs":["waiter"]}).get("found") is False
+vm.tick_all(20)  # holder muere → unlock_all; waiter reintenta, entra y muere
+assert vm.get_process(holder).status == "DEAD"
+assert vm.get_process(waiter).status == "DEAD"
+assert pdb_tools.tool_get({"ns":"LOCKED","subs":["waiter"]})["value"] == 1.0
+
+# LOCK con timeout no bloquea: deja el resultado en $TEST.
+pdb_tools.tool_lock({"ns":"MUTEX","subs":["held"],"timeout":0,"owner":"outsider"})
+timed = vm.spawn('L ^MUTEX("held"):0\nS ^LOCKED("t1")=$T\nL ^MUTEX("free"):0\nS ^LOCKED("t2")=$T', name="timed")
+vm.tick_all(20)
+assert vm.get_process(timed).status == "DEAD"
+assert pdb_tools.tool_get({"ns":"LOCKED","subs":["t1"]})["value"] == 0.0
+assert pdb_tools.tool_get({"ns":"LOCKED","subs":["t2"]})["value"] == 1.0
+pdb_tools.tool_unlock({"ns":"MUTEX","subs":["held"],"owner":"outsider"})
+
 # HIBERNATE wakes through tokio::time without scheduler polling.
 sleeper = vm.spawn('S ^WAKE("done")=1', name="sleeper")
 vm.sleep_process(sleeper, 0.05)
