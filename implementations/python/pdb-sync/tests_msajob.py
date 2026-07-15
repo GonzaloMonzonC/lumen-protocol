@@ -2,6 +2,13 @@
 import sys, os; sys.path.insert(0, os.path.dirname(__file__))
 from pdb_msajob import *
 
+# Setup autocontenido: los agentes a matar deben existir en ^System("pulse")
+import _paths  # noqa: F401
+from pdb_tools import tool_set as _seed_set
+for _a in ("test-agent", "test-agent2", "old"):
+    _seed_set({"ns": "System", "subs": ["pulse", _a],
+               "value": {"status": "online", "fixture": True}})
+
 passed = failed = 0
 def test(name, ok):
     global passed, failed

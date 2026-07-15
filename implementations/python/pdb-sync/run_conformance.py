@@ -80,11 +80,14 @@ def warmup():
     ]
     for subs, value in fixture:
         tool_set({"ns": "System", "subs": subs, "value": value})
-    # imp05 recorre ^ROUTINE y espera >10 rutinas registradas
+    # imp05 recorre ^ROUTINE (>10 claves de primer nivel) y tests_integrity
+    # escanea ^ROUTINE("INDEX", name) + ^ROUTINE(name, línea)
     routine = tool_order({"ns": "ROUTINE", "subs": [""]})
     if not routine.get("value"):
         for i in range(1, 13):
-            tool_set({"ns": "ROUTINE", "subs": [f"ZFIX{i:02d}", "src"],
+            name = f"ZFIX{i:02d}"
+            tool_set({"ns": "ROUTINE", "subs": ["INDEX", name], "value": 1})
+            tool_set({"ns": "ROUTINE", "subs": [name, 1],
                       "value": "Q  ; conformance fixture"})
 
 def main():

@@ -197,9 +197,11 @@ Fase 6:  MVM sobre tokio (2 sem)
   normativa, $ORDER/$DATA/KILL/LOCK), modelo MVM (estados/gas/mailboxes),
   convención de namespaces, contrato de acceso, versionado
 - `pdb-sync/run_conformance.py`: suite por categorías con fixture
-  autocontenido. Baseline: **396/411** (4 desviaciones documentadas en
-  la spec, todas preexistentes)
-- Pendiente v0.x: cerrar baseline a 0; revisar la spec con Gonzalo (visión)
+  autocontenido. Baseline: **✅ 425/425 (cerrado a 0, doble pasada
+  estable)** — cerró 4 bugs de motor reales: $DATA falso positivo de
+  hijos, bytecode cache desordenado (idx string) y sin labels,
+  StackVM sin call_stack fuera de compile, daemon stop lento
+- Pendiente v0.x: revisar la spec con Gonzalo (visión)
 
 ### Fase 1b — Contrato PDB API — ✅ HECHA (2026-07-14)
 

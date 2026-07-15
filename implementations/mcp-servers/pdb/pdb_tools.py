@@ -1126,31 +1126,16 @@ def tool_data(args: dict) -> dict:
         ).fetchone()
         
         if not row:
-            # Check if it has children without existing itself
-            has_children = c.execute(
-                "SELECT 1 FROM _globals WHERE ns=? AND subkey > ? AND subkey < ? || X'FF' LIMIT 1",
-                [ns, key, key]
+            # Nodo sin valor propio: tiene hijos ⟺ el primer subkey posterior
+            # lleva `key` como prefijo (mismo criterio que el branch con valor)
+            next_key = c.execute(
+                "SELECT subkey FROM _globals WHERE ns=? AND subkey > ? ORDER BY subkey LIMIT 1",
+                [ns, key]
             ).fetchone()
-            if has_children:
-                return {"success": True, "value": 10}
-            # Check if it's a prefix-child (deeper level under this path)
-            prefix = key + b'\x00'  # anything after our key with a separator
-            has_children = c.execute(
-                "SELECT 1 FROM _globals WHERE ns=? AND subkey > ? LIMIT 1",
-                [ns, prefix]
-            ).fetchone()
-            # This is approximate... a better check would verify subkey starts with our key
-            # For practical purposes, we check if any key starts with our key prefix
-            # Actually let's use LIKE-like prefix matching via range query
-            # subkey >= key + 0x00 and subkey < key + 0xFF
-            # But 0xFF is our separator byte... all children have key + 0xFF + ...
-            # So they'll all be > key + 0x00 and also > key + 0xFF (since 0xFF is max byte)
-            # Hmm. Let me simplify:
-            # Children of KEY have subkey starting with KEY (same bytes + more)
-            # So: subkey != key but subkey starts with key
-            # In SQLite BLOB: use LIKE or just check prefix
-            if has_children:
-                return {"success": True, "value": 10}
+            if next_key:
+                nk = next_key["subkey"]
+                if len(nk) > len(key) and nk[:len(key)] == key:
+                    return {"success": True, "value": 10}
             return {"success": True, "value": 0}
         
         has_value = row["value"] is not None
