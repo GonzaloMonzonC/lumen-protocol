@@ -121,6 +121,8 @@ class StackVM:
     def __init__(self):
         self.ops = []           # pila de operandos
         self.instrs = []        # lista de instrucciones
+        self.labels = {}        # label → índice de instrucción
+        self.call_stack = []    # retornos de DO label
         self.ip = 0             # instruction pointer
         self.vars = {}          # variables locales
         self.quit_flag = False

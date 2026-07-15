@@ -222,21 +222,32 @@ autocontenida en una BD nueva. En la BD del equipo el fixture no escribe.
 
 ### Baseline de la implementación de referencia (2026-07-14)
 
-**411/426 en BD nueva** (tras Fase 2, incluye `tests_journal_seq.py`).
-Desviaciones conocidas (preexistentes, verificadas idénticas en HEAD
-antes de los cambios de Fase 1b):
+**✅ 425/425 — baseline cerrado a 0**, estable en doble pasada (BD virgen
+y re-ejecución sobre la misma BD).
 
-- `tests_msajob.py` 11/21 — L1/L2 requieren ^MSA real (dump mas.GS de
-  MSM Windows, no reproducible en fixture)
-- `tests_journal_daemon.py` 9/10 · `tests_integrity.py` 13/15
-- `tests_type.py` 9/11 bajo el runner (10/10 standalone) — acoplado al
-  orden de ejecución, pendiente de aislar
+Bugs de motor encontrados y arreglados al cerrar el baseline (regla de
+la spec: test incorrecto → se arregla el test; motor incorrecto → se
+arregla el motor; nunca se ignora en silencio):
 
-Cerrar este baseline a 0 es tarea de Fase 0 (los tests son parte de la
-spec: si un test es incorrecto se arregla el test, si el motor es
-incorrecto se arregla el motor — nunca se ignora en silencio). Bug ya
-arreglado bajo esta regla: `tests_imp04_do.py` usaba `f` sin definir en
-su print/exit final — nunca había reportado resultado.
+1. **`tool_data` daba falso positivo de hijos**: con el nodo ausente,
+   `$DATA` devolvía 10 si existía CUALQUIER clave posterior del
+   namespace (query `subkey > key+0x00` sin cota de prefijo). Ahora
+   usa prefix-check del siguiente subkey, como el branch con valor.
+2. **Bytecode cache indexaba instrucciones como string**: `$ORDER`
+   devolvía "10" antes que "2" → bytecode reordenado en rutinas de
+   ≥11 instrucciones. Ahora índice numérico + sort defensivo.
+3. **El cache no persistía `labels`**: `D label`/`GOTO` fallaban al
+   ejecutar desde cache (solo funcionaba recién compilado).
+4. **`StackVM.__init__` no creaba `call_stack`/`labels`**: ejecutar
+   bytecode sin pasar por `compile()` lanzaba AttributeError (M99).
+5. **`JournalDaemon.stop()` tardaba hasta `interval` segundos**:
+   `sleep` en el loop → `Event.wait` interrumpible.
+6. `tests_imp04_do.py` usaba `f` sin definir en print/exit — nunca
+   había reportado resultado.
+
+Tests hechos autocontenidos: `tests_msajob` (siembra sus pulses),
+`tests_bij` (limpia sus tx previas); fixture de rutinas con
+`^ROUTINE("INDEX")` para `tests_integrity`.
 
 ## 10. Versionado de la spec
 
