@@ -1,15 +1,15 @@
 # ◆ Mapa de documentación LUMEN
 
-> Actualizado: 2026-07-14. Sustituye a `doc-map-2026-06-20.md` (histórico).
+> Actualizado: 2026-07-15. Sustituye a `doc-map-2026-06-20.md` (histórico).
 > Regla: si tocas código que contradice un doc, actualiza el doc o márcalo aquí.
 
 ## Núcleo (empezar aquí)
 
 | Doc | Qué es | Estado |
 |-----|--------|--------|
-| [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) | **Plan canónico** PDB + M-Light + MVM, fases y ROI | ✅ Vigente (2026-07-14) |
-| [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (Fase 0, v0.1) | ✅ Vigente (2026-07-14) |
-| [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado del subset M, v1 + v2, pendientes | ✅ Vigente (2026-07-14) |
+| [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) | **Plan canónico** PDB + M-Light + MVM, fases y ROI | ✅ Vigente (2026-07-15) |
+| [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.2) | ✅ Vigente (2026-07-15) |
+| [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-07-15) |
 | `../ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
 | `../alternativas.md` / `../alternativa2.md` | Análisis de motores de almacenamiento (redb, LMDB, fjall...) | ✅ Vigente (2026-07-14) |
 | [COGNITIVE_OS.md](COGNITIVE_OS.md) | Arquitectura del OS cognitivo, referencia de tools | Revisar tool-counts |
@@ -65,8 +65,9 @@
 
 ## Deuda documental conocida (2026-07-14)
 
-1. **Spec M-Agent no existe** — es la Fase 0 del plan. Hasta entonces, el
-   código es la spec.
+1. El Host Rust→SQLite live queda para la Fase 6; el adaptador actual usa
+   snapshot optimista + commit atómico del diff por `pdb_tools`, con conflicto
+   si una clave tocada cambió desde el snapshot.
 2. La suite pdb-sync (journal DDP, sync engine, consola, vm_api) solo está
    documentada en commits y docstrings — el PLAN_EVOLUCION §1 es ahora el
    resumen de referencia.

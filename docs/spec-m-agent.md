@@ -1,9 +1,9 @@
-# Spec M-Agent v0.1 — lenguaje M + modelo de ejecución LUMEN
+# Spec M-Agent v0.2 — lenguaje M + modelo de ejecución LUMEN
 
 > Documento normativo del subset M soportado, la semántica de los globals,
 > el modelo de jobs (MVM) y el contrato de acceso a datos.
 >
-> Fecha: 2026-07-14 · Estado: **v0.1 borrador** (Fase 0 del PLAN_EVOLUCION)
+> Fecha: 2026-07-15 · Estado: **v0.2** (Fases 0-5 del PLAN_EVOLUCION)
 > Fuente de verdad: este documento + la suite de conformidad (§9).
 > Cualquier motor (Python hoy, Rust mañana) DEBE pasar la suite sin leer
 > la implementación de referencia.
@@ -21,7 +21,7 @@ Agente (LLM / humano / job M)
    ▼
 pdb_tools.py  ──── único dueño de las conexiones (pdb_connect)
    │
-   ├── M-Light  (compilador + stack-VM; triggers, REPL, consola, /vm/execute)
+   ├── M-Light  (Python o Rust; compilador + stack-VM)
    ├── MVM      (jobs, mailboxes, gas, ^SCHEDULE)
    ▼
 PDB (_globals en SQLite WAL)  ──── DDP replica ^namespaces entre nodos
@@ -132,12 +132,20 @@ UNLOCK ^NS(s...)            → liberar; sin args libera todos los del proceso
 - Literales hex `#FF` = 255.
 - Strings: comillas dobles; `""` dentro de string = comilla escapada.
 
-### 5.5 Fuera del subset v0.1 (reservado spec v2)
+### 5.5 Extensiones v0.2
 
-- **Indirection `@`** — existe embrión a nivel tool (`pdb_indirect.py`);
-  el operador en el evaluador es v2.
-- **TSTART/TCOMMIT/TROLLBACK** — transacciones multi-clave.
-- `$QUERY`, `$NAME`, `XECUTE`, patrones `?`.
+- **Indirection `@`**: `@expr` y `@(expr)` evalúan `expr` y usan el string
+  resultante como nombre de variable local o referencia global completa.
+  Es válido en lectura, `SET` y `KILL`. Un destino vacío produce
+  `MINDIRECT`; no se ejecuta texto arbitrario como código.
+- **`TSTART` / `TCOMMIT` / `TROLLBACK`**: transacciones multi-clave,
+  anidables. Commit o rollback sin `TSTART` activo produce `MTRANSACTION`.
+  Un error revierte todos los niveles abiertos.
+- Una sección transaccional es atómica también para el scheduler: NO cede
+  por `gas_limit` entre `TSTART` y commit/rollback. `gas_budget` sí se aplica
+  y evita una transacción infinita.
+
+Continúan fuera del subset: `$QUERY`, `$NAME`, `XECUTE` y patrones `?`.
 
 *Rationale*: lo que no está aquí NO se promete. Un LLM entrenado con esta
 spec no debe generar sintaxis fuera del subset.
@@ -152,6 +160,9 @@ Un **job** es un proceso M cooperativo persistido en PDB:
 - **Gas**: `gas_limit` = instrucciones por tick (default 1000);
   `gas_budget` = presupuesto de vida (0 = ilimitado). Agotar el budget →
   error `GAS_EXHAUSTED` y el proceso muere.
+- Los frames de `FOR`, el instruction pointer, call stack, scopes locales,
+  variables, pila y contadores de gas forman parte del estado serializado.
+  Reanudar NO repite iteraciones ya ejecutadas.
 - **Dispositivos** (`$IO`): 0 consola · 99 **mailbox IPC entre jobs** ·
   HTTP · webhook (servidor efímero) · log · dashboard · PDB device.
 - **Mailbox**: `mvm_mailbox_send/read`; el job en `WAITING` despierta al
@@ -233,6 +244,7 @@ Un motor es conforme si pasa todas las categorías **offline**:
 | journal | tests_journal, tests_journal_integration, tests_journal_daemon |
 | mvm | tests_msajob, tests_msasys |
 | contrato | tests_contract |
+| M-Light Rust | tests_rust_mlight (golden compartido, FFI, gas, SQLite) |
 | integridad | tests_integrity, tests_watchdog |
 
 Categorías **online** (necesitan edge/red, no bloquean conformidad):
@@ -246,11 +258,11 @@ fixture mínimo si `^System` está vacío (claves agents..startup, config
 sin valor propio, 12 rutinas ZFIXnn en ^ROUTINE) — la suite es
 autocontenida en una BD nueva. En la BD del equipo el fixture no escribe.
 
-### Baseline de la implementación de referencia (2026-07-14)
+### Baseline de la implementación de referencia (2026-07-15)
 
-**✅ 456/456 — baseline cerrado a 0**, estable en doble pasada (BD virgen
-y re-ejecución sobre la misma BD). Incluye la categoría `seguridad`
-(31 tests de macaroons, Fase 3).
+**✅ 515/515 — baseline cerrado a 0**. Incluye `storage` redb (38),
+`seguridad` macaroons (31) y `mlight_rust` (21), además del baseline Python.
+La persistencia canónica usada por conformidad continúa siendo SQLite.
 
 Bugs de motor encontrados y arreglados al cerrar el baseline (regla de
 la spec: test incorrecto → se arregla el test; motor incorrecto → se
@@ -282,5 +294,7 @@ Tests hechos autocontenidos: `tests_msajob` (siembra sus pulses),
   que toque spec + tests a la vez. Incluye journal DDP v2 (seq monótono
   + cursores, Fase 2).
 - v0.1 addendum (2026-07-14): macaroons por namespace (§8.1, Fase 3).
-- v2 (previsto): `@`, TSTART/TCOMMIT, changefeed de suscripciones,
-  detección de deadlock, verificación de macaroons en el edge worker.
+- v0.2 (2026-07-15): `@`, TSTART/TCOMMIT/TROLLBACK y contrato de estado/gas
+  serializable; implementación Rust + golden compartido (§5.5, Fase 5).
+- v0.3 (previsto): changefeed de suscripciones, detección de deadlock y
+  verificación de macaroons en el edge worker.

@@ -1,5 +1,25 @@
 # M-Light v2 — Performance Benchmarks
 
+## M-Light Rust v3 — Fase 5 (2026-07-15)
+
+Apple Silicon arm64, macOS 15.7.7, Python 3.14.6, build Rust `--release`.
+Las cifras Rust incluyen ctypes, JSON request/response y allocation de
+strings; son el coste observable desde Python, no un benchmark nativo ideal.
+
+| Escenario | Python mediana | Rust FFI mediana | Lectura |
+|-----------|----------------:|-----------------:|---------|
+| compilar 1 línea | 1,291 µs | 2,208 µs | domina la frontera FFI |
+| compilar 4 líneas | 4,542 µs | 3,500 µs | Rust 1,30× más rápido |
+| compilar + ejecutar 4 líneas | 8,250 µs | 10,708 µs | JSON domina script diminuto |
+| ejecutar 4 líneas precompiladas | 4,250 µs | 12,083 µs | se reenvía bytecode JSON completo |
+| FOR 1→100 | 269,875 µs | 67,959 µs | Rust **3,97× más rápido** |
+
+Conclusión: el port ya gana cuando hay trabajo real dentro del VM. En scripts
+de 1-4 instrucciones la ABI JSON cuesta más que la ejecución; Fase 6 puede
+eliminar esa copia manteniendo handles/programas residentes en el scheduler.
+SQLite no participa en esta medición y continúa como almacenamiento canónico.
+Raw reproducible: `implementations/rust/lumen-m-light/benchmark_rust_vs_python.json`.
+
 **Date:** 2026-07-12
 **Environment:** Python 3.11, Windows 10, AMD Ryzen
 

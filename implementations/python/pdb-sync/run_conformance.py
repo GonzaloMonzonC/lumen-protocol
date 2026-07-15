@@ -26,6 +26,7 @@ OFFLINE = {
     "mvm": ["tests_msajob.py", "tests_msasys.py"],
     "contrato": ["tests_contract.py"],
     "storage": ["tests_redb.py"],
+    "mlight_rust": ["tests_rust_mlight.py"],
     "seguridad": ["tests_macaroon.py"],
     "integridad": ["tests_integrity.py", "tests_watchdog.py"],
 }
@@ -109,7 +110,7 @@ def main():
             return 2
 
     print("=" * 60)
-    print("🏛  Conformidad Spec M-Agent v0.1")
+    print("🏛  Conformidad Spec M-Agent v0.2")
     print(f"    PDB: {os.environ.get('PDB_PATH', '(default del repo)')}")
     print("=" * 60)
 
