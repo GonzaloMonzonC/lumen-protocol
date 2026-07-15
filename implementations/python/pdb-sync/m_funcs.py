@@ -76,6 +76,46 @@ def func_find(args):
     pos = s.find(sub)
     return 0 if pos < 0 else pos + len(sub)
 
+def func_fnumber(args):
+    """$FNUMBER(n,codes[,decimals]) — códigos: , + - T P (paridad con Rust)."""
+    try: val = float(args[0]) if args and str(args[0]).strip() else 0.0
+    except: val = 0.0
+    codes = str(args[1]).upper() if len(args) > 1 else ""
+    decimals = None
+    if len(args) > 2:
+        try: decimals = max(0, int(float(args[2])))
+        except: decimals = None
+    mag = abs(val)
+    if decimals is not None:
+        factor = 10 ** decimals
+        mag = int(mag * factor + 0.5) / factor  # mitad lejos de cero, no banker's
+        body = f"{mag:.{decimals}f}"
+    else:
+        body = str(int(mag)) if mag == int(mag) and mag < 9e15 else repr(mag)
+    negative = val < 0 and float(body) != 0
+    if ',' in codes:
+        int_part, dot, frac = body.partition('.')
+        grouped = ""
+        for i, ch in enumerate(int_part):
+            if i > 0 and (len(int_part) - i) % 3 == 0: grouped += ','
+            grouped += ch
+        body = grouped + (dot + frac if dot else "")
+    if negative and 'P' in codes:
+        return f"({body})"
+    trailing = 'T' in codes
+    out = ""
+    if negative:
+        if not trailing and '-' not in codes: out += '-'
+    elif not trailing and '+' in codes:
+        out += '+'
+    out += body
+    if trailing:
+        if negative:
+            if '-' not in codes: out += '-'
+        elif '+' in codes:
+            out += '+'
+    return out
+
 def func_select(args):
     for a in args:
         parts = str(a).split(':', 1)
@@ -105,6 +145,7 @@ FUNC_TABLE = [
     ("$D", 1, 1, None),
     ("$E", 1, 3, func_extract),
     ("$F", 2, 2, func_find),
+    ("$FN", 2, 3, func_fnumber),
     ("$G", 1, 2, func_get),
     ("$L", 1, 1, func_length),
     ("$O", 1, 2, None),
@@ -165,6 +206,7 @@ FUNC_TABLE = [
     ("$D", 1, 1, func_data),
     ("$E", 1, 3, func_extract),
     ("$F", 2, 2, func_find),
+    ("$FN", 2, 3, func_fnumber),
     ("$G", 1, 2, func_get),
     ("$L", 1, 1, func_length),
     ("$O", 1, 2, func_order),

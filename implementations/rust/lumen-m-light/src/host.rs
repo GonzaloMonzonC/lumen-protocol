@@ -35,6 +35,18 @@ pub trait Host {
     fn read_would_block(&self) -> bool {
         false
     }
+    /// LOCK ^NS(subs). `timeout=None` = intención de bloquear: el host hace
+    /// UN intento no bloqueante y la VM cede y reintenta si devuelve false.
+    /// Con timeout el host puede esperar hasta ese presupuesto (segundos).
+    fn lock(&mut self, _ns: &str, _subs: &[Subscript], _timeout: Option<f64>) -> Result<bool, String> {
+        Ok(true)
+    }
+    fn unlock(&mut self, _ns: &str, _subs: &[Subscript]) -> Result<(), String> {
+        Ok(())
+    }
+    fn unlock_all(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -43,6 +55,7 @@ pub struct MemoryHost {
     transactions: Vec<HashMap<(String, Vec<Subscript>), Value>>,
     routines: HashMap<String, String>,
     input: Vec<String>,
+    locks: HashMap<(String, Vec<Subscript>), u64>,
 }
 
 impl MemoryHost {
@@ -78,6 +91,10 @@ impl MemoryHost {
 
     pub fn push_input(&mut self, value: impl Into<String>) {
         self.input.push(value.into());
+    }
+
+    pub fn held_locks(&self) -> usize {
+        self.locks.len()
     }
 }
 
@@ -189,5 +206,32 @@ impl Host for MemoryHost {
         } else {
             Ok(self.input.remove(0))
         }
+    }
+
+    // Un MemoryHost tiene un único dueño (una VM): los locks son contadores
+    // reentrantes y siempre se adquieren. La contención real vive en los
+    // hosts multi-proceso (LiveHost/pdb_lock).
+    fn lock(&mut self, ns: &str, subs: &[Subscript], _timeout: Option<f64>) -> Result<bool, String> {
+        *self
+            .locks
+            .entry((ns.to_string(), subs.to_vec()))
+            .or_insert(0) += 1;
+        Ok(true)
+    }
+
+    fn unlock(&mut self, ns: &str, subs: &[Subscript]) -> Result<(), String> {
+        let key = (ns.to_string(), subs.to_vec());
+        if let Some(count) = self.locks.get_mut(&key) {
+            *count -= 1;
+            if *count == 0 {
+                self.locks.remove(&key);
+            }
+        }
+        Ok(())
+    }
+
+    fn unlock_all(&mut self) -> Result<(), String> {
+        self.locks.clear();
+        Ok(())
     }
 }

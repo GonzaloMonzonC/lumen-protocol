@@ -2408,12 +2408,15 @@ def _init_locks_table():
 
 def _acquire_sqlite_lock(key: str, owner: str, timeout: float = None) -> bool:
     """Acquire a named lock via SQLite INSERT (UNIQUE constraint = lock contention).
-    Multi-process safe. Returns True if acquired, False if timeout."""
+    Multi-process safe. Returns True if acquired, False if timeout.
+    timeout=None blocks indefinitely; timeout=0 makes exactly one attempt
+    (the MVM uses that non-blocking probe and retries cooperatively).
+    Re-acquiring a key already held by the same owner succeeds (reentrant)."""
     import time as _lt
     _init_locks_table()
-    deadline = _lt.time() + timeout if timeout else float('inf')
+    deadline = _lt.time() + timeout if timeout is not None else float('inf')
 
-    while _lt.time() < deadline:
+    while True:
         try:
             c = _get_conn()
             # Clean stale locks first (own transaction)
@@ -2430,15 +2433,23 @@ def _acquire_sqlite_lock(key: str, owner: str, timeout: float = None) -> bool:
                 c.commit()
                 return True
             except Exception:
-                # Lock held by someone else — rollback and retry
+                # Lock held — rollback; reentrada del mismo owner cuenta como adquirido
                 try:
                     c.rollback()
                 except Exception:
                     pass
+                row = c.execute(
+                    "SELECT owner FROM _lock_table WHERE key=?", [key]
+                ).fetchone()
+                if row and row["owner"] == owner:
+                    return True
+                if _lt.time() >= deadline:
+                    return False
                 _lt.sleep(0.05)
         except Exception:
+            if _lt.time() >= deadline:
+                return False
             _lt.sleep(0.1)
-    return False
 def _release_sqlite_lock(key: str, owner: str):
     """Release a named lock by deleting its row."""
     try:
@@ -2450,12 +2461,13 @@ def _release_sqlite_lock(key: str, owner: str):
         pass
 
 def tool_lock(args: dict) -> dict:
-    """LOCK ^ns(subs) — acquire a resource lock. Multi-process safe via SQLite."""
+    """LOCK ^ns(subs) — acquire a resource lock. Multi-process safe via SQLite.
+    args["owner"] overrides the default pid_threadid owner (MVM jobs pass mvm_<pid>)."""
     ns = args["ns"]
     subs = args.get("subs", [])
     timeout = args.get("timeout", None)  # None = block indefinitely
     key = _lock_key(ns, subs)
-    owner = f"{os.getpid()}_{threading.get_native_id()}"
+    owner = args.get("owner") or f"{os.getpid()}_{threading.get_native_id()}"
 
     # Try SQLite multi-process lock first
     acquired = _acquire_sqlite_lock(key, owner, timeout)
@@ -2467,11 +2479,12 @@ def tool_lock(args: dict) -> dict:
                 "key": key, "error": "timeout"}
 
 def tool_unlock(args: dict) -> dict:
-    """UNLOCK ^ns(subs) — release a specific lock. If no args, releases all held by this process."""
+    """UNLOCK ^ns(subs) — release a specific lock. If no args, releases all held by this process.
+    args["owner"] overrides the default pid_threadid owner (MVM jobs pass mvm_<pid>)."""
     ns = args.get("ns")
     subs = args.get("subs", [])
     all_flag = args.get("all", False)
-    owner = f"{os.getpid()}_{threading.get_native_id()}"
+    owner = args.get("owner") or f"{os.getpid()}_{threading.get_native_id()}"
 
     if all_flag or ns is None:
         try:
