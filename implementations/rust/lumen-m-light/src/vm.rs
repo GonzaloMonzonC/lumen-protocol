@@ -140,6 +140,10 @@ pub struct Vm<'a, H: Host> {
     pub host: &'a mut H,
     slice_used: u64,
     slice_limit: u64,
+    /// >0 mientras se ejecuta código inline (D ^RUTINA, cuerpos IF/ELSE).
+    /// El agotamiento de slice NO cede ahí: una rutina reiniciada a mitad
+    /// repite efectos (livelock con FOR). gas_budget sí sigue aplicando.
+    inline_depth: usize,
 }
 
 impl<'a, H: Host> Vm<'a, H> {
@@ -151,6 +155,7 @@ impl<'a, H: Host> Vm<'a, H> {
             host,
             slice_used: 0,
             slice_limit: 1,
+            inline_depth: 0,
         }
     }
 
@@ -167,6 +172,7 @@ impl<'a, H: Host> Vm<'a, H> {
             host,
             slice_used: 0,
             slice_limit: 1,
+            inline_depth: 0,
         })
     }
 
@@ -613,7 +619,10 @@ impl<'a, H: Host> Vm<'a, H> {
                 }
             }
             while frame.body_ip < body_program.instructions.len() {
-                if self.slice_used >= self.slice_limit && self.host.transaction_level() == 0 {
+                if self.slice_used >= self.slice_limit
+                    && self.host.transaction_level() == 0
+                    && self.inline_depth == 0
+                {
                     self.state.loop_frames.insert(instruction_ip, frame);
                     self.state.ip = instruction_ip;
                     return Ok(Control::Yield);
@@ -704,14 +713,19 @@ impl<'a, H: Host> Vm<'a, H> {
 
     fn exec_inline_control(&mut self, source: &str, line: usize) -> Result<Control, VmError> {
         let program = Compiler::compile(source).map_err(|e| VmError::new("MCOMPILE", e, line))?;
-        for instruction in &program.instructions {
-            self.charge(line)?;
-            let control = self.execute_instruction(instruction)?;
-            if !matches!(control, Control::Continue) {
-                return Ok(control);
+        self.inline_depth += 1;
+        let result = (|| {
+            for instruction in &program.instructions {
+                self.charge(line)?;
+                let control = self.execute_instruction(instruction)?;
+                if !matches!(control, Control::Continue) {
+                    return Ok(control);
+                }
             }
-        }
-        Ok(Control::Continue)
+            Ok(Control::Continue)
+        })();
+        self.inline_depth -= 1;
+        result
     }
 
     pub fn eval_expr(&mut self, expression: &str, line: usize) -> Result<Value, VmError> {

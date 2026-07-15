@@ -358,7 +358,13 @@ Gaps señalados en la revisión externa de F5, verificados e implementados
 4. ✅ Fix de corrección en la VM: un READ/LOCK que cede dentro de un
    cuerpo FOR rebobina `body_ip` — antes la instrucción se saltaba al
    reanudar.
-5. ✅ Suite de conformidad completa tras los cambios: **519/519**.
+5. ✅ Fix de corrección en la VM (hallado testeando casos de uso reales):
+   el slice de gas agotado dentro de `D ^RUTINA` reiniciaba la rutina
+   desde cero cada tick → livelock con cualquier rutina que contuviera
+   un FOR y `gas_limit` pequeño. Las rutinas externas ejecutan ahora
+   atómicas respecto al scheduler, como las transacciones (`inline_depth`
+   suprime el yield por slice; `gas_budget` sigue cortando).
+6. ✅ Suite de conformidad completa tras los cambios: **519/519**.
 
 ---
 

@@ -181,6 +181,30 @@ fn blocking_lock_yields_and_retries_the_same_instruction() {
 }
 
 #[test]
+fn external_routine_with_for_completes_despite_tiny_gas_slices() {
+    // Regresión: el slice agotado dentro de D ^RUTINA reiniciaba la rutina
+    // desde cero cada tick (livelock). Las rutinas ejecutan atómicas.
+    let program = Compiler::compile("D ^SUMLOOP\nS after=1").unwrap();
+    let mut host = MemoryHost::default();
+    host.add_routine("SUMLOOP", "S t=0\nF i=1:1:30 { S t=t+i }\nQ");
+    let mut vm = Vm::new(program, &mut host);
+    vm.state.gas_limit = 2;
+    let mut slices = 0;
+    loop {
+        match vm.run_slice(2) {
+            Execution::Yielded => {
+                slices += 1;
+                assert!(slices < 50, "livelock: la rutina nunca termina");
+            }
+            Execution::Completed => break,
+            other => panic!("unexpected execution: {other:?}"),
+        }
+    }
+    assert_eq!(vm.state.vars["t"], Value::Number(465.0));
+    assert_eq!(vm.state.vars["after"], Value::Number(1.0));
+}
+
+#[test]
 fn blocked_lock_inside_for_body_resumes_without_skipping() {
     let program = Compiler::compile("S n=0\nF i=1:1:2 { L ^LOOP S n=n+1 UNLOCK ^LOOP }").unwrap();
     let mut host = ContentiousHost {
