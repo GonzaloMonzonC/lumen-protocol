@@ -1,0 +1,16 @@
+[package]
+name = "lumen-pdb"
+version = "0.1.0"
+edition = "2021"
+description = "PDB storage engine sobre redb — Fase 4 del plan de evolución LUMEN"
+license = "MIT"
+
+[lib]
+name = "lumen_pdb"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+redb = "2"
+
+[dev-dependencies]
+serde_json = "1"

@@ -126,7 +126,10 @@ pdb_query("SELECT ns, count(*) as nodes FROM _globals GROUP BY ns ORDER BY nodes
 
 ## Design
 
-- **Single SQLite file** (default: `lumen-pdb.db`, override with `PDB_PATH` env var)
+- **SQLite por defecto** (default: `lumen-pdb.db`, override con `PDB_PATH`)
+- **redb experimental para las 7 operaciones núcleo** mediante
+  `lumen_pdb.connect()` y `PDB_ENGINE=redb`; ver
+  [`../../rust/lumen-pdb/README.md`](../../rust/lumen-pdb/README.md)
 - **WAL mode** — concurrent reads, crash-safe writes
 - **Level encoding** — type-prefixed, collation-correct byte sequences
 - **Transport: stdio JSON-RPC** — PDB uses `server.py` over stdio. SHM (Level 2 zero-copy) is available via `server_shm.py` but **not recommended**: SHM adds ~700μs overhead per call, while SQLite operations take 15-96μs. For μs-scale KV ops, stdio is 20× faster.
