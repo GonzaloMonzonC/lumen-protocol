@@ -104,8 +104,12 @@ def test_ring_10_agents():
     start = time.time()
     ticks = 0
     max_ticks = 500
+    is_rust = getattr(mvm, 'engine', '') == 'rust-tokio'
     while ticks < max_ticks:
-        mvm.tick()
+        if is_rust:
+            mvm.tick_all(1)
+        else:
+            mvm.tick()
         ticks += 1
         token_val = pdb.tool_get({"ns": "TEST", "subs": ["token"]}).get("value")
         if token_val is None or token_val == "" or token_val == '""':
@@ -181,8 +185,12 @@ def test_throughput():
 
     start = time.time()
     ticks = 0
+    is_rust = getattr(mvm, 'engine', '') == 'rust-tokio'
     while time.time() - start < DURATION:
-        mvm.tick()
+        if is_rust:
+            mvm.tick_all(1)
+        else:
+            mvm.tick()
         ticks += 1
 
     elapsed = time.time() - start
