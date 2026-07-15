@@ -1150,7 +1150,7 @@ class MEvaluator:
             except: return 0
 
         # ^(subs) — naked reference (reemplaza último subíndice)
-        m = re.match(r'\^\(([^)]+)\)', token)
+        m = re.match(r'\^\(([^)]+)\)$', token)
         if m and self.pdb and self._last_ref:
             ns = self._last_ref["ns"]
             naked_subs = self._parse_subs(m.group(1))
@@ -1164,7 +1164,7 @@ class MEvaluator:
             return r.get("value")
 
         # ^ns(subs) — acceso directo a global
-        m = re.match(r'\^(\w+)\(([^)]+)\)', token)
+        m = re.match(r'\^(\w+)\(([^)]+)\)$', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
@@ -1257,7 +1257,7 @@ class MEvaluator:
                     return int(result) if result == int(result) else result
 
         # ^ns(subs) — referencia directa a global (soporta multi-nivel)
-        m = re.match(r'\^(\w+)\((.+?)\)', token)
+        m = re.match(r'\^(\w+)\((.+?)\)$', token)
         if m and self.pdb:
             ns = m.group(1)
             subs = self._parse_subs(m.group(2))
