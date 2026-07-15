@@ -417,6 +417,8 @@ los agentes.
   (redb, heed/LMDB, fjall, rusqlite, sled, RocksDB)
 - `alternativa2.md` (raíz) — análisis complementario
 - `docs/ROADMAP_MLIGHT.md` — estado del subset M
+- `docs/CASOS_USO_AGENTES.md` — casos A2A sobre Namespaces compartidos,
+  hibernación y migración entre nodos
 - `docs/BENCHMARKS.md` — benchmarks de rendimiento
 - `docs/COGNITIVE_OS.md` — visión del sistema operativo cognitivo
 - `docs/INDEX.md` — mapa de toda la documentación
