@@ -71,14 +71,17 @@ class SyncEngine:
     
     # ── Push (local → cloud) ──
     def push_pending(self, ns: str) -> dict:
-        """Enviar entries locales pendientes al cloud."""
-        from pdb_journal import read, write, make_entry, pending as wal_pending
+        """Enviar entries locales pendientes al cloud.
 
-        # Push entries del WAL con source=local
-        wal_entries = read(source="local", limit=100)
+        Incremental por cursor de seq: solo entries posteriores al último
+        push confirmado. El cursor avanza únicamente si el push tuvo éxito,
+        así un fallo de red reintenta el mismo tramo (at-least-once)."""
+        from pdb_journal import read_after_cursor, cursor_set
+
+        wal_entries = read_after_cursor("push", source="local", limit=100)
         if not wal_entries:
             return {"status": "ok", "applied": 0}
-        
+
         # Convertir a formato DDP (hex key)
         ddp_entries = []
         for e in wal_entries:
@@ -88,8 +91,11 @@ class SyncEngine:
                 "source": "local",
                 "updated_at": e["ts"],
             })
-        
+
         result = self.ddp.push(ns, ddp_entries)
+        if "error" not in result:
+            cursor_set("push", max(e["seq"] for e in wal_entries))
+            result["cursor"] = max(e["seq"] for e in wal_entries)
         return result
     
     # ── Pull (cloud → local) ──
@@ -105,37 +111,52 @@ class SyncEngine:
         entries = result.get("entries", [])
         applied = 0
         skipped = 0
-        
+
+        from pdb_tools import tool_set, decode_subkey
+
         for entry_data in entries:
-            key_bytes = bytes.fromhex(entry_data["key"]) if isinstance(entry_data.get("key"), str) and all(c in '0123456789abcdefABCDEF' for c in entry_data["key"]) else entry_data.get("key", "").encode()
-            key = key_bytes.decode() if isinstance(key_bytes, bytes) else key_bytes
-            
             source = entry_data.get("source", "cloud")
-            
+
             # ⚠️ Anti-bucle: si el entry vino de "local", lo saltamos
             if source == self.source:
                 skipped += 1
                 continue
-            
+
+            raw_key = entry_data.get("key", "")
+            if isinstance(raw_key, str) and raw_key and all(c in '0123456789abcdefABCDEF' for c in raw_key):
+                key_bytes = bytes.fromhex(raw_key)
+            else:
+                key_bytes = str(raw_key).encode()
+
+            # La clave del wire puede ser un string utf-8 simple (SyncEngine)
+            # o una subkey ya codificada con encode_subkey (full_sync)
+            subs = None
+            try:
+                subs = [key_bytes.decode()]
+            except UnicodeDecodeError:
+                try:
+                    subs = decode_subkey(key_bytes)
+                except Exception:
+                    self._log(f"clave no decodificable: {str(raw_key)[:32]}")
+                    skipped += 1
+                    continue
+
             # Aplicar localmente
             try:
-                import sys, os
-                sp = _paths.PDB_DIR_S
-                if sp not in sys.path: sys.path.insert(0, sp)
-                from pdb_tools import tool_set
                 val = entry_data.get("value", "")
-                # Extraer el valor real del entry del journal
+                # Extraer el valor real si viene envuelto en un entry de journal
+                actual_ns, actual_subs, actual_val = ns, subs, val
                 try:
                     parsed = json.loads(val)
-                    actual_val = parsed.get("value", val) if isinstance(parsed, dict) else val
-                    actual_ns = parsed.get("ns", ns) if isinstance(parsed, dict) else ns
-                    actual_key = parsed.get("key", key) if isinstance(parsed, dict) else key
-                except:
-                    actual_val = val
-                    actual_ns = ns
-                    actual_key = key
-                
-                tool_set({"ns": actual_ns, "subs": [actual_key], "value": actual_val})
+                    if isinstance(parsed, dict) and "value" in parsed:
+                        actual_val = parsed["value"]
+                        actual_ns = parsed.get("ns", ns)
+                        if parsed.get("key"):
+                            actual_subs = [parsed["key"]]
+                except Exception:
+                    pass
+
+                tool_set({"ns": actual_ns, "subs": actual_subs, "value": actual_val})
                 applied += 1
             except Exception as e:
                 self._log(f"Apply error: {e}")
@@ -166,9 +187,12 @@ class SyncEngine:
             "version": "0.1",
         }
     
+    def _log(self, msg: str):
+        print(f"[sync] {msg}")
+
     def _apply_entry(self, entry: JournalEntry):
         """Aplicar entry localmente.
-        
+
         Por defecto: last-write-wins (sobrescribe).
         Sobrescribir para namespaces específicos.
         """
