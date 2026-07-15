@@ -1,0 +1,18 @@
+[package]
+name = "lumen-m-light"
+version = "0.1.0"
+edition = "2021"
+description = "M-Light compiler and resumable stack VM for LUMEN agents"
+license = "MIT"
+
+[lib]
+name = "lumen_mlight"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = "1"

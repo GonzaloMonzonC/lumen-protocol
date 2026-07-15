@@ -60,6 +60,7 @@ _conn_lock = threading.Lock()
 _db_connections: dict[str, sqlite3.Connection] = {}
 _db_map: dict[str, str] = {}  # populated from MAP_CFG at first use
 _db_map_loaded = False
+_atomic_ctx = threading.local()
 
 _MAP_CFG_NS = "MAP_CFG"
 
@@ -135,6 +136,9 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
     If ns has a global mapping, returns the mapped DB connection.
     Otherwise returns the default connection."""
     global _conn
+    atomic_connection = getattr(_atomic_ctx, "connection", None)
+    if atomic_connection is not None:
+        return atomic_connection
 
     # Partition routing (checked first — more specific)
     if ns and subs and _part_configs:
@@ -186,6 +190,11 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
         except:
             pass
     return _conn
+
+def _maybe_commit(conn: sqlite3.Connection) -> None:
+    """Commit unless a VM diff owns the surrounding SQLite transaction."""
+    if not getattr(_atomic_ctx, "active", False):
+        conn.commit()
 
 def _get_or_create_mapped_conn(key: str, path: str) -> sqlite3.Connection:
     """Get or create a connection for a mapped path. Used by mapping and partitioning."""
@@ -438,6 +447,36 @@ def tool_m_eval(args: dict) -> dict:
     expr = args.get("expression", "")
     if not expr.strip():
         return {"success": False, "error": "Empty expression"}
+    if os.environ.get("MLIGHT_ENGINE", "python").lower() == "rust":
+        try:
+            from lumen_mlight import execute_sqlite
+            response = execute_sqlite(
+                expr,
+                persist=args.get("persist", True),
+                namespaces=args.get("namespaces"),
+                gas_limit=int(args.get("gas_limit", 1000)),
+                gas_budget=int(args.get("gas_budget", 0)),
+            )
+            state = response.get("state") or {}
+            stack = state.get("stack") or []
+            result = state.get("output") or (stack[-1] if stack else "")
+            return {
+                "success": response.get("ok", False),
+                "expression": expr,
+                "result": result,
+                "mode": "rust_stackvm",
+                "execution": response.get("execution"),
+                "state": state,
+                "error": response.get("error"),
+            }
+        except Exception as rust_error:
+            if os.environ.get("MLIGHT_ENGINE_STRICT") == "1":
+                return {
+                    "success": False,
+                    "expression": expr,
+                    "error": f"Rust M-Light unavailable: {rust_error}",
+                }
+            logger.warning("Rust M-Light unavailable; Python fallback: %s", rust_error)
     try:
         import importlib.util, sys
         _m_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "m_light.py")
@@ -450,7 +489,7 @@ def tool_m_eval(args: dict) -> dict:
         # If it looks like a command (starts with S, K, F, I, W, D, G, N, O, U, C)
         # or contains '=', use eval instead of eval_expr
         first_word = expr.strip().split()[0].upper() if expr.strip() else ''
-        is_command = first_word in ('S', 'K', 'F', 'I', 'W', 'D', 'G', 'N', 'O', 'U', 'C', 'SET', 'KILL', 'FOR', 'IF', 'WRITE', 'DO', 'GOTO', 'NEW', 'OPEN', 'USE', 'CLOSE')
+        is_command = first_word in ('S', 'K', 'F', 'I', 'W', 'D', 'G', 'N', 'O', 'U', 'C', 'SET', 'KILL', 'FOR', 'IF', 'WRITE', 'DO', 'GOTO', 'NEW', 'OPEN', 'USE', 'CLOSE', 'TSTART', 'TCOMMIT', 'TROLLBACK')
         has_assignment = '=' in expr and not expr.strip().startswith('$')
 
         if is_command or has_assignment:
@@ -1005,7 +1044,7 @@ def tool_set(args: dict) -> dict:
         _fire_triggers("ON_SET", ns, subs, value, c)
         _schema_auto_index_on_set(ns, subs, value, c)
         old_val = _decode_value(row["value"]) if row and row["value"] is not None else None
-        c.commit()
+        _maybe_commit(c)
         _record_change(ns, subs, "SET", old_val, value, c)
         return {"success": True}
     except Exception as e:
@@ -1210,7 +1249,7 @@ def tool_kill(args: dict) -> dict:
             "DELETE FROM _globals WHERE ns=? AND subkey > ? AND subkey < ?",
             [ns, key, key + b'\xff\xff\xff\xff']
         )
-        c.commit()
+        _maybe_commit(c)
         for child_subs, child_val in old_rows_data:
             _record_change(ns, child_subs, "KILL", child_val, None, c)
         if not old_rows_data:
@@ -1218,6 +1257,91 @@ def tool_kill(args: dict) -> dict:
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def tool_apply_batch(args: dict) -> dict:
+    """Apply SET/KILL operations as one SQLite transaction.
+
+    Used by the Rust M-Light snapshot adapter. Each mutation still traverses
+    the normal history, trigger, index, CDC and FTS paths, but no intermediate
+    commit is visible. Mapped/partitioned namespaces are rejected because a
+    single SQLite transaction cannot span database files.
+    """
+    operations = args.get("operations", [])
+    preconditions = args.get("preconditions", [])
+    if not operations:
+        return {"success": True, "operations": 0}
+    main = _get_conn()
+    for operation in operations:
+        ns = operation.get("ns")
+        subs = operation.get("subs", [])
+        if _get_conn(ns, subs) is not main:
+            return {
+                "success": False,
+                "error": "atomic VM diff cannot span mapped/partitioned databases",
+            }
+
+    connection = pdb_connect(timeout=30)
+    pending = []
+    batch_error = None
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _atomic_ctx.connection = connection
+        _atomic_ctx.active = True
+        _atomic_ctx.pending_changes = pending
+        for expected in preconditions:
+            key = encode_subkey(expected.get("subs", []))
+            row = connection.execute(
+                "SELECT value FROM _globals WHERE ns=? AND subkey=?",
+                [expected["ns"], key],
+            ).fetchone()
+            found = row is not None and row["value"] is not None
+            if found != expected.get("found", False):
+                raise RuntimeError(
+                    f"PDB_CONFLICT ^{expected['ns']}({expected.get('subs', [])}) existence changed"
+                )
+            if found and _decode_value(row["value"]) != expected.get("value"):
+                raise RuntimeError(
+                    f"PDB_CONFLICT ^{expected['ns']}({expected.get('subs', [])}) value changed"
+                )
+        for operation in operations:
+            kind = operation.get("op", "").upper()
+            payload = {"ns": operation["ns"], "subs": operation.get("subs", [])}
+            if kind == "SET":
+                payload["value"] = operation.get("value")
+                result = tool_set(payload)
+            elif kind == "KILL":
+                result = tool_kill(payload)
+            else:
+                raise ValueError(f"unsupported batch operation: {kind}")
+            if not result.get("success"):
+                raise RuntimeError(result.get("error", f"{kind} failed"))
+        connection.commit()
+    except Exception as error:
+        connection.rollback()
+        batch_error = str(error)
+    finally:
+        _atomic_ctx.active = False
+        _atomic_ctx.connection = None
+        _atomic_ctx.pending_changes = []
+
+    if batch_error is not None:
+        connection.close()
+        return {"success": False, "error": batch_error}
+
+    try:
+        for change_data, op, routed_value in pending:
+            _publish_change(change_data)
+            _check_event_routes(
+                change_data["ns"],
+                change_data["subs"],
+                op,
+                routed_value,
+                connection,
+            )
+    finally:
+        connection.close()
+    return {"success": True, "operations": len(operations)}
 
 def tool_incr(args: dict) -> dict:
     ns = args["ns"]; subs = args["subs"]; increment = args.get("increment", 1.0)
@@ -1364,6 +1488,18 @@ import time as _time
 _subscribers: list = []  # list of (ns_pattern, callback)
 
 
+def _publish_change(change_data: dict) -> None:
+    """Notify in-process subscribers after the owning transaction commits."""
+    if _subscribers:
+        for pattern, callback in _subscribers:
+            try:
+                if _ns_matches(change_data["ns"], pattern):
+                    callback(change_data)
+            except Exception:
+                pass
+        _notify_watch_queues(change_data)
+
+
 def _record_change(ns: str, subs: list, op: str, old_value, new_value, conn):
     """Record a mutation in ^CHANGES for CDC. Called after every SET/KILL/MERGE."""
     try:
@@ -1387,23 +1523,19 @@ def _record_change(ns: str, subs: list, op: str, old_value, new_value, conn):
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
             [change_ns, change_key, _encode_value(change_val_dict)]
         )
-        conn.commit()  # ensure CDC write is durable
+        _maybe_commit(conn)
 
-        # Notify subscribers
-        if _subscribers:
-            change_data = {
-                "op": op, "ns": ns, "subs": subs,
-                "old_value": old_value, "new_value": new_value,
-                "timestamp": ts_iso, "timestamp_ns": ts_ns,
-            }
-            for pattern, callback in _subscribers:
-                try:
-                    if _ns_matches(ns, pattern):
-                        callback(change_data)
-                except Exception:
-                    pass  # subscriber errors don't break the write
-            # Notify watch queues (streaming $Q)
-            _notify_watch_queues(change_data)
+        change_data = {
+            "op": op, "ns": ns, "subs": subs,
+            "old_value": old_value, "new_value": new_value,
+            "timestamp": ts_iso, "timestamp_ns": ts_ns,
+        }
+        if getattr(_atomic_ctx, "active", False):
+            _atomic_ctx.pending_changes.append(
+                (change_data, op, new_value if op in ("SET", "MERGE") else None)
+            )
+        else:
+            _publish_change(change_data)
 
         # FTS5 incremental index
         try:
@@ -1417,10 +1549,17 @@ def _record_change(ns: str, subs: list, op: str, old_value, new_value, conn):
             elif op == "KILL":
                 rid = _fts_rowid(ns, subkey_bytes)
                 conn.execute("DELETE FROM _fts WHERE rowid=?", [rid])
-            conn.commit()
+            _maybe_commit(conn)
         except Exception:
             pass  # FTS failure never breaks primary write
-        _check_event_routes(ns, subs, op, new_value if op == "SET" or op == "MERGE" else None, conn)
+        if not getattr(_atomic_ctx, "active", False):
+            _check_event_routes(
+                ns,
+                subs,
+                op,
+                new_value if op in ("SET", "MERGE") else None,
+                conn,
+            )
     except Exception:
         pass  # CDC failure must never break the primary write
 

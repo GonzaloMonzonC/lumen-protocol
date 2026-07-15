@@ -166,8 +166,8 @@ Fase 0:  Spec M-Agent                    ✅ v0.1 ENTREGADA (spec-m-agent.md)
 Fase 2:  DDP: consolidar + seq monótono  ✅ HECHA (2026-07-14, ver §3.3)
 Fase 3:  Macaroons por namespace         ✅ HECHA (2026-07-14, ver §3.4)
 Fase 4:  Crate lumen-pdb (redb)           ✅ HECHA (2026-07-15, ver §3.5)
-Fase 5:  M-Light en Rust (3-4 sem)       ◄── SIGUIENTE
-Fase 6:  MVM sobre tokio (2 sem)
+Fase 5:  M-Light en Rust                  ✅ HECHA (2026-07-15, ver §3.6)
+Fase 6:  MVM sobre tokio (2 sem)         ◄── SIGUIENTE
 ```
 
 ### Fase 1a — Fix WAL + rutas — ✅ HECHA (2026-07-14)
@@ -273,13 +273,31 @@ SET/s). No cambiar el motor por rendimiento sin benchmark concurrente/batch en
 el hardware objetivo. La API redb cubre el núcleo; extensiones como historial,
 triggers, particionado y SQL libre permanecen SQLite-only.
 
-### Fase 5 — M-Light en Rust (~3-4 semanas)
+**Decisión:** producción continúa sobre SQLite. redb queda como motor
+experimental/intercambiable y prueba de portabilidad, no como default.
 
-1. Port del compilador a bytecode + stack-VM contra la spec (Fase 0)
-2. Indirection `@` — **ya implementada en Python en Fase 0-1** (ver §2.2),
-   aquí solo se porta
-3. TSTART/TCOMMIT — ídem
-4. Gas serializable en ^STATE (para jobs que migran entre nodos)
+### Fase 5 — M-Light en Rust — ✅ HECHA (2026-07-15)
+
+1. ✅ Crate `lumen-m-light`: compilador a bytecode versionado (SHA256) y
+   stack-VM Rust contra spec M-Agent v0.2.
+2. ✅ Indirection `@` integrada en lecturas, SET y KILL, local y global.
+3. ✅ TSTART/TCOMMIT/TROLLBACK anidables; rollback automático en error;
+   secciones atómicas no ceden a mitad de transacción.
+4. ✅ Estado serializable: IP, stack, locals, call stack, scopes, frames FOR,
+   output, error y gas. `save_state/load_state` persisten en ^STATE.
+5. ✅ C ABI JSON (`cdylib`) + wrapper ctypes; `MLIGHT_ENGINE=rust` opt-in con
+   fallback Python. SQLite sigue siendo canónico y la persistencia pasa por
+   `pdb_tools` (triggers, índices y journal).
+6. ✅ 8 vectores golden compartidos Rust/Python; Rust 17/17 tests (3 unit +
+   14 integración), wrapper 21/21 y categoría de conformidad dedicada.
+7. ✅ Benchmark reproducible: Rust acelera el FOR 100 ~4x incluso pagando
+   ABI JSON; scripts diminutos quedan dominados por serialización.
+
+**Límite deliberado de Fase 5:** el adaptador SQLite usa snapshot optimista
+de los namespaces referenciados y aplica el diff final en una transacción
+SQLite única por la API PDB. El commit es atómico y valida precondiciones para
+rechazar lost updates sobre las claves tocadas. El Host live del scheduler
+Tokio (Fase 6) eliminará el snapshot y cubrirá namespaces mapeados/partidos.
 
 **Importante:** no se sustituye M por otro lenguaje. M es el ISA de los
 agentes. Se porta, no se reemplaza.
