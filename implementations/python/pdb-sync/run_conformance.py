@@ -25,6 +25,7 @@ OFFLINE = {
                 "tests_journal_integration.py", "tests_journal_daemon.py"],
     "mvm": ["tests_msajob.py", "tests_msasys.py"],
     "contrato": ["tests_contract.py"],
+    "seguridad": ["tests_macaroon.py"],
     "integridad": ["tests_integrity.py", "tests_watchdog.py"],
 }
 ONLINE = {

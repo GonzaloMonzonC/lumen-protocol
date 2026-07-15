@@ -98,7 +98,7 @@ para el pragma.
 | ~~22 accesos directos a SQLite~~ ✅ RESUELTO 2026-07-14 | 15 consumidores migrados a `pdb_connect()`/`_pdb.py`; guard ratchet en `tests_contract.py` | Quedan solo bench/tests exentos |
 | ~~Rutas hardcodeadas rotas~~ ✅ RESUELTO 2026-07-14 | 83 ficheros migrados a `_paths.py` (repo-relativo) | Quedan solo scripts legacy de bench/debug con rutas Windows |
 | Sin spec formal | El código ES la especificación | No hay documento normativo del subset M |
-| Sin multi-tenancy | Agentes externos no pueden tener permisos por namespace | Sin caveats en acceso a datos |
+| ~~Sin multi-tenancy~~ ✅ RESUELTO 2026-07-14 | Macaroons con caveats ns_prefix/op en bridge y DDP | Falta verificación en el edge worker (v2) |
 | Sin TSTART/TCOMMIT | Dos agentes no pueden mantener invariantes atómicos | Falta transacciones multi-clave |
 | Indirection (@) incompleta | No se puede ejecutar un nombre de global contenido en una variable desde M | Existe embrión a nivel tool (`pdb_indirect.py` + tests); falta el operador @ en M-Light |
 
@@ -164,8 +164,8 @@ Fase 1a: Fix WAL + rutas                 ✅ HECHA (2026-07-14, ver §3.1)
 Fase 1b: Contrato PDB API                ✅ HECHA (2026-07-14, ver §3.2)
 Fase 0:  Spec M-Agent                    ✅ v0.1 ENTREGADA (spec-m-agent.md)
 Fase 2:  DDP: consolidar + seq monótono  ✅ HECHA (2026-07-14, ver §3.3)
-Fase 3:  Macaroons por namespace (1 sem)
-Fase 4:  Crate lumen-pdb (redb, 2-3 sem)
+Fase 3:  Macaroons por namespace         ✅ HECHA (2026-07-14, ver §3.4)
+Fase 4:  Crate lumen-pdb (redb, 2-3 sem) ◄── SIGUIENTE
 Fase 5:  M-Light en Rust (3-4 sem)
 Fase 6:  MVM sobre tokio (2 sem)
 ```
@@ -235,10 +235,20 @@ Fase 6:  MVM sobre tokio (2 sem)
    pull incremental por checkpoint, round-trip journal→push→edge
 6. Pendiente: changefeed para suscripciones (mover a Fase 3+, sin bloqueo)
 
-### Fase 3 — Macaroons por namespace (~1 semana)
+### Fase 3 — Macaroons por namespace — ✅ HECHA (2026-07-14)
 
-1. Caveats `ns_prefix` + `ops=read|write` en el bridge y en DDP
-2. Reutilizar `macaroon.rs` del protocolo LUMEN
+1. ✅ `pdb/pdb_macaroon.py`: port 1:1 de `macaroon.rs` — **compat byte a
+   byte verificada** con test golden cruzado (`rust/tests/macaroon_golden.rs`,
+   cargo test 2/2: Rust codifica idéntico a Python y verifica tokens Python)
+2. ✅ Caveats: `ns_prefix` (varios = intersección), `op = read|write`,
+   `expiry` auto-verificado, `tool`. Fail-closed ante caveats desconocidos
+3. ✅ Enforcement bridge: gate en `_call_tool` de ambos plugins
+   (`PDB_MACAROON_REQUIRED=1`; token en `_macaroon` arg o env)
+4. ✅ Enforcement DDP: header `X-DDP-Macaroon` (client) + gate local en
+   SyncEngine (push=read, pull/apply=write)
+5. ✅ CLI mint/inspect/verify/keygen; root key env o `~/.hermes/` (0600)
+6. ✅ `tests_macaroon.py` 31/31 → conformidad **456/456**
+7. Pendiente (v2): verificación en el edge worker (Cloudflare, repo aparte)
 
 **Por qué:** multi-agente externo seguro. La sinergia LUMEN+PDB está aquí.
 
