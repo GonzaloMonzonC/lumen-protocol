@@ -43,7 +43,7 @@ def _list_all_routines():
         from pdb_tools import tool_order
         routines = []
         key = ""
-        for _ in range(500):
+        for _ in range(2000):
             r = tool_order({"ns": "ROUTINE", "subs": [key], "direction": 1})
             if not r.get("success") or r.get("value") is None:
                 break
