@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Test unitario de MVM Web Engine — tests con M real (sintaxis MSM)."""
 
-import sys, os
+import sys, os, tempfile
+
+# BD temporal ANTES de importar el stack PDB: register_web escribe ^ROUTES
+# via tool_set y estos tests no deben ensuciar la BD viva
+os.environ["PDB_PATH"] = os.path.join(
+    tempfile.mkdtemp(prefix="lumen-unittest-"), "test.db")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 import vm_api

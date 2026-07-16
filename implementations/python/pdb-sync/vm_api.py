@@ -5,11 +5,22 @@ ML-VM-04: API /vm/execute + Web Engine /web/<ruta>
 Ejecución remota de scripts M + servir páginas web desde ^ROUTES.
 
 Endpoints:
-  POST /vm/execute  → ejecutar script M, devuelve JSON
+  POST /vm/execute  → ejecutar script M, devuelve JSON        [protegido]
+  POST /vm/register → registrar rutina M                       [protegido]
+  POST /web/register → registrar ruta web → rutina             [protegido]
+  POST /web/admin/invites/approve?token=X → aprobar invitación [protegido]
+  POST /web/admin/invites/reject?token=X  → rechazar           [protegido]
   GET  /web/<ruta>  → busca ^ROUTES(ruta), ejecuta M, devuelve HTML
   GET  /health      → estado
 
+Auth (convención Fase 3, igual que bridge_plugin.py): con
+PDB_MACAROON_REQUIRED=1 los endpoints protegidos exigen un macaroon
+(Authorization: Bearer <b64> | X-PDB-Macaroon | ?mac=). Sin esa env el
+gate está abierto (modo dev) y el servidor solo escucha en 127.0.0.1.
+
 Uso:
+  python3 vm_api.py [puerto] [--host 0.0.0.0]
+
   curl -X POST http://localhost:8081/vm/execute \
     -H "Content-Type: application/json" \
     -d '{"script": "HELLO"}'
@@ -17,9 +28,9 @@ Uso:
   curl http://localhost:8081/web/saludo
 """
 
-import sys, os, json, time
+import sys, os, json, time, html
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import _paths  # noqa: F401  # sys.path del stack PDB
 
@@ -35,7 +46,7 @@ def register_web(name, routine_name):
     try:
         from pdb_tools import tool_set
         tool_set({"ns": "ROUTES", "subs": [name], "value": routine_name})
-    except:
+    except Exception:
         pass  # PDB offline, solo local
 
 def web_route(name):
@@ -45,19 +56,23 @@ def web_route(name):
         r = tool_get({"ns": "ROUTES", "subs": [name]})
         if r.get("success") and r.get("value"):
             return r["value"]
-    except:
+    except Exception:
         pass
-    # Fallback local
     return _local_routes.get(name)
 
 def exec_m_full_output(name, args=None, vars_in=None):
-    """Ejecuta rutina M y devuelve TODO el WRITE output concatenado."""
+    """Ejecuta rutina M y devuelve TODO el WRITE output concatenado.
+
+    → (output, None) | (None, error). El output se captura con el hook
+    _on_write del StackVM (la pila vm.ops mezcla operandos de SET/GET)."""
     code = get_routine(name)
     if not code:
         return None, f"Routine {name} not found"
 
     from m_stackvm import StackVM
     vm = StackVM()
+    chunks = []
+    vm._on_write = chunks.append
     if args:
         for i, arg in enumerate(args, 1):
             vm.vars[f"${i}"] = arg
@@ -66,15 +81,46 @@ def exec_m_full_output(name, args=None, vars_in=None):
         vm.vars.update(vars_in)
 
     vm.compile(code)
-    vm.vars[""] = name
     try:
-        result = vm.exec()  # noqa: F841
-        output = "".join(str(o) for o in vm.ops if o is not None)
-        return output, None
+        result = vm.exec()
+        if isinstance(result, dict) and result.get("error"):
+            return None, f"{result['error']}: {result.get('msg', '')}"
+        return "".join(chunks), None
     except Exception as e:
         return None, str(e)
 
+# ── Auth (macaroons Fase 3) ──
+
+def _auth_required():
+    return os.environ.get("PDB_MACAROON_REQUIRED", "") == "1"
+
+def _authorize(handler, ns, op):
+    """→ (ok, reason). Gate activo solo con PDB_MACAROON_REQUIRED=1."""
+    if not _auth_required():
+        return True, "auth disabled (dev)"
+    token = ""
+    auth = handler.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+    if not token:
+        token = handler.headers.get("X-PDB-Macaroon", "").strip()
+    if not token:
+        qs = parse_qs(urlparse(handler.path).query)
+        token = (qs.get("mac") or [""])[0]
+    if not token:
+        return False, "macaroon requerido"
+    try:
+        sp = _paths.PDB_DIR_S
+        if sp not in sys.path:
+            sys.path.insert(0, sp)
+        from pdb_macaroon import check_access
+        return check_access(token, ns, op)
+    except Exception as e:
+        return False, f"macaroon: {e}"
+
 # ── Handler ──
+
+_ERROR_PAGE = "<html><body><h1>{title}</h1><pre>{detail}</pre></body></html>"
 
 class VMHandler(BaseHTTPRequestHandler):
 
@@ -82,74 +128,70 @@ class VMHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
 
         if path == "/health":
-            self._json({"ok": True, "agent": "m-light-vm", "version": "2.0.0"})
-        elif path.startswith("/web/admin/invites/approve"):
-            self._handle_admin_approve(path)
-        elif path.startswith("/web/admin/invites/reject"):
-            self._handle_admin_reject(path)
-        elif path.startswith("/web/admin/invites"):
-            self._handle_web("admin/invites")
+            self._json({"ok": True, "agent": "m-light-vm", "version": "2.1.0"})
+        elif path.startswith("/web/admin/invites/"):
+            # approve/reject mutan estado: solo POST
+            self._json({"error": "method not allowed, use POST"}, 405)
         elif path.startswith("/web/"):
             self._handle_web(path[5:])
         else:
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        path = urlparse(self.path).path
-        print(f"[DEBUG] POST {path}", flush=True)  # DEBUG
+        path = urlparse(self.path).path.rstrip("/")
 
         if path == "/vm/execute":
-            self._handle_execute()
+            self._with_auth("ROUTINE", "write", self._handle_execute)
         elif path == "/vm/register":
-            self._handle_register()
+            self._with_auth("ROUTINE", "write", self._handle_register)
         elif path == "/web/register":
-            self._handle_web_register()
+            self._with_auth("ROUTES", "write", self._handle_web_register)
+        elif path == "/web/admin/invites/approve":
+            self._with_auth("INVITACION", "write", self._handle_admin_action, "approve")
+        elif path == "/web/admin/invites/reject":
+            self._with_auth("INVITACION", "write", self._handle_admin_action, "reject")
         else:
             self._json({"error": "not found"}, 404)
 
-    def _handle_admin_approve(self, path):
-        """GET/POST /web/admin/invites/approve?token=X → aprobar invitación."""
-        try:
-            from invite_tool import approve_invite
-            parsed = urlparse(self.path)
-            qs = dict(p.split("=", 1) for p in parsed.query.split("&") if "=" in p)
-            token = qs.get("token", "")
-            if not token:
-                self._json({"error": "token required"}, 400)
-                return
-            result = approve_invite(token)
-            if self.headers.get("Accept", "").startswith("application/json"):
-                self._json(result)
-            else:
-                self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
-        except Exception as e:
-            self._json({"error": str(e)}, 500)
+    def _with_auth(self, ns, op, fn, *args):
+        ok, reason = _authorize(self, ns, op)
+        if not ok:
+            self._json({"error": f"unauthorized: {reason}"}, 401)
+            return
+        fn(*args)
 
-    def _handle_admin_reject(self, path):
-        """GET/POST /web/admin/invites/reject?token=X → rechazar invitación."""
+    def _handle_admin_action(self, action):
+        """POST /web/admin/invites/{approve|reject}?token=X."""
         try:
-            from invite_tool import reject_invite
-            parsed = urlparse(self.path)
-            qs = dict(p.split("=", 1) for p in parsed.query.split("&") if "=" in p)
-            token = qs.get("token", "")
+            from invite_tool import approve_invite, reject_invite
+            qs = parse_qs(urlparse(self.path).query)
+            token = (qs.get("token") or [""])[0]
             if not token:
                 self._json({"error": "token required"}, 400)
                 return
-            result = reject_invite(token)
+            result = approve_invite(token) if action == "approve" else reject_invite(token)
             if self.headers.get("Accept", "").startswith("application/json"):
                 self._json(result)
             else:
-                self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
+                safe_status = html.escape(str(result.get("status", "")))
+                safe_token = html.escape(token[:20])
+                self._html(
+                    f"<html><body><h1>{safe_status}</h1>"
+                    f"<p>Token: {safe_token}...</p>"
+                    f"<a href='/web/admin/invites'>← Volver</a></body></html>"
+                )
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
     def _handle_web_register(self):
         """POST /web/register → registrar ruta web en el servidor."""
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
+            body = self._read_json()
             route = body.get("route", "")
             routine = body.get("routine", "")
+            if not route or not routine:
+                self._json({"error": "route and routine required"}, 400)
+                return
             register_web(route, routine)
             self._json({"ok": True, "route": route, "routine": routine})
         except Exception as e:
@@ -158,8 +200,7 @@ class VMHandler(BaseHTTPRequestHandler):
     def _handle_register(self):
         """POST /vm/register → registrar rutina M en el servidor."""
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
+            body = self._read_json()
             name = body.get("name", "")
             code = body.get("code", "")
             if not name or not code:
@@ -180,19 +221,17 @@ class VMHandler(BaseHTTPRequestHandler):
 
             output, error = exec_m_full_output(routine)
             if error:
-                self._html(f"<html><body><h1>Error</h1><pre>{error}</pre></body></html>", 500)
+                self._html(_ERROR_PAGE.format(title="Error", detail=html.escape(str(error))), 500)
                 return
 
             self._html(output)
 
         except Exception as e:
-            self._html(f"<html><body><h1>Error</h1><pre>{e}</pre></body></html>", 500)
+            self._html(_ERROR_PAGE.format(title="Error", detail=html.escape(str(e))), 500)
 
     def _handle_execute(self):
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
-
+            body = self._read_json()
             script = body.get("script", "")
             args = body.get("args", [])
 
@@ -216,10 +255,13 @@ class VMHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
+    def _read_json(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length)) if length else {}
+
     def _json(self, data, status=200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
@@ -256,19 +298,43 @@ SALUDO ; GET /web/saludo
  Q
 """
 
-# ── Main ──
 
-if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8081
-
-    # Registrar rutas y scripts
+def register_builtin_routes():
+    """Rutas que el servidor registra al arrancar."""
     register("SALUDO^%WEB", SALUDO_M)
     register_web("saludo", "SALUDO^%WEB")
 
-    server = HTTPServer(("0.0.0.0", port), VMHandler)
-    print(f"🚀 VM API + Web Engine en http://localhost:{port}")
-    print(f"   POST /vm/execute  {json.dumps({'script':'HELLO'})}")
+    # UI admin de invitaciones (rutina M en routines/admin_invites.m)
+    admin_m = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "routines", "admin_invites.m")
+    if os.path.exists(admin_m):
+        with open(admin_m) as f:
+            register("ADMIN_INVITES", f.read())
+        register_web("admin/invites", "ADMIN_INVITES")
+
+
+# ── Main ──
+
+if __name__ == "__main__":
+    argv = [a for a in sys.argv[1:]]
+    host = "127.0.0.1"
+    if "--host" in argv:
+        i = argv.index("--host")
+        host = argv[i + 1]
+        del argv[i:i + 2]
+    port = int(argv[0]) if argv else 8081
+
+    register_builtin_routes()
+
+    if host not in ("127.0.0.1", "localhost") and not _auth_required():
+        print("⚠️  Escuchando fuera de localhost SIN auth. "
+              "Exporta PDB_MACAROON_REQUIRED=1 para exigir macaroons.")
+
+    server = HTTPServer((host, port), VMHandler)
+    print(f"🚀 VM API + Web Engine en http://{host}:{port}")
+    print(f"   POST /vm/execute  {json.dumps({'script': 'HELLO'})}")
     print(f"   GET  /web/saludo   → HTML desde M")
+    print(f"   GET  /web/admin/invites → UI de invitaciones")
     print(f"   GET  /health       → estado")
 
     try:

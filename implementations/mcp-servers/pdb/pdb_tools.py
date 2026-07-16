@@ -1117,7 +1117,12 @@ def tool_order(args: dict) -> dict:
         else:
             full_key = encode_subkey(subs)
             if direction == 1:
-                search_key = full_key
+                # Saltar el subárbol completo de `current` de un salto:
+                # todo descendiente de full_key es < full_key+\xff (los
+                # subkeys continúan con \x00/\x01/\x02), así que el índice
+                # aterriza directo en el siguiente hermano en vez de
+                # escanear fila a fila cada hijo (era O(subárbol) por paso).
+                search_key = full_key + b'\xff'
                 op = ">"
                 order = "ASC"
             else:
@@ -1130,6 +1135,7 @@ def tool_order(args: dict) -> dict:
         offset = 0
         page_size = 200
         found_val = None
+        out_of_range = False
         while True:
             rows = c.execute(
                 f"SELECT subkey FROM _globals WHERE ns=? AND subkey {op} ? "
@@ -1140,6 +1146,12 @@ def tool_order(args: dict) -> dict:
                 break
             for row in rows:
                 sk = row["subkey"]
+                if parent_key and not sk.startswith(parent_key):
+                    # Índice ordenado: fuera del rango del padre ya no puede
+                    # haber más matches — cortar (antes: continue, que
+                    # escaneaba el namespace entero fila a fila).
+                    out_of_range = True
+                    break
                 lvls = count_levels(sk)
                 if lvls < target_level + 1:
                     continue
@@ -1151,11 +1163,9 @@ def tool_order(args: dict) -> dict:
                             continue
                     elif current == sub_val:
                         continue
-                if parent_key and not sk.startswith(parent_key):
-                    continue
                 found_val = sub_val
                 break
-            if found_val is not None:
+            if found_val is not None or out_of_range:
                 break
             offset += page_size
         if found_val is not None:

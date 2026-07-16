@@ -1,12 +1,45 @@
 #!/usr/bin/env python3
-"""Tests para MVM Web Engine v0.1 — sin mocks, registra via API."""
+"""Tests para MVM Web Engine — sin mocks: arranca vm_api.py en un
+subproceso con BD temporal y puerto libre, registra via API."""
 
 import sys, os, json, time, http.client
+import atexit, socket, subprocess, tempfile
+
+# ── Servidor bajo test ──
+
+def _free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+PORT = _free_port()
+_tmpdir = tempfile.mkdtemp(prefix="lumen-webtest-")
+_server = subprocess.Popen(
+    [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vm_api.py"), str(PORT)],
+    env=dict(os.environ, PDB_PATH=os.path.join(_tmpdir, "test.db")),
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+)
+atexit.register(_server.terminate)
+
+def _wait_ready(timeout=30):
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            conn = http.client.HTTPConnection("localhost", PORT, timeout=1)
+            conn.request("GET", "/health")
+            if conn.getresponse().status == 200:
+                conn.close()
+                return
+        except OSError:
+            time.sleep(0.15)
+    raise RuntimeError(f"vm_api.py no responde en :{PORT}")
 
 # ── Helpers ──
 
 def curl(path, method="GET", body=None, expected_status=None):
-    conn = http.client.HTTPConnection("localhost", 8081, timeout=5)
+    conn = http.client.HTTPConnection("localhost", PORT, timeout=5)
     conn.request(method, path, body=json.dumps(body) if body else None,
                  headers={"Content-Type": "application/json"} if body else {})
     resp = conn.getresponse()
@@ -111,6 +144,10 @@ def test_error_handling():
 
 def test_post_execute():
     print("\n📡 POST /vm/execute (compatibilidad)")
+    curl("/vm/register", method="POST", body={
+        "name": "HELLO",
+        "code": 'HELLO S result="Hola desde M-Light!" W result Q'
+    })
     s, d = curl("/vm/execute", method="POST", body={"script": "HELLO"})
     data = json.loads(d)
     ok(s == 200, f"status 200 (got {s})")
@@ -132,9 +169,10 @@ def test_concurrent():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("🧪 MVM Web Engine — Test Suite v2")
+    print(f"🧪 MVM Web Engine — Test Suite v2 (:{PORT})")
     print("=" * 60)
-    
+    _wait_ready()
+
     tests = [
         test_health,
         test_web_saludo,
