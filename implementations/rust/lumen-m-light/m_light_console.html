@@ -87,11 +87,21 @@ window.run = async function() {
     document.getElementById("cmd").value = "";
     log("> " + cmd, "val");
 
-    // CD ^NS — change namespace
-    const cdMatch = cmd.match(/^cd\s+\^?([\w%]+)/i);
+    # CD ^NS — change namespace (with optional sub-path)
+    const cdMatch = cmd.match(/^cd\s+\^?([\w%]+(?:\/[\w%]+)*)/i);
     if (cdMatch) {
-        setNS(cdMatch[1]);
-        await ddpRefresh();
+        const parts = cdMatch[1].toUpperCase().split('/');
+        _currentNS = parts.join('_');  // flat namespace for tracking
+        nsLabel.textContent = "[" + parts.join('/') + "]";
+        log("→ CD ^" + parts.join('/'), "val");
+        // DDP pull with prefix
+        try {
+            const prefix = parts.slice(1);  // sub-path parts
+            const url = "http://192.168.1.11:8081/ddp/pull?ns=" + parts[0] + (prefix.length ? "&prefix=" + prefix.join(',') : "");
+            const r = await fetch(url);
+            const d = await r.json();
+            if (d.success && d.entries) _ddpGlobals = d.entries;
+        } catch(e) {}
         status.textContent = "●";
         return;
     }
