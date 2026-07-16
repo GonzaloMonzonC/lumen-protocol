@@ -84,7 +84,7 @@ async function run() {
         const ns = zwMatch[1].toUpperCase();
         // Replace with call to %ZW routine, but we can't pass args easily
         // Instead, generate inline M that iterates the ns
-        cmd = `N k,v W "=== ^${ns} ===",! S k="" S k=\$O(^${ns}(k)) G:k="" ZWE W "  ",k," = ",\$G(^${ns}(k)) S k=\$O(^${ns}(k)) G:k="" ZWE G ZWO\nZWE W ! Q`;
+        cmd = `N k,v W "=== ^${ns} ===",! S k=""\nZW1 S k=\$O(^${ns}(k)) G:k="" ZWE W "  ",k," = ",\$G(^${ns}(k)) G ZW1\nZWE W ! Q`;
     }
 
     try {
