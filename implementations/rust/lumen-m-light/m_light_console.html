@@ -88,7 +88,14 @@ async function run() {
     }
 
     try {
-        // Pasar estado acumulado (DDP + sesión)
+        // Pasar estado acumulado (DDP actual + sesión)
+        // Antes de ejecutar, refrescar DDP
+        try {
+            const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=_all_");
+            const d = await r.json();
+            if (d.success && d.entries) _ddpGlobals = d.entries;
+        } catch(e) {}
+        
         const globals = mergeGlobals();
 
         const compiled = (rn && sys[rn]) ? sys[rn] : m_compile(cmd);
@@ -99,11 +106,23 @@ async function run() {
         if (raw.error) log("❌ <" + raw.error + ">", "err");
         else if (raw.output) log(raw.output, "ok");
 
-        // Acumular writes (^GLOBAL changes) en la sesión
+        // Push writes al servidor (cada write con su propio ns)
         if (raw.writes && raw.writes.length > 0) {
             for (const w of raw.writes) {
-                _sessionGlobals = _sessionGlobals.filter(e => !(e.ns === w.ns && JSON.stringify(e.subs) === JSON.stringify(w.subs)));
-                _sessionGlobals.push(w);
+                // Convertir subs de formato Subscript {"String":"val"} a array plano
+                const flatSubs = w.subs.map(s => typeof s === 'object' ? (s.String || String(s.Number || '')) : String(s));
+                w.subs = flatSubs;
+                _sessionGlobals = _sessionGlobals.filter(e => !(e.ns === w.ns && JSON.stringify(e.subs) === JSON.stringify(flatSubs)));
+                _sessionGlobals.push({...w, subs: flatSubs});
+                try {
+                    await fetch("http://192.168.1.11:8081/ddp/push", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ns: w.ns, entries: [w]})
+                    });
+                } catch(e) {
+                    log("(sin servidor DDP — escritura local)", "log");
+                }
             }
         }
 
