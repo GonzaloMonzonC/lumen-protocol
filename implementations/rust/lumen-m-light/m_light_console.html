@@ -8,139 +8,118 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh;display:flex;flex-direction:column}
 #h{background:#111;padding:6px 10px;font-size:12px;border-bottom:1px solid #222;flex-shrink:0;display:flex;justify-content:space-between}
-#h .s{color:#51cf66;font-size:10px}
-#h .ns{color:#888;font-size:10px}
+#h .s{color:#51cf66;font-size:10px}#h .ns{color:#888;font-size:10px}
 #out{flex:1;overflow-y:auto;padding:6px 10px;font-family:Consolas,monospace;font-size:13px;line-height:1.4}
 .inp{display:flex;padding:6px;background:#111;border-top:1px solid #222;flex-shrink:0}
 .inp input{flex:1;background:#1a1a22;border:1px solid #333;color:#ddd;padding:8px;font-family:Consolas,monospace;font-size:14px;border-radius:4px;outline:none}
 .inp button{background:#51cf6622;border:1px solid #51cf6644;color:#51cf66;padding:8px 14px;margin-left:6px;border-radius:4px;font-size:13px;cursor:pointer}
 .inp button:active{background:#51cf6644}
-.log{color:#888;font-size:11px}.ok{color:#51cf66}.err{color:#ff6b6b}.val{color:#ffd43b}.hdr{color:#51cf66;font-weight:bold}
+.log{color:#888;font-size:11px}.ok{color:#51cf66}.err{color:#ff6b6b}.val{color:#ffd43b}
 </style>
 </head>
 <body>
 <div id="h"><span>⬡ MVM <span id="nsLabel" class="ns">[*]</span></span><span class="s" id="status">●</span></div>
 <pre id="out"><span class="log">Cargando...</span></pre>
-<div class="inp"><input id="cmd" placeholder="CD ^NS | S ^a=1 W ^a | D ^%SS" autofocus><button onclick="run()">▶</button></div>
+<div class="inp"><input id="cmd" placeholder="CD ^NS | S ^a=1 | D ^%GL" autofocus><button id="btnRun">▶</button></div>
 
 <script type="module">
 import * as wasm from "./pkg/lumen_mlight.js";
 await wasm.default();
 
-// ── Rutinas de sistema ──
+// Precompiled routines
 const SYS = {};
-function def(name, code) { try { SYS[name] = wasm.m_compile(code); } catch(e) {} }
+function def(n, code) { try { SYS[n] = wasm.m_compile(code); } catch(e) {} }
+def("^%SS", `%SS W "Engine: WASM v0.1",! Q`);
+def("^%GL", `%GL N ns,s S ns="" S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 W "  ^",ns," = ",$G(^GLOBAL_SIZES(ns)),! S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 G2 Q`);
 
-def("^%SS", `%SS W "WASM Console",! W "Version: v0.1",! Q`);
-def("^%GL", `%GL N ns,k,v W "Globals:",! N ns C S k="" S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 W "  ^",ns,"=",$G(^GLOBAL_SIZES(ns)),! S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 G2 Q`);
-
-// ── Estado ──
+// State
 let _sessionGlobals = [];
 let _ddpGlobals = [];
-let _currentNS = "*";  // active namespace (CD ^NS)
+let _currentNS = "*";
+const BASE = "http://192.168.1.11:8081";
 
-// ── UI ──
+// UI
 const out = document.getElementById("out");
 const status = document.getElementById("status");
 const nsLabel = document.getElementById("nsLabel");
-
 status.textContent = "v" + wasm.m_version();
-log("⬡ MVM Console listo", "ok");
-log("CD ^NS para cambiar namespace | D ^%SS | D ^%GL", "log");
+log("⬡ MVM listo | CD ^NS | LOAD ^R | D ^%GL", "ok");
 
-function log(msg, cls="") { out.innerHTML += `<span class="${cls}">${msg}</span>\n`; out.scrollTop = out.scrollHeight; }
+function log(m, cls) { out.innerHTML += `<span class="${cls}">${m}</span>\n`; out.scrollTop = out.scrollHeight; }
 
-function setNS(ns) {
-    _currentNS = ns.toUpperCase();
-    nsLabel.textContent = "[" + _currentNS + "]";
-    log("→ CD ^" + _currentNS, "val");
-}
-
-function mergeGlobals() {
-    const merged = _currentNS === "*" ? [..._ddpGlobals] : _ddpGlobals.filter(e => e.ns === _currentNS);
-    for (const sg of _sessionGlobals) {
-        if (_currentNS !== "*" && sg.ns !== _currentNS) continue;
-        const idx = merged.findIndex(e => e.ns === sg.ns && JSON.stringify(e.subs) === JSON.stringify(sg.subs));
-        if (idx >= 0) merged[idx] = sg;
-        else merged.push(sg);
-    }
-    return JSON.stringify(merged);
-}
-
-function flatSubs(w) {
-    return w.subs.map(s => typeof s === 'object' ? (s.String || String(s.Number || '')) : String(s));
-}
-
-// ── DDP refresh ──
 async function ddpRefresh() {
     try {
-        const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=" + (_currentNS === "*" ? "_all_" : _currentNS));
+        const ns = _currentNS === "*" ? "_all_" : _currentNS;
+        const r = await fetch(BASE + "/ddp/pull?ns=" + ns + "&limit=500");
         const d = await r.json();
         if (d.success && d.entries) _ddpGlobals = d.entries;
     } catch(e) {}
 }
 
-// ── Comando ──
-window.run = async function() {
+function mergeGlobals() {
+    const m = _currentNS === "*" ? [..._ddpGlobals] : _ddpGlobals.filter(e => e.ns === _currentNS);
+    for (const sg of _sessionGlobals) {
+        if (_currentNS !== "*" && sg.ns !== _currentNS) continue;
+        const idx = m.findIndex(e => e.ns === sg.ns && JSON.stringify(e.subs) === JSON.stringify(sg.subs));
+        if (idx >= 0) m[idx] = sg; else m.push(sg);
+    }
+    return JSON.stringify(m);
+}
+
+function flatSubs(w) {
+    return w.subs.map(s => typeof s === 'object' ? (s.String || String(s.Number || "")) : String(s));
+}
+
+// ── RUN ──
+document.getElementById("btnRun").onclick = async function() {
     let cmd = document.getElementById("cmd").value.trim();
     if (!cmd) return;
     document.getElementById("cmd").value = "";
     log("> " + cmd, "val");
 
-    // LOAD ^ROUTINE — cargar del servidor y compilar
+    // LOAD ^ROUTINE
     const loadMatch = cmd.match(/^load\s+\^?([\w%]+)/i);
     if (loadMatch) {
         const rn = loadMatch[1].toUpperCase();
-        log("Cargando ^" + rn + "...", "log");
-        (async () => {
-            try {
-                const r = await fetch("http://192.168.1.11:8081/ddp/routine?name=" + encodeURIComponent(rn));
-                const d = await r.json();
-                if (!d.success || !d.code) { log("❌ " + rn + " no encontrada", "err"); return; }
-                const compiled = wasm.m_compile(d.code);
-                SYS["^" + rn] = compiled;
-                log("✓ ^" + rn + " (" + (d.code.match(/
-/g)||[]).length + " lines)", "ok");
-            } catch(e) { log("❌ " + String(e).substring(0,80), "err"); }
-        })();
+        try {
+            const r = await fetch(BASE + "/ddp/routine?name=" + rn);
+            const d = await r.json();
+            if (!d.success || !d.code) { log("Not found: " + rn, "err"); return; }
+            SYS["^" + rn] = wasm.m_compile(d.code);
+            const lc = (d.code.match(/\n/g) || []).length;
+            log("Loaded ^" + rn + " (" + lc + " lines)", "ok");
+        } catch(e) { log("Error: " + e.message, "err"); }
         status.textContent = "●";
         return;
     }
 
-    // CD ^NS — change namespace (with optional sub-path)
+    // CD ^NS/sub
     const cdMatch = cmd.match(/^cd\s+\^?([\w%]+(?:\/[\w%]+)*)/i);
     if (cdMatch) {
-        const parts = cdMatch[1].toUpperCase().split('/');
-        _currentNS = parts.join('_');  // flat namespace for tracking
-        nsLabel.textContent = "[" + parts.join('/') + "]";
-        log("→ CD ^" + parts.join('/'), "val");
-        // DDP pull with prefix
-        try {
-            const prefix = parts.slice(1);  // sub-path parts
-            const url = "http://192.168.1.11:8081/ddp/pull?ns=" + parts[0] + (prefix.length ? "&prefix=" + prefix.join(',') : "");
-            const r = await fetch(url);
-            const d = await r.json();
-            if (d.success && d.entries) _ddpGlobals = d.entries;
-        } catch(e) {}
-        status.textContent = "●";
-        return;
-    }
-    // CD — back to all
-    if (cmd.match(/^cd$/i)) {
-        _currentNS = "*";
-        nsLabel.textContent = "[*]";
-        log("→ CD * (todos)", "val");
+        const parts = cdMatch[1].toUpperCase().split("/");
+        _currentNS = parts.join("_");
+        nsLabel.textContent = "[" + parts.join("/") + "]";
+        log("CD ^" + parts.join("/"), "val");
         await ddpRefresh();
         status.textContent = "●";
         return;
     }
 
+    // CD *
+    if (cmd.match(/^cd$/i)) {
+        _currentNS = "*"; nsLabel.textContent = "[*]"; log("CD *", "val");
+        await ddpRefresh(); status.textContent = "●"; return;
+    }
+
+    // D ^ROUTINE
     const dMatch = cmd.match(/^d\s+\^?([\w%]+)/i);
     const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
+
+    // ZW ^NS
     const zwMatch = cmd.match(/^zw\s+\^?(\w+)/i);
     if (zwMatch) {
         const ns = zwMatch[1].toUpperCase();
-        cmd = `N k W "=== ^${ns} ===",! S k=""\nZW1 S k=$O(^${ns}(k)) G:k="" ZWE W "  ",k," = ",$G(^${ns}(k)) G ZW1\nZWE W ! Q`;
+        cmd = "N k W \"=== ^" + ns + " ===\",! S k=\"\" Z1 S k=$O(^" + ns + "(k)) G:k=\"\" Z2 W \"  \",k,\" = \",$G(^" + ns + "(k)) G Z1 Z2 W ! Q";
     }
 
     try {
@@ -151,36 +130,32 @@ window.run = async function() {
         const raw = JSON.parse(wasm.m_execute_ddp(compiled, globals, "*"));
         const ms = (performance.now() - t0).toFixed(1);
 
-        if (raw.error) log("❌ <" + raw.error + ">", "err");
+        if (raw.error) log("<" + raw.error + ">", "err");
         else if (raw.output) log(raw.output, "ok");
 
-        if (raw.writes && raw.writes.length > 0) {
+        if (raw.writes) {
             for (const w of raw.writes) {
                 w.subs = flatSubs(w);
                 _sessionGlobals = _sessionGlobals.filter(e => !(e.ns === w.ns && JSON.stringify(e.subs) === JSON.stringify(w.subs)));
-                _sessionGlobals.push({...w});
-                try {
-                    await fetch("http://192.168.1.11:8081/ddp/push", {
-                        method: "POST",
-                        headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({ns: w.ns, entries: [{subs: w.subs, value: w.value}]})
-                    });
-                } catch(e) { log("(sin DDP)", "log"); }
+                _sessionGlobals.push({ns: w.ns, subs: w.subs, value: w.value});
+                fetch(BASE + "/ddp/push", {
+                    method: "POST", headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ns: w.ns, entries: [{subs: w.subs, value: w.value}]})
+                }).catch(() => {});
             }
         }
-
-        log(`⏱ ${ms}ms`, "log");
+        log(ms + "ms", "log");
         status.textContent = "●";
     } catch(e) {
-        const msg = String(e);
-        if (msg.includes("compile error")) log("❌ <SYNTAX> " + msg.split("compile error: ")[1], "err");
-        else if (msg.includes("runtime error")) log("❌ <RUNTIME> " + msg.split("runtime error: ")[1], "err");
-        else log("❌ " + msg.substring(0,120), "err");
+        const m = String(e).substring(0, 120);
+        if (m.includes("compile error")) log("<SYNTAX> " + m.split("compile error: ")[1], "err");
+        else if (m.includes("runtime error")) log("<RUNTIME> " + m.split("runtime error: ")[1], "err");
+        else log(m, "err");
         status.textContent = "●";
     }
 };
 
-document.getElementById("cmd").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+document.getElementById("cmd").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("btnRun").click(); });
 </script>
 </body>
 </html>
