@@ -38,22 +38,28 @@ def _verify_ddp(body_str, headers):
 # ── DDP Operations ──
 
 def _ddp_pull(ns):
-    """Pull all entries for a namespace from PDB."""
+    """Pull entries. If ns='_all_', pull from all known namespaces."""
     try:
-        from pdb_tools import tool_order, tool_get
+        known = ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
         entries = []
-        key = ""
-        while True:
-            r = tool_order({"ns": ns, "subs": [key], "direction": 1})
-            if not r.get("success") or r.get("value") is None:
-                break
-            key = r["value"]
-            val = tool_get({"ns": ns, "subs": [key]})
-            if val.get("success") and val.get("value") is not None:
-                entries.append({"ns": ns, "subs": [key], "value": val["value"]})
+        namespaces = known if ns == "_all_" else [ns]
+        for n in namespaces:
+            _collect(n, entries)
         return {"success": True, "entries": entries, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+def _collect(ns, entries):
+    from pdb_tools import tool_order, tool_get
+    key = ""
+    while True:
+        r = tool_order({"ns": ns, "subs": [key], "direction": 1})
+        if not r.get("success") or r.get("value") is None:
+            break
+        key = r["value"]
+        val = tool_get({"ns": ns, "subs": [key]})
+        if val.get("success") and val.get("value") is not None:
+            entries.append({"ns": ns, "subs": [key], "value": val["value"]})
 
 def _ddp_push(ns, entries):
     """Push entries to PDB."""

@@ -73,7 +73,7 @@ async function run() {
         // Pull globals from DDP server
         let globals = "[]";
         try {
-            const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=TEST");
+            const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=_all_");
             const d = await r.json();
             if (d.success && d.entries) globals = JSON.stringify(d.entries);
         } catch(e) {}
