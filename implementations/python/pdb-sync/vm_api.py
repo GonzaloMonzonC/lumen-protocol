@@ -37,20 +37,38 @@ def _verify_ddp(body_str, headers):
 
 # ── DDP Operations ──
 
-def _ddp_pull(ns):
-    """Pull entries. If ns='_all_', pull from all known namespaces."""
+def _list_namespaces():
+    """List all namespaces in PDB."""
     try:
-        known = ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
+        from pdb_tools import tool_query
+        r = tool_query({"sql": "SELECT DISTINCT ns FROM _globals ORDER BY ns", "limit": 500})
+        if r.get("success"):
+            return [row["ns"] for row in r.get("rows", [])]
+        return []
+    except:
+        return ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
+
+def _ddp_pull(ns):
+    """Pull entries. If ns='_all_', pull from ALL namespaces in PDB."""
+    try:
         entries = []
-        namespaces = known if ns == "_all_" else [ns]
-        for n in namespaces:
-            _collect(n, entries)
+        if ns == "_all_":
+            all_ns = _list_namespaces()
+            for n in all_ns:
+                _collect(n, entries)
+        else:
+            _collect(ns, entries)
         return {"success": True, "entries": entries, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 def _collect(ns, entries):
     from pdb_tools import tool_order, tool_get
+    # Root level (empty subs)
+    root = tool_get({"ns": ns, "subs": []})
+    if root.get("success") and root.get("value") is not None:
+        entries.append({"ns": ns, "subs": [], "value": root["value"]})
+    # Children with subscripts
     key = ""
     while True:
         r = tool_order({"ns": ns, "subs": [key], "direction": 1})
