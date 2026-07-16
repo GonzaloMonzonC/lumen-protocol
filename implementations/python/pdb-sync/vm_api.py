@@ -37,7 +37,39 @@ def _verify_ddp(body_str, headers):
 
 # ── DDP Operations ──
 
-def _list_namespaces():
+def _list_all_routines():
+    """List available routine names from PDB."""
+    try:
+        from pdb_tools import tool_order
+        routines = []
+        key = ""
+        for _ in range(500):
+            r = tool_order({"ns": "ROUTINE", "subs": [key], "direction": 1})
+            if not r.get("success") or r.get("value") is None:
+                break
+            key = r["value"]
+            routines.append(key)
+        return routines
+    except:
+        return []
+
+def _get_routine_code(name):
+    """Get full source code of an MSM routine from PDB."""
+    try:
+        from pdb_tools import tool_order, tool_get
+        lines = []
+        key = ""
+        while True:
+            r = tool_order({"ns": "ROUTINE", "subs": [name, key], "direction": 1})
+            if not r.get("success") or r.get("value") is None:
+                break
+            key = r["value"]
+            val = tool_get({"ns": "ROUTINE", "subs": [name, key]})
+            if val.get("success") and val.get("value") is not None:
+                lines.append(str(val["value"]))
+        return "\n".join(lines)
+    except:
+        return ""
     """List all namespaces in PDB."""
     try:
         from pdb_tools import tool_query
@@ -48,8 +80,8 @@ def _list_namespaces():
     except:
         return ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
 
-def _ddp_pull(ns):
-    """Pull entries. If ns='_all_', pull from ALL namespaces in PDB."""
+def _ddp_pull(ns, prefix=None):
+    """Pull entries. ns='_all_' = all namespaces. prefix=['asi'] = sub-tree."""
     try:
         entries = []
         if ns == "_all_":
@@ -57,27 +89,29 @@ def _ddp_pull(ns):
             for n in all_ns:
                 _collect(n, entries)
         else:
-            _collect(ns, entries)
+            _collect(ns, entries, prefix)
         return {"success": True, "entries": entries, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def _collect(ns, entries):
+def _collect(ns, entries, prefix=None):
+    """Collect one level from PDB (non-recursive)."""
     from pdb_tools import tool_order, tool_get
-    # Root level (empty subs)
-    root = tool_get({"ns": ns, "subs": []})
-    if root.get("success") and root.get("value") is not None:
-        entries.append({"ns": ns, "subs": [], "value": root["value"]})
-    # Children with subscripts
+    base = prefix or []
+    # Root at this level
+    val = tool_get({"ns": ns, "subs": list(base)})
+    if val.get("success") and val.get("value") is not None:
+        entries.append({"ns": ns, "subs": list(base), "value": val["value"]})
+    # Children at this level only
     key = ""
     while True:
-        r = tool_order({"ns": ns, "subs": [key], "direction": 1})
+        r = tool_order({"ns": ns, "subs": base + [key], "direction": 1})
         if not r.get("success") or r.get("value") is None:
             break
         key = r["value"]
-        val = tool_get({"ns": ns, "subs": [key]})
-        if val.get("success") and val.get("value") is not None:
-            entries.append({"ns": ns, "subs": [key], "value": val["value"]})
+        child_val = tool_get({"ns": ns, "subs": base + [key]})
+        if child_val.get("success") and child_val.get("value") is not None:
+            entries.append({"ns": ns, "subs": base + [key], "value": child_val["value"]})
 
 def _ddp_push(ns, entries):
     """Push entries to PDB."""
@@ -146,6 +180,8 @@ class VMHandler(BaseHTTPRequestHandler):
             self._json({"ok": True, "ddp": "local", "hmac": bool(os.environ.get("DDP_HMAC_KEY"))})
         elif path == "/ddp/pull":
             self._handle_ddp_pull(qs)
+        elif path.startswith("/ddp/routine"):
+            self._handle_ddp_routine(qs)
         elif path.startswith("/web/admin/invites/approve"):
             self._handle_admin_approve(path)
         elif path.startswith("/web/admin/invites/reject"):
@@ -183,6 +219,20 @@ class VMHandler(BaseHTTPRequestHandler):
             self._json(result)
         except Exception as e:
             self._json({"error": str(e)}, 500)
+
+    def _handle_ddp_routine(self, qs):
+        """GET /ddp/routine?name=%SS → devuelve código fuente de rutina MSM."""
+        name = qs.get("name", "")
+        if not name:
+            # Listar rutinas disponibles
+            routines = _list_all_routines()
+            self._json({"success": True, "routines": routines, "count": len(routines)})
+            return
+        code = _get_routine_code(name)
+        if code:
+            self._json({"success": True, "name": name, "code": code})
+        else:
+            self._json({"error": f"Routine {name} not found"}, 404)
 
     def _handle_ddp_push(self):
         try:
