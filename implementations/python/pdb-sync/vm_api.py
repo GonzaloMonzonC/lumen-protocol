@@ -215,7 +215,9 @@ class VMHandler(BaseHTTPRequestHandler):
             if not ns:
                 self._json({"error": "ns required"}, 400)
                 return
-            result = _ddp_pull(ns)
+            prefix_str = qs.get("prefix", "")
+            prefix = prefix_str.split(",") if prefix_str else None
+            result = _ddp_pull(ns, prefix)
             self._json(result)
         except Exception as e:
             self._json({"error": str(e)}, 500)
