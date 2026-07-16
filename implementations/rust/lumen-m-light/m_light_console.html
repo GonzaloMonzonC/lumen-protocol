@@ -74,7 +74,10 @@ async function run() {
         log(`⏱ ${ms}ms`, "log");
         status.textContent = "●";
     } catch(e) {
-        log("❌ " + e, "err");
+        const msg = String(e);
+        const m = msg.match(/line (\d+)|<(.+)>/i);
+        if (m) log(`❌ <${m[2] || 'SYNTAX'}> linea ${m[1] || '?'}`, "err");
+        else log("❌ " + msg, "err");
         status.textContent = "●";
     }
 }
