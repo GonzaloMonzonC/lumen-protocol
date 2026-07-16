@@ -100,7 +100,7 @@ window.run = async function() {
                 const compiled = wasm.m_compile(d.code);
                 SYS["^" + rn] = compiled;
                 log("✓ ^" + rn + " (" + (d.code.match(/
-/g)||[]).length + " líneas)", "ok");
+/g)||[]).length + " lines)", "ok");
             } catch(e) { log("❌ " + String(e).substring(0,80), "err"); }
         })();
         status.textContent = "●";
