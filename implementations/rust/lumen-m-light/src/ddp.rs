@@ -1,7 +1,7 @@
 //! DdpHost — Host backed by DDP-preloaded data for WASM.
 
 use wasm_bindgen::prelude::*;
-use crate::{Host, MemoryHost, Vm, Program, Value, Subscript};
+use crate::{MemoryHost, Vm, Program, Value, Subscript};
 
 /// Execute M code with preloaded ^GLOBAL data from a DDP server.
 /// Detects writes by comparing before/after snapshots.
