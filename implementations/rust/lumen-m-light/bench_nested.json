@@ -1,0 +1,50 @@
+[
+  {
+    "name": "data_get",
+    "ms": 2.0390000000000015,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "deep_order",
+    "ms": 2.1571,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "sparse",
+    "ms": 3.337600000000009,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "mixed_subs",
+    "ms": 2.379100000000008,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "data_get",
+    "ms": 5325.9,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "deep_order",
+    "ms": 5961.0,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "sparse",
+    "ms": 6296.3,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "mixed_subs",
+    "ms": 6362.0,
+    "iters": 3,
+    "engine": "Python"
+  }
+]
