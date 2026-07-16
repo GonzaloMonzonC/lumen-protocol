@@ -110,7 +110,7 @@ fn split_label(line: &str) -> (Option<&str>, &str) {
     let first_end = line.find(char::is_whitespace).unwrap_or(line.len());
     let first = &line[..first_end];
     if is_identifier(first)
-        && first.chars().all(|ch| !ch.is_ascii_lowercase())
+        && first.chars().all(|ch| !ch.is_ascii_lowercase() && ch != '_')
         && opcode(first).is_none()
     {
         (Some(first), &line[first_end..])
@@ -124,7 +124,7 @@ fn is_identifier(value: &str) -> bool {
     chars
         .next()
         .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '%')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%' || ch == '_')
 }
 
 fn opcode(token: &str) -> Option<Opcode> {

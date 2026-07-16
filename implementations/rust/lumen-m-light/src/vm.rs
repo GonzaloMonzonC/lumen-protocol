@@ -843,7 +843,9 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             _ => {}
         }
-        Ok(self.state.vars.get(atom).cloned().unwrap_or(Value::Null))
+        Ok(self.state.vars.get(atom).cloned().ok_or_else(|| {
+            VmError::new("MUNDEF", &format!("undefined variable: {}", atom), line)
+        })?)
     }
 
     fn eval_function(&mut self, expression: &str, line: usize) -> Result<Value, VmError> {
@@ -868,7 +870,8 @@ impl<'a, H: Host> Vm<'a, H> {
                         .map_err(|e| VmError::new("MGET", e, line))?
                         .unwrap_or(Value::Null)
                 } else {
-                    self.eval_expr(first, line)?
+                    // Local variable: look up directly, no UNDEF error
+                    self.state.vars.get(first.trim()).cloned().unwrap_or(Value::Null)
                 };
                 if matches!(value, Value::Null) {
                     args.get(1)
@@ -1174,7 +1177,7 @@ fn is_identifier(value: &str) -> bool {
     chars
         .next()
         .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '%')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%' || ch == '_')
 }
 
 fn trim_outer_parens(mut value: &str) -> &str {

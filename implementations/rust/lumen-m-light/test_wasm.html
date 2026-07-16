@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M-Light WASM — Test</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,monospace;background:#0a0a0f;color:#ddd;padding:16px;max-width:700px;margin:0 auto}
+h1{font-size:1.1rem;margin-bottom:.5rem;color:#51cf66}
+textarea{width:100%;background:#13131a;border:1px solid #333;color:#ddd;padding:8px;font-family:Consolas,monospace;font-size:14px;border-radius:4px;resize:vertical}
+button{background:#51cf6622;border:1px solid #51cf66;color:#51cf66;padding:6px 14px;border-radius:4px;cursor:pointer;margin:4px 4px 4px 0;font-size:13px}
+button:hover{background:#51cf6633}
+#output{background:#13131a;border:1px solid #333;padding:12px;border-radius:4px;min-height:60px;font-family:Consolas,monospace;font-size:13px;white-space:pre-wrap;margin-top:8px}
+.err{color:#ff6b6b}.ok{color:#51cf66}
+</style>
+</head>
+<body>
+<h1>⬡ M-Light WASM</h1>
+<textarea id="code" rows="6" spellcheck="false">S x=42 W "Hola desde WASM! x=",x Q</textarea>
+<br>
+<button onclick="run()">▶ Ejecutar</button>
+<button onclick="bench()">⚡ Bench 1000 loops</button>
+<button onclick="html()">🖥️ HTML test</button>
+<pre id="output">Cargando WASM...</pre>
+
+<script type="module">
+import init, { m_compile, m_execute, m_execute_raw, m_version } from "./pkg/lumen_mlight.js";
+
+window._wasm = { init, m_compile, m_execute, m_execute_raw, m_version };
+await init();
+document.getElementById("output").textContent = "✅ M-Light WASM v" + m_version() + " listo.\nEscribe código M y pulsa Ejecutar.";
+</script>
+<script>
+async function run() {
+    const code = document.getElementById("code").value;
+    const out = document.getElementById("output");
+    const { m_compile, m_execute } = window._wasm;
+    try {
+        out.innerHTML = '<span class="ok">Compilando...</span>';
+        const compiled = m_compile(code);
+        out.innerHTML = '<span class="ok">Ejecutando...</span>';
+        const output = m_execute(compiled, "[]");
+        out.innerHTML = '<span class="ok">▶ </span>' + output;
+    } catch(e) {
+        out.innerHTML = '<span class="err">❌ ' + e + '</span>';
+    }
+}
+
+async function bench() {
+    const out = document.getElementById("output");
+    const { m_compile, m_execute } = window._wasm;
+    const code = 'S x=0 F i=1:1:1000 S x=x+i W x,"," Q';
+    try {
+        const compiled = m_compile(code);
+        const t0 = performance.now();
+        m_execute(compiled, "[]");
+        const t1 = performance.now();
+        out.innerHTML = '<span class="ok">⚡ 1000 loops: ' + (t1-t0).toFixed(1) + 'ms</span>';
+    } catch(e) {
+        out.innerHTML = '<span class="err">❌ ' + e + '</span>';
+    }
+}
+
+async function html() {
+    const out = document.getElementById("output");
+    const { m_compile, m_execute } = window._wasm;
+    const code = 'W "<html><body><h1>Hola desde WASM</h1><p>M generando HTML en el navegador</p></body></html>" Q';
+    try {
+        const compiled = m_compile(code);
+        const output = m_execute(compiled, "[]");
+        const w = window.open("","_blank");
+        w.document.write(output);
+        out.innerHTML = '<span class="ok">🖥️ HTML generado (nueva ventana)</span>';
+    } catch(e) {
+        out.innerHTML = '<span class="err">❌ ' + e + '</span>';
+    }
+}
+</script>
+</body>
+</html>

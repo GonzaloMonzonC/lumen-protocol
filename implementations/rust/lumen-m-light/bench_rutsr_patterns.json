@@ -1,0 +1,50 @@
+[
+  {
+    "name": "indirection",
+    "ms": 17.8,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "p_order",
+    "ms": 2.9,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "screen",
+    "ms": 19.5,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "lock_retry",
+    "ms": 16.1,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "indirection",
+    "ms": 2989.0,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "p_order",
+    "ms": 4318.6,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "screen",
+    "ms": 4345.5,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "lock_retry",
+    "ms": 4502.0,
+    "iters": 3,
+    "engine": "Python"
+  }
+]
