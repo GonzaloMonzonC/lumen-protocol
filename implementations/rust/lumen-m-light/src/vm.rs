@@ -1174,7 +1174,7 @@ fn is_identifier(value: &str) -> bool {
     chars
         .next()
         .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '%')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%' || ch == '_')
 }
 
 fn trim_outer_parens(mut value: &str) -> &str {
