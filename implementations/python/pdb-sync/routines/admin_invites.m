@@ -54,8 +54,8 @@ ADMIN ; /web/admin/invites — Gestion de invitaciones pendientes
  ; Stats
  S html=html_"<p class='sub'>Limite diario: "
  S html=html_$G(^CONFIG("invite_daily_limit"),5)
- S html=html_" | Aprobados hoy: "
- S html=html_$G(^INVITACION("daily_count",$ZD,"approved"),0)
+ S html=html_" | Aprobados: "
+ S html=html_$G(^INVITACION("approved_count"),0)
  S html=html_"</p>"
  
 DONE

@@ -83,8 +83,14 @@ class VMHandler(BaseHTTPRequestHandler):
 
         if path == "/health":
             self._json({"ok": True, "agent": "m-light-vm", "version": "2.0.0"})
+        elif path.startswith("/web/admin/invites/approve"):
+            self._handle_admin_approve(path)
+        elif path.startswith("/web/admin/invites/reject"):
+            self._handle_admin_reject(path)
+        elif path.startswith("/web/admin/invites"):
+            self._handle_web("admin/invites")
         elif path.startswith("/web/"):
-            self._handle_web(path[5:])  # /web/<ruta>
+            self._handle_web(path[5:])
         else:
             self._json({"error": "not found"}, 404)
 
@@ -100,6 +106,42 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_web_register()
         else:
             self._json({"error": "not found"}, 404)
+
+    def _handle_admin_approve(self, path):
+        """GET/POST /web/admin/invites/approve?token=X → aprobar invitación."""
+        try:
+            from invite_tool import approve_invite
+            parsed = urlparse(self.path)
+            qs = dict(p.split("=", 1) for p in parsed.query.split("&") if "=" in p)
+            token = qs.get("token", "")
+            if not token:
+                self._json({"error": "token required"}, 400)
+                return
+            result = approve_invite(token)
+            if self.headers.get("Accept", "").startswith("application/json"):
+                self._json(result)
+            else:
+                self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def _handle_admin_reject(self, path):
+        """GET/POST /web/admin/invites/reject?token=X → rechazar invitación."""
+        try:
+            from invite_tool import reject_invite
+            parsed = urlparse(self.path)
+            qs = dict(p.split("=", 1) for p in parsed.query.split("&") if "=" in p)
+            token = qs.get("token", "")
+            if not token:
+                self._json({"error": "token required"}, 400)
+                return
+            result = reject_invite(token)
+            if self.headers.get("Accept", "").startswith("application/json"):
+                self._json(result)
+            else:
+                self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
 
     def _handle_web_register(self):
         """POST /web/register → registrar ruta web en el servidor."""
