@@ -39,7 +39,9 @@ A1 S pid=\$O(^HEARTBEAT(pid)) G:pid="" A2
  G A1
 A2 Q`);
 
-// %GL: globals list — usa GOTO
+// %ZW: ZWrite de ^GLOBAL (MSM-style)
+def("^%ZW",
+`%ZW W "=== ZWrite ===",! N ns,k,v S ns=\"\" F  ns=\$O(^GLOBAL_SIZES(ns)) Q:ns=\"\"  D . W !,\"^\",ns,\":\",! . S k=\"\" F  k=\$O(@(\"^\"_ns_\"(\"\"\"_k_\"\"\")\")) Q:k=\"\"  D . . S v=\$G(@(\"^\"_ns_\"(\"\"\"_k_\"\"\")\")) . . W \"  \",k,\" = \",v,! W ! Q`);
 def("^%GL",
 `%GL W "=== ^GLOBALes ===",!
  N ns,s,t S t=0,ns=""
@@ -70,6 +72,13 @@ async function run() {
     const { m_compile, m_execute, sys } = window._wasm;
     const dMatch = cmd.match(/^d\s+\^?([\w%]+)/i);
     const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
+    
+    // ZW ^NS — ZWrite a ^GLOBAL
+    const zwMatch = cmd.match(/^zw\s+\^?(\w+)/i);
+    if (zwMatch) {
+        const ns = zwMatch[1].toUpperCase();
+        cmd = `W "=== ZWrite ^${ns} ===",! N k,v S k="" F  S k=\\$O(^${ns}(k)) Q:k=""  S v=\\$G(^${ns}(k)) W !,"  ",k," = ",v Q`;
+    }
 
     try {
         let globals = "[]";
