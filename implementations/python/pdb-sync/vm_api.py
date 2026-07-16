@@ -50,7 +50,7 @@ def _ddp_pull(ns):
             key = r["value"]
             val = tool_get({"ns": ns, "subs": [key]})
             if val.get("success") and val.get("value") is not None:
-                entries.append({"subs": [key], "value": val["value"]})
+                entries.append({"ns": ns, "subs": [key], "value": val["value"]})
         return {"success": True, "entries": entries, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
