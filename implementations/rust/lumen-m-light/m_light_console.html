@@ -87,7 +87,27 @@ window.run = async function() {
     document.getElementById("cmd").value = "";
     log("> " + cmd, "val");
 
-    # CD ^NS — change namespace (with optional sub-path)
+    // LOAD ^ROUTINE — cargar del servidor y compilar
+    const loadMatch = cmd.match(/^load\s+\^?([\w%]+)/i);
+    if (loadMatch) {
+        const rn = loadMatch[1].toUpperCase();
+        log("Cargando ^" + rn + "...", "log");
+        (async () => {
+            try {
+                const r = await fetch("http://192.168.1.11:8081/ddp/routine?name=" + encodeURIComponent(rn));
+                const d = await r.json();
+                if (!d.success || !d.code) { log("❌ " + rn + " no encontrada", "err"); return; }
+                const compiled = wasm.m_compile(d.code);
+                SYS["^" + rn] = compiled;
+                log("✓ ^" + rn + " (" + (d.code.match(/
+/g)||[]).length + " líneas)", "ok");
+            } catch(e) { log("❌ " + String(e).substring(0,80), "err"); }
+        })();
+        status.textContent = "●";
+        return;
+    }
+
+    // CD ^NS — change namespace (with optional sub-path)
     const cdMatch = cmd.match(/^cd\s+\^?([\w%]+(?:\/[\w%]+)*)/i);
     if (cdMatch) {
         const parts = cdMatch[1].toUpperCase().split('/');
