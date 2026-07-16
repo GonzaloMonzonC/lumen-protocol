@@ -61,6 +61,11 @@ pub fn m_execute(compiled: &[u8], globals_json: &str) -> Result<String, JsValue>
     let mut host = MemoryHost::from_entries(globals);
     let mut vm = Vm::new(program, &mut host);
     vm.run();
+    if let Some(error) = &vm.state.error {
+        return Err(JsValue::from_str(&format!(
+            "M runtime error: {} at line {}", error.ecode, error.line
+        )));
+    }
     
     Ok(vm.state.output.clone())
 }
@@ -82,6 +87,11 @@ pub fn m_execute_raw(compiled: &[u8], globals_json: &str) -> Result<String, JsVa
     let mut host = MemoryHost::from_entries(globals);
     let mut vm = Vm::new(program, &mut host);
     vm.run();
+    if let Some(error) = &vm.state.error {
+        return Err(JsValue::from_str(&format!(
+            "M runtime error: {} at line {}", error.ecode, error.line
+        )));
+    }
     
     let vars: std::collections::BTreeMap<String, String> = vm.state.vars
         .iter()
