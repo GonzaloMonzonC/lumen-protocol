@@ -1,45 +1,83 @@
 #!/usr/bin/env python3
 """
-ML-VM-04: API /vm/execute + Web Engine /web/<ruta>
-
-Ejecución remota de scripts M + servir páginas web desde ^ROUTES.
+MVM Web Engine + DDP Server local
 
 Endpoints:
-  POST /vm/execute  → ejecutar script M, devuelve JSON
-  GET  /web/<ruta>  → busca ^ROUTES(ruta), ejecuta M, devuelve HTML
-  GET  /health      → estado
-
-Uso:
-  curl -X POST http://localhost:8081/vm/execute \
-    -H "Content-Type: application/json" \
-    -d '{"script": "HELLO"}'
-
-  curl http://localhost:8081/web/saludo
+  GET  /health              → estado general
+  GET  /ddp/health          → estado DDP (HMAC status)
+  GET  /ddp/pull?ns=X       → pull cambios desde PDB
+  POST /ddp/push            → push entries a PDB
+  POST /vm/execute          → ejecutar script M → JSON
+  POST /vm/register         → registrar rutina M
+  POST /web/register        → registrar ruta web
+  GET  /web/<ruta>          → HTML desde ^ROUTES
+  GET  /web/admin/invites   → UI admin invitaciones
 """
 
-import sys, os, json, time
+import sys, os, json, time, hashlib, hmac
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
-import _paths  # noqa: F401  # sys.path del stack PDB
-
+import _paths  # noqa: F401
 from m_routines import RoutineExecutor, register, get_routine
+
+# ── DDP Auth ──
+
+def _verify_ddp(body_str, headers):
+    """Verify HMAC signature from DDP client. If no key configured, allow local."""
+    ts = headers.get("X-DDP-Timestamp", "")
+    sig = headers.get("X-DDP-HMAC", "")
+    key = os.environ.get("DDP_HMAC_KEY", "")
+    if not key:
+        return True  # no auth → local-only mode
+    msg = (ts + body_str + key).encode()
+    expected = hmac.new(key.encode(), msg, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig, expected)
+
+# ── DDP Operations ──
+
+def _ddp_pull(ns):
+    """Pull all entries for a namespace from PDB."""
+    try:
+        from pdb_tools import tool_order, tool_get
+        entries = []
+        key = ""
+        while True:
+            r = tool_order({"ns": ns, "subs": [key], "direction": 1})
+            if not r.get("success") or r.get("value") is None:
+                break
+            key = r["value"]
+            val = tool_get({"ns": ns, "subs": [key]})
+            if val.get("success") and val.get("value") is not None:
+                entries.append({"subs": [key], "value": val["value"]})
+        return {"success": True, "entries": entries, "ns": ns}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def _ddp_push(ns, entries):
+    """Push entries to PDB."""
+    try:
+        from pdb_tools import tool_set
+        for e in entries:
+            tool_set({"ns": ns, "subs": e["subs"], "value": e["value"]})
+        return {"success": True, "count": len(entries)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # ── Web Router ──
 
-_local_routes = {}  # fallback cuando PDB no está disponible
+_local_routes = {}
 
 def register_web(name, routine_name):
-    """Registrar ruta web (siempre en local, intenta PDB)."""
     _local_routes[name] = routine_name
     try:
         from pdb_tools import tool_set
         tool_set({"ns": "ROUTES", "subs": [name], "value": routine_name})
     except:
-        pass  # PDB offline, solo local
+        pass
 
 def web_route(name):
-    """Busca ^ROUTES(name) → intenta PDB primero, luego fallback local."""
     try:
         from pdb_tools import tool_get
         r = tool_get({"ns": "ROUTES", "subs": [name]})
@@ -47,15 +85,12 @@ def web_route(name):
             return r["value"]
     except:
         pass
-    # Fallback local
     return _local_routes.get(name)
 
 def exec_m_full_output(name, args=None, vars_in=None):
-    """Ejecuta rutina M y devuelve TODO el WRITE output concatenado."""
     code = get_routine(name)
     if not code:
         return None, f"Routine {name} not found"
-
     from m_stackvm import StackVM
     vm = StackVM()
     if args:
@@ -64,11 +99,10 @@ def exec_m_full_output(name, args=None, vars_in=None):
         vm.vars["$ZARGS"] = len(args)
     if vars_in:
         vm.vars.update(vars_in)
-
     vm.compile(code)
     vm.vars[""] = name
     try:
-        result = vm.exec()  # noqa: F841
+        vm.exec()
         output = "".join(str(o) for o in vm.ops if o is not None)
         return output, None
     except Exception as e:
@@ -80,9 +114,14 @@ class VMHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path.rstrip("/")
+        qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
 
         if path == "/health":
-            self._json({"ok": True, "agent": "m-light-vm", "version": "2.0.0"})
+            self._json({"ok": True, "agent": "m-light-vm+ddp", "version": "2.0.0"})
+        elif path == "/ddp/health":
+            self._json({"ok": True, "ddp": "local", "hmac": bool(os.environ.get("DDP_HMAC_KEY"))})
+        elif path == "/ddp/pull":
+            self._handle_ddp_pull(qs)
         elif path.startswith("/web/admin/invites/approve"):
             self._handle_admin_approve(path)
         elif path.startswith("/web/admin/invites/reject"):
@@ -96,7 +135,6 @@ class VMHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        print(f"[DEBUG] POST {path}", flush=True)  # DEBUG
 
         if path == "/vm/execute":
             self._handle_execute()
@@ -104,64 +142,86 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_register()
         elif path == "/web/register":
             self._handle_web_register()
+        elif path == "/ddp/push":
+            self._handle_ddp_push()
         else:
             self._json({"error": "not found"}, 404)
 
+    # ── DDP handlers ──
+
+    def _handle_ddp_pull(self, qs):
+        try:
+            ns = qs.get("ns", "")
+            if not ns:
+                self._json({"error": "ns required"}, 400)
+                return
+            result = _ddp_pull(ns)
+            self._json(result)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def _handle_ddp_push(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode() if length else "{}"
+            if not _verify_ddp(raw, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
+            body = json.loads(raw)
+            ns = body.get("ns", "")
+            entries = body.get("entries", [])
+            if not ns or not entries:
+                self._json({"error": "ns and entries required"}, 400)
+                return
+            result = _ddp_push(ns, entries)
+            self._json(result)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    # ── Admin ──
+
     def _handle_admin_approve(self, path):
-        """GET/POST /web/admin/invites/approve?token=X → aprobar invitación."""
         try:
             from invite_tool import approve_invite
-            parsed = urlparse(self.path)
-            qs = dict(p.split("=", 1) for p in parsed.query.split("&") if "=" in p)
+            qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
             token = qs.get("token", "")
             if not token:
                 self._json({"error": "token required"}, 400)
                 return
             result = approve_invite(token)
-            if self.headers.get("Accept", "").startswith("application/json"):
-                self._json(result)
-            else:
-                self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
+            self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
     def _handle_admin_reject(self, path):
-        """GET/POST /web/admin/invites/reject?token=X → rechazar invitación."""
         try:
             from invite_tool import reject_invite
-            parsed = urlparse(self.path)
-            qs = dict(p.split("=", 1) for p in parsed.query.split("&") if "=" in p)
+            qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
             token = qs.get("token", "")
             if not token:
                 self._json({"error": "token required"}, 400)
                 return
             result = reject_invite(token)
-            if self.headers.get("Accept", "").startswith("application/json"):
-                self._json(result)
-            else:
-                self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
+            self._html(f"<html><body><h1>{result['status']}</h1><p>Token: {token[:20]}...</p><a href='/web/admin/invites'>← Volver</a></body></html>")
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
+    # ── Web handlers ──
+
     def _handle_web_register(self):
-        """POST /web/register → registrar ruta web en el servidor."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
-            route = body.get("route", "")
-            routine = body.get("routine", "")
-            register_web(route, routine)
-            self._json({"ok": True, "route": route, "routine": routine})
+            register_web(body.get("route", ""), body.get("routine", ""))
+            self._json({"ok": True})
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
     def _handle_register(self):
-        """POST /vm/register → registrar rutina M en el servidor."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
-            name = body.get("name", "")
-            code = body.get("code", "")
+            name, code = body.get("name", ""), body.get("code", "")
             if not name or not code:
                 self._json({"error": "name and code required"}, 400)
                 return
@@ -171,20 +231,16 @@ class VMHandler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 500)
 
     def _handle_web(self, route_name):
-        """GET /web/<ruta> → busca ^ROUTES(ruta) → ejecuta M → devuelve HTML."""
         try:
             routine = web_route(route_name)
             if not routine:
                 self._html("<html><body><h1>404</h1><p>Ruta no encontrada</p></body></html>", 404)
                 return
-
             output, error = exec_m_full_output(routine)
             if error:
                 self._html(f"<html><body><h1>Error</h1><pre>{error}</pre></body></html>", 500)
                 return
-
             self._html(output)
-
         except Exception as e:
             self._html(f"<html><body><h1>Error</h1><pre>{e}</pre></body></html>", 500)
 
@@ -192,19 +248,15 @@ class VMHandler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
-
             script = body.get("script", "")
             args = body.get("args", [])
-
             if not script:
                 self._json({"error": "script required"}, 400)
                 return
-
             start = time.time()
             executor = RoutineExecutor()
             result = executor.exec(script, args=args)
             elapsed = (time.time() - start) * 1000
-
             self._json({
                 "ok": "error" not in result,
                 "result": result.get("result"),
@@ -212,9 +264,10 @@ class VMHandler(BaseHTTPRequestHandler):
                 "exec_ms": round(elapsed, 2),
                 "script": script,
             })
-
         except Exception as e:
             self._json({"error": str(e)}, 500)
+
+    # ── Response helpers ──
 
     def _json(self, data, status=200):
         self.send_response(status)
@@ -232,45 +285,28 @@ class VMHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def log_message(self, format, *args):
-        print(f"[VM] {args[0]} {args[1]} {args[2]}")
-
-
-# ── Rutas M de ejemplo ──
-
-SALUDO_M = """
-SALUDO ; GET /web/saludo
- W "<html><head>"
- W "<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
- W "<style>"
- W "*{margin:0;padding:0;box-sizing:border-box}"
- W "body{font-family:system-ui,sans-serif;padding:16px;max-width:480px;margin:0 auto;background:#0a0a0f;color:#ddd}"
- W "h1{font-size:1.25rem;margin-bottom:1rem}"
- W ".card{background:#13131a;border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:8px}"
- W ".num{font-size:1.5rem;font-weight:700;color:#51cf66}"
- W ".lbl{font-size:.75rem;color:#888}"
- W "</style></head><body>"
- W "<h1>👋 MVM Web Engine</h1>"
- W "<div class='card'><div class='num'>8081</div><div class='lbl'>Puerto</div></div>"
- W "<div class='card'><div class='num'>",$G(^ROUTES),"/ROUTES</div><div class='lbl'>Rutas registradas</div></div>"
- W "</body></html>"
- Q
-"""
+        print(f"[VM] {args[0]} {args[1]} {args[2]}", flush=True)
 
 # ── Main ──
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8081
-
-    # Registrar rutas y scripts
-    register("SALUDO^%WEB", SALUDO_M)
+    register("SALUDO^%WEB", """SALUDO ; GET /web/saludo
+ W "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+ W "<style>*{margin:0;padding:0}body{font-family:system-ui,sans-serif;padding:16px;max-width:480px;margin:0 auto;background:#0a0a0f;color:#ddd}"
+ W "h1{font-size:1.25rem;color:#51cf66}</style></head><body>"
+ W "<h1>⬡ MVM Web Engine + DDP</h1>"
+ W "<p>Puerto: 8081 | DDP: /ddp/pull /ddp/push</p>"
+ W "</body></html>" Q
+""")
     register_web("saludo", "SALUDO^%WEB")
 
     server = HTTPServer(("0.0.0.0", port), VMHandler)
-    print(f"🚀 VM API + Web Engine en http://localhost:{port}")
-    print(f"   POST /vm/execute  {json.dumps({'script':'HELLO'})}")
-    print(f"   GET  /web/saludo   → HTML desde M")
-    print(f"   GET  /health       → estado")
-
+    print(f"🚀 MVM Web Engine + DDP en http://localhost:{port}")
+    print(f"   GET  /web/saludo   → HTML")
+    print(f"   GET  /ddp/health   → DDP status")
+    print(f"   GET  /ddp/pull?ns=X → sync pull")
+    print(f"   POST /ddp/push     → sync push")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
