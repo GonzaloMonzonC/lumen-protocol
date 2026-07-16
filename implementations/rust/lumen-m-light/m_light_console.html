@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>⬡ M-Light Console</title>
+<title>⬡ MVM Console</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh;display:flex;flex-direction:column}
@@ -18,9 +18,9 @@ body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh
 </style>
 </head>
 <body>
-<div id="h"><span>⬡ M-Light</span><span class="s" id="status">●</span></div>
+<div id="h"><span>⬡ MVM</span><span class="s" id="status">●</span></div>
 <pre id="out"><span class="log">Cargando...</span></pre>
-<div id="inp"><input id="cmd" placeholder="S x=42 W x Q" autofocus><button onclick="run()">▶</button></div>
+<div id="inp"><input id="cmd" placeholder="S ^a=1 W ^a" autofocus><button onclick="run()">▶</button></div>
 
 <script type="module">
 import * as wasm from "./pkg/lumen_mlight.js";
@@ -29,44 +29,46 @@ await wasm.default();
 const SYS = {};
 function def(name, code) { try { SYS[name] = wasm.m_compile(code); } catch(e) {} }
 
-// %SS: WASM runtime info — usa GOTO, no FOR+Q (bug M-Light compiler)
 def("^%SS",
-`%SS W "=== LUMEN ===",! W "Engine: WASM v0.1",! W "Host: Console",! W !,"--- Agents ---",!
- N pid,st S pid=""
-A1 S pid=\$O(^HEARTBEAT(pid)) G:pid="" A2
- S st=\$P(\$G(^HEARTBEAT(pid)),"|",2)
- W !,"  ",pid," = ",st
- G A1
-A2 Q`);
+`%SS W "Engine: WASM",! N pid,st S pid="" S pid=$O(^HEARTBEAT(pid)) G:pid="" S2
+S1 S st=$P($G(^HEARTBEAT(pid)),"|",2) W "  ",pid," = ",st,! S pid=$O(^HEARTBEAT(pid)) G:pid="" S1
+S2 Q`);
 
-// %ZW: ZWrite de ^GLOBAL (MSM-style)
-def("^%ZW",
-`%ZW W "=== ZWrite ===",! N ns,k,v S ns=\"\" F  ns=\$O(^GLOBAL_SIZES(ns)) Q:ns=\"\"  D . W !,\"^\",ns,\":\",! . S k=\"\" F  k=\$O(@(\"^\"_ns_\"(\"\"\"_k_\"\"\")\")) Q:k=\"\"  D . . S v=\$G(@(\"^\"_ns_\"(\"\"\"_k_\"\"\")\")) . . W \"  \",k,\" = \",v,! W ! Q`);
 def("^%GL",
-`%GL W "=== ^GLOBALes ===",!
- N ns,s,t S t=0,ns=""
-G1 S ns=\$O(^GLOBAL_SIZES(ns)) G:ns="" G2
- S s=\$G(^GLOBAL_SIZES(ns),0) S t=t+s
- W !,"  ^",ns,": ",s
- G G1
-G2 W !,"Total: ",t,! Q`);
+`%GL W "^GLOBALes:",! N ns,s,t S t=0,ns="" S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 W "  ^",ns," = ",$G(^GLOBAL_SIZES(ns)),! S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2
+G2 W "Total: ",t,! Q`);
 
-// %ZW: ZWrite de un namespace (param %1)
-def("^%ZW",
-`%ZW N ns,k,v,kx S ns=\$G(%1,"HEARTBEAT") W !,"^",ns,":",! S kx="" S kx=\$O(@("^"_ns_"(\"\"\"_kx_\"\"\")")) G:kx="" ZWE W "  ",kx," = ",\$G(@("^"_ns_"(\"\"\"_kx_\"\"\")")) S kx=\$O(@("^"_ns_"(\"\"\"_kx_\"\"\")")) G:kx="" ZWE G ZW2
-ZWE W ! Q`);
+window._wasm = { m_compile: wasm.m_compile, m_execute_raw: wasm.m_execute_raw, m_version: wasm.m_version, sys: SYS };
 
-window._wasm = { m_compile: wasm.m_compile, m_execute: wasm.m_execute, m_version: wasm.m_version, sys: SYS };
+// Estado persistente: los ^GLOBALes del usuario
+let _sessionGlobals = [];  // entradas acumuladas entre comandos
+let _ddpGlobals = [];      // entradas del servidor DDP
+
+// Cargar DDP inicial
+try {
+    const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=_all_");
+    const d = await r.json();
+    if (d.success && d.entries) _ddpGlobals = d.entries;
+} catch(e) {}
+
 document.getElementById("status").textContent = "v" + wasm.m_version();
-log("⬡ M-Light Console", "ok");
+log("⬡ MVM Console listo", "ok");
 log("Rutinas: " + Object.keys(SYS).join(" "), "log");
 </script>
 <script>
 const out = document.getElementById("out"), status = document.getElementById("status");
 
-function log(msg, cls="") {
-    out.innerHTML += `<span class="${cls}">${msg}</span>\n`;
-    out.scrollTop = out.scrollHeight;
+function log(msg, cls="") { out.innerHTML += `<span class="${cls}">${msg}</span>\n`; out.scrollTop = out.scrollHeight; }
+
+function mergeGlobals() {
+    // DDP data + session data (session overrides DDP)
+    const merged = [..._ddpGlobals];
+    for (const sg of _sessionGlobals) {
+        const idx = merged.findIndex(e => e.ns === sg.ns && JSON.stringify(e.subs) === JSON.stringify(sg.subs));
+        if (idx >= 0) merged[idx] = sg;
+        else merged.push(sg);
+    }
+    return JSON.stringify(merged);
 }
 
 async function run() {
@@ -74,33 +76,37 @@ async function run() {
     if (!cmd) return;
     document.getElementById("cmd").value = "";
     log("> " + cmd, "val");
-    const { m_compile, m_execute, sys } = window._wasm;
+
+    const { m_compile, m_execute_raw, sys } = window._wasm;
     const dMatch = cmd.match(/^d\s+\^?([\w%]+)/i);
     const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
-    
-    // ZW ^NS — ZWrite via system routine
+
     const zwMatch = cmd.match(/^zw\s+\^?(\w+)/i);
     if (zwMatch) {
         const ns = zwMatch[1].toUpperCase();
-        // Replace with call to %ZW routine, but we can't pass args easily
-        // Instead, generate inline M that iterates the ns
-        cmd = `N k,v W "=== ^${ns} ===",! S k=""\nZW1 S k=\$O(^${ns}(k)) G:k="" ZWE W "  ",k," = ",\$G(^${ns}(k)) G ZW1\nZWE W ! Q`;
+        cmd = `N k W "=== ^${ns} ===",! S k=""\nZW1 S k=\$O(^${ns}(k)) G:k="" ZWE W "  ",k," = ",\$G(^${ns}(k)) G ZW1\nZWE W ! Q`;
     }
 
     try {
-        let globals = "[]";
-        try {
-            const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=_all_");
-            const d = await r.json();
-            if (d.success && d.entries) globals = JSON.stringify(d.entries);
-        } catch(e) {}
+        // Pasar estado acumulado (DDP + sesión)
+        const globals = mergeGlobals();
 
         const compiled = (rn && sys[rn]) ? sys[rn] : m_compile(cmd);
         const t0 = performance.now();
-        const output = m_execute(compiled, globals);
+        const raw = JSON.parse(m_execute_raw(compiled, globals));
         const ms = (performance.now() - t0).toFixed(1);
 
-        if (output) log(output, "ok");
+        if (raw.error) log("❌ <" + raw.error + ">", "err");
+        else if (raw.output) log(raw.output, "ok");
+
+        // Acumular writes (^GLOBAL changes) en la sesión
+        if (raw.writes && raw.writes.length > 0) {
+            for (const w of raw.writes) {
+                _sessionGlobals = _sessionGlobals.filter(e => !(e.ns === w.ns && JSON.stringify(e.subs) === JSON.stringify(w.subs)));
+                _sessionGlobals.push(w);
+            }
+        }
+
         log(`⏱ ${ms}ms`, "log");
         status.textContent = "●";
     } catch(e) {
