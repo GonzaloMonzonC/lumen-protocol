@@ -124,15 +124,22 @@ def _sanitize_subs(subs):
         result.append(clean)
     return result
 
+def _has_children(ns, base):
+    """Check if a node has children."""
+    from pdb_tools import tool_order
+    r = tool_order({"ns": ns, "subs": base + [""], "direction": 1})
+    return r.get("success") and r.get("value") is not None
+
 def _collect(ns, entries, prefix=None):
-    """Collect one level from PDB (non-recursive)."""
+    """Collect one level from PDB. Includes folders (no value) and leaves."""
     from pdb_tools import tool_order, tool_get
     base = prefix or []
     # Root at this level
     val = tool_get({"ns": ns, "subs": list(base)})
-    if val.get("success") and val.get("value") is not None:
-        entries.append({"ns": ns, "subs": list(base), "value": val["value"]})
-    # Children at this level only
+    if val.get("success"):
+        entries.append({"ns": ns, "subs": list(base), "value": val.get("value"),
+                        "has_children": bool(_has_children(ns, base))})
+    # Children at this level
     key = ""
     while True:
         r = tool_order({"ns": ns, "subs": base + [key], "direction": 1})
@@ -140,8 +147,9 @@ def _collect(ns, entries, prefix=None):
             break
         key = r["value"]
         child_val = tool_get({"ns": ns, "subs": base + [key]})
-        if child_val.get("success") and child_val.get("value") is not None:
-            entries.append({"ns": ns, "subs": base + [key], "value": child_val["value"]})
+        has_kids = _has_children(ns, base + [key])
+        entries.append({"ns": ns, "subs": base + [key], "value": child_val.get("value"),
+                        "has_children": has_kids})
 
 def _ddp_push(ns, entries):
     """Push entries to PDB."""
