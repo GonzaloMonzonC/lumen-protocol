@@ -1,0 +1,74 @@
+[
+  {
+    "name": "order_list",
+    "ms": 13.2,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "order_nested",
+    "ms": 2.3,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "crud_indexed",
+    "ms": 0.8,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "string_marshal",
+    "ms": 1.4,
+    "iters": 3,
+    "engine": "WASM"
+  },
+  {
+    "name": "order_list",
+    "ms": 156.6,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "order_nested",
+    "ms": 2965.5,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "crud_indexed",
+    "ms": 2923.3,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "string_marshal",
+    "ms": 2952.1,
+    "iters": 3,
+    "engine": "Python"
+  },
+  {
+    "name": "order_list",
+    "ms": 192.0,
+    "iters": 3,
+    "engine": "Rust"
+  },
+  {
+    "name": "order_nested",
+    "ms": 406.2,
+    "iters": 3,
+    "engine": "Rust"
+  },
+  {
+    "name": "crud_indexed",
+    "ms": 355.1,
+    "iters": 3,
+    "engine": "Rust"
+  },
+  {
+    "name": "string_marshal",
+    "ms": 343.8,
+    "iters": 3,
+    "engine": "Rust"
+  }
+]
