@@ -51,6 +51,11 @@ G1 S ns=\$O(^GLOBAL_SIZES(ns)) G:ns="" G2
  G G1
 G2 W !,"Total: ",t,! Q`);
 
+// %ZW: ZWrite de un namespace (param %1)
+def("^%ZW",
+`%ZW N ns,k,v,kx S ns=\$G(%1,"HEARTBEAT") W !,"^",ns,":",! S kx="" S kx=\$O(@("^"_ns_"(\"\"\"_kx_\"\"\")")) G:kx="" ZWE W "  ",kx," = ",\$G(@("^"_ns_"(\"\"\"_kx_\"\"\")")) S kx=\$O(@("^"_ns_"(\"\"\"_kx_\"\"\")")) G:kx="" ZWE G ZW2
+ZWE W ! Q`);
+
 window._wasm = { m_compile: wasm.m_compile, m_execute: wasm.m_execute, m_version: wasm.m_version, sys: SYS };
 document.getElementById("status").textContent = "v" + wasm.m_version();
 log("⬡ M-Light Console", "ok");
@@ -73,11 +78,13 @@ async function run() {
     const dMatch = cmd.match(/^d\s+\^?([\w%]+)/i);
     const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
     
-    // ZW ^NS — ZWrite a ^GLOBAL
+    // ZW ^NS — ZWrite via system routine
     const zwMatch = cmd.match(/^zw\s+\^?(\w+)/i);
     if (zwMatch) {
         const ns = zwMatch[1].toUpperCase();
-        cmd = `W "=== ZWrite ^${ns} ===",! N k,v S k="" F  S k=\\$O(^${ns}(k)) Q:k=""  S v=\\$G(^${ns}(k)) W !,"  ",k," = ",v Q`;
+        // Replace with call to %ZW routine, but we can't pass args easily
+        // Instead, generate inline M that iterates the ns
+        cmd = `N k,v W "=== ^${ns} ===",! S k="" S k=\$O(^${ns}(k)) G:k="" ZWE W "  ",k," = ",\$G(^${ns}(k)) S k=\$O(^${ns}(k)) G:k="" ZWE G ZWO\nZWE W ! Q`;
     }
 
     try {
