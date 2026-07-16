@@ -195,7 +195,10 @@ def func_order(args):
             start_key = parts[-1] if parts else ""
             base = parts[:-1]
             r = tool_order({"ns": ns, "subs": base + [start_key], "direction": 1})
-            if r.get("success"): return r.get("value", "")
+            # value=None (fin de claves) debe ser "" — r.get("value","") NO
+            # aplica el default si la clave existe con None, y un None aquí
+            # rompía el Q:var="" de los FOR sin argumentos (loop infinito)
+            if r.get("success"): return r.get("value") if r.get("value") is not None else ""
     except: pass
     return ""
 

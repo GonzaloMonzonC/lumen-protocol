@@ -404,11 +404,15 @@ class MVM:
             if pid in ("heartbeat",):
                 continue
 
-            # Get first pending seq for this pid
+            # Get first pending seq for this pid.
+            # NOTA: nada de pid += "\xff" para "saltar": el subkey se
+            # codifica UTF-8 ("\xff" → C3 BF, que ordena ANTES del
+            # terminador FF), así que ese cursor devolvía el MISMO pid
+            # eternamente → bucle infinito. tool_order([pid]) ya devuelve
+            # el siguiente hermano saltando el subárbol.
             seq = ""
             r2 = self.pdb.tool_order({"ns": "STATE", "subs": [pid, "llm_pending", ""], "direction": 1})
             if r2.get("value") is None:
-                pid += "\xff"
                 continue
             seq = str(r2["value"])
             if seq in ("heartbeat",):
@@ -417,14 +421,12 @@ class MVM:
             # Read the pending request
             data_r = self.pdb.tool_get({"ns": "STATE", "subs": [pid, "llm_pending", seq]})
             if data_r.get("value") is None:
-                pid += "\xff"
                 continue
 
             try:
                 pending = json.loads(str(data_r["value"]))
             except Exception:
                 self.pdb.tool_kill({"ns": "STATE", "subs": [pid, "llm_pending", seq]})
-                pid += "\xff"
                 continue
 
             context = pending.get("context", pending.get("prompt", ""))
