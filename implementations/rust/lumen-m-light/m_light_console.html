@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>⬡ MVM iPhone</title>
+<title>⬡ M-Light Console</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh;display:flex;flex-direction:column}
@@ -18,7 +18,7 @@ body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh
 </style>
 </head>
 <body>
-<div id="h"><span>⬡ MVM</span><span class="s" id="status">●</span></div>
+<div id="h"><span>⬡ M-Light</span><span class="s" id="status">●</span></div>
 <pre id="out"><span class="log">Cargando...</span></pre>
 <div id="inp"><input id="cmd" placeholder="S x=42 W x Q" autofocus><button onclick="run()">▶</button></div>
 
@@ -26,18 +26,21 @@ body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh
 import * as wasm from "./pkg/lumen_mlight.js";
 await wasm.default();
 
-// System routines (pre-compiled)
+// System routines (compiled once, reused)
 const SYS = {};
 function def(name, code) {
     try { SYS[name] = wasm.m_compile(code); }
-    catch(e) { console.warn('Failed to compile ' + name, e); }
+    catch(e) { console.warn(name, e); }
 }
 
-// Minimal %SS
-def("^%SS", `N j,pid,st,gas W "Jobs:",! S pid="" F  S pid=\$O(^STATE(pid)) Q:pid=""  S st=\$G(^STATE(pid,"status"),"?") S gas=\$G(^STATE(pid,"gas"),0) W !,"  ",pid," ",st," gas=",gas Q`);
+// %SS: shows WASM runtime info + remote agents
+def("^%SS", `W "=== LUMEN System Status ===",! W "Engine: WASM (M-Light v0.1)",! W "Host: LUMEN Console",! W ! W "--- Agents (DDP) ---",! N pid,st S pid="" F  S pid=\$O(^HEARTBEAT(pid)) Q:pid=""  S st=\$P(\$G(^HEARTBEAT(pid)),"|",2) W !,"  ",pid," = ",st W !,"(conectado a DDP server)",! Q`);
 
-// Minimal %GL  
-def("^%GL", `N ns,s,t W "^GLOBALes:",! S t=0,ns="" F  S ns=\$O(^GLOBAL_SIZES(ns)) Q:ns=""  S s=\$G(^GLOBAL_SIZES(ns),0) S t=t+s W !,"  ^",ns,": ",s W !,"Total: ",t Q`);
+// %GL: global lister
+def("^%GL", `W "=== ^GLOBALes ===",! N ns,s,t S t=0,ns="" F  S ns=\$O(^GLOBAL_SIZES(ns)) Q:ns=""  S s=\$G(^GLOBAL_SIZES(ns),0) S t=t+s W !,"  ^",ns,": ",s W !,"Total: ",t,! Q`);
+
+// WHO: who's connected
+def("^WH", `W "=== Sessions ===",! N pid,dev S pid="" F  S pid=\$O(^SESSIONS(pid)) Q:pid=""  S dev=\$P(\$G(^SESSIONS(pid)),"|",1) W !,"  ",pid," @ ",dev Q`);
 
 window._wasm = {
     m_compile: wasm.m_compile,
@@ -45,9 +48,9 @@ window._wasm = {
     m_version: wasm.m_version,
     sys: SYS
 };
-document.getElementById("status").textContent = "WASM v" + wasm.m_version();
-log("⬡ M-Light WASM listo", "ok");
-log("SYS: " + Object.keys(SYS).join(", "), "log");
+document.getElementById("status").textContent = "v" + wasm.m_version();
+log("⬡ M-Light Console listo", "ok");
+log("Rutinas: " + Object.keys(SYS).join(" "), "log");
 </script>
 <script>
 const out = document.getElementById("out"), status = document.getElementById("status");
@@ -64,13 +67,10 @@ async function run() {
     log("> " + cmd, "val");
 
     const { m_compile, m_execute, sys } = window._wasm;
-    
-    // Detect D ^ROUTINE — use pre-compiled routine
     const dMatch = cmd.match(/^d\s+\^?(\w+)/i);
-    const routineName = dMatch ? "^" + dMatch[1].toUpperCase() : null;
+    const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
 
     try {
-        // Pull globals from DDP server
         let globals = "[]";
         try {
             const r = await fetch("http://192.168.1.11:8081/ddp/pull?ns=_all_");
@@ -78,13 +78,7 @@ async function run() {
             if (d.success && d.entries) globals = JSON.stringify(d.entries);
         } catch(e) {}
 
-        let compiled;
-        if (routineName && sys[routineName]) {
-            compiled = sys[routineName];
-        } else {
-            compiled = m_compile(cmd);
-        }
-
+        const compiled = (rn && sys[rn]) ? sys[rn] : m_compile(cmd);
         const t0 = performance.now();
         const output = m_execute(compiled, globals);
         const ms = (performance.now() - t0).toFixed(1);
@@ -96,8 +90,7 @@ async function run() {
         const msg = String(e);
         if (msg.includes("compile error")) log("❌ <SYNTAX> " + msg.split("compile error: ")[1], "err");
         else if (msg.includes("runtime error")) log("❌ <RUNTIME> " + msg.split("runtime error: ")[1], "err");
-        else if (msg.includes("Parse")) log("❌ <DATA> " + msg.split(": ").slice(-1)[0], "err");
-        else log("❌ " + msg.substring(0, 120), "err");
+        else log("❌ " + msg.substring(0,120), "err");
         status.textContent = "●";
     }
 }
