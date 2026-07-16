@@ -80,8 +80,9 @@ def _get_routine_code(name):
     except:
         return ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
 
-def _ddp_pull(ns, prefix=None):
-    """Pull entries. ns='_all_' = all namespaces. prefix=['asi'] = sub-tree."""
+def _ddp_pull(ns, prefix=None, limit=500, offset=0):
+    """Pull entries. ns='_all_' = all namespaces. prefix=['asi'] = sub-tree.
+    Sanitizes binary subscripts for readable JSON."""
     try:
         entries = []
         if ns == "_all_":
@@ -90,9 +91,38 @@ def _ddp_pull(ns, prefix=None):
                 _collect(n, entries)
         else:
             _collect(ns, entries, prefix)
-        return {"success": True, "entries": entries, "ns": ns}
+        # Sanitize subscripts before returning
+        for e in entries:
+            e["subs"] = _sanitize_subs(e["subs"])
+        # Paginate
+        total = len(entries)
+        if offset > 0 or limit < total:
+            entries = entries[offset:offset + limit]
+        return {"success": True, "entries": entries, "total": total, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+def _sanitize_subs(subs):
+    """Convert binary MSM subscripts to readable hex + visible chars."""
+    result = []
+    for s in subs:
+        if not isinstance(s, str):
+            result.append(str(s))
+            continue
+        clean = ""
+        has_binary = False
+        for ch in s:
+            o = ord(ch)
+            if o < 32 or o > 126:
+                clean += f"\\x{o:02x}"
+                has_binary = True
+            else:
+                clean += ch
+        # If the clean string is still too long and has binary, truncate with ...
+        if has_binary and len(clean) > 60:
+            clean = clean[:57] + "..."
+        result.append(clean)
+    return result
 
 def _collect(ns, entries, prefix=None):
     """Collect one level from PDB (non-recursive)."""
@@ -217,7 +247,9 @@ class VMHandler(BaseHTTPRequestHandler):
                 return
             prefix_str = qs.get("prefix", "")
             prefix = prefix_str.split(",") if prefix_str else None
-            result = _ddp_pull(ns, prefix)
+            limit = int(qs.get("limit", "500"))
+            offset = int(qs.get("offset", "0"))
+            result = _ddp_pull(ns, prefix, limit, offset)
             self._json(result)
         except Exception as e:
             self._json({"error": str(e)}, 500)
