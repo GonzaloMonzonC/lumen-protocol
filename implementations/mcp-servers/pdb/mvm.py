@@ -1548,6 +1548,9 @@ class CronScheduler:
 
 # Fase 6 is opt-in while the Python scheduler remains the safe fallback. The
 # public MVM name stays stable for pdb_tools and every MCP bridge.
+# NOTE (2026-07-16): Python MVM is EXPERIMENTAL. WASM is 56,309× faster.
+# Use MVM_ENGINE=wasm for any M code execution. Python MVM only for
+# direct PDB operations (tool_get/tool_set) which are fast without MVM.
 PythonMVM = MVM
 if os.environ.get("MVM_ENGINE", "python").strip().lower() in ("rust", "tokio"):
     try:
