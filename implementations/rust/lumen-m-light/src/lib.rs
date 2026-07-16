@@ -10,6 +10,12 @@ pub mod host;
 pub mod value;
 pub mod vm;
 
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+#[cfg(feature = "wasm")]
+pub mod ddp;
+
 pub use compiler::{Compiler, Instruction, Opcode, Program};
 pub use host::{GlobalEntry, Host, MemoryHost};
 pub use value::{Subscript, Value};
