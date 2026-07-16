@@ -93,7 +93,7 @@ window.run = async function() {
         const globals = mergeGlobals();
         const compiled = (rn && SYS[rn]) ? SYS[rn] : wasm.m_compile(cmd);
         const t0 = performance.now();
-        const raw = JSON.parse(wasm.m_execute_raw(compiled, globals));
+        const raw = JSON.parse(wasm.m_execute_ddp(compiled, globals, "*"));
         const ms = (performance.now() - t0).toFixed(1);
         
         if (raw.error) log("❌ <" + raw.error + ">", "err");
