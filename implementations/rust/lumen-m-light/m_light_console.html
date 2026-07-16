@@ -26,30 +26,32 @@ body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#ddd;height:100vh
 import * as wasm from "./pkg/lumen_mlight.js";
 await wasm.default();
 
-// System routines (compiled once, reused)
 const SYS = {};
-function def(name, code) {
-    try { SYS[name] = wasm.m_compile(code); }
-    catch(e) { console.warn(name, e); }
-}
+function def(name, code) { try { SYS[name] = wasm.m_compile(code); } catch(e) {} }
 
-// %SS: shows WASM runtime info + remote agents
-def("^%SS", `W "=== LUMEN System Status ===",! W "Engine: WASM (M-Light v0.1)",! W "Host: LUMEN Console",! W ! W "--- Agents (DDP) ---",! N pid,st S pid="" F  S pid=\$O(^HEARTBEAT(pid)) Q:pid=""  S st=\$P(\$G(^HEARTBEAT(pid)),"|",2) W !,"  ",pid," = ",st W !,"(conectado a DDP server)",! Q`);
+// %SS: WASM runtime info — usa GOTO, no FOR+Q (bug M-Light compiler)
+def("^%SS",
+`%SS W "=== LUMEN ===",! W "Engine: WASM v0.1",! W "Host: Console",! W !,"--- Agents ---",!
+ N pid,st S pid=""
+A1 S pid=\$O(^HEARTBEAT(pid)) G:pid="" A2
+ S st=\$P(\$G(^HEARTBEAT(pid)),"|",2)
+ W !,"  ",pid," = ",st
+ G A1
+A2 Q`);
 
-// %GL: global lister
-def("^%GL", `W "=== ^GLOBALes ===",! N ns,s,t S t=0,ns="" F  S ns=\$O(^GLOBAL_SIZES(ns)) Q:ns=""  S s=\$G(^GLOBAL_SIZES(ns),0) S t=t+s W !,"  ^",ns,": ",s W !,"Total: ",t,! Q`);
+// %GL: globals list — usa GOTO
+def("^%GL",
+`%GL W "=== ^GLOBALes ===",!
+ N ns,s,t S t=0,ns=""
+G1 S ns=\$O(^GLOBAL_SIZES(ns)) G:ns="" G2
+ S s=\$G(^GLOBAL_SIZES(ns),0) S t=t+s
+ W !,"  ^",ns,": ",s
+ G G1
+G2 W !,"Total: ",t,! Q`);
 
-// WHO: who's connected
-def("^WH", `W "=== Sessions ===",! N pid,dev S pid="" F  S pid=\$O(^SESSIONS(pid)) Q:pid=""  S dev=\$P(\$G(^SESSIONS(pid)),"|",1) W !,"  ",pid," @ ",dev Q`);
-
-window._wasm = {
-    m_compile: wasm.m_compile,
-    m_execute: wasm.m_execute,
-    m_version: wasm.m_version,
-    sys: SYS
-};
+window._wasm = { m_compile: wasm.m_compile, m_execute: wasm.m_execute, m_version: wasm.m_version, sys: SYS };
 document.getElementById("status").textContent = "v" + wasm.m_version();
-log("⬡ M-Light Console listo", "ok");
+log("⬡ M-Light Console", "ok");
 log("Rutinas: " + Object.keys(SYS).join(" "), "log");
 </script>
 <script>
@@ -65,7 +67,6 @@ async function run() {
     if (!cmd) return;
     document.getElementById("cmd").value = "";
     log("> " + cmd, "val");
-
     const { m_compile, m_execute, sys } = window._wasm;
     const dMatch = cmd.match(/^d\s+\^?(\w+)/i);
     const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
@@ -94,10 +95,7 @@ async function run() {
         status.textContent = "●";
     }
 }
-
-document.getElementById("cmd").addEventListener("keydown", e => {
-    if (e.key === "Enter") run();
-});
+document.getElementById("cmd").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
 </script>
 </body>
 </html>
