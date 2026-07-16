@@ -70,6 +70,8 @@ def _get_routine_code(name):
         return "\n".join(lines)
     except:
         return ""
+
+def _list_namespaces():
     """List all namespaces in PDB."""
     try:
         from pdb_tools import tool_query
@@ -86,7 +88,11 @@ def _ddp_pull(ns, prefix=None, limit=500, offset=0):
     try:
         entries = []
         if ns == "_all_":
-            all_ns = _list_namespaces()
+            from pdb_tools import tool_query
+            r = tool_query({"sql": "SELECT DISTINCT ns FROM _globals ORDER BY ns", "limit": 500})
+            all_ns = [row["ns"] for row in r.get("rows", [])] if r.get("success") else []
+            if not all_ns:
+                all_ns = ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
             for n in all_ns:
                 _collect(n, entries)
         else:
@@ -213,7 +219,7 @@ class VMHandler(BaseHTTPRequestHandler):
         qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
 
         if path == "/health":
-            self._json({"ok": True, "agent": "m-light-vm+ddp", "version": "2.0.0"})
+            self._json({"ok": True, "agent": "m-light-vm+ddp", "version": "2.1.0", "fix": "list_namespaces+inline_m"})
         elif path == "/ddp/health":
             self._json({"ok": True, "ddp": "local", "hmac": bool(os.environ.get("DDP_HMAC_KEY"))})
         elif path == "/ddp/pull":
@@ -371,7 +377,20 @@ class VMHandler(BaseHTTPRequestHandler):
                 return
             start = time.time()
             executor = RoutineExecutor()
+            # Try as named routine first, fallback to inline execution
             result = executor.exec(script, args=args)
+            if result.get("error") and "not found" in result["error"]:
+                # Inline mode: register temp, execute, clean up
+                import random
+                tmp_name = f"_INLINE_{random.randint(10000,99999)}"
+                register(tmp_name, script)
+                result = executor.exec(tmp_name, args=args)
+                # Clean up temp routine
+                try:
+                    from pdb_tools import tool_kill
+                    tool_kill({"ns": "ROUTINE", "subs": [tmp_name]})
+                except:
+                    pass
             elapsed = (time.time() - start) * 1000
             self._json({
                 "ok": "error" not in result,
