@@ -210,6 +210,35 @@ def exec_m_full_output(name, args=None, vars_in=None):
     except Exception as e:
         return None, str(e)
 
+# ── Auth (macaroons Fase 3, gporto) ──
+
+def _auth_required():
+    return os.environ.get("PDB_MACAROON_REQUIRED", "") == "1"
+
+def _authorize(handler, ns, op):
+    """→ (ok, reason). Gate activo solo con PDB_MACAROON_REQUIRED=1."""
+    if not _auth_required():
+        return True, "auth disabled (dev)"
+    token = ""
+    auth = handler.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+    if not token:
+        token = handler.headers.get("X-PDB-Macaroon", "").strip()
+    if not token:
+        qs = dict(p.split("=", 1) for p in urlparse(handler.path).query.split("&") if "=" in p)
+        token = qs.get("mac", "")
+    if not token:
+        return False, "macaroon requerido"
+    try:
+        sp = _paths.PDB_DIR_S
+        if sp not in sys.path:
+            sys.path.insert(0, sp)
+        from pdb_macaroon import check_access
+        return check_access(token, ns, op)
+    except Exception as e:
+        return False, f"macaroon: {e}"
+
 # ── Handler ──
 
 class VMHandler(BaseHTTPRequestHandler):
@@ -241,15 +270,24 @@ class VMHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
 
         if path == "/vm/execute":
-            self._handle_execute()
+            self._with_auth("vm", "execute", self._handle_execute)
         elif path == "/vm/register":
-            self._handle_register()
+            self._with_auth("vm", "register", self._handle_register)
         elif path == "/web/register":
-            self._handle_web_register()
+            self._with_auth("web", "register", self._handle_web_register)
         elif path == "/ddp/push":
             self._handle_ddp_push()
         else:
             self._json({"error": "not found"}, 404)
+
+    # ── Helpers ──
+
+    def _with_auth(self, ns, op, fn, *args):
+        """Ejecuta fn si auth pasa."""
+        ok, reason = _authorize(self, ns, op)
+        if ok:
+            return fn(*args)
+        self._json({"error": reason}, 403)
 
     # ── DDP handlers ──
 
