@@ -68,7 +68,7 @@ async function run() {
     document.getElementById("cmd").value = "";
     log("> " + cmd, "val");
     const { m_compile, m_execute, sys } = window._wasm;
-    const dMatch = cmd.match(/^d\s+\^?(\w+)/i);
+    const dMatch = cmd.match(/^d\s+\^?([\w%]+)/i);
     const rn = dMatch ? "^" + dMatch[1].toUpperCase() : null;
 
     try {
