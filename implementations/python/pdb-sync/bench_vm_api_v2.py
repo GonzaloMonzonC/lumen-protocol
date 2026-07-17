@@ -3,7 +3,8 @@
 import json, time, sys, threading, urllib.request, urllib.error, statistics
 
 HOST_LOCAL = "http://127.0.0.1:8081"
-HOST_EXT = "http://vm-api.cadences.app:8443"
+# HOST_EXT = "http://vm-api.cadences.app:8443"  # ← quitado: URL interna
+HOST_EXT = None  # external tests require URL override
 NS = "BENCH_VM2"
 
 def req(method, url, data=None, timeout=30):
