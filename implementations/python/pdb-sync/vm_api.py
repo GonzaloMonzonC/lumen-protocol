@@ -82,38 +82,43 @@ def _list_namespaces():
     except:
         return ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
 
-def _ddp_pull(ns, prefix=None, limit=500, offset=0):
+def _ddp_pull(ns, prefix=None, limit=500, offset=0, depth=0):
     """Pull entries. ns='_all_' = all namespaces. prefix=['asi'] = sub-tree.
-    Sanitizes binary subscripts for readable JSON."""
+    Sanitizes binary subscripts for readable JSON.
+    depth=0 → 1 level (root+children), depth=1 → 2 levels, depth=-1 → full tree."""
     try:
-        entries = []
+        all_entries = []
         if ns == "_all_":
-            from pdb_tools import tool_query
-            r = tool_query({"sql": "SELECT DISTINCT ns FROM _globals ORDER BY ns", "limit": 500})
-            all_ns = [row["ns"] for row in r.get("rows", [])] if r.get("success") else []
-            if not all_ns:
-                all_ns = ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
+            all_ns = _list_namespaces()
             for n in all_ns:
-                _collect(n, entries)
+                _collect(n, all_entries, depth=depth)
         else:
-            _collect(ns, entries, prefix)
+            _collect(ns, all_entries, prefix, depth=depth)
         # Sanitize subscripts before returning
-        for e in entries:
+        for e in all_entries:
             e["subs"] = _sanitize_subs(e["subs"])
         # Paginate
-        total = len(entries)
+        total = len(all_entries)
         if offset > 0 or limit < total:
-            entries = entries[offset:offset + limit]
+            entries = all_entries[offset:offset + limit]
+        else:
+            entries = all_entries
         return {"success": True, "entries": entries, "total": total, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 def _sanitize_subs(subs):
-    """Convert binary MSM subscripts to readable hex + visible chars."""
+    """Convert binary MSM subscripts to readable hex + visible chars.
+    Also flattens nested lists from PDB."""
     result = []
+    if not isinstance(subs, (list, tuple)):
+        return [str(subs)]
     for s in subs:
         if not isinstance(s, str):
-            result.append(str(s))
+            if isinstance(s, (int, float)):
+                result.append(str(s))
+            else:
+                result.append(repr(s))
             continue
         clean = ""
         has_binary = False
@@ -136,16 +141,23 @@ def _has_children(ns, base):
     r = tool_order({"ns": ns, "subs": base + [""], "direction": 1})
     return r.get("success") and r.get("value") is not None
 
-def _collect(ns, entries, prefix=None):
-    """Collect one level from PDB. Includes folders (no value) and leaves."""
-    from pdb_tools import tool_order, tool_get
+def _collect(ns, entries, prefix=None, depth=0, _cur_depth=0):
+    """Collect entries from PDB recursively. Walks subscripts level by level.
+    depth=0 (default) → children only (1 level, no root).
+    depth=1 → 2 levels (root+children+grandchildren).
+    depth=-1 → full tree."""
+    from pdb_tools import tool_order, tool_get, tool_has
     base = prefix or []
-    # Root at this level
-    val = tool_get({"ns": ns, "subs": list(base)})
-    if val.get("success"):
-        entries.append({"ns": ns, "subs": list(base), "value": val.get("value"),
-                        "has_children": bool(_has_children(ns, base))})
-    # Children at this level
+    # If first call (_cur_depth=0 and no prefix), always collect root
+    if _cur_depth == 0 and base == []:
+        val = tool_get({"ns": ns, "subs": list(base)})
+        if val.get("success"):
+            entries.append({"ns": ns, "subs": list(base), "value": val.get("value"),
+                            "has_children": bool(_has_children(ns, base))})
+    # Stop recursing if depth limit reached
+    if depth != -1 and _cur_depth >= depth:
+        return
+    # Walk children at this level
     key = ""
     while True:
         r = tool_order({"ns": ns, "subs": base + [key], "direction": 1})
@@ -156,6 +168,9 @@ def _collect(ns, entries, prefix=None):
         has_kids = _has_children(ns, base + [key])
         entries.append({"ns": ns, "subs": base + [key], "value": child_val.get("value"),
                         "has_children": has_kids})
+        # Recursively walk children
+        if has_kids:
+            _collect(ns, entries, base + [key], depth, _cur_depth + 1)
 
 def _ddp_push(ns, entries):
     """Push entries to PDB."""
@@ -164,6 +179,57 @@ def _ddp_push(ns, entries):
         for e in entries:
             tool_set({"ns": ns, "subs": e["subs"], "value": e["value"]})
         return {"success": True, "count": len(entries)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ── Raw DDP Operations (bypasses MUMPS subscript navigation) ──
+
+def _ddp_raw(ns, limit=100, offset=0):
+    """Pull raw entries from PDB directly (bypasses MUMPS subscript encoding).
+    Returns encoded subkeys and values as-is. Useful for namespaces with
+    packed binary subkeys like old MSM clinical data."""
+    try:
+        from pdb_tools import tool_query
+        r = tool_query({
+            "sql": "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey LIMIT ? OFFSET ?",
+            "params": [ns, limit, offset],
+            "limit": limit
+        })
+        if not r.get("success"):
+            return {"success": False, "error": r.get("error", "query failed")}
+        rows = r.get("rows", [])
+        entries = []
+        for row in rows:
+            raw_subkey = row.get("subkey", "")
+            raw_value = row.get("value", None)
+            # Decode subkey to show structure
+            from pdb_tools import decode_subkey
+            try:
+                decoded_subs = decode_subkey(raw_subkey)
+                subs_clean = _sanitize_subs(decoded_subs)
+            except:
+                subs_clean = [str(raw_subkey)[:80]]
+            # Decode value
+            if raw_value and isinstance(raw_value, bytes):
+                try:
+                    val_str = raw_value.decode("utf-8", errors="replace")
+                except:
+                    val_str = repr(raw_value)[:200]
+            else:
+                val_str = str(raw_value) if raw_value is not None else None
+            entries.append({
+                "subs": subs_clean,
+                "subkey_hex": raw_subkey.hex()[:80] if isinstance(raw_subkey, bytes) else str(raw_subkey)[:80],
+                "value": val_str[:200] if val_str else None,
+            })
+        # Get total count
+        count_r = tool_query({
+            "sql": "SELECT COUNT(*) as cnt FROM _globals WHERE ns=?",
+            "params": [ns],
+            "limit": 1
+        })
+        total = count_r.get("rows", [{}])[0].get("cnt", 0) if count_r.get("success") else 0
+        return {"success": True, "ns": ns, "entries": entries, "total": total, "limit": limit, "offset": offset}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -248,11 +314,15 @@ class VMHandler(BaseHTTPRequestHandler):
         qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
 
         if path == "/health":
-            self._json({"ok": True, "agent": "m-light-vm+ddp", "version": "2.1.0", "fix": "list_namespaces+inline_m"})
+            self._json({"ok": True, "agent": "m-light-vm+ddp", "version": "2.1.1", "fix": "recursive_walk+raw_endpoint"})
         elif path == "/ddp/health":
             self._json({"ok": True, "ddp": "local", "hmac": bool(os.environ.get("DDP_HMAC_KEY"))})
         elif path == "/ddp/pull":
             self._handle_ddp_pull(qs)
+        elif path == "/ddp/namespaces":
+            self._json({"success": True, "namespaces": _list_namespaces()})
+        elif path == "/ddp/raw":
+            self._handle_ddp_raw(qs)
         elif path.startswith("/ddp/routine"):
             self._handle_ddp_routine(qs)
         elif path.startswith("/web/admin/invites/approve"):
@@ -301,7 +371,25 @@ class VMHandler(BaseHTTPRequestHandler):
             prefix = prefix_str.split(",") if prefix_str else None
             limit = int(qs.get("limit", "500"))
             offset = int(qs.get("offset", "0"))
-            result = _ddp_pull(ns, prefix, limit, offset)
+            depth = int(qs.get("depth", "0"))
+            result = _ddp_pull(ns, prefix, limit, offset, depth)
+            self._json(result)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def _handle_ddp_raw(self, qs):
+        """GET /ddp/raw?ns=clinica&limit=10&offset=0
+        Returns raw PDB entries with encoded subkeys (bypasses MUMPS subscript
+        navigation). Essential for namespaces with packed binary subkeys like
+        old MSM clinical data."""
+        try:
+            ns = qs.get("ns", "")
+            if not ns:
+                self._json({"error": "ns required"}, 400)
+                return
+            limit = int(qs.get("limit", "100"))
+            offset = int(qs.get("offset", "0"))
+            result = _ddp_raw(ns, limit, offset)
             self._json(result)
         except Exception as e:
             self._json({"error": str(e)}, 500)
