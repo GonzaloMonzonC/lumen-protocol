@@ -1,9 +1,5 @@
-import sys, json
-try:
-    with open(r'C:\Users\gonzalo\pdb_min_test.log', 'w') as f:
-        f.write('alive\n')
-except:
-    pass
+import sys, json, os
+# Debug log removed for public repo
 
 # Stick to ASCII to avoid any encoding issues
 from pdb_tools import TOOLS, HANDLERS

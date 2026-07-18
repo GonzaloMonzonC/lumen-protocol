@@ -42,14 +42,8 @@ from lumen import (
 # Config
 # ═══════════════════════════════════════════════════════
 
-AGENT_URLS = {
-    "zalo":  "https://workers.dev.internal/chat",
-    "lisa":  "https://workers.dev.internal/chat",
-    "tom":   "https://workers.dev.internal/chat",
-    "angi":  "https://workers.dev.internal/chat",
-    "campo": "https://workers.dev.internal/chat",
-    "gon":   "https://workers.dev.internal/chat",
-}
+# Agent URLs loaded from env var or config
+AGENT_URLS = json.loads(os.environ.get("AGENT_URLS", "{}"))
 
 AGENT_ALIASES = {"g": "gon", "z": "zalo"}
 

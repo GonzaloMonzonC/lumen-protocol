@@ -1,7 +1,7 @@
 """
 M-Light — mini evaluador de expresiones y scripts M para PDB.
 
-Soporta el subconjunto esencial de MUMPS que Gonzalo usaba:
+Soporta el subconjunto esencial de MUMPS que se usaba:
   F  S N=$O(^nombres(N)) Q:N="pepe"
   F I=1:1:10 { S ^datos(I)=I*2 }
   S ^ns(subs)=value  Q:condition  S N=$O(^ns(N))
