@@ -68,3 +68,8 @@ pdb/benchmark_*.json
 
 # Internal benchmarks (experimental, not for repo)
 docs/benchmarks/internal/
+implementations/python/pdb-sync/launch-vm-api.bat
+implementations/python/pdb-sync/manage-vm-api.bat
+
+# Hermes skills (private, in cadenceslab-social)
+skills/
