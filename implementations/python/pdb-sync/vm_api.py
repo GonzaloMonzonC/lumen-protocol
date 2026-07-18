@@ -546,7 +546,10 @@ class VMHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def log_message(self, format, *args):
-        print(f"[VM] {args[0]} {args[1]} {args[2]}", flush=True)
+        if args:
+            print(f"[VM] {' '.join(str(a) for a in args)}", flush=True)
+        else:
+            print(f"[VM] {format}", flush=True)
 
 # ── Main ──
 

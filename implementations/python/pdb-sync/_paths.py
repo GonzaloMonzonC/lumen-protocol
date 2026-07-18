@@ -22,6 +22,9 @@ SYNC_DIR_S = str(SYNC_DIR)
 AUTO_MEMORY_DIR_S = str(SYNC_DIR / "auto-memory")
 REPORT_M = str(SYNC_DIR / "routines" / "REPORT.m")
 
+# MSM connection module (pdb-msm-importer repo)
+MSM_SCRIPTS_DIR_S = os.environ.get("MSM_IMPORTER_DIR", "")
+
 DB_PATH = (
     os.environ.get("PDB_PATH")
     or os.environ.get("PDB_DB")
@@ -31,7 +34,7 @@ DB_PATH = (
 
 def add():
     """Inserta los dirs del stack PDB en sys.path (idempotente)."""
-    for p in (PDB_DIR_S, SYNC_DIR_S):
+    for p in (PDB_DIR_S, SYNC_DIR_S, MSM_SCRIPTS_DIR_S):
         if p not in sys.path:
             sys.path.insert(0, p)
 

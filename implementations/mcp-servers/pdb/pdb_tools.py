@@ -17,6 +17,11 @@ import json, logging, os, sqlite3, struct, sys, threading, time, hashlib
 from pathlib import Path
 from typing import Any, Optional
 
+# MSM connection module — poner en path desde arranque, no en caliente
+_msm_scripts = os.path.expanduser("~/Documents/GitHub/pdb-msm-importer/scripts")
+if _msm_scripts not in sys.path:
+    sys.path.insert(0, _msm_scripts)
+
 # MVM — singleton global (VM de procesos M)
 _mvm_instance = None
 def __get_mvm():
@@ -81,7 +86,13 @@ def _load_db_map():
                 ns = subs[0]
                 if isinstance(ns, bytes):
                     ns = ns.decode("utf-8", errors="replace")
-                path = r["value"].decode("utf-8", errors="replace") if r["value"] else None
+                raw = r["value"]
+                if isinstance(raw, bytes):
+                    path = raw.decode("utf-8", errors="replace")
+                elif isinstance(raw, str):
+                    path = raw.strip('"')
+                else:
+                    path = str(raw) if raw else None
                 if path:
                     _db_map[ns] = path
         _db_map_loaded = True
@@ -163,6 +174,12 @@ def _get_conn(ns: str = None, subs: list = None) -> sqlite3.Connection:
     if ns and _db_map:
         mapped_path = _db_map.get(ns)
         if mapped_path:
+            # MSM mount: devolver MsmConnection en lugar de SQLite
+            if mapped_path.upper().endswith('.MSM'):
+                from msm_connection import MsmConnection
+                return MsmConnection(mapped_path)
+            
+            # Normal SQLite connection
             if ns not in _db_connections:
                 c = sqlite3.connect(mapped_path, timeout=5, check_same_thread=False)
                 _apply_pragmas(c, busy_timeout=5000)

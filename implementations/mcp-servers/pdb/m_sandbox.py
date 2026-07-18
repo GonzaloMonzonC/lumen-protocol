@@ -69,7 +69,7 @@ test("Q condicional", 'S ^N("ana")=1 S ^N("pepe")=1 S ^N("zoe")=1 S N="" F  S N=
 test("Multiples comandos", 'S A=1 S B=2 S C=3',
      lambda e,p: (e.scope.get("A")==1 and e.scope.get("B")==2 and e.scope.get("C")==3, ""))
 # 14
-test("Patron hospital", 'S ^HC("PAT",42,"name")="Gonzalo"',
+test("Patron hospital", 'S ^HC("PAT",42,"name")="TestUser"',
      lambda e,p: (p.tool_get({"ns":"HC","subs":["PAT",42,"name"]})["value"]=="Gonzalo", ""))
 # 15
 test("$O anidado", 'S ^M(1,"a")="x" S ^M(1,"b")="y" S I="" F  S I=$O(^M(I)) Q:I=""  S J="" F  S J=$O(^M(I,J)) Q:J=""  S ^CP(I,J)=$G(^M(I,J))',
