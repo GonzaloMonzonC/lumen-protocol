@@ -191,6 +191,7 @@ impl<'a, H: Host> Vm<'a, H> {
     pub fn run_slice(&mut self, gas: u64) -> Execution {
         self.slice_used = 0;
         self.slice_limit = gas.max(1);
+        self.slice_limit = gas.max(1);
         while self.state.ip < self.program.instructions.len() && !self.state.halted {
             if self.slice_used >= self.slice_limit && self.host.transaction_level() == 0 {
                 return Execution::Yielded;
@@ -198,6 +199,11 @@ impl<'a, H: Host> Vm<'a, H> {
             let instruction = self.program.instructions[self.state.ip].clone();
             self.state.ip += 1;
             if let Err(error) = self.charge(instruction.line) {
+                if error.zerror == "GAS_EXHAUSTED" {
+                    self.rollback_open_transactions();
+                    // Save PC (already at next instruction), yield gracefully
+                    return Execution::Yielded;
+                }
                 self.rollback_open_transactions();
                 self.state.error = Some(error);
                 self.state.halted = true;
