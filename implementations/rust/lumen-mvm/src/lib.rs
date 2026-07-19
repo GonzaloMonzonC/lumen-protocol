@@ -269,6 +269,15 @@ async fn job_actor(
                                 execution
                             };
                             // S1: Device 8/9 — dispatch HTTP/webhook on OPEN
+                            if snapshot.vm_state.last_open_device == 7 {
+                                // K3: Device 7 — LLM nativo
+                                let args = snapshot.vm_state.last_open_args.clone();
+                                if let Some(colon) = args.find(':') {
+                                    host.llm_model = Some(args[colon+1..].trim().to_string());
+                                }
+                                snapshot.vm_state.last_open_device = 0;
+                            }
+                            // Original Device 8 dispatch
                             if snapshot.vm_state.last_open_device == 8 {
                                 let url = snapshot.vm_state.last_open_args.clone();
                                 if let Some(colon) = url.find(':') {
@@ -306,7 +315,39 @@ async fn job_actor(
                                     host.http_rx = None;
                                 }
                             }
-                            // Device read buffers (fallback check)
+                            // K3: Device 7 — flush WRITE output to LLM engine
+                            if snapshot.vm_state.current_io == 7 && !snapshot.vm_state.output.is_empty() {
+                                let prompt = snapshot.vm_state.output.clone();
+                                snapshot.vm_state.output.clear();
+                                if let Some(ref engine) = host.llm_engine {
+                                    let engine = engine.clone();
+                                    let (tx, mut rx) = tokio::sync::oneshot::channel();
+                                    let sys = format!("Eres un agente MUMPS ejecutando en LUMEN. Job {}. Modelo: {}",
+                                        snapshot.pid, host.llm_model.as_deref().unwrap_or("default"));
+                                    tokio::spawn(async move {
+                                        match engine.think(&sys, &prompt).await {
+                                            Ok(response) => { let _ = tx.send(Ok(response)); }
+                                            Err(e) => { let _ = tx.send(Err(e)); }
+                                        }
+                                    });
+                                    // Non-blocking: check response next tick
+                                    if let Ok(Ok(response)) = rx.try_recv() {
+                                        host.llm_response = Some(response);
+                                        host.empty_read = false;
+                                    } else {
+                                        host.empty_read = true; // wait for LLM
+                                    }
+                                }
+                            }
+                            // K3: Device 7 LLM response check
+                            if snapshot.vm_state.current_io == 7 {
+                                if let Some(ref resp) = host.llm_response {
+                                    host.push_input(resp.clone());
+                                    host.llm_response = None;
+                                    host.empty_read = false;
+                                }
+                            }
+                            // Device 8 read buffers (fallback check)
                             if snapshot.vm_state.current_io == 8 {
                                 if let Some(ref buf) = host.http_buffer {
                                     if !buf.is_empty() {
