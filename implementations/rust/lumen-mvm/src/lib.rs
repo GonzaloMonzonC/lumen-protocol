@@ -501,6 +501,7 @@ enum SchedulerCommand {
     CronFire(String, u64),
     WakeJob(i64),
     ForkJob(i64, std_mpsc::Sender<Result<i64, String>>),
+    WatchdogCheck,
     Shutdown(std_mpsc::Sender<()>),
 }
 
@@ -572,6 +573,10 @@ struct Scheduler {
     jobs: BTreeMap<i64, JobHandle>,
     cron: BTreeMap<String, CronEntry>,
     message_seq: u64,
+    /// S6-C: Watchdog PID (opcional).
+    watchdog_pid: Option<i64>,
+    /// S6-C: Timeout en segundos para considerar un job colgado.
+    watchdog_timeout: f64,
 }
 
 impl Scheduler {
@@ -588,6 +593,8 @@ impl Scheduler {
             jobs: BTreeMap::new(),
             cron: BTreeMap::new(),
             message_seq: 0,
+            watchdog_pid: None,
+            watchdog_timeout: 30.0,
         };
         if let Ok(response) = bridge.call("load_jobs", json!({})) {
             if let Some(jobs) = response.get("jobs").and_then(JsonValue::as_array) {
@@ -657,6 +664,44 @@ impl Scheduler {
         Ok(new_pid)
     }
 
+    /// S6-C: Watchdog — alerta si un job lleva > timeout sin tick.
+    async fn watchdog_check(&mut self) {
+        let wd_pid = match self.watchdog_pid {
+            Some(p) => p,
+            None => return,
+        };
+        let timeout = self.watchdog_timeout;
+        let now_ts = now();
+        let mut hung: Vec<i64> = Vec::new();
+
+        for (&pid, handle) in &self.jobs {
+            let last_run = handle.snapshot.last_run;
+            if last_run > 0.0 && (now_ts - last_run) > timeout {
+                hung.push(pid);
+            }
+        }
+
+        if !hung.is_empty() {
+            // Enviar alerta al mailbox del watchdog
+            if let Some(wd_handle) = self.jobs.get(&wd_pid) {
+                let msg = serde_json::json!({
+                    "type": "watchdog_alert",
+                    "hung_jobs": hung,
+                    "timestamp": now_ts,
+                });
+                let (reply_tx, _reply_rx) = tokio::sync::oneshot::channel();
+                let _ = wd_handle.tx.send(JobCommand::Send {
+                    message: MailboxMessage {
+                        id: format!("wd_{}", self.message_seq),
+                        content: msg,
+                    },
+                    reply: reply_tx,
+                });
+                self.message_seq += 1;
+            }
+        }
+    }
+
     async fn run(&mut self, mut rx: mpsc::UnboundedReceiver<SchedulerCommand>) {
         while let Some(command) = rx.recv().await {
             match command {
@@ -676,6 +721,9 @@ impl Scheduler {
                 SchedulerCommand::ForkJob(pid, reply) => {
                     let result = self.fork_job(pid).await;
                     let _ = reply.send(result);
+                }
+                SchedulerCommand::WatchdogCheck => {
+                    self.watchdog_check().await;
                 }
                 SchedulerCommand::Shutdown(reply) => {
                     let _ = reply.send(());
