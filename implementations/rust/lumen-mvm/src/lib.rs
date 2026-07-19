@@ -9,11 +9,15 @@ mod response_parser;
 
 use host::{CallbackBridge, LiveHost};
 // use native_host::NativeHost; // S1: pending integration in JobActor
+use llm_engine::LlmEngine;
+use prompt_builder::PromptBuilder;
+use response_parser::{ResponseParser, AgentAction};
 use lumen_mlight::{Compiler, Execution, Host, Program, Vm, VmState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc as std_mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
@@ -146,6 +150,7 @@ enum JobCommand {
 async fn job_actor(
     mut snapshot: JobSnapshot,
     bridge: CallbackBridge,
+    engine: Option<Arc<dyn LlmEngine>>,
     mut rx: mpsc::Receiver<JobCommand>,
 ) {
     let mut host = LiveHost::new(bridge, snapshot.pid);
@@ -169,8 +174,75 @@ async fn job_actor(
                         &mut host,
                     ) {
                         Ok(mut vm) => {
-                            let execution = vm.run_slice(gas.max(1));
-                            snapshot.vm_state = vm.state;
+                            // S2: THINK_INTERNAL hook — intercept before run_slice
+                            let think_hook = snapshot.program.labels.contains_key("THINK_INTERNAL");
+                            let execution = if think_hook && engine.is_some() {
+                                let engine = engine.as_ref().unwrap();
+                                let builder = PromptBuilder::new(snapshot.pid, snapshot.vm_state.gas_used);
+                                match builder.build(&host) {
+                                    Ok((system, user)) => {
+                                        // Dispatch think (non-blocking via oneshot)
+                                        let (tx, mut rx) = tokio::sync::oneshot::channel();
+                                        let engine_clone = engine.clone();
+                                        let sys = system.clone();
+                                        let usr = user.clone();
+                                        tokio::spawn(async move {
+                                            match engine_clone.think(&sys, &usr).await {
+                                                Ok(response) => { let _ = tx.send(Ok(response)); }
+                                                Err(e) => { let _ = tx.send(Err(e)); }
+                                            }
+                                        });
+                                        // Check if response ready (non-blocking)
+                                        match rx.try_recv() {
+                                            Ok(Ok(response)) => {
+                                                let parsed = ResponseParser::parse(&response);
+                                                for action in &parsed.actions {
+                                                    match action {
+                                                        AgentAction::MCode { code } => {
+                                                            // Store for next tick
+                                                            let _ = host.set("MEMORY", &[
+                                                                lumen_mlight::Subscript::String("self".into()),
+                                                                lumen_mlight::Subscript::Number(snapshot.pid as f64),
+                                                                lumen_mlight::Subscript::String("pending_mcode".into()),
+                                                            ], lumen_mlight::Value::String(code.clone()));
+                                                        }
+                                                        AgentAction::ToolCall { tool, args } => {
+                                                            // Store for next tick dispatch
+                                                            let _ = host.set("RESULT", &[
+                                                                lumen_mlight::Subscript::String(tool.clone()),
+                                                            ], lumen_mlight::Value::String(args.to_string()));
+                                                        }
+                                                        AgentAction::SendMessage { target, content } => {
+                                                            // Enqueue to mailbox
+                                                            let _ = host.set("MAILBOX", &[
+                                                                lumen_mlight::Subscript::String(target.clone()),
+                                                                lumen_mlight::Subscript::String(format!("msg_{}", snapshot.vm_state.gas_used)),
+                                                            ], lumen_mlight::Value::String(content.clone()));
+                                                        }
+                                                        AgentAction::Output { text } => {
+                                                            let _ = host.set("OUTPUT", &[
+                                                                lumen_mlight::Subscript::Number(snapshot.pid as f64),
+                                                            ], lumen_mlight::Value::String(text.clone()));
+                                                        }
+                                                    }
+                                                }
+                                                if parsed.actions.is_empty() {
+                                                    Execution::Yielded
+                                                } else {
+                                                    Execution::Yielded // actions execute next tick
+                                                }
+                                            }
+                                            Ok(Err(_)) => Execution::Yielded, // LLM error, retry next tick
+                                            Err(_) => Execution::Yielded, // still waiting for response
+                                        }
+                                    }
+                                    Err(_) => Execution::Yielded,
+                                }
+                            } else {
+                                let execution = vm.run_slice(gas.max(1));
+                                snapshot.vm_state = vm.state;
+                                execution
+                            };
                             // S1: Device 8/9 — dispatch HTTP/webhook on OPEN
                             if snapshot.vm_state.last_open_device == 8 {
                                 let url = snapshot.vm_state.last_open_args.clone();
@@ -348,7 +420,7 @@ impl TokioMvm {
                     .expect("Tokio runtime");
                 let local = LocalSet::new();
                 local.block_on(&runtime, async move {
-                    let mut scheduler = Scheduler::new(bridge, scheduler_tx).await;
+                    let mut scheduler = Scheduler::new(bridge, None, scheduler_tx).await;
                     let _ = ready_tx.send(());
                     scheduler.run(rx).await;
                 });
@@ -383,6 +455,7 @@ impl Drop for TokioMvm {
 
 struct Scheduler {
     bridge: CallbackBridge,
+    engine: Option<Arc<dyn LlmEngine>>,
     command_tx: mpsc::UnboundedSender<SchedulerCommand>,
     jobs: BTreeMap<i64, JobHandle>,
     cron: BTreeMap<String, CronEntry>,
@@ -392,10 +465,12 @@ struct Scheduler {
 impl Scheduler {
     async fn new(
         bridge: CallbackBridge,
+        engine: Option<Arc<dyn LlmEngine>>,
         command_tx: mpsc::UnboundedSender<SchedulerCommand>,
     ) -> Self {
         let mut scheduler = Self {
             bridge,
+            engine,
             command_tx,
             jobs: BTreeMap::new(),
             cron: BTreeMap::new(),
@@ -427,7 +502,7 @@ impl Scheduler {
     async fn insert_job(&mut self, snapshot: JobSnapshot) {
         let pid = snapshot.pid;
         let (tx, rx) = mpsc::channel(64);
-        tokio::task::spawn_local(job_actor(snapshot.clone(), self.bridge, rx));
+        tokio::task::spawn_local(job_actor(snapshot.clone(), self.bridge, self.engine.clone(), rx));
         if let Some(wake_at) = snapshot.wake_at {
             let remaining = (wake_at - now()).max(0.0);
             let command_tx = self.command_tx.clone();
