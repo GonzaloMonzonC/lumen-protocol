@@ -106,7 +106,7 @@ def _get_db_path() -> str:
         _DB_PATH = (
             os.environ.get("PDB_PATH")
             or os.environ.get("PDB_DB")
-            or str(Path(__file__).resolve().parent / "lumen-pdb.db")
+            or r"C:\Users\gonzalo\pdb-data\lumen-pdb.db"
         )
     return _DB_PATH
 
@@ -2064,6 +2064,9 @@ _HISTORY_NS = "HISTORY"
 def _save_to_history(ns: str, subs: list, old_value, op: str, conn):
     """Save old value to ^HISTORY before SET/KILL mutates it.
     Key: ^HISTORY(ns, sub1, ..., timestamp) = {value, op}"""
+    # Skip transient/volatile namespaces to prevent history bloat
+    if ns.startswith('batch_') or ns.startswith('bench_') or ns.startswith('_tmp_'):
+        return
     ts = f"t{int(time.time()*1000000)}"
     hist_key = encode_subkey([ns] + subs + [ts])
     entry = json.dumps({"value": old_value, "op": op, "ns": ns, "subs": subs})
