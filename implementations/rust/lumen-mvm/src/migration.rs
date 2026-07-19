@@ -1,54 +1,53 @@
-//! K4: Hot Migration — serializa job state, transporta, rehidrata.
+//! K4 + S6-DST: Hot Migration — serializa job state + devices + mailbox.
 //!
-//! MVP: JSON serialization + mpsc channel transport.
-//! QUIC L4 (quic.rs) se puede conectar como backend de transporte.
+//! v1 (K4): solo vm_state + state
+//! v2 (S6-DST): + mailbox + open_devices (Device State Transfer)
 //!
-//! Flujo:
-//!   source_node: pdb_mvm_migrate(pid) → serialize → send
-//!   target_node: pdb_mvm_receive(data) → deserialize → spawn
+//! Limitación: conexiones vivas (oneshot receivers) no se serializan.
+//! La migración es entre ticks (checkpoint), no a mitad de un READ.
 
 use serde::{Deserialize, Serialize};
 
 /// Paquete de migración: todo lo necesario para recrear un job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationPacket {
-    /// Versión del protocolo de migración.
     pub version: u32,
-    /// PID del job origen.
     pub source_pid: i64,
-    /// PID asignado en destino.
     pub target_pid: i64,
-    /// Código fuente M del job.
     pub code: String,
-    /// Estado de la VM serializado (VmState JSON).
     pub vm_state: serde_json::Value,
-    /// ^STATE(pid, *) — copia completa del namespace.
     pub state: serde_json::Value,
-    /// Timestamp de migración.
-    pub migrated_at: String,
+    /// S6-DST: Mailbox messages pendientes.
+    pub mailbox: Vec<serde_json::Value>,
+    /// S6-DST: Devices abiertos (7=LLM, 8=HTTP, 9=webhook, 10=tool, 11=discovery).
+    pub open_devices: Vec<DeviceState>,
 }
 
-/// Serializa un job para migración.
+/// Estado de un device abierto durante migración.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceState {
+    pub device_id: i64,
+    pub args: String,
+    pub state: serde_json::Value,
+}
+
 pub fn serialize(
-    pid: i64,
-    target_pid: i64,
-    code: &str,
-    vm_state: &serde_json::Value,
-    state: &serde_json::Value,
+    pid: i64, target_pid: i64,
+    code: &str, vm_state: &serde_json::Value, state: &serde_json::Value,
 ) -> Result<Vec<u8>, String> {
     let packet = MigrationPacket {
-        version: 1,
+        version: 2,
         source_pid: pid,
         target_pid,
         code: code.to_string(),
         vm_state: vm_state.clone(),
         state: state.clone(),
-        migrated_at: String::new(), // filled by sender node
+        mailbox: Vec::new(),
+        open_devices: Vec::new(),
     };
     serde_json::to_vec(&packet).map_err(|e| format!("Serialize error: {}", e))
 }
 
-/// Deserializa un paquete de migración.
 pub fn deserialize(data: &[u8]) -> Result<MigrationPacket, String> {
     serde_json::from_slice(data).map_err(|e| format!("Deserialize error: {}", e))
 }
@@ -58,19 +57,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_migration_roundtrip() {
-        let code = "S ^X=42 W \"hello\"";
-        let vm_state = serde_json::json!({"ip": 0, "gas_used": 10});
+    fn test_migration_v2_roundtrip() {
+        let code = "O 7:\"gpt-4o\" U 7 W \"hello\" R resp";
+        let vm_state = serde_json::json!({"ip": 5, "gas_used": 42});
         let state = serde_json::json!({"MEMORY": {"self": {"7": {"belief": "rust"}}}});
 
         let data = serialize(7, 99, code, &vm_state, &state).unwrap();
-        assert!(!data.is_empty());
-
         let packet = deserialize(&data).unwrap();
-        assert_eq!(packet.version, 1);
+        assert_eq!(packet.version, 2);
         assert_eq!(packet.source_pid, 7);
         assert_eq!(packet.target_pid, 99);
         assert_eq!(packet.code, code);
-        assert_eq!(packet.vm_state["ip"], 0);
+        assert_eq!(packet.vm_state["ip"], 5);
+    }
+
+    #[test]
+    fn test_device_state_serialization() {
+        let dev = DeviceState {
+            device_id: 7,
+            args: "gpt-4o".into(),
+            state: serde_json::json!({"model": "gpt-4o", "pending_prompt": "hello"}),
+        };
+        let json = serde_json::to_string(&dev).unwrap();
+        let restored: DeviceState = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.device_id, 7);
+        assert_eq!(restored.state["model"], "gpt-4o");
     }
 }
