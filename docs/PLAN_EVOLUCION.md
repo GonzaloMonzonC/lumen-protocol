@@ -1,5 +1,10 @@
 # Plan de evolución: PDB + M-Light + MVM
 
+> ⚠️ **NOTA (Julio 2026):** Este documento describe el plan original (Python → Rust).
+> La migración a Rust se completó en julio 2026 (S1-S4). Ver estado actual en
+> [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) y [ARCHITECTURE.md](../ARCHITECTURE.md).
+> Este documento queda como referencia histórica del diseño inicial.
+
 > Hoja de ruta técnica para el núcleo del ecosistema LUMEN.
 > Dirigido al equipo actual y nuevos miembros.
 >

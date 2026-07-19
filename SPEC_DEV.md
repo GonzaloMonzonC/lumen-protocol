@@ -518,6 +518,25 @@ const plaintext = await cipher.decrypt(encryptedPayload);
 | **C#** | *(pending)* | — | — |
 | **PHP** | *(pending)* | — | — |
 
+### 7.6 Rust Cognitive OS (July 2026)
+
+Beyond the protocol transport layer, LUMEN now includes a full cognitive agent runtime in Rust:
+
+| Component | Crate | Description |
+|-----------|-------|-------------|
+| M-Light VM | `lumen-m-light` | M language VM: compiler, opcodes, types, \$ORDER, FOR, IF, DO |
+| PDB Storage | `lumen-pdb` | Native ^GLOBALS on redb (pure Rust embedded DB) |
+| TokioMvm | `lumen-mvm` | Async scheduler: JobActor × N, READY/RUNNING/WAITING/BLOCKED/DEAD |
+| LlmEngine | `lumen-mvm` | HTTP POST to any LLM API (OpenAI-compatible) |
+| PromptBuilder | `lumen-mvm` | Builds LLM prompt from ^GLOBALS with \$ORDER limits |
+| ResponseParser | `lumen-mvm` | Parses LLM output → M code / tool calls / messages |
+| ToolDispatch | `lumen-mvm` | Non-blocking tool calls via mpsc channel |
+| Device 8 | `lumen-mvm` | HTTP client: `O 8:"GET url"` → reqwest |
+| Device 9 | `lumen-mvm` | Webhook server: `O 9:":8767"` → axum |
+| Agent Loop | `lumen-mvm` | Persistent M agents: CHECK_MAILBOX → THINK → YIELD |
+
+See [ARCHITECTURE.md](../ARCHITECTURE.md) and [AGENT_GUIDE.md](../AGENT_GUIDE.md) for details.
+
 ---
 
 ## 8. Reference Tables
