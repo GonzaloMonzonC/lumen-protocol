@@ -88,6 +88,10 @@ pub struct LiveHost {
     pub llm_response: Option<String>,
     /// K3: Modelo activo para Device 7.
     pub llm_model: Option<String>,
+    /// K5: Device 10 — Tool dispatcher.
+    pub tool_dispatcher: Option<Arc<crate::tool_dispatch::ToolDispatcher>>,
+    /// K5: Resultado de tool (Device 10).
+    pub tool_result: Option<String>,
 }
 
 impl LiveHost {
@@ -106,6 +110,8 @@ impl LiveHost {
             llm_engine: None,
             llm_response: None,
             llm_model: None,
+            tool_dispatcher: None,
+            tool_result: None,
         }
     }
 
