@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::ffi::{c_char, c_void, CString};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use crate::llm_engine::LlmEngine;
 
 pub type HostCallback = unsafe extern "C" fn(
     context: *mut c_void,
@@ -81,6 +82,12 @@ pub struct LiveHost {
     pub webhook_queue: Option<Arc<Mutex<VecDeque<String>>>>,
     /// S1: Último argumento de OPEN (para dispatchear HTTP/webhook).
     pub last_open_args: Option<String>,
+    /// K3: Device 7 — LLM engine (si está configurado para este job).
+    pub llm_engine: Option<Arc<dyn LlmEngine>>,
+    /// K3: Buffer de respuesta del LLM (Device 7).
+    pub llm_response: Option<String>,
+    /// K3: Modelo activo para Device 7.
+    pub llm_model: Option<String>,
 }
 
 impl LiveHost {
@@ -96,6 +103,9 @@ impl LiveHost {
             http_rx: None,
             webhook_queue: None,
             last_open_args: None,
+            llm_engine: None,
+            llm_response: None,
+            llm_model: None,
         }
     }
 
