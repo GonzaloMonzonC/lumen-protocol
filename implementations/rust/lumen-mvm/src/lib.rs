@@ -7,11 +7,14 @@ mod llm_engine;
 mod prompt_builder;
 mod response_parser;
 
+mod tool_dispatch;
+
 use host::{CallbackBridge, LiveHost};
 // use native_host::NativeHost; // S1: pending integration in JobActor
 use llm_engine::LlmEngine;
 use prompt_builder::PromptBuilder;
 use response_parser::{ResponseParser, AgentAction};
+use tool_dispatch::ToolDispatcher;
 use lumen_mlight::{Compiler, Execution, Host, Program, Vm, VmState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -151,6 +154,7 @@ async fn job_actor(
     mut snapshot: JobSnapshot,
     bridge: CallbackBridge,
     engine: Option<Arc<dyn LlmEngine>>,
+    tool_dispatch: Option<Arc<ToolDispatcher>>,
     mut rx: mpsc::Receiver<JobCommand>,
 ) {
     let mut host = LiveHost::new(bridge, snapshot.pid);
@@ -207,7 +211,27 @@ async fn job_actor(
                                                             ], lumen_mlight::Value::String(code.clone()));
                                                         }
                                                         AgentAction::ToolCall { tool, args } => {
-                                                            // Store for next tick dispatch
+                                                            // Dispatch via SHM (non-blocking)
+                                                            if let Some(ref dispatcher) = tool_dispatch {
+                                                                let req = tool_dispatch::ToolRequest {
+                                                                    tool: tool.clone(),
+                                                                    args: args.clone(),
+                                                                };
+                                                                let dispatcher_clone = dispatcher.clone();
+                                                                let tool_clone = tool.clone();
+                                                                tokio::spawn(async move {
+                                                                    match dispatcher_clone.dispatch(req).await {
+                                                                        Ok(resp) => {
+                                                                            // resultado se cachea en el dispatcher
+                                                                            let _ = resp;
+                                                                        }
+                                                                        Err(e) => {
+                                                                            eprintln!("Tool dispatch error: {}", e);
+                                                                        }
+                                                                    }
+                                                                });
+                                                            }
+                                                            // Store pending for next tick
                                                             let _ = host.set("RESULT", &[
                                                                 lumen_mlight::Subscript::String(tool.clone()),
                                                             ], lumen_mlight::Value::String(args.to_string()));
@@ -312,7 +336,11 @@ async fn job_actor(
                         .map(|error| error.zerror.clone())
                         .unwrap_or_else(|| snapshot.error.clone());
                     snapshot.status = match execution {
-                        _ if host.empty_read => WAITING,
+                        _ if host.empty_read => {
+                            // S3: WAITING with back-off — retry after 100ms
+                            snapshot.wake_at = Some(now() + 0.1);
+                            WAITING
+                        }
                         _ if host.lock_blocked => BLOCKED,
                         Execution::Yielded => READY,
                         Execution::Completed | Execution::Halted | Execution::Error => DEAD,
@@ -456,6 +484,7 @@ impl Drop for TokioMvm {
 struct Scheduler {
     bridge: CallbackBridge,
     engine: Option<Arc<dyn LlmEngine>>,
+    tool_dispatch: Option<Arc<ToolDispatcher>>,
     command_tx: mpsc::UnboundedSender<SchedulerCommand>,
     jobs: BTreeMap<i64, JobHandle>,
     cron: BTreeMap<String, CronEntry>,
@@ -471,6 +500,7 @@ impl Scheduler {
         let mut scheduler = Self {
             bridge,
             engine,
+            tool_dispatch: None, // S3: pending MCP bridge integration
             command_tx,
             jobs: BTreeMap::new(),
             cron: BTreeMap::new(),
@@ -502,7 +532,7 @@ impl Scheduler {
     async fn insert_job(&mut self, snapshot: JobSnapshot) {
         let pid = snapshot.pid;
         let (tx, rx) = mpsc::channel(64);
-        tokio::task::spawn_local(job_actor(snapshot.clone(), self.bridge, self.engine.clone(), rx));
+        tokio::task::spawn_local(job_actor(snapshot.clone(), self.bridge, self.engine.clone(), self.tool_dispatch.clone(), rx));
         if let Some(wake_at) = snapshot.wake_at {
             let remaining = (wake_at - now()).max(0.0);
             let command_tx = self.command_tx.clone();
