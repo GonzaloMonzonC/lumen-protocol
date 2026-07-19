@@ -340,6 +340,45 @@ async fn job_actor(
                                     }
                                 }
                             }
+                            // S6-A: Device 11 — Discovery: WRITE registra, READ lista peers
+                            if snapshot.vm_state.current_io == 11 && !snapshot.vm_state.output.is_empty() {
+                                let reg = snapshot.vm_state.output.clone();
+                                snapshot.vm_state.output.clear();
+                                // Parse registration: {"action":"register","capabilities":[...]}
+                                if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&reg) {
+                                    let caps = obj.get("capabilities")
+                                        .and_then(|c| c.as_array())
+                                        .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(","))
+                                        .unwrap_or_default();
+                                    let peer = serde_json::json!({
+                                        "id": snapshot.pid,
+                                        "name": snapshot.name,
+                                        "capabilities": caps,
+                                    });
+                                    // Store in ^NETWORK (via host)
+                                    let _ = host.set("NETWORK", &[
+                                        lumen_mlight::Subscript::String("peers".into()),
+                                        lumen_mlight::Subscript::Number(snapshot.pid as f64),
+                                    ], lumen_mlight::Value::String(peer.to_string()));
+                                }
+                            }
+                            if snapshot.vm_state.current_io == 11 {
+                                // READ: return peer list
+                                let mut peers = String::new();
+                                // Walk ^NETWORK("peers") to build list
+                                let _ = host.get("NETWORK", &[
+                                    lumen_mlight::Subscript::String("peers".into()),
+                                    lumen_mlight::Subscript::Number(1.0),
+                                ]).map(|v| {
+                                    if let Some(val) = v {
+                                        peers.push_str(&val.as_string());
+                                    }
+                                });
+                                if !peers.is_empty() {
+                                    host.discovered_peers = Some(peers);
+                                    host.empty_read = false;
+                                }
+                            }
                             // K5: Device 10 — flush WRITE to ToolDispatcher
                             if snapshot.vm_state.current_io == 10 && !snapshot.vm_state.output.is_empty() {
                                 let tool_json = snapshot.vm_state.output.clone();

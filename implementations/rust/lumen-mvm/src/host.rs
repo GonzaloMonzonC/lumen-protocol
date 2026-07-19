@@ -92,6 +92,8 @@ pub struct LiveHost {
     pub tool_dispatcher: Option<Arc<crate::tool_dispatch::ToolDispatcher>>,
     /// K5: Resultado de tool (Device 10).
     pub tool_result: Option<String>,
+    /// S6-A: Device 11 — Discovery peer list.
+    pub discovered_peers: Option<String>,
 }
 
 impl LiveHost {
@@ -112,6 +114,7 @@ impl LiveHost {
             llm_model: None,
             tool_dispatcher: None,
             tool_result: None,
+            discovered_peers: None,
         }
     }
 
