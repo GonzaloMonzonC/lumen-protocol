@@ -168,6 +168,26 @@ async fn job_actor(
                         Ok(mut vm) => {
                             let execution = vm.run_slice(gas.max(1));
                             snapshot.vm_state = vm.state;
+                            // S1: Device 8/9 — if VM opened a device (current_io=8 or 9),
+                            // try to read buffered data before checking empty_read.
+                            if snapshot.vm_state.current_io == 8 {
+                                // Device 8: HTTP — check if there's pending response
+                                if let Some(ref buf) = host.http_buffer {
+                                    if !buf.is_empty() {
+                                        host.empty_read = false;
+                                    }
+                                }
+                            }
+                            if snapshot.vm_state.current_io == 9 {
+                                // Device 9: Webhook — check shared queue
+                                if let Some(ref queue) = host.webhook_queue {
+                                    if let Ok(mut guard) = queue.try_lock() {
+                                        if !guard.is_empty() {
+                                            host.empty_read = false;
+                                        }
+                                    }
+                                }
+                            }
                             execution
                         }
                         Err(error) => {
