@@ -499,6 +499,7 @@ enum SchedulerCommand {
     Call(JsonValue, std_mpsc::Sender<JsonValue>),
     CronFire(String, u64),
     WakeJob(i64),
+    ForkJob(i64, std_mpsc::Sender<Result<i64, String>>),
     Shutdown(std_mpsc::Sender<()>),
 }
 
@@ -532,6 +533,14 @@ impl TokioMvm {
             tx,
             worker: Some(worker),
         })
+    }
+
+    pub fn fork(&self, pid: i64) -> Result<i64, String> {
+        let (reply_tx, reply_rx) = std_mpsc::channel();
+        self.tx
+            .send(SchedulerCommand::ForkJob(pid, reply_tx))
+            .map_err(|_| "MVM scheduler stopped".to_string())?;
+        reply_rx.recv().map_err(|_| "Scheduler dropped".to_string())?
     }
 
     pub fn call(&self, request: JsonValue) -> Result<JsonValue, String> {
@@ -602,6 +611,11 @@ impl Scheduler {
         scheduler
     }
 
+    /// K1: Genera un PID único para nuevos jobs.
+    fn next_pid(&self) -> i64 {
+        self.jobs.keys().last().map(|k| k + 1).unwrap_or(1)
+    }
+
     async fn insert_job(&mut self, snapshot: JobSnapshot) {
         let pid = snapshot.pid;
         let (tx, rx) = mpsc::channel(64);
@@ -615,6 +629,31 @@ impl Scheduler {
             });
         }
         self.jobs.insert(pid, JobHandle { tx, snapshot });
+    }
+
+    /// K1: Cognitive Forking — duplica un job con todo su ^STATE.
+    async fn fork_job(&mut self, pid: i64) -> Result<i64, String> {
+        let source = self.jobs.get(&pid)
+            .ok_or_else(|| format!("Job {} not found", pid))?;
+        let source_snapshot = source.snapshot.clone();
+
+        // Create child with new PID and cloned state
+        let new_pid = self.next_pid();
+        let mut child = source_snapshot.clone();
+        child.pid = new_pid;
+        child.name = format!("{}-fork", source_snapshot.name);
+        child.vm_state.job_id = new_pid;
+
+        // Fork ^STATE via bridge: copia ^STATE(pid, *) -> ^STATE(new_pid, *)
+        // La transaccion redb copia subarboles completos
+        let _ = self.bridge.call("fork_state", json!({
+            "source_pid": pid,
+            "target_pid": new_pid,
+        }));
+
+        // Spawn child
+        self.insert_job(child).await;
+        Ok(new_pid)
     }
 
     async fn run(&mut self, mut rx: mpsc::UnboundedReceiver<SchedulerCommand>) {
@@ -632,6 +671,10 @@ impl Scheduler {
                 }
                 SchedulerCommand::WakeJob(pid) => {
                     let _ = self.wake_pid(pid).await;
+                }
+                SchedulerCommand::ForkJob(pid, reply) => {
+                    let result = self.fork_job(pid).await;
+                    let _ = reply.send(result);
                 }
                 SchedulerCommand::Shutdown(reply) => {
                     let _ = reply.send(());
