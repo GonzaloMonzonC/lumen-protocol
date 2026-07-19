@@ -168,10 +168,46 @@ async fn job_actor(
                         Ok(mut vm) => {
                             let execution = vm.run_slice(gas.max(1));
                             snapshot.vm_state = vm.state;
-                            // S1: Device 8/9 — if VM opened a device (current_io=8 or 9),
-                            // try to read buffered data before checking empty_read.
+                            // S1: Device 8/9 — dispatch HTTP/webhook on OPEN
+                            if snapshot.vm_state.last_open_device == 8 {
+                                let url = snapshot.vm_state.last_open_args.clone();
+                                if let Some(colon) = url.find(':') {
+                                    let http_url = url[colon+1..].trim().to_string();
+                                    if !http_url.is_empty() {
+                                        // Use a oneshot channel to receive the HTTP response
+                                        let (tx, mut rx) = tokio::sync::oneshot::channel();
+                                        tokio::spawn(async move {
+                                            match reqwest::get(&http_url).await {
+                                                Ok(resp) => {
+                                                    match resp.text().await {
+                                                        Ok(body) => { let _ = tx.send(Ok(body)); }
+                                                        Err(e) => { let _ = tx.send(Err(e.to_string())); }
+                                                    }
+                                                }
+                                                Err(e) => { let _ = tx.send(Err(e.to_string())); }
+                                            }
+                                        });
+                                        // Check if response is ready (non-blocking)
+                                        host.http_rx = Some(rx);
+                                    }
+                                }
+                                snapshot.vm_state.last_open_device = 0;
+                                host.empty_read = true; // job waits for HTTP response
+                            }
+                            // Check pending HTTP response
+                            if let Some(ref mut rx) = host.http_rx {
+                                if let Ok(Ok(body)) = rx.try_recv() {
+                                    let mut buf = VecDeque::new();
+                                    for line in body.lines() {
+                                        buf.push_back(line.to_string());
+                                    }
+                                    host.http_buffer = Some(buf);
+                                    host.empty_read = false;
+                                    host.http_rx = None;
+                                }
+                            }
+                            // Device read buffers (fallback check)
                             if snapshot.vm_state.current_io == 8 {
-                                // Device 8: HTTP — check if there's pending response
                                 if let Some(ref buf) = host.http_buffer {
                                     if !buf.is_empty() {
                                         host.empty_read = false;
@@ -179,7 +215,6 @@ async fn job_actor(
                                 }
                             }
                             if snapshot.vm_state.current_io == 9 {
-                                // Device 9: Webhook — check shared queue
                                 if let Some(ref queue) = host.webhook_queue {
                                     if let Ok(mut guard) = queue.try_lock() {
                                         if !guard.is_empty() {
