@@ -9,6 +9,7 @@ mod response_parser;
 
 mod tool_dispatch;
 mod agent_loop;
+mod migration;
 
 use host::{CallbackBridge, LiveHost};
 // use native_host::NativeHost; // S1: pending integration in JobActor
