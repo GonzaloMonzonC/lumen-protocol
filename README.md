@@ -221,6 +221,19 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | PHP 8.1+ impl | ✅ | Core protocol. E2E: 217/217 |
 | C#/.NET 9 impl | 🔶 | Hyb128 + compression + FFI. No frame layer yet (partial) |
 | WASM target | ✅ | 22 KB gzipped, browser-ready |
+| **🔧 Rust Cognitive OS (S1-S4)** | ✅ | Agent loop, LLM engine, native storage, HTTP/webhook — see [ARCHITECTURE.md](ARCHITECTURE.md) |
+| ── PdbHost nativo (redb) | ✅ | ^GLOBALS en Rust puro, sin FFI Python |
+| ── Device 8 (HTTP client) | ✅ | O 8 reqwest async, non-blocking |
+| ── Device 9 (Webhook server) | ✅ | O 9 axum, POSTs → mailbox |
+| ── HttpLlmEngine | ✅ | POST a API LLM desde Rust |
+| ── PromptBuilder v0.2 | ✅ | ^MEMORY+^MAILBOX+^MODELS → prompt |
+| ── ResponseParser | ✅ | ```m / ```tool / ```msg / texto |
+| ── THINK_INTERNAL hook | ✅ | JobActor intercepta, dispatch async |
+| ── ToolDispatch | ✅ | mpsc non-blocking (SHM substitute) |
+| ── Agent Loop | ✅ | CHECK_MAILBOX → THINK → YIELD |
+| ── WAITING + back-off | ✅ | 100ms timer, mailbox wake-up |
+| ── Persistencia ^PROCESSES | ✅ | Jobs sobreviven reinicio |
+| ── Tests | ✅ | 15/15 pass (unit + integration) |
 
 ### 🚧 Planned / Under Development
 
