@@ -1,7 +1,11 @@
 mod ffi;
 mod host;
+mod device8;
+mod device9;
+mod native_host;
 
 use host::{CallbackBridge, LiveHost};
+// use native_host::NativeHost; // S1: pending integration in JobActor
 use lumen_mlight::{Compiler, Execution, Host, Program, Vm, VmState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
