@@ -2,6 +2,8 @@ use lumen_mlight::{Host, Subscript, Value};
 use serde_json::{json, Value as JsonValue};
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_void, CString};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub type HostCallback = unsafe extern "C" fn(
     context: *mut c_void,
@@ -71,6 +73,10 @@ pub struct LiveHost {
     /// Un LOCK sin timeout no se pudo adquirir: el job pasa a BLOCKED y el
     /// scheduler reintenta la misma instrucción en ticks posteriores.
     pub lock_blocked: bool,
+    /// S1: Device 8 (HTTP) buffer de respuesta.
+    pub http_buffer: Option<VecDeque<String>>,
+    /// S1: Device 9 (Webhook) cola compartida.
+    pub webhook_queue: Option<Arc<Mutex<VecDeque<String>>>>,
 }
 
 impl LiveHost {
@@ -82,6 +88,8 @@ impl LiveHost {
             input: VecDeque::new(),
             empty_read: false,
             lock_blocked: false,
+            http_buffer: None,
+            webhook_queue: None,
         }
     }
 
