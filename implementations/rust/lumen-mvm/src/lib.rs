@@ -3,6 +3,9 @@ mod host;
 mod device8;
 mod device9;
 mod native_host;
+mod llm_engine;
+mod prompt_builder;
+mod response_parser;
 
 use host::{CallbackBridge, LiveHost};
 // use native_host::NativeHost; // S1: pending integration in JobActor
