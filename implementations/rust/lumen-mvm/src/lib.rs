@@ -379,6 +379,30 @@ async fn job_actor(
                                     host.empty_read = false;
                                 }
                             }
+                            // S6-B: Device 12 — Raft Consensus
+                            if snapshot.vm_state.current_io == 12 && !snapshot.vm_state.output.is_empty() {
+                                let proposal = snapshot.vm_state.output.clone();
+                                snapshot.vm_state.output.clear();
+                                if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&proposal) {
+                                    let term = obj.get("term").and_then(|t| t.as_u64()).unwrap_or(1);
+                                    let cmd = obj.get("command").and_then(|c| c.as_str()).unwrap_or("");
+                                    // Store proposal in ^RAFT
+                                    let _ = host.set("RAFT", &[
+                                        lumen_mlight::Subscript::String("proposals".into()),
+                                        lumen_mlight::Subscript::Number(term as f64),
+                                    ], lumen_mlight::Value::String(cmd.to_string()));
+                                    // Auto-commit with 1 ACK (self) for MVP
+                                    // Full consensus: broadcast to followers via mailbox
+                                    host.raft_proposals.push((cmd.to_string(), 1));
+                                    // Check if majority (>= 2) reached
+                                    if host.raft_proposals.len() >= 2 {
+                                        let _ = host.set("RAFT", &[
+                                            lumen_mlight::Subscript::String("commit_index".into()),
+                                        ], lumen_mlight::Value::String(term.to_string()));
+                                        host.empty_read = false;
+                                    }
+                                }
+                            }
                             // K5: Device 10 — flush WRITE to ToolDispatcher
                             if snapshot.vm_state.current_io == 10 && !snapshot.vm_state.output.is_empty() {
                                 let tool_json = snapshot.vm_state.output.clone();
