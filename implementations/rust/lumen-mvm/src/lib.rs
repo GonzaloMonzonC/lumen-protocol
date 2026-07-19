@@ -339,6 +339,37 @@ async fn job_actor(
                                     }
                                 }
                             }
+                            // K5: Device 10 — flush WRITE to ToolDispatcher
+                            if snapshot.vm_state.current_io == 10 && !snapshot.vm_state.output.is_empty() {
+                                let tool_json = snapshot.vm_state.output.clone();
+                                snapshot.vm_state.output.clear();
+                                if let Some(ref dispatcher) = host.tool_dispatcher {
+                                    if let Ok(req) = serde_json::from_str::<crate::tool_dispatch::ToolRequest>(&tool_json) {
+                                        let dispatcher = dispatcher.clone();
+                                        let (tx, mut rx) = tokio::sync::oneshot::channel();
+                                        tokio::spawn(async move {
+                                            match dispatcher.dispatch(req).await {
+                                                Ok(resp) => { let _ = tx.send(resp.result); }
+                                                Err(e) => { let _ = tx.send(e); }
+                                            }
+                                        });
+                                        if let Ok(result) = rx.try_recv() {
+                                            host.tool_result = Some(result);
+                                            host.empty_read = false;
+                                        } else {
+                                            host.empty_read = true;
+                                        }
+                                    }
+                                }
+                            }
+                            // K5: Device 10 — read tool result
+                            if snapshot.vm_state.current_io == 10 {
+                                if let Some(ref result) = host.tool_result {
+                                    host.push_input(result.clone());
+                                    host.tool_result = None;
+                                    host.empty_read = false;
+                                }
+                            }
                             // K3: Device 7 LLM response check
                             if snapshot.vm_state.current_io == 7 {
                                 if let Some(ref resp) = host.llm_response {
