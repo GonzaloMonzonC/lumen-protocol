@@ -318,6 +318,37 @@ Ver también: [`implementations/mcp-servers/pdb/`](../implementations/mcp-server
 
 ---
 
+
+---
+
+## 🦀 Rust Native Stack (July 2026)
+
+> El OS cognitivo ya no es solo Python + MCP. Ahora tenemos un runtime completo en Rust puro.
+
+### Crates
+
+| Crate | Propósito |
+|-------|-----------|
+| `lumen-m-light` | VM M (1,535 líneas): opcodes, compilador, tipos M |
+| `lumen-pdb` | Storage nativo (redb): ^GLOBALS en Rust, sin SQLite |
+| `lumen-mvm` | Tokio scheduler + cognitive OS: JobActor, LlmEngine, PromptBuilder, ToolDispatch, Agent Loop |
+
+### Capacidades nuevas (no en versión Python)
+
+- **Agent Loop nativo**: código M con CHECK_MAILBOX → THINK → YIELD
+- **LlmEngine**: POST a cualquier API LLM desde Rust (sin Python)
+- **PromptBuilder**: construye prompts desde ^GLOBALS con límites ($ORDER)
+- **ResponseParser**: extrae ```m / ```tool / ```msg de respuestas LLM
+- **ToolDispatch**: tool calls no bloqueantes vía mpsc channel
+- **Device 8 (HTTP)**: `O 8:"GET url"` con reqwest async
+- **Device 9 (Webhook)**: `O 9:":8767"` con servidor axum
+- **WAITING state**: back-off 100ms, wake-up por mailbox
+- **Persistencia**: jobs en ^PROCESSES sobreviven reinicio del nodo
+
+Ver [ARCHITECTURE.md](../ARCHITECTURE.md) para el detalle completo de capas, módulos y tests.
+
+---
+
 ## 📚 Referencias
 
 - [Thinking Server README](../implementations/mcp-servers/thinking/README.md)
