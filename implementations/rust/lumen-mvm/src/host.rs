@@ -94,6 +94,8 @@ pub struct LiveHost {
     pub tool_result: Option<String>,
     /// S6-A: Device 11 — Discovery peer list.
     pub discovered_peers: Option<String>,
+    /// S6-B: Device 12 — Raft pending proposals.
+    pub raft_proposals: Vec<(String, usize)>, // (command, acks)
 }
 
 impl LiveHost {
@@ -115,6 +117,7 @@ impl LiveHost {
             tool_dispatcher: None,
             tool_result: None,
             discovered_peers: None,
+            raft_proposals: Vec::new(),
         }
     }
 
