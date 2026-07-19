@@ -75,8 +75,12 @@ pub struct LiveHost {
     pub lock_blocked: bool,
     /// S1: Device 8 (HTTP) buffer de respuesta.
     pub http_buffer: Option<VecDeque<String>>,
+    /// S1: Receiver para respuesta HTTP async.
+    pub http_rx: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
     /// S1: Device 9 (Webhook) cola compartida.
     pub webhook_queue: Option<Arc<Mutex<VecDeque<String>>>>,
+    /// S1: Último argumento de OPEN (para dispatchear HTTP/webhook).
+    pub last_open_args: Option<String>,
 }
 
 impl LiveHost {
@@ -89,7 +93,9 @@ impl LiveHost {
             empty_read: false,
             lock_blocked: false,
             http_buffer: None,
+            http_rx: None,
             webhook_queue: None,
+            last_open_args: None,
         }
     }
 

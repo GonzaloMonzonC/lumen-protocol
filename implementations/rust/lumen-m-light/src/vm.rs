@@ -62,6 +62,12 @@ pub struct VmState {
     /// $TEST: resultado del último LOCK con timeout.
     #[serde(default)]
     pub test: bool,
+    /// S1: último dispositivo abierto (0 = ninguno).
+    #[serde(default)]
+    pub last_open_device: i64,
+    /// S1: argumentos del último OPEN (ej: "GET https://...").
+    #[serde(default)]
+    pub last_open_args: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<VmError>,
 }
@@ -94,6 +100,8 @@ impl VmState {
             gas_used: 0,
             halted: false,
             test: false,
+            last_open_device: 0,
+            last_open_args: String::new(),
             error: None,
         }
     }
@@ -350,7 +358,21 @@ impl<'a, H: Host> Vm<'a, H> {
                     return Ok(Control::Yield);
                 }
             }
-            Opcode::Open | Opcode::Close => {}
+            Opcode::Open => {
+                // Parse device number: "8:args..." or just "8"
+                let arg = &instruction.argument;
+                self.state.last_open_args = arg.clone();
+                if let Some(colon) = arg.find(':') {
+                    if let Ok(dev) = arg[..colon].trim().parse::<i64>() {
+                        self.state.current_io = dev;
+                        self.state.last_open_device = dev;
+                    }
+                } else if let Ok(dev) = arg.trim().parse::<i64>() {
+                    self.state.current_io = dev;
+                    self.state.last_open_device = dev;
+                }
+            }
+            Opcode::Close => {}
             Opcode::Use => {
                 self.state.current_io = self
                     .eval_expr(&instruction.argument, instruction.line)?
