@@ -560,15 +560,86 @@ impl<'a, H: Host> Vm<'a, H> {
             self.restore_local_scopes_to(scope_base);
             self.restore_arguments();
         } else {
-            let arguments = split_top_level(raw_arguments, ',')
+            // D LABEL(args) — local DO with optional .ref pass-by-reference
+            let label_upper = target_name.trim().to_ascii_uppercase();
+            let source_local = self.program.source.clone();
+            let formals = parse_formal_params(&source_local, &label_upper).unwrap_or_default();
+            
+            let mut refs: Vec<(String, String)> = Vec::new();
+            let raw_args_list = split_top_level(raw_arguments, ',')
                 .into_iter()
-                .filter(|value| !value.is_empty())
-                .map(|value| self.eval_expr(&value, line))
-                .collect::<Result<Vec<_>, _>>()?;
+                .filter(|v| !v.is_empty())
+                .collect::<Vec<_>>();
+            let mut evaluated = Vec::new();
+            
+            for (i, raw) in raw_args_list.iter().enumerate() {
+                let trimmed = raw.trim();
+                let param_name = formals.get(i).cloned().unwrap_or_default();
+                if trimmed.starts_with('.') && !param_name.is_empty() {
+                    let src_var = trimmed.trim_start_matches('.').trim().to_string();
+                    if is_identifier(&src_var) {
+                        // Copy array from caller var to callee param
+                        let prefix = format!("{}[", src_var);
+                        let collected: Vec<(String, Value)> = self.state.vars.iter()
+                            .filter(|(k, _)| k.starts_with(&prefix))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        for (key, val) in &collected {
+                            let suffix = key.trim_start_matches(&prefix);
+                            self.state.vars.insert(format!("{}[{}", param_name, suffix), val.clone());
+                        }
+                        refs.push((src_var, param_name));
+                        evaluated.push(Value::Null);
+                        continue;
+                    }
+                }
+                evaluated.push(self.eval_expr(raw, line)?);
+            }
+            
+            // Bind non-.ref params as $1, $2, ...
+            for (i, pname) in formals.iter().enumerate() {
+                let trimmed = raw_args_list.get(i).map(|a| a.trim()).unwrap_or("");
+                if !trimmed.starts_with('.') {
+                    if let Some(val) = evaluated.get(i) {
+                        self.state.vars.insert(pname.clone(), val.clone());
+                    }
+                }
+            }
+            self.bind_arguments(evaluated);
+            
+            // Local label jump
             let destination = self.label_ip(target_name, line)?;
-            self.bind_arguments(arguments);
+            let saved_ip = self.state.ip;
             self.state.call_stack.push(self.state.ip);
             self.state.ip = destination;
+            
+            // Execute up to label
+            while self.state.ip < self.program.instructions.len() && !self.state.halted {
+                let instr = self.program.instructions[self.state.ip].clone();
+                let ctrl = self.execute_instruction(&instr)?;
+                match ctrl {
+                    Control::Continue => self.state.ip += 1,
+                    Control::Skip(n) => self.state.ip += 1 + n as usize,
+                    Control::Quit | Control::Halt | Control::Yield => break,
+                }
+            }
+            self.state.ip = saved_ip;
+            
+            // Write back .ref vars
+            for (src_var, param_name) in &refs {
+                let prefix = format!("{}[", param_name);
+                let collected: Vec<(String, Value)> = self.state.vars.iter()
+                    .filter(|(k, _)| k.starts_with(&prefix))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                for (key, val) in &collected {
+                    let suffix = key.trim_start_matches(&prefix);
+                    self.state.vars.insert(format!("{}[{}", src_var, suffix), val.clone());
+                }
+                if let Some(scalar) = self.state.vars.get(param_name).cloned() {
+                    self.state.vars.insert(src_var.clone(), scalar);
+                }
+            }
         }
         Ok(Control::Continue)
     }

@@ -45,6 +45,7 @@ pub struct Program {
     pub source_hash: String,
     pub instructions: Vec<Instruction>,
     pub labels: BTreeMap<String, usize>,
+    pub source: String,
 }
 
 #[derive(Debug, Default)]
@@ -161,6 +162,7 @@ impl Compiler {
             source_hash,
             instructions,
             labels,
+            source: source.to_string(),
         })
     }
 }
