@@ -116,7 +116,15 @@ def execute(
     gas_limit: int = 1000,
     gas_budget: int = 0,
     slice_gas: int | None = None,
+    llm_api_keys: dict[str, str] | None = None,
 ) -> dict:
+    if llm_api_keys is None:
+        import os as _os
+        llm_api_keys = {}
+        for var, provider in [("OPENROUTER_API_KEY", "openrouter"), ("DEEPSEEK_API_KEY", "deepseek")]:
+            val = _os.environ.get(var)
+            if val:
+                llm_api_keys[provider] = val
     request = {
         "source": source,
         "program": program,
@@ -128,10 +136,21 @@ def execute(
         "input": input_ or [],
         "gas_limit": gas_limit,
         "gas_budget": gas_budget,
+        "llm_api_keys": llm_api_keys,
     }
     if slice_gas is not None:
         request["slice_gas"] = slice_gas
     response = _call("lm_execute_json", json.dumps(request, ensure_ascii=False))
+    # Auto-resume on yield: loop until completed or error
+    max_loops = 300  # ~30s max
+    loop_count = 0
+    import time as _time
+    while response.get("execution") == "yielded" and loop_count < max_loops:
+        loop_count += 1
+        _time.sleep(0.1)  # Give LLM thread time to resolve
+        request["state"] = response.get("state", {})
+        request["gas_limit"] = gas_limit
+        response = _call("lm_execute_json", json.dumps(request, ensure_ascii=False))
     if not response.get("ok") and response.get("execution") != "error":
         raise RuntimeError(response.get("error", "Rust M-Light execution failed"))
     return response
