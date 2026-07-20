@@ -27,7 +27,7 @@ pub struct LlmFuture {
     pub tokens_out: Option<u64>,
 }
 
-/// Hilo de trabajo para una llamada LLM.
+#[derive(Clone, Debug)]
 struct WorkItem {
     id: u64,
     provider: String,
@@ -42,6 +42,8 @@ struct WorkItem {
 pub struct LlmThreadPool {
     next_id: AtomicU64,
     futures: Arc<Mutex<HashMap<u64, Arc<Mutex<LlmFutureStatus>>>>>,
+    /// WorkItems pendientes (cadenas esperando que el padre se resuelva)
+    pending: Arc<Mutex<HashMap<u64, WorkItem>>>,
     worker_tx: std::sync::mpsc::Sender<WorkItem>,
 }
 
@@ -54,6 +56,8 @@ fn global_llm_pool() -> &'static LlmThreadPool {
 impl LlmThreadPool {
     pub fn new() -> Self {
         let futures: Arc<Mutex<HashMap<u64, Arc<Mutex<LlmFutureStatus>>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Mutex<HashMap<u64, WorkItem>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let (tx, rx) = std::sync::mpsc::channel::<WorkItem>();
         let worker_futures = futures.clone();
@@ -73,6 +77,7 @@ impl LlmThreadPool {
         Self {
             next_id: AtomicU64::new(1),
             futures,
+            pending,
             worker_tx: tx,
         }
     }
@@ -162,14 +167,17 @@ impl LlmThreadPool {
             match status {
                 LlmFutureStatus::Pending => None,
                 LlmFutureStatus::Dependent(parent_id) => {
-                    // Check if parent resolved
+                    // Drop the status lock before checking parent
+                    drop(status);
                     let parent_status = futures
                         .get(&parent_id)
                         .and_then(|s| s.lock().ok().map(|g| g.clone()));
                     match parent_status {
-                        Some(LlmFutureStatus::Resolved(_)) => {
-                            // Parent ready, but need to actually run this future
-                            // For now, return pending
+                        Some(LlmFutureStatus::Resolved(_)) |
+                        Some(LlmFutureStatus::Rejected(_)) => {
+                            // Parent done! Submit this future to the worker
+                            drop(futures);
+                            self.submit_pending(id);
                             None
                         }
                         _ => None,
@@ -184,7 +192,7 @@ impl LlmThreadPool {
     }
 
     pub fn cancel(&self, id: u64) -> bool {
-        // Remove from map — worker will check and abort
+        self.pending.lock().unwrap().remove(&id);
         self.futures.lock().unwrap().remove(&id).is_some()
     }
 
@@ -210,8 +218,15 @@ impl LlmThreadPool {
             state,
         };
 
-        let _ = self.worker_tx.send(item);
+        self.pending.lock().unwrap().insert(id, item);
         id
+    }
+
+    /// Envía un WorkItem pendiente al worker cuando su dependencia se resuelve.
+    fn submit_pending(&self, id: u64) {
+        if let Some(item) = self.pending.lock().unwrap().remove(&id) {
+            let _ = self.worker_tx.send(item);
+        }
     }
 }
 
