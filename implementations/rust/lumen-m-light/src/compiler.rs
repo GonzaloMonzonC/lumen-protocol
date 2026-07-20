@@ -54,12 +54,14 @@ impl Compiler {
     pub fn compile(source: &str) -> Result<Program, String> {
         let mut instructions = Vec::new();
         let mut labels = BTreeMap::new();
-        for (line_index, raw_line) in source.lines().enumerate() {
-            let line_number = line_index + 1;
-            let line = strip_comment(raw_line).trim();
-            if line.is_empty() {
-                continue;
-            }
+        let lines: Vec<&str> = source.lines().collect();
+        let mut i = 0;
+        while i < lines.len() {
+            let raw_line = lines[i];
+            let line_number = i + 1;
+            let trimmed = strip_comment(raw_line).trim();
+            let (dot_count, line) = split_dots(trimmed);
+            if line.is_empty() { i += 1; continue; }
             let (label, rest) = split_label(line);
             let code = if let Some(label) = label {
                 labels.insert(label.to_uppercase(), instructions.len());
@@ -74,8 +76,42 @@ impl Compiler {
                 line
             };
             if !code.is_empty() {
-                compile_line(code, line_number, &mut instructions)?;
+                // Check if this line has FOR ending with DO (block marker)
+                let code_upper = code.trim().to_uppercase();
+                let has_for = code_upper.contains("FOR")
+                    || code_upper.contains(" F ")
+                    || code_upper.starts_with("F ");
+                let ends_with_do = code_upper.ends_with(" DO") || code_upper.ends_with(" D");
+                let for_with_do = ends_with_do && has_for;
+                if for_with_do {
+                    // Collect the FOR body from subsequent lines at higher dot level
+                    let mut body_lines = String::from(code);
+                    body_lines.push('\n');
+                    let base_dots = dot_count;
+                    let mut j = i + 1;
+                    while j < lines.len() {
+                        let next_line = strip_comment(lines[j]).trim();
+                        if next_line.is_empty() { j += 1; continue; }
+                        let (ndots, nline) = split_dots(next_line);
+                        if ndots > base_dots {
+                            body_lines.push_str(&"  ".repeat((ndots - base_dots - 1) as usize));
+                            body_lines.push_str(nline);
+                            body_lines.push('\n');
+                            j += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let body_trimmed = body_lines.trim();
+                    if !body_trimmed.is_empty() {
+                        compile_line(body_trimmed, line_number, &mut instructions)?;
+                    }
+                    i = j - 1; // Skip collected body lines
+                } else {
+                    compile_line(code, line_number, &mut instructions)?;
+                }
             }
+            i += 1;
         }
         let source_hash = format!("{:x}", Sha256::digest(source.as_bytes()));
         Ok(Program {
@@ -144,6 +180,21 @@ fn is_identifier(value: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%')
 }
 
+/// Split leading dots from a line and return (dot_count, rest_without_dots)
+fn split_dots(line: &str) -> (u32, &str) {
+    let mut trimmed = line.trim_start();
+    let mut count = 0u32;
+    loop {
+        if trimmed.starts_with('.') {
+            count += 1;
+            trimmed = trimmed[1..].trim_start();
+        } else {
+            break;
+        }
+    }
+    (count, trimmed)
+}
+
 fn opcode(token: &str) -> Option<Opcode> {
     match token.to_ascii_uppercase().as_str() {
         "S" | "SET" => Some(Opcode::Set),
@@ -177,14 +228,14 @@ fn compile_line(
 ) -> Result<(), String> {
     let mut rest = line.trim();
     while !rest.is_empty() {
-        // Strip continuation dots (.  DO → DO) and following whitespace
-        rest = rest.trim_start_matches('.').trim_start();
         let token_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
         let raw_token = &rest[..token_end];
         let (command_token, postcondition) = raw_token
             .split_once(':')
             .map_or((raw_token, None), |(command, condition)| {
-                (command, Some(condition.to_string()))
+                // Postcondition may include subsequent commands — trim at next boundary
+                let boundary = next_command_boundary(condition);
+                (command, Some(condition[..boundary].trim().to_string()))
             });
         let Some(command) = opcode(command_token) else {
             instructions.push(Instruction {
@@ -201,7 +252,11 @@ fn compile_line(
             command,
             Opcode::Halt | Opcode::TStart | Opcode::TCommit | Opcode::TRollback
         );
-        let boundary = if has_no_argument {
+        // For Quit: if next token after postcondition is a command opcode, it has no explicit argument
+        let is_quit_no_arg = matches!(command, Opcode::Quit)
+            && after_token.trim_start().split_whitespace().next()
+                .map_or(false, |tok| opcode(tok.split(':').next().unwrap_or(tok)).is_some());
+        let boundary = if has_no_argument || is_quit_no_arg {
             0
         } else if consumes_remainder {
             after_token.len()
