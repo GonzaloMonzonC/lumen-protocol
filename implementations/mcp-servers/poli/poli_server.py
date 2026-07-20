@@ -252,13 +252,14 @@ def tool_poli_chat(args: dict) -> dict:
     
     elif any(w in msg_lower for w in ["decide", "decisión", "decision", "log"]):
         # DECISIONS
+        esc_msj = mensaje.replace('"', '""')
         r = _STATE.exec(
-            f'S did=$$LOG^DECISIONS("hermes","consulta","{mensaje}","[]")',
+            f'S ^DIDRESULT=$$LOG^DECISIONS("hermes","consulta","{esc_msj}","[]","","active")',
             gas=30000,
         )
         did = None
         for g in (r.get("globals") or []):
-            if g.get("ns") == "did":
+            if g.get("ns") == "DIDRESULT":
                 did = g.get("value")
         return {
             "ok": r.get("ok"),
