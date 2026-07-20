@@ -76,6 +76,14 @@ pub struct VmState {
     /// Future ID that caused the pending yield.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub yield_future: Option<u64>,
+    #[serde(default)]
+    pub return_value: Option<Value>,
+    // ── Multi-fiber scheduler ───────────────────────────────────
+    #[serde(default)]
+    pub fibers: Vec<FiberState>,
+    #[serde(default)]
+    pub active_fiber: usize,
+
 }
 
 fn default_io() -> i64 {
@@ -111,6 +119,9 @@ impl VmState {
             error: None,
             yield_requested: false,
             yield_future: None,
+            return_value: None,
+            fibers: vec![FiberState::default()],
+            active_fiber: 0,
         }
     }
 }
@@ -140,6 +151,32 @@ pub struct LocalScope {
     #[serde(default)]
     all: bool,
     variables: BTreeMap<String, Option<Value>>,
+}
+/// Estado de un fiber de ejecución.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FiberState {
+    pub id: u64,
+    pub ip: usize,
+    #[serde(default)]
+    pub stack: Vec<Value>,
+    #[serde(default)]
+    pub vars: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub call_stack: Vec<usize>,
+    #[serde(default)]
+    pub loop_frames: BTreeMap<usize, LoopFrame>,
+    #[serde(default)]
+    pub local_scopes: Vec<LocalScope>,
+    #[serde(default)]
+    pub argument_scopes: Vec<BTreeMap<String, Option<Value>>>,
+    #[serde(default)]
+    pub return_value: Option<Value>,
+    #[serde(default)]
+    pub yield_requested: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yield_future: Option<u64>,
+    #[serde(default)]
+    pub output: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,7 +242,66 @@ impl<'a, H: Host> Vm<'a, H> {
         self.run_slice(self.state.gas_limit)
     }
 
-    pub fn run_slice(&mut self, gas: u64) -> Execution {
+    
+
+    /// Guarda el estado del fiber activo en la lista de fibers.
+    fn save_fiber(&mut self) {
+        let i = self.state.active_fiber;
+        if i < self.state.fibers.len() {
+            self.state.fibers[i].ip = self.state.ip;
+            self.state.fibers[i].stack = std::mem::take(&mut self.state.stack);
+            self.state.fibers[i].vars = std::mem::take(&mut self.state.vars);
+            self.state.fibers[i].call_stack = std::mem::take(&mut self.state.call_stack);
+            self.state.fibers[i].loop_frames = std::mem::take(&mut self.state.loop_frames);
+            self.state.fibers[i].local_scopes = std::mem::take(&mut self.state.local_scopes);
+            self.state.fibers[i].argument_scopes = std::mem::take(&mut self.state.argument_scopes);
+            self.state.fibers[i].return_value = self.state.return_value.take();
+            self.state.fibers[i].yield_requested = self.state.yield_requested;
+            self.state.fibers[i].yield_future = self.state.yield_future;
+            self.state.fibers[i].output = std::mem::take(&mut self.state.output);
+        }
+    }
+
+    /// Carga el estado de un fiber en los campos planos de VmState.
+    fn load_fiber(&mut self, index: usize) {
+        if index < self.state.fibers.len() {
+            let f = &self.state.fibers[index];
+            self.state.ip = f.ip;
+            self.state.stack = f.stack.clone();
+            self.state.vars = f.vars.clone();
+            self.state.call_stack = f.call_stack.clone();
+            self.state.loop_frames = f.loop_frames.clone();
+            self.state.local_scopes = f.local_scopes.clone();
+            self.state.argument_scopes = f.argument_scopes.clone();
+            self.state.return_value = f.return_value.clone();
+            self.state.yield_requested = f.yield_requested;
+            self.state.yield_future = f.yield_future;
+            self.state.output = f.output.clone();
+        }
+        self.state.active_fiber = index;
+    }
+
+    /// Cambia al siguiente fiber listo. Si solo hay uno, es no-op.
+    fn switch_fiber(&mut self) {
+        if self.state.fibers.len() <= 1 { return; }
+        self.save_fiber();
+        let n = self.state.fibers.len();
+        for _ in 0..n {
+            let next = (self.state.active_fiber + 1) % n;
+            let f = &self.state.fibers[next];
+            let frozen = f.yield_future.is_some() || f.yield_requested || f.ip >= self.program.instructions.len();
+            if !frozen {
+                self.load_fiber(next);
+                return;
+            }
+        }
+        self.load_fiber(self.state.active_fiber);
+    }
+
+pub fn run_slice(&mut self, gas: u64) -> Execution {
+        self.switch_fiber();
+
+        self.switch_fiber();
         self.slice_used = 0;
         self.slice_limit = gas.max(1);
         while self.state.ip < self.program.instructions.len() && !self.state.halted {
@@ -1649,7 +1745,29 @@ impl<'a, H: Host> Vm<'a, H> {
                     }
                 }
             }
-            "$CHAIN" => {
+            
+            "$FIBER" => {
+                let action = self.eval_expr(args.get(0).map_or("", String::as_str), line)?.as_string();
+                match action.as_str() {
+                    "spawn" => {
+                        let mut new_f = FiberState::default();
+                        new_f.id = self.state.fibers.len() as u64;
+                        new_f.ip = self.state.ip;
+                        new_f.vars = self.state.vars.clone();
+                        let id = new_f.id;
+                        self.state.fibers.push(new_f);
+                        Ok(Value::Number(id as f64))
+                    }
+                    "count" => Ok(Value::Number(self.state.fibers.len() as f64)),
+                    "me" => Ok(Value::Number(self.state.active_fiber as f64)),
+                    _ => Ok(Value::Null),
+                }
+            }
+            "$YIELD" => {
+                self.state.yield_requested = true;
+                Ok(Value::Null)
+            }
+"$CHAIN" => {
                 let parent = self.eval_expr(args.get(0).map_or("0", String::as_str), line)?.as_number() as u64;
                 let prompt = self.eval_expr(args.get(1).map_or("", String::as_str), line)?.as_string();
                 let system = args.get(2).map_or("".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
