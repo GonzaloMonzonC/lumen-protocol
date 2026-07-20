@@ -615,7 +615,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             
             // Try compiled version first
             let compiler = get_compiler();
-            if compiler.is_compiled(name) || compiler.track_call(name, &source) {
+            if compiler.is_compiled(name, &source) || compiler.track_call(name, &source) {
                 // Compiled version exists — call it
                 // For now, we fall through to interpreter since we need to support
                 // the full execution context. Compiled mode is for hot-paths.

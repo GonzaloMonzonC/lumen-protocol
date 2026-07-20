@@ -9,6 +9,7 @@
 use crate::compiler::Program;
 use crate::transpiler::transpile_to_rust;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -17,6 +18,8 @@ use std::time::Instant;
 pub struct CompilationManager {
     /// Path to the compilation workspace (Cargo project)
     workspace_dir: PathBuf,
+    /// Cache directory for compiled .dlls (persists across restarts)
+    cache_dir: PathBuf,
     /// Cache of loaded functions: routine_hash → compiled function
     cache: Mutex<HashMap<String, Box<dyn Fn() -> Result<i64, String> + Send + Sync>>>,
     /// Call counters for hot-path detection: routine_name → call_count
@@ -38,13 +41,44 @@ pub struct CompilationStats {
 
 impl CompilationManager {
     pub fn new(workspace_dir: &Path) -> Self {
+        let cache_dir = workspace_dir.parent()
+            .map(|p| p.join("compiled_cache"))
+            .unwrap_or_else(|| PathBuf::from("compiled_cache"));
+        let _ = fs::create_dir_all(&cache_dir); // Ignore if exists
         Self {
             workspace_dir: workspace_dir.to_path_buf(),
+            cache_dir,
             cache: Mutex::new(HashMap::new()),
             call_counts: Mutex::new(HashMap::new()),
             hot_threshold: 3,
             stats: Mutex::new(CompilationStats::default()),
         }
+    }
+    
+    /// Compute cache key for a routine
+    fn cache_key(name: &str, source: &str) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        source.hash(&mut hasher);
+        format!("{}_{:x}", name, hasher.finish())
+    }
+    
+    /// Path to cached .dll for a given cache key
+    fn cached_dll_path(&self, key: &str) -> PathBuf {
+        let ext = if cfg!(target_os = "windows") { "dll" }
+                  else if cfg!(target_os = "macos") { "dylib" }
+                  else { "so" };
+        self.cache_dir.join(format!("{}.{}", key, ext))
+    }
+    
+    /// Try to load a cached .dll, returning the loaded function if successful
+    fn load_cached_dll(&self, key: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+        let dll_path = self.cached_dll_path(key);
+        if !dll_path.exists() {
+            return None;
+        }
+        eprintln!("JIT: loading cached .dll '{}'", key);
+        self.load_function(&dll_path, "compiled_routine")
     }
     
     /// Track a call to a routine and trigger compilation if hot.
@@ -79,10 +113,18 @@ impl CompilationManager {
         false
     }
     
-    /// Check if a routine has been compiled and cached
-    pub fn is_compiled(&self, name: &str) -> bool {
-        let cache = self.cache.lock().unwrap();
-        cache.keys().any(|key| key.starts_with(&format!("{}:", name)))
+    /// Check if a routine has been compiled and cached (memory or disk)
+    pub fn is_compiled(&self, name: &str, source: &str) -> bool {
+        let key = Self::cache_key(name, source);
+        // Check memory cache
+        {
+            let cache = self.cache.lock().unwrap();
+            if cache.keys().any(|k| k.starts_with(&format!("{}:", name))) {
+                return true;
+            }
+        }
+        // Check disk cache
+        self.cached_dll_path(&key).exists()
     }
     
     /// Set the hot threshold (minimum calls before compilation)
@@ -93,14 +135,30 @@ impl CompilationManager {
     /// Try to compile a program and return a loaded function.
     /// Returns None if compilation is not available or fails.
     pub fn try_compile(&self, program: &Program, name: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+        let cache_key_str = Self::cache_key(name, &program.source);
         let hash = format!("{}:{}", name, program.source_hash);
         
-        // Check cache (stat only — Arc-based cache would be needed for real reuse)
-        // For now, just track cache hit stats. Real cache returning would need Arc.
+        // Check memory cache
         {
             let c = self.cache.lock().unwrap();
-            self.stats.lock().unwrap().cache_hits += if c.contains_key(&hash) { 1 } else { 0 };
+            if c.contains_key(&hash) {
+                self.stats.lock().unwrap().cache_hits += 1;
+                // Can't return from cache (Box not cloneable) — will recompile
+            }
         }
+        
+        // Check disk cache first
+        let dll_path = self.cached_dll_path(&cache_key_str);
+        if dll_path.exists() {
+            eprintln!("JIT: cache HIT for '{}' (loading .dll)", name);
+            if let Some(_f) = self.load_function(&dll_path, "compiled_routine") {
+                self.stats.lock().unwrap().cache_hits += 1;
+                // .dll loaded and stays in memory via libloading
+                return None; // TODO: return Arc<dyn Fn> for cache reuse
+            }
+        }
+        
+        eprintln!("JIT: compiling '{}' (cache miss, cargo build ~12s)", name);
         
         // Transpile M → Rust
         let rust_code = transpile_to_rust(program, name);
@@ -140,6 +198,10 @@ impl CompilationManager {
                     Some(f) => {
                         self.stats.lock().unwrap().successful_compilations += 1;
                         self.cache.lock().unwrap().insert(hash, /* store */ f);
+                        // Save to persistent cache
+                        let cache_path = self.cached_dll_path(&cache_key_str);
+                        let _ = fs::copy(&dll_path, &cache_path);
+                        eprintln!("JIT: cached .dll for '{}' at {:?}", name, cache_path);
                         // Reacquire from cache
                         None // TODO: return the loaded function properly
                     }
