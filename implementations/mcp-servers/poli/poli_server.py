@@ -37,9 +37,12 @@ def _load_config() -> dict[str, str]:
     return _CONFIG_CACHE
 
 def _hmac_sign(body: str, secret: str) -> tuple[str, str]:
-    """Calcula X-DDP-HMAC + X-DDP-Timestamp para requests a CF Workers."""
-    ts = str(int(_time.time() * 1000))
-    sig = hmac.new(secret.encode(), f"{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    """Calcula X-DDP-HMAC + X-DDP-Timestamp para requests a CF Workers.
+    Formato: HMAC-SHA256(timestamp + body + secret) en hex."""
+    ts = str(int(_time.time()))
+    sig = hmac.new(secret.encode("utf-8"),
+                   (ts + body + secret).encode("utf-8"),
+                   hashlib.sha256).hexdigest()
     return sig, ts
 
 if sys.platform == "win32":
