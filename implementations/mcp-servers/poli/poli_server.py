@@ -366,7 +366,7 @@ def tool_poli_llm(args: dict) -> dict:
     gas = args.get("gas_limit", 500000)
     esc_prompt = prompt.replace('"', '""')
     esc_system = system.replace('"', '""')
-    source = f'S ^R=$LLM("{esc_prompt}","{esc_system}","{provider}","{model}")'
+    source = f'S ^R=$DEVICE("llm:call","{esc_prompt}","{esc_system}","{provider}","{model}")'
     import time as _time
     start = _time.time()
     r = _STATE.exec(source, gas=gas)
@@ -382,6 +382,85 @@ def tool_poli_llm(args: dict) -> dict:
         "elapsed": f"{elapsed:.1f}s",
         "execution": r.get("execution"),
         "mode": f"{provider}/{model}",
+        "error": r.get("state", {}).get("error"),
+    }
+
+
+def tool_poli_fiber(args: dict) -> dict:
+    """Gestiona fibers: lanza M code en background thread o espera resultado.
+    
+    action='spawn': lanza source en thread separado, devuelve fiber_id
+    action='join': espera que un bg fiber termine, devuelve su resultado
+    """
+    action = args.get("action", "spawn")
+    if action == "spawn":
+        source = args.get("source", "").strip()
+        if not source:
+            return {"ok": False, "error": "source vacío"}
+        esc = source.replace('"', '""')
+        r = _STATE.exec(f'S ^FIBER=$FIBER("bg","{esc}")', gas=20000)
+        fid = None
+        for g in (r.get("globals") or []):
+            if g.get("ns") == "FIBER":
+                fid = g.get("value")
+                break
+        return {
+            "ok": r.get("ok"),
+            "action": "spawned",
+            "fiber_id": fid,
+            "execution": r.get("execution"),
+            "error": r.get("state", {}).get("error"),
+        }
+    elif action == "join":
+        fid = args.get("fiber_id", 0)
+        r = _STATE.exec(f'S ^RESULT=$FIBER("join",{fid}) S ^DONE=1', gas=500000)
+        result = None
+        for g in (r.get("globals") or []):
+            if g.get("ns") == "RESULT":
+                result = g.get("value")
+                break
+        done = any(g.get("ns") == "DONE" for g in (r.get("globals") or []))
+        return {
+            "ok": r.get("ok"),
+            "action": "joined",
+            "fiber_id": fid,
+            "result": result,
+            "done": done,
+            "execution": r.get("execution"),
+            "error": r.get("state", {}).get("error"),
+        }
+    return {"ok": False, "error": f"unknown action: {action}"}
+
+
+def tool_poli_http(args: dict) -> dict:
+    """HTTP calls via $DEVICE nativo."""
+    method = args.get("method", "get").lower()
+    url = args.get("url", "").strip()
+    if not url:
+        return {"ok": False, "error": "url vacía"}
+    body = args.get("body", "")
+    if method == "get":
+        src = f'S ^R=$DEVICE("http:get","{url}")'
+    elif method == "post":
+        esc_body = body.replace('"', '""')
+        src = f'S ^R=$DEVICE("http:post","{url}","{esc_body}")'
+    else:
+        return {"ok": False, "error": f"unsupported method: {method}"}
+    import time as _time
+    start = _time.time()
+    r = _STATE.exec(src, gas=20000)
+    elapsed = _time.time() - start
+    result = None
+    for g in (r.get("globals") or []):
+        if g.get("ns") == "R":
+            result = g.get("value")
+            break
+    return {
+        "ok": r.get("ok"),
+        "method": method.upper(),
+        "url": url,
+        "response": result[:2000] if result else None,
+        "elapsed": f"{elapsed:.1f}s",
         "error": r.get("state", {}).get("error"),
     }
 
@@ -430,7 +509,7 @@ TOOLS = [
     },
     {
         "name": "poli_llm",
-        "description": "LLM call nativa desde el MVM Rust (sin Python HTTP). Usa $LLM fork+await con yield automático.",
+        "description": "LLM call nativa desde el MVM Rust (sin Python HTTP). Usa $DEVICE('llm:call') fork+await con yield automático.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -444,6 +523,32 @@ TOOLS = [
             "required": ["prompt"],
         },
     },
+    {
+        "name": "poli_fiber",
+        "description": "Gestiona fibers: spawn lanza M code en background thread, join espera resultado.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["spawn", "join"], "description": "spawn=lanza thread, join=espera resultado"},
+                "source": {"type": "string", "description": "Código M a ejecutar en background (para action=spawn)"},
+                "fiber_id": {"type": "integer", "description": "ID del fiber a esperar (para action=join)"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "poli_http",
+        "description": "HTTP calls via $DEVICE nativo en Rust. GET o POST.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "method": {"type": "string", "enum": ["get", "post"], "description": "Método HTTP", "default": "get"},
+                "url": {"type": "string", "description": "URL a consultar"},
+                "body": {"type": "string", "description": "Body para POST (JSON string)", "default": ""},
+            },
+            "required": ["url"],
+        },
+    },
 ]
 
 HANDLERS = {
@@ -452,6 +557,8 @@ HANDLERS = {
     "poli_status": tool_poli_status,
     "poli_seed": tool_poli_seed,
     "poli_llm": tool_poli_llm,
+    "poli_fiber": tool_poli_fiber,
+    "poli_http": tool_poli_http,
 }
 
 # ── Seed automático al arranque ──────────────────────────────────────────────
@@ -475,7 +582,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {"listChanged": False, "toolCount": len(TOOLS)},
+                    "tools": {"listChanged": False, "toolCount": 7},
                 },
                 "serverInfo": {"name": "poli-server", "version": "0.1.0"},
             },
