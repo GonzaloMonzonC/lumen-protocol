@@ -56,12 +56,14 @@ class PoliState:
         return g
     
     def seed(self) -> dict:
-        """Ejecuta SEED para cargar modos por defecto si no existen."""
+        """Ejecuta SEED para cargar modos por defecto si no existen,
+        luego overrides: critic → deepseek v4 flash.
+        """
         r = ml_execute(
-            source="D SEED^PERSONALITY",
+            source='D SEED^PERSONALITY S ^PERSONALITY("critic","provider")="deepseek" S ^PERSONALITY("critic","model")="deepseek-v4-flash"',
             routines=_ROUTINES,
             globals_=self.globals,
-            gas_limit=50000,
+            gas_limit=60000,
         )
         if r.get("ok"):
             self.globals = r.get("globals") or []
