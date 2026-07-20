@@ -6,13 +6,41 @@ como herramientas MCP para que Hermes las invoque conversacionalmente. Mantiene
 estado de sesión persistente entre invocaciones.
 """
 from __future__ import annotations
+import hashlib
+import hmac
 import json, logging, os, sys
+import time as _time
 from pathlib import Path
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pdb"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lumen_mlight import execute as ml_execute
 from poli_gateway import llm_call, MODELS
+
+# ── Config segura (fuera del repo) ───────────────────────────────────────────
+_CONFIG_FILE = Path.home() / "AppData/Local/hermes/poli_config.json"
+_CONFIG_CACHE = None  # cargado lazy en init
+
+def _load_config() -> dict[str, str]:
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is not None:
+        return _CONFIG_CACHE
+    if _CONFIG_FILE.exists():
+        try:
+            _CONFIG_CACHE = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _CONFIG_CACHE = {}
+    else:
+        _CONFIG_CACHE = {}
+    return _CONFIG_CACHE
+
+def _hmac_sign(body: str, secret: str) -> tuple[str, str]:
+    """Calcula X-DDP-HMAC + X-DDP-Timestamp para requests a CF Workers."""
+    ts = str(int(_time.time() * 1000))
+    sig = hmac.new(secret.encode(), f"{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+    return sig, ts
 
 if sys.platform == "win32":
     sys.stdin.reconfigure(encoding="utf-8")
@@ -43,6 +71,17 @@ class PoliState:
     def __init__(self):
         self.globals: list[dict] = []          # ^GLOBALES persistentes
         self.default_session = "hermes"
+        # Cargar config segura en ^CONFIG
+        cfg = _load_config()
+        if cfg:
+            exec_parts = []
+            for k, v in cfg.items():
+                ev = v.replace('"', '""')
+                exec_parts.append(f'S ^CONFIG("{k}")="{ev}"')
+            if exec_parts:
+                r = ml_execute(" ".join(exec_parts), routines=_ROUTINES, globals_=self.globals, gas_limit=10000)
+                if r.get("ok"):
+                    self.globals = r.get("globals") or self.globals
     
     def _globals_dict(self) -> dict:
         """Convierte self.globals a dict para inspección."""
@@ -479,12 +518,58 @@ def tool_poli_fiber(args: dict) -> dict:
 
 
 def tool_poli_http(args: dict) -> dict:
-    """HTTP calls via $DEVICE nativo."""
+    """HTTP calls con HMAC signing para CF Workers.
+    Lee DDP_HMAC_KEY de ^CONFIG para firmar requests a workers.dev.
+    Fallback a $DEVICE nativo si no es worker CF o no hay key.
+    """
     method = args.get("method", "get").lower()
     url = args.get("url", "").strip()
     if not url:
         return {"ok": False, "error": "url vacía"}
     body = args.get("body", "")
+    
+    # Intentar HMAC signing si es workers.dev
+    hmac_key = None
+    r = _STATE.exec('S ^K=$G(^CONFIG("ddp_hmac_key"))', gas=5000)
+    for g in (r.get("globals") or []):
+        if g.get("ns") == "K" and g.get("value"):
+            hmac_key = str(g.get("value"))
+    
+    if hmac_key and ".workers.dev" in url:
+        # HMAC path: usar Python nativo, no $DEVICE
+        try:
+            start = _time.time()
+            data = body.encode() if body else b""
+            req = Request(url, data=data, method=method.upper())
+            sig, ts = _hmac_sign(body or "", hmac_key)
+            req.add_header("X-DDP-HMAC", sig)
+            req.add_header("X-DDP-Timestamp", ts)
+            if body:
+                req.add_header("Content-Type", "application/json")
+            
+            with urlopen(req, timeout=15) as resp:
+                result = resp.read().decode()
+            elapsed = _time.time() - start
+            return {
+                "ok": True,
+                "method": method.upper(),
+                "url": url,
+                "response": result[:2000] if result else None,
+                "elapsed": f"{elapsed:.1f}s",
+                "hmac": True,
+            }
+        except Exception as e:
+            elapsed = _time.time() - start
+            return {
+                "ok": False,
+                "method": method.upper(),
+                "url": url,
+                "error": str(e),
+                "elapsed": f"{elapsed:.1f}s",
+                "hmac": True,
+            }
+    
+    # Fallback: $DEVICE nativo (sin HMAC)
     if method == "get":
         src = f'S ^R=$DEVICE("http:get","{url}")'
     elif method == "post":
@@ -492,7 +577,7 @@ def tool_poli_http(args: dict) -> dict:
         src = f'S ^R=$DEVICE("http:post","{url}","{esc_body}")'
     else:
         return {"ok": False, "error": f"unsupported method: {method}"}
-    import time as _time
+    
     start = _time.time()
     r = _STATE.exec(src, gas=20000)
     elapsed = _time.time() - start
@@ -507,6 +592,7 @@ def tool_poli_http(args: dict) -> dict:
         "url": url,
         "response": result[:2000] if result else None,
         "elapsed": f"{elapsed:.1f}s",
+        "hmac": False,
         "error": r.get("state", {}).get("error"),
     }
 
