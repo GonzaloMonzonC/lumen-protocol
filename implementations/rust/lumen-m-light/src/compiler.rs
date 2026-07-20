@@ -291,6 +291,9 @@ fn compile_line(
             break;
         };
         let after_token = rest[token_end..].trim_start();
+        if matches!(command, Opcode::For) {
+            eprintln!("AFTER_TOKEN FOR: len={} full={:?}", after_token.len(), &after_token[..after_token.len().min(80)]);
+        }
         let consumes_remainder = matches!(command, Opcode::If | Opcode::Else | Opcode::For);
         let has_no_argument = matches!(
             command,
@@ -302,7 +305,7 @@ fn compile_line(
                 .map_or(false, |tok| opcode(tok.split(':').next().unwrap_or(tok)).is_some());
         let boundary = if has_no_argument || is_quit_no_arg {
             0
-        } else if consumes_remainder {
+        } else if matches!(command, Opcode::For) || consumes_remainder {
             after_token.len()
         } else {
             next_command_boundary(after_token)

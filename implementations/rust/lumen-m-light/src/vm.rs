@@ -1193,6 +1193,27 @@ impl<'a, H: Host> Vm<'a, H> {
             split_top_level(&raw_args, ',')
         };
         match name.as_str() {
+            "$I" | "$INCREMENT" => {
+                let var_ref = args.first().map_or("", String::as_str).trim().to_string();
+                if var_ref.is_empty() {
+                    return Err(VmError::new("MINCR", "empty argument", line));
+                }
+                // Read current value (existing or 0)
+                let current = if var_ref.starts_with('^') {
+                    let (ns, subs) = self.parse_global(&var_ref, line)?;
+                    self.host
+                        .get(&ns, &subs)
+                        .map_err(|e| VmError::new("MGET", e, line))?
+                        .unwrap_or(Value::Number(0.0))
+                } else {
+                    self.state.vars.get(&var_ref).cloned()
+                        .or_else(|| flatten_local_sub(&var_ref).and_then(|k| self.state.vars.get(&k).cloned()))
+                        .unwrap_or(Value::Number(0.0))
+                };
+                let new_value = Value::Number(current.as_number() + 1.0);
+                self.assign(&var_ref, new_value.clone(), line)?;
+                Ok(new_value)
+            }
             "$G" | "$GET" => {
                 let first = args.first().map_or("", String::as_str);
                 let value = if first.trim().starts_with('@') {
@@ -1465,6 +1486,21 @@ impl<'a, H: Host> Vm<'a, H> {
                     })
                     .transpose()?;
                 Ok(Value::String(format_fnumber(number, &codes, decimals)))
+            }
+            "$J" | "$JUSTIFY" => {
+                let value = self.eval_expr(args.first().map_or("", String::as_str), line)?;
+                let length = self.eval_expr(args.get(1).map_or("0", String::as_str), line)?.as_number() as usize;
+                if args.len() >= 3 {
+                    // With decimal places: $J(number, length, decimal)
+                    let decimal = self.eval_expr(args.get(2).map_or("0", String::as_str), line)?.as_number() as usize;
+                    let num = value.as_number();
+                    let formatted = format!("{:.*}", decimal, num);
+                    Ok(Value::String(format!("{:>width$}", formatted, width = length)))
+                } else {
+                    // String/right-justify: $J(value, length)
+                    let string = value.as_string();
+                    Ok(Value::String(format!("{:>width$}", string, width = length)))
+                }
             }
             "$V" | "$VIEW" => Ok(Value::Number(0.0)),
             func_name if func_name.starts_with("$$") => {
