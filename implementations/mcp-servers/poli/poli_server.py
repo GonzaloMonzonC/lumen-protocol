@@ -195,9 +195,9 @@ def tool_poli_chat(args: dict) -> dict:
         if any(w in msg_lower for w in ["guarda", "save", "guardar", "almacena"]):
             # Extraer clave/valor del mensaje
             content = mensaje
-            key = f"chat_{hash(content) % 1000000}"
+            key = f"chat_{abs(hash(content)) % 1000000}"
             r = _STATE.exec(
-                f'D SAVE^MEMORY("{key}","{content}")',
+                f'D SAVE^MEMORY("{session_id}","{key}","{content}","")',
                 gas=30000,
             )
             return {
@@ -208,13 +208,19 @@ def tool_poli_chat(args: dict) -> dict:
             }
         else:
             r = _STATE.exec(
-                f'D GET^MEMORY(.results)',
+                f"S i=0,key=\"\" F S key=$O(^MEMORY(\"{session_id}\",key)) Q:key=\"\"  S:key'=\"idx\" i=i+1,^TMP(i)=key,^TMP(i,\"v\")=$G(^MEMORY(\"{session_id}\",key)) S ^LC=i",
                 gas=30000,
             )
             memories = []
             for g in (r.get("globals") or []):
-                if g.get("ns") == "results" and g.get("subs"):
-                    memories.append({"key": g["subs"][0], "value": g["value"]})
+                subs = g.get("subs") or []
+                if g.get("ns") == "TMP" and len(subs) == 1 and subs[0] not in ("v",):
+                    key = g.get("value")
+                    if key:
+                        memories.append({"key": str(key), "value": None})
+                if g.get("ns") == "TMP" and len(subs) == 2 and subs[1] == "v":
+                    if memories:
+                        memories[-1]["value"] = g.get("value")
             return {
                 "ok": r.get("ok"),
                 "memories": memories[:10],

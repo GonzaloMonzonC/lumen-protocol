@@ -357,6 +357,10 @@ impl FiberBgPool {
     pub fn cancel(&self, id: u64) -> bool {
         self.futures.lock().unwrap().remove(&id).is_some()
     }
+
+    pub fn exists(&self, id: u64) -> bool {
+        self.futures.lock().unwrap().contains_key(&id)
+    }
 }
 
 // ── GlobalEntry ────────────────────────────────────────────────────
@@ -433,10 +437,11 @@ pub trait Host {
     }
     fn entries(&self) -> Result<Vec<GlobalEntry>, String> { Ok(vec![]) }
     fn routines_list(&self) -> Result<Vec<(String, String)>, String> { Ok(vec![]) }
-    fn fiber_bg_spawn(&self, _source: &str, _globals: &[GlobalEntry], _routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
+    fn fiber_bg_spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
         Err("bg fiber not supported".to_string())
     }
     fn fiber_bg_poll(&self, _id: u64) -> Result<Option<String>, String> { Ok(None) }
+    fn fiber_bg_exists(&self, _id: u64) -> Result<bool, String> { Ok(false) }
     fn llm_api_keys(&self) -> Result<HashMap<String, String>, String> { Ok(HashMap::new()) }
 
 }
@@ -696,6 +701,10 @@ impl Host for MemoryHost {
 
     fn fiber_bg_poll(&self, id: u64) -> Result<Option<String>, String> {
         Ok(global_bg_pool().poll(id))
+    }
+
+    fn fiber_bg_exists(&self, id: u64) -> Result<bool, String> {
+        Ok(global_bg_pool().exists(id))
     }
 
     fn llm_api_keys(&self) -> Result<HashMap<String, String>, String> {
