@@ -1449,14 +1449,14 @@ impl<'a, H: Host> Vm<'a, H> {
                 self.return_value = None;
                 let inner = func_name.strip_prefix("$$").unwrap_or_default();
                 let (label, routine_name) = inner.split_once('^').unwrap_or((inner, ""));
-                if routine_name.is_empty() {
-                    return Err(VmError::new("MFUNCTION",
-                        "$$FUNC without ^ROUTINE not supported yet", line));
-                }
-                let source = self.host.routine(routine_name)
+                let source: String = if routine_name.is_empty() {
+                    self.program.source.clone()
+                } else {
+                    self.host.routine(routine_name)
                     .map_err(|e| VmError::new("MROUTINE", e, line))?
                     .ok_or_else(|| VmError::new("MROUTINE",
-                        format!("unknown routine {routine_name}"), line))?;
+                        format!("unknown routine {routine_name}"), line))?
+                };
                 let program = Compiler::compile(&source)
                     .map_err(|e| VmError::new("MCOMPILE", e, line))?;
                 let label_upper = label.to_ascii_uppercase();
