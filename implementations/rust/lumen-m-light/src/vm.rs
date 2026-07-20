@@ -140,6 +140,7 @@ enum Control {
     Quit,
     Halt,
     Yield,
+    Skip(u32),
 }
 
 pub struct Vm<'a, H: Host> {
@@ -214,6 +215,7 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             match self.execute_instruction(&instruction) {
                 Ok(Control::Continue) => {}
+                Ok(Control::Skip(n)) => self.state.ip += n as usize,
                 Ok(Control::Quit) => {
                     self.restore_local_scopes();
                     self.restore_arguments();
@@ -347,7 +349,13 @@ impl<'a, H: Host> Vm<'a, H> {
                 }
             }
             Opcode::If => return self.exec_if(&instruction.argument, instruction.line),
-            Opcode::Else => self.exec_inline(&instruction.argument, instruction.line)?,
+            Opcode::Else => {
+                if self.state.test {
+                    // IF was true — skip the ELSE body (1 instruction)
+                    return Ok(Control::Skip(1));
+                }
+                self.exec_inline(&instruction.argument, instruction.line)?;
+            }
             Opcode::For => return self.exec_for(&instruction.argument, instruction.line),
             Opcode::Quit => {
                 let argument = instruction.argument.trim();
@@ -455,6 +463,7 @@ impl<'a, H: Host> Vm<'a, H> {
             let control = result?;
             return Ok(match control {
                 Control::Halt => Control::Halt,
+                Control::Skip(n) => Control::Skip(n),
                 _ => Control::Continue,
             });
         } else if let Some(caret) = target_name.find('^') {
@@ -514,11 +523,13 @@ impl<'a, H: Host> Vm<'a, H> {
             let scope_base = self.state.local_scopes.len();
             self.bind_arguments(evaluated);
             self.inline_depth += 1;
-            for i in start_ip..program.instructions.len() {
+            let mut i = start_ip;
+            while i < program.instructions.len() {
                 self.charge(line)?;
                 let ctrl = self.execute_instruction(&program.instructions[i])?;
                 match ctrl {
-                    Control::Continue => {}
+                    Control::Continue => i += 1,
+                    Control::Skip(n) => i += 1 + n as usize,
                     Control::Quit | Control::Halt | Control::Yield => break,
                 }
             }
@@ -532,6 +543,10 @@ impl<'a, H: Host> Vm<'a, H> {
                 for (key, val) in &collected {
                     let suffix = key.trim_start_matches(&prefix);
                     self.state.vars.insert(format!("{}[{}", src_var, suffix), val.clone());
+                }
+                // Copy scalar value: SET modes=i → all=i
+                if let Some(scalar) = self.state.vars.get(param_name).cloned() {
+                    self.state.vars.insert(src_var.clone(), scalar);
                 }
             }
             self.restore_local_scopes_to(scope_base);
@@ -633,7 +648,21 @@ impl<'a, H: Host> Vm<'a, H> {
             self.state.vars.insert(resolved, value);
             Ok(())
         } else if let Some(flat) = flatten_local_sub(&resolved) {
-            self.state.vars.insert(flat, value);
+            // Evaluate subscript variables: modes(i) with i=2 → modes[2]
+            let evaluated = if let Some(bracket) = flat.find('[') {
+                let base = &flat[..bracket];
+                let inner = &flat[bracket+1..flat.len()-1];
+                let subscript = if is_identifier(inner) && self.state.vars.contains_key(inner) {
+                    let val = self.eval_expr(inner, line)?;
+                    val.as_string()
+                } else {
+                    inner.to_string()
+                };
+                format!("{}[{}]", base, subscript)
+            } else {
+                flat.clone()
+            };
+            self.state.vars.insert(evaluated, value);
             Ok(())
         } else {
             Err(VmError::new(
@@ -679,11 +708,9 @@ impl<'a, H: Host> Vm<'a, H> {
 
     fn exec_if(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
         let (condition, true_body, false_body) = split_if(argument);
-        let selected = if self.eval_expr(condition, line)?.truthy() {
-            true_body
-        } else {
-            false_body
-        };
+        let truthy = self.eval_expr(condition, line)?.truthy();
+        self.state.test = truthy;
+        let selected = if truthy { true_body } else { false_body };
         if !selected.is_empty() {
             return self.exec_inline_control(selected, line);
         }
@@ -764,6 +791,7 @@ impl<'a, H: Host> Vm<'a, H> {
                 self.charge(line)?;
                 match self.execute_instruction(body_instruction)? {
                     Control::Continue => {}
+                    Control::Skip(n) => frame.body_ip += n as usize,
                     Control::Quit => return Ok(Control::Continue),
                     Control::Halt => return Ok(Control::Halt),
                     Control::Yield => {
@@ -851,6 +879,8 @@ impl<'a, H: Host> Vm<'a, H> {
                 self.charge(line)?;
                 let control = self.execute_instruction(instruction)?;
                 if !matches!(control, Control::Continue) {
+                    // Skip must propagate too
+                    if let Control::Skip(_) = control {}
                     return Ok(control);
                 }
             }
@@ -1346,11 +1376,13 @@ impl<'a, H: Host> Vm<'a, H> {
                 self.inline_depth += 1;
                 let mut result = Err(VmError::new("MFUNCTION",
                     format!("{label} in {routine_name} did not QUIT"), line));
-                for i in start_ip..program.instructions.len() {
+                let mut i = start_ip;
+                while i < program.instructions.len() {
                     self.charge(line)?;
                     let ctrl = self.execute_instruction(&program.instructions[i])?;
                     match ctrl {
-                        Control::Continue => {}
+                        Control::Continue => i += 1,
+                        Control::Skip(n) => i += 1 + n as usize,
                         Control::Quit => {
                             let rv = self.return_value.take().unwrap_or(Value::Null);
                             result = Ok(rv);
