@@ -102,13 +102,16 @@ impl Compiler {
                     let mut body = String::new();
                     let mut j = start;
                     while j < lines.len() {
-                        let nl = strip_comment(lines[j]).trim();
-                        if nl.is_empty() { j += 1; continue; }
-                        let (nd, _) = split_dots(nl);
+                        let raw = strip_comment(lines[j]);
+                        if raw.trim().is_empty() { j += 1; continue; }
+                        let (nd, nline) = split_dots(raw);
                         if nd > base_dots {
-                            let (_, nline) = split_dots(nl);
-                            body.push_str(&"  ".repeat((nd - base_dots - 1) as usize));
-                            body.push_str(nline);
+                            // Preservar todos los dots originales para que
+                            // la compilación recursiva (FOR DO anidado)
+                            // pueda detectar indentación correctamente
+                            body.push_str(&".".repeat(nd as usize));
+                            body.push(' ');
+                            body.push_str(nline.trim());
                             body.push('\n');
                             j += 1;
                         } else { break; }
@@ -272,6 +275,9 @@ fn compile_line(
 ) -> Result<(), String> {
     let mut rest = line.trim();
     while !rest.is_empty() {
+        // Saltar dots (marcadores de bloque) para compilación recursiva
+        rest = rest.trim_start_matches('.').trim_start();
+        if rest.is_empty() { break; }
         let token_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
         let raw_token = &rest[..token_end];
         let (command_token, postcondition) = raw_token
@@ -290,6 +296,9 @@ fn compile_line(
             });
             break;
         };
+        if matches!(command, Opcode::For) {
+            eprintln!("DEBUG FOR: rest={:?} token_end={} rest_len={}", &rest[..rest.len().min(60)], token_end, rest.len());
+        }
         let after_token = rest[token_end..].trim_start();
         if matches!(command, Opcode::For) {
             eprintln!("AFTER_TOKEN FOR: len={} full={:?}", after_token.len(), &after_token[..after_token.len().min(80)]);
@@ -311,6 +320,10 @@ fn compile_line(
             next_command_boundary(after_token)
         };
         let argument = after_token[..boundary].trim().to_string();
+        if matches!(command, Opcode::For) {
+            eprintln!("DEBUG FOR_ARG: after_token.len={} boundary={} argument.len={}", after_token.len(), boundary, argument.len());
+            eprintln!("DEBUG FOR_BODY_LINE: line={:?}", line);
+        }
         instructions.push(Instruction {
             opcode: command,
             argument,
