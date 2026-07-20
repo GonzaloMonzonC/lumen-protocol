@@ -139,6 +139,18 @@ impl CompilationManager {
         }
     }
     
+    /// Try to compile by routine name and source
+    pub fn try_compile_routine(&self, name: &str, source: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+        let program = match crate::compiler::Compiler::compile(source) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("JIT: compile error for '{}': {}", name, e);
+                return None;
+            }
+        };
+        self.try_compile(&program, name)
+    }
+    
     /// Get compilation statistics
     pub fn get_stats(&self) -> CompilationStats {
         self.stats.lock().unwrap().clone()
