@@ -367,6 +367,11 @@ class VMHandler(BaseHTTPRequestHandler):
             if not ns:
                 self._json({"error": "ns required"}, 400)
                 return
+            # HMAC auth for pull too
+            raw = self.path  # Use request path/query as body for GET
+            if not _verify_ddp(raw, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
             prefix_str = qs.get("prefix", "")
             prefix = prefix_str.split(",") if prefix_str else None
             limit = int(qs.get("limit", "500"))
@@ -386,6 +391,10 @@ class VMHandler(BaseHTTPRequestHandler):
             ns = qs.get("ns", "")
             if not ns:
                 self._json({"error": "ns required"}, 400)
+                return
+            # HMAC auth for raw too
+            if not _verify_ddp(self.path, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
                 return
             limit = int(qs.get("limit", "100"))
             offset = int(qs.get("offset", "0"))

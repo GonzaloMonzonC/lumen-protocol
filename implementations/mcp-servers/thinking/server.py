@@ -314,6 +314,7 @@ _json_snap_counter = 0
 
 def _pdb_save_all() -> None:
     """Write ALL thinking state to PDB as individual records. Single ACID transaction."""
+    from pdb_tools import encode_subkey
     _pdb_save_lock.acquire()
     try:
         conn = _pdb.pdb_connect()
@@ -365,6 +366,64 @@ def _pdb_save_all() -> None:
         meta = {"next_session_num": _next_session_num, "next_niche_id": _next_niche_id,
                 "next_task_id": _next_task_id, "global_tool_calls": _global_tool_calls, "saved_at": time.time()}
         pairs.append(("STATE", "global:meta".encode(), json.dumps(meta).encode()))
+        # ── Also write KANBAN namespace (MUMPS format, readable by pdb_get/pdb_order) ──
+        try:
+            conn.execute("DELETE FROM _globals WHERE ns='KANBAN'")
+            k_pairs = []
+            # Compute stats
+            by_status = {"backlog": 0, "in_progress": 0, "done": 0}
+            by_priority = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for ttid, tt in _tasks.items():
+                s = tt.get("status", "backlog")
+                by_status[s] = by_status.get(s, 0) + 1
+                p = tt.get("priority", "medium")
+                by_priority[p] = by_priority.get(p, 0) + 1
+            # Meta
+            meta_kanban = {"total": len(_tasks), "niches": len(_niches),
+                           "done": by_status.get("done", 0), "backlog": by_status.get("backlog", 0),
+                           "in_progress": by_status.get("in_progress", 0),
+                           "critical": by_priority.get("critical", 0), "high": by_priority.get("high", 0),
+                           "medium": by_priority.get("medium", 0), "low": by_priority.get("low", 0),
+                           "saved_at": time.time()}
+            k_pairs.append(("KANBAN", encode_subkey(["meta"]), json.dumps(meta_kanban)))
+            k_pairs.append(("KANBAN", encode_subkey(["stats", "by_status"]), json.dumps(by_status)))
+            k_pairs.append(("KANBAN", encode_subkey(["stats", "by_priority"]), json.dumps(by_priority)))
+            k_pairs.append(("KANBAN", encode_subkey(["stats", "updated"]), str(time.time())))
+            # Niches
+            for nid, niche in _niches.items():
+                k_pairs.append(("KANBAN", encode_subkey(["niche", nid, "name"]),
+                                json.dumps(niche.get("name", ""), ensure_ascii=False)))
+                k_pairs.append(("KANBAN", encode_subkey(["niche", nid, "color"]),
+                                json.dumps(niche.get("color", ""))))
+                k_pairs.append(("KANBAN", encode_subkey(["niche", nid, "desc"]),
+                                json.dumps(niche.get("desc", ""), ensure_ascii=False)))
+                if niche.get("archived"):
+                    k_pairs.append(("KANBAN", encode_subkey(["niche", nid, "archived"]), "true"))
+            # Tasks
+            for tid, task in _tasks.items():
+                k_pairs.append(("KANBAN", encode_subkey(["task", tid, "title"]),
+                                json.dumps(task.get("title", ""), ensure_ascii=False)))
+                k_pairs.append(("KANBAN", encode_subkey(["task", tid, "niche"]),
+                                json.dumps(task.get("niche_id", ""))))
+                k_pairs.append(("KANBAN", encode_subkey(["task", tid, "status"]),
+                                json.dumps(task.get("status", "backlog"))))
+                k_pairs.append(("KANBAN", encode_subkey(["task", tid, "priority"]),
+                                json.dumps(task.get("priority", "medium"))))
+                tags = task.get("tags", [])
+                if tags:
+                    k_pairs.append(("KANBAN", encode_subkey(["task", tid, "tags"]),
+                                    json.dumps(tags, ensure_ascii=False)))
+                desc = task.get("desc", "")
+                if desc:
+                    k_pairs.append(("KANBAN", encode_subkey(["task", tid, "desc"]),
+                                    json.dumps(desc, ensure_ascii=False)))
+                assignee = task.get("assignee", "")
+                if assignee:
+                    k_pairs.append(("KANBAN", encode_subkey(["task", tid, "assignee"]),
+                                    json.dumps(assignee)))
+            pairs.extend(k_pairs)
+        except Exception as ke:
+            _safe_print(f"[lumen-thinking] KANBAN save FAILED: {ke}")
         conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
         conn.commit()
         conn.close()
