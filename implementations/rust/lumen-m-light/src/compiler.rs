@@ -360,6 +360,10 @@ fn next_command_boundary(value: &str) -> usize {
                     .find(char::is_whitespace)
                     .unwrap_or(candidate.len());
                 let token = candidate[..end].split(':').next().unwrap_or_default();
+                if token == "." {
+                    // Dot block marker — treat as command boundary
+                    return i;
+                }
                 if opcode(token).is_some() {
                     return i;
                 }
