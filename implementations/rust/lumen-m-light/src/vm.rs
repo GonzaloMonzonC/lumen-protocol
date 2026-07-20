@@ -1758,6 +1758,26 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         self.state.fibers.push(new_f);
                         Ok(Value::Number(id as f64))
                     }
+                    "bg" => {
+                        let source = self.eval_expr(args.get(1).map_or("", String::as_str), line)?.as_string();
+                        let entries = self.host.entries().unwrap_or_default();
+                        let routines = self.host.routines_list().unwrap_or_default();
+                        let keys = self.host.llm_api_keys().unwrap_or_default();
+                        let id = self.host.fiber_bg_spawn(&source, &entries, &routines, &keys)
+                            .map_err(|e| VmError::new("MFBG", e, line))?;
+                        Ok(Value::Number(id as f64))
+                    }
+                    "join" => {
+                        let id = self.eval_expr(args.get(1).map_or("0", String::as_str), line)?.as_number() as u64;
+                        match self.host.fiber_bg_poll(id).map_err(|e| VmError::new("MFBG", e, line))? {
+                            Some(result) => Ok(Value::String(result)),
+                            None => {
+                                self.state.yield_requested = true;
+                                self.state.yield_future = Some(id);
+                                Ok(Value::Null)
+                            }
+                        }
+                    }
                     "count" => Ok(Value::Number(self.state.fibers.len() as f64)),
                     "me" => Ok(Value::Number(self.state.active_fiber as f64)),
                     _ => Ok(Value::Null),
