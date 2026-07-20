@@ -296,6 +296,12 @@ pub trait Host {
     fn llm_chain(&self, _parent_id: u64, _provider: &str, _model: &str, _prompt: &str, _system: &str) -> Result<u64, String> {
         Err("LLM device not implemented".to_string())
     }
+
+    /// Generic device call (HTTP, SQL, etc.). Sync only.
+    /// For async devices (LLM), use llm_fork/llm_poll instead.
+    fn device_call(&mut self, _device: &str, _action: &str, _args: &[Value]) -> Result<Value, String> {
+        Err("Device not supported".to_string())
+    }
 }
 
 // ── MemoryHost ─────────────────────────────────────────────────────
@@ -529,5 +535,35 @@ impl Host for MemoryHost {
 
     fn llm_chain(&self, parent_id: u64, provider: &str, model: &str, prompt: &str, system: &str) -> Result<u64, String> {
         Ok(self.pool().chain(parent_id, provider, model, prompt, system))
+    }
+
+    // ── Generic device call (HTTP, future devices) ────────────
+    fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<Value, String> {
+        match device {
+            #[cfg(feature = "minreq")]
+            "http" => {
+                match action {
+                    "get" => {
+                        let url = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        let resp = minreq::get(&url)
+                            .send()
+                            .map_err(|e| format!("HTTP GET error: {e}"))?;
+                        Ok(Value::String(resp.as_str().unwrap_or("").to_string()))
+                    }
+                    "post" => {
+                        let url = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        let body = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let resp = minreq::post(&url)
+                            .with_header("Content-Type", "application/json")
+                            .with_body(body)
+                            .send()
+                            .map_err(|e| format!("HTTP POST error: {e}"))?;
+                        Ok(Value::String(resp.as_str().unwrap_or("").to_string()))
+                    }
+                    _ => Err(format!("Unknown HTTP action: {action}")),
+                }
+            }
+            _ => Err(format!("Device '{device}:{action}' not supported")),
+        }
     }
 }
