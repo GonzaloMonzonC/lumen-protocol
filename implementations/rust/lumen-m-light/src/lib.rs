@@ -7,6 +7,7 @@
 pub mod compiler;
 pub mod ffi;
 pub mod host;
+pub mod transpiler;
 pub mod value;
 pub mod vm;
 
