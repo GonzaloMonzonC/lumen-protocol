@@ -1,3 +1,5 @@
+use crate::compiler::Compiler;
+use crate::vm::{Execution, FiberState, VmState};
 use crate::{Subscript, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -230,6 +232,133 @@ impl LlmThreadPool {
     }
 }
 
+
+// ── FiberBgPool — thread pool para ejecutar M code en background ─
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FiberBgStatus {
+    Pending,
+    Resolved(String),
+    Rejected(String),
+}
+
+#[derive(Clone, Debug)]
+struct FiberBgItem {
+    id: u64,
+    source: String,
+    globals: Vec<GlobalEntry>,
+    routines: Vec<(String, String)>,
+    api_keys: HashMap<String, String>,
+    status: Arc<Mutex<FiberBgStatus>>,
+}
+
+#[derive(Debug)]
+pub struct FiberBgPool {
+    next_id: AtomicU64,
+    futures: Arc<Mutex<HashMap<u64, Arc<Mutex<FiberBgStatus>>>>>,
+    worker_tx: std::sync::mpsc::Sender<FiberBgItem>,
+}
+
+/// Process-wide background fiber pool (singleton).
+fn global_bg_pool() -> &'static FiberBgPool {
+    static POOL: OnceLock<FiberBgPool> = OnceLock::new();
+    POOL.get_or_init(|| FiberBgPool::new())
+}
+
+impl FiberBgPool {
+    pub fn new() -> Self {
+        let futures: Arc<Mutex<HashMap<u64, Arc<Mutex<FiberBgStatus>>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = std::sync::mpsc::channel::<FiberBgItem>();
+        let worker_futures = futures.clone();
+
+        thread::spawn(move || {
+            for item in rx {
+                let id = item.id;
+                let result = Self::run_m_code(&item);
+                let status = match result {
+                    Ok(val) => FiberBgStatus::Resolved(val),
+                    Err(e) => FiberBgStatus::Rejected(e),
+                };
+                if let Ok(mut st) = item.status.lock() {
+                    *st = status;
+                }
+            }
+        });
+
+        Self { next_id: AtomicU64::new(1), futures, worker_tx: tx }
+    }
+
+    fn run_m_code(item: &FiberBgItem) -> Result<String, String> {
+        use crate::vm::Vm;
+        let program = Compiler::compile(&item.source)
+            .map_err(|e| format!("Compile error: {e}"))?;
+        let mut host = MemoryHost::from_entries(item.globals.clone());
+        for (name, source) in &item.routines {
+            host.add_routine(name, source);
+        }
+        // Set API keys for LLM calls
+        for (provider, key) in &item.api_keys {
+            std::env::set_var(&format!("{}_API_KEY", provider.to_uppercase()), key);
+        }
+        let mut vm = Vm::new(program, &mut host);
+        let exec = loop {
+            match vm.run_slice(100000) {
+                crate::vm::Execution::Completed => break crate::vm::Execution::Completed,
+                crate::vm::Execution::Halted => break crate::vm::Execution::Halted,
+                crate::vm::Execution::Yielded => continue,
+                crate::vm::Execution::Error => break crate::vm::Execution::Error,
+            }
+        };
+        let vm_output = vm.state.output.clone();
+        std::mem::drop(vm);
+        match exec {
+            Execution::Completed => {
+                // Find ^R global as result
+                if let Ok(Some(val)) = host.get("R", &[]) {
+                    Ok(val.as_string())
+                } else {
+                    Ok(vm_output)
+                }
+            }
+            Execution::Error => Err("M runtime error".to_string()),
+            _ => Err("Fiber incomplete (gas limit)".to_string()),
+        }
+    }
+
+    pub fn spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let status = Arc::new(Mutex::new(FiberBgStatus::Pending));
+        self.futures.lock().unwrap().insert(id, status.clone());
+        let item = FiberBgItem {
+            id,
+            source: source.to_string(),
+            globals: globals.to_vec(),
+            routines: routines.to_vec(),
+            api_keys: api_keys.clone(),
+            status,
+        };
+        let _ = self.worker_tx.send(item);
+        id
+    }
+
+    pub fn poll(&self, id: u64) -> Option<String> {
+        let futures = self.futures.lock().unwrap();
+        if let Some(s) = futures.get(&id) {
+            match &*s.lock().unwrap() {
+                FiberBgStatus::Pending => None,
+                FiberBgStatus::Resolved(v) => Some(v.clone()),
+                FiberBgStatus::Rejected(e) => Some(format!("FIBER_ERROR: {e}")),
+            }
+        } else {
+            None  // Unknown to bg pool too
+        }
+    }
+
+    pub fn cancel(&self, id: u64) -> bool {
+        self.futures.lock().unwrap().remove(&id).is_some()
+    }
+}
+
 // ── GlobalEntry ────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GlobalEntry {
@@ -302,6 +431,14 @@ pub trait Host {
     fn device_call(&mut self, _device: &str, _action: &str, _args: &[Value]) -> Result<Value, String> {
         Err("Device not supported".to_string())
     }
+    fn entries(&self) -> Result<Vec<GlobalEntry>, String> { Ok(vec![]) }
+    fn routines_list(&self) -> Result<Vec<(String, String)>, String> { Ok(vec![]) }
+    fn fiber_bg_spawn(&self, _source: &str, _globals: &[GlobalEntry], _routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
+        Err("bg fiber not supported".to_string())
+    }
+    fn fiber_bg_poll(&self, _id: u64) -> Result<Option<String>, String> { Ok(None) }
+    fn llm_api_keys(&self) -> Result<HashMap<String, String>, String> { Ok(HashMap::new()) }
+
 }
 
 // ── MemoryHost ─────────────────────────────────────────────────────
@@ -312,6 +449,7 @@ pub struct MemoryHost {
     routines: HashMap<String, String>,
     input: Vec<String>,
     locks: HashMap<(String, Vec<Subscript>), u64>,
+    pub llm_api_keys: HashMap<String, String>,
 }
 
 impl MemoryHost {
@@ -526,7 +664,13 @@ impl Host for MemoryHost {
     }
 
     fn llm_poll(&self, future_id: u64) -> Result<Option<String>, String> {
-        Ok(self.pool().poll(future_id))
+        // First check LLM futures — None = pending, Some("FUTURE_NOT_FOUND") = unknown
+        let r = self.pool().poll(future_id);
+        if r != Some("FUTURE_NOT_FOUND".to_string()) {
+            return Ok(r);
+        }
+        // Not an LLM future, check bg fibers
+        Ok(global_bg_pool().poll(future_id))
     }
 
     fn llm_cancel(&self, future_id: u64) -> Result<bool, String> {
@@ -538,6 +682,26 @@ impl Host for MemoryHost {
     }
 
     // ── Generic device call (HTTP, future devices) ────────────
+    fn entries(&self) -> Result<Vec<GlobalEntry>, String> {
+        Ok(MemoryHost::entries(self))
+    }
+
+    fn routines_list(&self) -> Result<Vec<(String, String)>, String> {
+        Ok(self.routines.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
+    fn fiber_bg_spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
+        Ok(global_bg_pool().spawn(source, globals, routines, &self.llm_api_keys))
+    }
+
+    fn fiber_bg_poll(&self, id: u64) -> Result<Option<String>, String> {
+        Ok(global_bg_pool().poll(id))
+    }
+
+    fn llm_api_keys(&self) -> Result<HashMap<String, String>, String> {
+        Ok(self.llm_api_keys.clone())
+    }
+
     fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<Value, String> {
         match device {
             #[cfg(feature = "minreq")]
