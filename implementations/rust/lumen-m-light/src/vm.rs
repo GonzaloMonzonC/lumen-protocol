@@ -1769,9 +1769,17 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     }
                     "join" => {
                         let id = self.eval_expr(args.get(1).map_or("0", String::as_str), line)?.as_number() as u64;
+                        if id == 0 {
+                            return Err(VmError::new("MFBG", "invalid fiber_id: 0", line));
+                        }
                         match self.host.fiber_bg_poll(id).map_err(|e| VmError::new("MFBG", e, line))? {
                             Some(result) => Ok(Value::String(result)),
                             None => {
+                                // Check if fiber exists before yielding
+                                let exists = self.host.fiber_bg_exists(id).map_err(|e| VmError::new("MFBG", e, line))?;
+                                if !exists {
+                                    return Err(VmError::new("MFBG", &format!("fiber {id} not found"), line));
+                                }
                                 self.state.yield_requested = true;
                                 self.state.yield_future = Some(id);
                                 Ok(Value::Null)
