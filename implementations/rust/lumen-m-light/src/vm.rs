@@ -613,14 +613,20 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .map_err(|e| VmError::new("MROUTINE", e, line))?
                 .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {name}"), line))?;
             
-            // Try compiled version first
+            // Try compiled version first — BYPASS real del intérprete
             let compiler = get_compiler();
-            if compiler.is_compiled(name, &source) || compiler.track_call(name, &source) {
-                // Compiled version exists — call it
-                // For now, we fall through to interpreter since we need to support
-                // the full execution context. Compiled mode is for hot-paths.
-                // (Hot-path will bypass the interpreter in Phase 5)
+            if let Some(compiled_fn) = compiler.get_compiled_fn(name) {
+                match compiled_fn() {
+                    Ok(_val) => {
+                        return Ok(Control::Continue);
+                    }
+                    Err(e) => {
+                        eprintln!("JIT: compiled '{}' returned error: {}, falling back", name, e);
+                    }
+                }
             }
+            // Not compiled yet — track calls to trigger compilation
+            compiler.track_call(name, &source);
             
             let arguments = split_top_level(raw_arguments, ',')
                 .into_iter()
