@@ -1526,6 +1526,88 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             "$V" | "$VIEW" => Ok(Value::Number(0.0)),
             // ── LLM Device functions ──────────────────────────
+            "$DEVICE" => {
+                let path = self.eval_expr(args.get(0).map_or("", String::as_str), line)?.as_string();
+                let call_args: Vec<Value> = args[1..].iter().map(|a| self.eval_expr(a, line)).collect::<Result<_, _>>()?;
+                let (dev, act) = path.split_once(':').unwrap_or((&path, "call"));
+                match (dev, act) {
+                    ("llm", "call") | ("llm", "fork") => {
+                        let prompt = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let system = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let provider = call_args.get(2).map(|v| v.as_string()).unwrap_or_else(|| "deepseek".to_string());
+                        let model = call_args.get(3).map(|v| v.as_string()).unwrap_or_else(|| "deepseek-v4-flash".to_string());
+                        // Reuse stored future ID if resuming from a yield
+                        let id = if act == "call" {
+                            if let Some(fid) = self.state.yield_future.take() {
+                                fid
+                            } else {
+                                self.host.llm_fork(&provider, &model, &prompt, &system)
+                                    .map_err(|e| VmError::new("MLLM", e, line))?
+                            }
+                        } else {
+                            self.host.llm_fork(&provider, &model, &prompt, &system)
+                                .map_err(|e| VmError::new("MLLM", e, line))?
+                        };
+                        if act == "fork" {
+                            Ok(Value::Number(id as f64))
+                        } else {
+                            match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
+                                Some(r) => Ok(Value::String(r)),
+                                None => {
+                                    self.state.yield_requested = true;
+                                    self.state.yield_future = Some(id);
+                                    Ok(Value::Null)
+                                }
+                            }
+                        }
+                    }
+                    ("llm", "await") => {
+                        let id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
+                        match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
+                            Some(r) => Ok(Value::String(r)),
+                            None => {
+                                self.state.yield_requested = true;
+                                self.state.yield_future = Some(id);
+                                Ok(Value::Null)
+                            }
+                        }
+                    }
+                    ("llm", "cancel") => {
+                        let id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
+                        Ok(Value::Bool(self.host.llm_cancel(id).unwrap_or(false)))
+                    }
+                    ("llm", "all") => {
+                        let ids_str = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let ids: Vec<u64> = ids_str.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                        let mut results = Vec::new();
+                        for &id in &ids {
+                            match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
+                                Some(r) => results.push(r),
+                                None => {
+                                    self.state.yield_requested = true;
+                                    return Ok(Value::Null);
+                                }
+                            }
+                        }
+                        Ok(Value::String(results.join("|")))
+                    }
+                    ("llm", "chain") => {
+                        let parent_id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
+                        let prompt = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let system = call_args.get(2).map(|v| v.as_string()).unwrap_or_default();
+                        let provider = call_args.get(3).map(|v| v.as_string()).unwrap_or_else(|| "deepseek".to_string());
+                        let model = call_args.get(4).map(|v| v.as_string()).unwrap_or_else(|| "deepseek-v4-flash".to_string());
+                        let id = self.host.llm_chain(parent_id, &provider, &model, &prompt, &system)
+                            .map_err(|e| VmError::new("MLLM", e, line))?;
+                        Ok(Value::Number(id as f64))
+                    }
+                    _ => {
+                        // Sync device (HTTP, etc.)
+                        self.host.device_call(dev, act, &call_args)
+                            .map_err(|e| VmError::new("MDEV", e, line))
+                    }
+                }
+            }
             "$LLM" => {
                 let prompt = self.eval_expr(args.get(0).map_or("", String::as_str), line)?.as_string();
                 let system = args.get(1).map_or("".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
