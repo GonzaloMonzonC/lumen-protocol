@@ -155,6 +155,8 @@ pub struct Vm<'a, H: Host> {
     inline_depth: usize,
     /// Valor de retorno de $$FUNC^ROUTINE() — lo setea QUIT expr
     return_value: Option<Value>,
+    /// Cache de $H para el nudo lógico actual (Intersystems-style)
+    horolog_cache: Option<String>,
 }
 
 impl<'a, H: Host> Vm<'a, H> {
@@ -168,6 +170,7 @@ impl<'a, H: Host> Vm<'a, H> {
             slice_limit: 1,
             inline_depth: 0,
             return_value: None,
+            horolog_cache: None,
         }
     }
 
@@ -186,6 +189,7 @@ impl<'a, H: Host> Vm<'a, H> {
             slice_limit: 1,
             inline_depth: 0,
             return_value: None,
+            horolog_cache: None,
         })
     }
 
@@ -1049,16 +1053,21 @@ impl<'a, H: Host> Vm<'a, H> {
             "$J" => return Ok(Value::Number(self.state.job_id as f64)),
             "$T" | "$TEST" => return Ok(Value::Number(u8::from(self.state.test) as f64)),
             "$H" | "$HOROLOG" => {
-                // UTC en ambos motores: determinismo entre nodos.
+                // Cache por nudo lógico: Intersystems-style, $H no cambia intra-call
+                if let Some(ref cached) = self.horolog_cache {
+                    return Ok(Value::String(cached.clone()));
+                }
                 let unix = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                return Ok(Value::String(format!(
+                let result = format!(
                     "{},{}",
                     HOROLOG_UNIX_EPOCH_DAYS + unix / 86_400,
                     unix % 86_400
-                )));
+                );
+                self.horolog_cache = Some(result.clone());
+                return Ok(Value::String(result));
             }
             _ => {}
         }
