@@ -511,21 +511,37 @@ class VMHandler(BaseHTTPRequestHandler):
                 self._json({"error": "script required"}, 400)
                 return
             start = time.time()
-            executor = RoutineExecutor()
+            
+            # Usar Rust MVM si disponible, fallback a Python StackVM
+            try:
+                from m_rust_executor import RustExecutor, available as rust_avail
+                if rust_avail():
+                    executor = RustExecutor()
+                    rust_mode = True
+                else:
+                    executor = RoutineExecutor()
+                    rust_mode = False
+            except Exception:
+                executor = RoutineExecutor()
+                rust_mode = False
+            
             # Try as named routine first, fallback to inline execution
             result = executor.exec(script, args=args)
             if result.get("error") and "not found" in result["error"]:
-                # Inline mode: register temp, execute, clean up
-                import random
-                tmp_name = f"_INLINE_{random.randint(10000,99999)}"
-                register(tmp_name, script)
-                result = executor.exec(tmp_name, args=args)
-                # Clean up temp routine
-                try:
-                    from pdb_tools import tool_kill
-                    tool_kill({"ns": "ROUTINE", "subs": [tmp_name]})
-                except:
-                    pass
+                if rust_mode:
+                    # Inline mode via Rust MVM
+                    result = executor.exec_code(script, args=args)
+                else:
+                    # Inline mode via StackVM: register temp, execute, clean up
+                    import random
+                    tmp_name = f"_INLINE_{random.randint(10000,99999)}"
+                    register(tmp_name, script)
+                    result = executor.exec(tmp_name, args=args)
+                    try:
+                        from pdb_tools import tool_kill
+                        tool_kill({"ns": "ROUTINE", "subs": [tmp_name]})
+                    except:
+                        pass
             elapsed = (time.time() - start) * 1000
             self._json({
                 "ok": "error" not in result,
