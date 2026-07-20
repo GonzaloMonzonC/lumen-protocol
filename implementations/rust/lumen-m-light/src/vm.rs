@@ -443,6 +443,10 @@ impl<'a, H: Host> Vm<'a, H> {
         if target_name.is_empty() {
             return Ok(Control::Continue);
         }
+        // DO followed by another M command is a block marker, not a routine call
+        if is_command_name(target_name) {
+            return Ok(Control::Continue);
+        }
         if target_name.starts_with('^') {
             let name = target_name.trim_start_matches('^').trim();
             let source = self
@@ -899,7 +903,25 @@ impl<'a, H: Host> Vm<'a, H> {
     }
 
     fn exec_inline_control(&mut self, source: &str, line: usize) -> Result<Control, VmError> {
-        let program = Compiler::compile(source).map_err(|e| VmError::new("MCOMPILE", e, line))?;
+        // Join all lines into one so FOR consumes remainder across newlines
+        let flat = source.lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        // Remove DO block markers before M commands (FOR DO → FOR continuation)
+        let commands = ["S ", "SET ", "I ", "IF ", "F ", "FOR ", "D ", "DO ",
+                        "K ", "KILL ", "Q ", "QUIT ", "N ", "NEW ",
+                        "W ", "WRITE ", "ZWRITE ", "ZW ", "ZP ", "ZPRINT "];
+        let mut flat = flat;
+        for cmd in &commands {
+            let pattern = format!(" DO {}", cmd.trim());
+            let replacement = format!(" {}", cmd.trim());
+            flat = flat.replace(&pattern, &replacement);
+            let pattern = format!(" D {}", cmd.trim());
+            flat = flat.replace(&pattern, &replacement);
+        }
+        let program = Compiler::compile(&flat).map_err(|e| VmError::new("MCOMPILE", e, line))?;
         self.inline_depth += 1;
         let result = (|| {
             for instruction in &program.instructions {
@@ -1771,6 +1793,19 @@ fn find_open_brace(value: &str) -> Option<usize> {
     None
 }
 
+fn is_command_name(word: &str) -> bool {
+    matches!(word.to_uppercase().as_str(),
+        "B" | "BREAK" | "C" | "CLOSE" | "D" | "DO" | "E" | "ELSE" |
+        "F" | "FOR" | "G" | "GOTO" | "H" | "HALT" | "HANG" |
+        "I" | "IF" | "J" | "JOB" | "K" | "KILL" | "L" | "LOCK" |
+        "M" | "MERGE" | "N" | "NEW" | "O" | "OPEN" |
+        "Q" | "QUIT" | "R" | "READ" | "S" | "SET" |
+        "TSTART" | "TCOMMIT" | "TC" | "TROLLBACK" | "TR" |
+        "U" | "USE" | "V" | "VIEW" | "W" | "WRITE" |
+        "X" | "XECUTE" | "ZWRITE" | "ZW" | "ZPRINT" | "ZP" | "ZBREAK" | "ZB"
+    )
+}
+
 fn matching_brace(value: &str, open: usize) -> Option<usize> {
     let mut depth = 0i32;
     let mut quoted = false;
@@ -1807,7 +1842,23 @@ fn strip_block(value: &str) -> &str {
     {
         value[1..value.len() - 1].trim()
     } else {
-        value
+        // Strip trailing DO/D block marker (from FOR DO / IF DO patterns)
+        // Only when followed by another command, not a routine call
+        let trimmed = value.trim_end();
+        let upper = trimmed.to_uppercase();
+        if (upper.ends_with(" DO") || upper.ends_with(" D"))
+            && trimmed.len() > 2
+        {
+            let before_do = &trimmed[..trimmed.len() - if upper.ends_with(" DO") { 3 } else { 2 }].trim_end();
+            // Only strip if not followed by ^ (routine call)
+            if !before_do.ends_with('^') {
+                before_do
+            } else {
+                trimmed
+            }
+        } else {
+            trimmed
+        }
     }
 }
 
