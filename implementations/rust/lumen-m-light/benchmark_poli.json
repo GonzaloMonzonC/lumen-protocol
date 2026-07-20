@@ -1,0 +1,136 @@
+{
+  "schema": "poli-benchmark-v1",
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "machine": "AMD64",
+  "mlight_engine": "Rust M-Light FFI (lumen_mlight.dll)",
+  "poli_routines": [
+    "DECISIONS.mac",
+    "PERSONALITY.mac",
+    "THINKING.mac",
+    "UTILS.mac",
+    "WIKI.mac"
+  ],
+  "metrics": {
+    "compile_1line": {
+      "rust": {
+        "iterations": 5000,
+        "median_us": 18.1,
+        "p95_us": 20.1,
+        "ops_s": 55249
+      }
+    },
+    "compile_4lines": {
+      "rust": {
+        "iterations": 3000,
+        "median_us": 23.7,
+        "p95_us": 27.7,
+        "ops_s": 42194
+      }
+    },
+    "compile_routine": {
+      "rust": {
+        "iterations": 500,
+        "median_us": 33.3,
+        "p95_us": 38.8,
+        "ops_s": 30030
+      }
+    },
+    "for_100_int": {
+      "rust": {
+        "iterations": 300,
+        "median_us": 114.25,
+        "p95_us": 143.2,
+        "ops_s": 8753
+      }
+    },
+    "for_1000_int": {
+      "rust": {
+        "iterations": 50,
+        "median_us": 921.8,
+        "p95_us": 975.3,
+        "ops_s": 1085
+      }
+    },
+    "math_ops": {
+      "rust": {
+        "iterations": 2000,
+        "median_us": 28.1,
+        "p95_us": 32.0,
+        "ops_s": 35587
+      }
+    },
+    "global_order_10": {
+      "rust": {
+        "iterations": 100,
+        "median_us": 25.2,
+        "p95_us": 25.4,
+        "ops_s": 39683
+      }
+    },
+    "global_order_100": {
+      "rust": {
+        "iterations": 20,
+        "median_us": 25.15,
+        "p95_us": 25.4,
+        "ops_s": 39761
+      }
+    },
+    "if_else_do": {
+      "rust": {
+        "iterations": 1000,
+        "median_us": 36.4,
+        "p95_us": 50.5,
+        "ops_s": 27473
+      }
+    },
+    "seed_pipeline": {
+      "rust": {
+        "iterations": 50,
+        "median_us": 1832.35,
+        "p95_us": 1952.3,
+        "ops_s": 546
+      }
+    },
+    "wiki_save": {
+      "rust": {
+        "iterations": 200,
+        "median_us": 408.75,
+        "p95_us": 455.2,
+        "ops_s": 2446
+      }
+    },
+    "wiki_get": {
+      "rust": {
+        "iterations": 200,
+        "median_us": 218.05,
+        "p95_us": 274.0,
+        "ops_s": 4586
+      }
+    },
+    "horolog": {
+      "rust": {
+        "iterations": 500,
+        "median_us": 1057.6,
+        "p95_us": 1166.0,
+        "ops_s": 946
+      }
+    },
+    "decisions_log": {
+      "rust": {
+        "iterations": 200,
+        "median_us": 273.8,
+        "p95_us": 313.5,
+        "ops_s": 3652
+      }
+    },
+    "full_pipeline": {
+      "rust": {
+        "iterations": 20,
+        "median_us": 3102.65,
+        "p95_us": 3401.3,
+        "ops_s": 322
+      }
+    }
+  }
+}
