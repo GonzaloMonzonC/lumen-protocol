@@ -107,13 +107,30 @@ fn strip_comment(line: &str) -> &str {
 }
 
 fn split_label(line: &str) -> (Option<&str>, &str) {
-    let first_end = line.find(char::is_whitespace).unwrap_or(line.len());
-    let first = &line[..first_end];
+    // Label ends at first whitespace OR '(' (parameter list), whichever is FIRST
+    let ws = line.find(char::is_whitespace).unwrap_or(line.len());
+    let paren = line.find('(').unwrap_or(line.len());
+    let token_end = ws.min(paren);
+    let first = &line[..token_end];
     if is_identifier(first)
         && first.chars().all(|ch| !ch.is_ascii_lowercase() && ch != '_')
         && opcode(first).is_none()
     {
-        (Some(first), &line[first_end..])
+        // If label has parameters (x), consume the (...) block
+        let after_label = &line[token_end..].trim_start();
+        let after_params = if after_label.starts_with('(') {
+            // Find matching close paren
+            let mut depth = 0i32;
+            let mut close = 0usize;
+            for (i, ch) in after_label.char_indices() {
+                if ch == '(' { depth += 1; }
+                else if ch == ')' { depth -= 1; if depth == 0 { close = i + 1; break; } }
+            }
+            if close > 0 { &after_label[close..] } else { after_label }
+        } else {
+            after_label
+        };
+        (Some(first), after_params)
     } else {
         (None, line)
     }
@@ -124,7 +141,7 @@ fn is_identifier(value: &str) -> bool {
     chars
         .next()
         .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '%')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%' || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%')
 }
 
 fn opcode(token: &str) -> Option<Opcode> {
@@ -160,6 +177,8 @@ fn compile_line(
 ) -> Result<(), String> {
     let mut rest = line.trim();
     while !rest.is_empty() {
+        // Strip continuation dots (.  DO → DO) and following whitespace
+        rest = rest.trim_start_matches('.').trim_start();
         let token_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
         let raw_token = &rest[..token_end];
         let (command_token, postcondition) = raw_token
@@ -180,7 +199,7 @@ fn compile_line(
         let consumes_remainder = matches!(command, Opcode::If | Opcode::Else | Opcode::For);
         let has_no_argument = matches!(
             command,
-            Opcode::Quit | Opcode::Halt | Opcode::TStart | Opcode::TCommit | Opcode::TRollback
+            Opcode::Halt | Opcode::TStart | Opcode::TCommit | Opcode::TRollback
         );
         let boundary = if has_no_argument {
             0

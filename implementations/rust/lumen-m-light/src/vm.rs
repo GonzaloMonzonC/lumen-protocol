@@ -152,6 +152,8 @@ pub struct Vm<'a, H: Host> {
     /// El agotamiento de slice NO cede ahí: una rutina reiniciada a mitad
     /// repite efectos (livelock con FOR). gas_budget sí sigue aplicando.
     inline_depth: usize,
+    /// Valor de retorno de $$FUNC^ROUTINE() — lo setea QUIT expr
+    return_value: Option<Value>,
 }
 
 impl<'a, H: Host> Vm<'a, H> {
@@ -164,6 +166,7 @@ impl<'a, H: Host> Vm<'a, H> {
             slice_used: 0,
             slice_limit: 1,
             inline_depth: 0,
+            return_value: None,
         }
     }
 
@@ -181,6 +184,7 @@ impl<'a, H: Host> Vm<'a, H> {
             slice_used: 0,
             slice_limit: 1,
             inline_depth: 0,
+            return_value: None,
         })
     }
 
@@ -190,7 +194,6 @@ impl<'a, H: Host> Vm<'a, H> {
 
     pub fn run_slice(&mut self, gas: u64) -> Execution {
         self.slice_used = 0;
-        self.slice_limit = gas.max(1);
         self.slice_limit = gas.max(1);
         while self.state.ip < self.program.instructions.len() && !self.state.halted {
             if self.slice_used >= self.slice_limit && self.host.transaction_level() == 0 {
@@ -346,7 +349,16 @@ impl<'a, H: Host> Vm<'a, H> {
             Opcode::If => return self.exec_if(&instruction.argument, instruction.line),
             Opcode::Else => self.exec_inline(&instruction.argument, instruction.line)?,
             Opcode::For => return self.exec_for(&instruction.argument, instruction.line),
-            Opcode::Quit => return Ok(Control::Quit),
+            Opcode::Quit => {
+                let argument = instruction.argument.trim();
+                if argument.is_empty() {
+                    return Ok(Control::Quit);
+                }
+                let value = self.eval_expr(argument, instruction.line)?;
+                self.state.stack.push(value.clone());
+                self.return_value = Some(value);
+                return Ok(Control::Quit);
+            }
             Opcode::Goto => {
                 let label = instruction
                     .argument
@@ -419,11 +431,10 @@ impl<'a, H: Host> Vm<'a, H> {
     fn exec_do(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
         let target = argument.split_whitespace().next().unwrap_or_default();
         let (target_name, raw_arguments) = split_call_target(target);
-        let arguments = split_top_level(raw_arguments, ',')
-            .into_iter()
-            .filter(|value| !value.is_empty())
-            .map(|value| self.eval_expr(&value, line))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Empty target = block marker DO (IF cond DO), just continue
+        if target_name.is_empty() {
+            return Ok(Control::Continue);
+        }
         if target_name.starts_with('^') {
             let name = target_name.trim_start_matches('^').trim();
             let source = self
@@ -431,6 +442,11 @@ impl<'a, H: Host> Vm<'a, H> {
                 .routine(name)
                 .map_err(|e| VmError::new("MROUTINE", e, line))?
                 .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {name}"), line))?;
+            let arguments = split_top_level(raw_arguments, ',')
+                .into_iter()
+                .filter(|value| !value.is_empty())
+                .map(|value| self.eval_expr(&value, line))
+                .collect::<Result<Vec<_>, _>>()?;
             self.bind_arguments(arguments);
             let scope_base = self.state.local_scopes.len();
             let result = self.exec_inline_control(&source, line);
@@ -441,7 +457,91 @@ impl<'a, H: Host> Vm<'a, H> {
                 Control::Halt => Control::Halt,
                 _ => Control::Continue,
             });
+        } else if let Some(caret) = target_name.find('^') {
+            // DO LABEL^ROUTINE(args) — load routine from host, find label
+            let inner_label = target_name[..caret].trim().to_ascii_uppercase();
+            let routine_name = target_name[caret + 1..].trim();
+            let source = self.host.routine(routine_name)
+                .map_err(|e| VmError::new("MROUTINE", e, line))?
+                .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {routine_name}"), line))?;
+            let program = Compiler::compile(&source)
+                .map_err(|e| VmError::new("MCOMPILE", e, line))?;
+            let start_ip = *program.labels.get(&inner_label)
+                .ok_or_else(|| VmError::new("MLABEL", format!("unknown label {inner_label} in {routine_name}"), line))?;
+            // Handle .ref args (pass-by-reference)
+            let formals = parse_formal_params(&source, &inner_label).unwrap_or_default();
+            let mut refs: Vec<(String, String)> = Vec::new();
+            let raw_args_list = split_top_level(raw_arguments, ',')
+                .into_iter()
+                .filter(|v| !v.is_empty())
+                .collect::<Vec<_>>();
+            let mut evaluated = Vec::new();
+            for (i, raw) in raw_args_list.iter().enumerate() {
+                let trimmed = raw.trim();
+                let param_name = formals.get(i).cloned().unwrap_or_default();
+                if trimmed.starts_with('.') && !param_name.is_empty() {
+                    let src_var = trimmed.trim_start_matches('.').trim().to_string();
+                    if is_identifier(&src_var) {
+                        let prefix = format!("{}[", src_var);
+                        let collected: Vec<(String, Value)> = self.state.vars.iter()
+                            .filter(|(k, _)| k.starts_with(&prefix))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        for (key, val) in &collected {
+                            let suffix = key.trim_start_matches(&prefix);
+                            self.state.vars.insert(format!("{}[{}", param_name, suffix), val.clone());
+                        }
+                        refs.push((src_var, param_name));
+                        evaluated.push(Value::Null);
+                        continue;
+                    }
+                } else if trimmed.starts_with('.') && param_name.is_empty() {
+                    // .ref without formal params — array already accessible via flattening
+                    // Just push placeholder, no rename needed
+                    evaluated.push(Value::Null);
+                    continue;
+                }
+                evaluated.push(self.eval_expr(raw, line)?);
+            }
+            for (i, pname) in formals.iter().enumerate() {
+                let trimmed = raw_args_list.get(i).map(|a| a.trim()).unwrap_or("");
+                if !trimmed.starts_with('.') {
+                    if let Some(val) = evaluated.get(i) {
+                        self.state.vars.insert(pname.clone(), val.clone());
+                    }
+                }
+            }
+            let scope_base = self.state.local_scopes.len();
+            self.bind_arguments(evaluated);
+            self.inline_depth += 1;
+            for i in start_ip..program.instructions.len() {
+                self.charge(line)?;
+                let ctrl = self.execute_instruction(&program.instructions[i])?;
+                match ctrl {
+                    Control::Continue => {}
+                    Control::Quit | Control::Halt | Control::Yield => break,
+                }
+            }
+            self.inline_depth -= 1;
+            for (src_var, param_name) in &refs {
+                let prefix = format!("{}[", param_name);
+                let collected: Vec<(String, Value)> = self.state.vars.iter()
+                    .filter(|(k, _)| k.starts_with(&prefix))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                for (key, val) in &collected {
+                    let suffix = key.trim_start_matches(&prefix);
+                    self.state.vars.insert(format!("{}[{}", src_var, suffix), val.clone());
+                }
+            }
+            self.restore_local_scopes_to(scope_base);
+            self.restore_arguments();
         } else {
+            let arguments = split_top_level(raw_arguments, ',')
+                .into_iter()
+                .filter(|value| !value.is_empty())
+                .map(|value| self.eval_expr(&value, line))
+                .collect::<Result<Vec<_>, _>>()?;
             let destination = self.label_ip(target_name, line)?;
             self.bind_arguments(arguments);
             self.state.call_stack.push(self.state.ip);
@@ -473,7 +573,8 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             None => (argument, None),
         };
-        let resolved = self.resolve_target(reference, line)?;
+        let stripped = reference.trim_start_matches('+').trim_start_matches('-');
+        let resolved = self.resolve_target(stripped, line)?;
         let (ns, subs) = self.parse_global(&resolved, line)?;
         let acquired = self
             .host
@@ -530,6 +631,9 @@ impl<'a, H: Host> Vm<'a, H> {
                 .map_err(|e| VmError::new("MSET", e, line))
         } else if is_identifier(&resolved) {
             self.state.vars.insert(resolved, value);
+            Ok(())
+        } else if let Some(flat) = flatten_local_sub(&resolved) {
+            self.state.vars.insert(flat, value);
             Ok(())
         } else {
             Err(VmError::new(
@@ -791,6 +895,10 @@ impl<'a, H: Host> Vm<'a, H> {
         if let Some(value) = atom.strip_prefix('-') {
             return Ok(Value::Number(-self.eval_expr(value, line)?.as_number()));
         }
+        if let Some(value) = atom.strip_prefix("'") {
+            let v = self.eval_expr(value, line)?;
+            return Ok(Value::Bool(v.as_number() == 0.0));
+        }
         if let Some(value) = atom.strip_prefix('@') {
             let inner = value
                 .strip_prefix('(')
@@ -813,6 +921,10 @@ impl<'a, H: Host> Vm<'a, H> {
                 .unwrap_or(Value::Null));
         }
         if atom.starts_with('$') && atom.contains('(') {
+            return self.eval_function(atom, line);
+        }
+        // $$FUNC^ROUTINE without parentheses — route to eval_function as well
+        if atom.starts_with("$$") && !atom.contains('(') {
             return self.eval_function(atom, line);
         }
         if atom.starts_with('^') {
@@ -871,21 +983,33 @@ impl<'a, H: Host> Vm<'a, H> {
             }
             _ => {}
         }
-        Ok(self.state.vars.get(atom).cloned().ok_or_else(|| {
-            VmError::new("MUNDEF", &format!("undefined variable: {}", atom), line)
-        })?)
+        // Try direct key, then flattened local array key (e.g., m("type") → m["type"])
+        if let Some(value) = self.state.vars.get(atom).cloned() {
+            return Ok(value);
+        }
+        if let Some(flat) = flatten_local_sub(atom) {
+            if let Some(value) = self.state.vars.get(&flat).cloned() {
+                return Ok(value);
+            }
+        }
+        Err(VmError::new("MUNDEF", &format!("undefined variable: {atom}"), line))
     }
 
     fn eval_function(&mut self, expression: &str, line: usize) -> Result<Value, VmError> {
-        let open = expression
-            .find('(')
-            .ok_or_else(|| VmError::new("MFUNCTION", "missing (", line))?;
-        let close = expression
-            .rfind(')')
-            .ok_or_else(|| VmError::new("MFUNCTION", "missing )", line))?;
-        let name = expression[..open].to_ascii_uppercase();
-        let raw_args = &expression[open + 1..close];
-        let args = split_top_level(raw_args, ',');
+        let (name, raw_args) = if let Some(open) = expression.find('(') {
+            let close = expression.rfind(')')
+                .ok_or_else(|| VmError::new("MFUNCTION", "missing )", line))?;
+            (expression[..open].to_ascii_uppercase(),
+             expression[open + 1..close].to_string())
+        } else {
+            // No parens: $$FUNC^ROUTINE or $$FUNC
+            (expression.to_ascii_uppercase(), String::new())
+        };
+        let args = if raw_args.is_empty() {
+            Vec::new()
+        } else {
+            split_top_level(&raw_args, ',')
+        };
         match name.as_str() {
             "$G" | "$GET" => {
                 let first = args.first().map_or("", String::as_str);
@@ -898,8 +1022,12 @@ impl<'a, H: Host> Vm<'a, H> {
                         .map_err(|e| VmError::new("MGET", e, line))?
                         .unwrap_or(Value::Null)
                 } else {
-                    // Local variable: look up directly, no UNDEF error
-                    self.state.vars.get(first.trim()).cloned().unwrap_or(Value::Null)
+                    // Local variable: look up directly or via flattened key
+                    let key = first.trim();
+                    let val = self.state.vars.get(key).cloned()
+                        .or_else(|| flatten_local_sub(key).and_then(|k| self.state.vars.get(&k).cloned()))
+                        .unwrap_or(Value::Null);
+                    val
                 };
                 if matches!(value, Value::Null) {
                     args.get(1)
@@ -911,29 +1039,89 @@ impl<'a, H: Host> Vm<'a, H> {
                 }
             }
             "$D" | "$DATA" => {
-                let (ns, subs) =
-                    self.parse_global(args.first().map_or("", String::as_str), line)?;
-                self.host
-                    .data(&ns, &subs)
-                    .map(|v| Value::Number(v as f64))
-                    .map_err(|e| VmError::new("MDATA", e, line))
+                let first_arg = args.first().map_or("", String::as_str).trim();
+                if first_arg.starts_with('^') {
+                    let (ns, subs) = self.parse_global(first_arg, line)?;
+                    self.host.data(&ns, &subs)
+                        .map(|v| Value::Number(v as f64))
+                        .map_err(|e| VmError::new("MDATA", e, line))
+                } else if first_arg.starts_with('$') {
+                    // $DATA of a function result or special var — not meaningful, return 0
+                    Ok(Value::Number(0.0))
+                } else {
+                    // Local variable or array: hierarchical $DATA
+                    let key_first = first_arg.trim();
+                    let has_value = self.state.vars.get(key_first).cloned()
+                        .or_else(|| flatten_local_sub(key_first).and_then(|k| self.state.vars.get(&k).cloned()));
+                    // Check for children (subordinate keys)
+                    let flat_prefix = flatten_local_sub(key_first)
+                        .unwrap_or_else(|| format!("{}[", key_first));
+                    let has_children = self.state.vars.keys()
+                        .any(|k| k != &flat_prefix && k.starts_with(&flat_prefix[..flat_prefix.len().saturating_sub(1)]));
+                    // Actually determine: for flattened key like def["name"], check if there's a parent
+                    Ok(if has_value.is_some() {
+                        if has_children { Value::Number(11.0) } else { Value::Number(1.0) }
+                    } else {
+                        if has_children { Value::Number(10.0) } else { Value::Number(0.0) }
+                    })
+                }
             }
             "$O" | "$ORDER" => {
-                let (ns, mut subs) =
-                    self.parse_global(args.first().map_or("", String::as_str), line)?;
-                let current = subs.pop().and_then(|current| match &current {
-                    Subscript::String(value) if value.is_empty() => None,
-                    _ => Some(current),
-                });
-                let direction = args
-                    .get(1)
-                    .map(|v| self.eval_expr(v, line).map(|x| x.as_number() as i32))
-                    .transpose()?
-                    .unwrap_or(1);
-                self.host
-                    .order(&ns, &subs, current.as_ref(), direction)
-                    .map(|v| v.map_or(Value::String(String::new()), |s| s.to_value()))
-                    .map_err(|e| VmError::new("MORDER", e, line))
+                let raw_first = args.first().map_or("", String::as_str).trim();
+                if raw_first.starts_with('^') {
+                    let (ns, mut subs) = self.parse_global(raw_first, line)?;
+                    let current = subs.pop().and_then(|current| match &current {
+                        Subscript::String(value) if value.is_empty() => None,
+                        _ => Some(current),
+                    });
+                    let direction = args.get(1)
+                        .map(|v| self.eval_expr(v, line).map(|x| x.as_number() as i32))
+                        .transpose()?
+                        .unwrap_or(1);
+                    self.host.order(&ns, &subs, current.as_ref(), direction)
+                        .map(|v| v.map_or(Value::String(String::new()), |s| s.to_value()))
+                        .map_err(|e| VmError::new("MORDER", e, line))
+                } else {
+                    // Local array $ORDER
+                    let direction = args.get(1)
+                        .map(|v| self.eval_expr(v, line).map(|x| x.as_number() as i32))
+                        .transpose()?
+                        .unwrap_or(1);
+                    let flat_key = flatten_local_sub(raw_first)
+                        .unwrap_or_else(|| raw_first.to_string());
+                    let brack = flat_key.find('[').map(|i| i + 1).unwrap_or(0);
+                    let prefix = if brack > 0 { format!("{}[", &flat_key[..brack-1]) } else { format!("{}[", flat_key) };
+                    let current_sub: Option<String> = if brack > 0 {
+                        let inner = &flat_key[brack..];
+                        Some(if inner.ends_with(']') { inner[..inner.len()-1].to_string() } else { inner.to_string() })
+                    } else {
+                        None
+                    };
+                    let mut matched: Vec<String> = self.state.vars.keys()
+                        .filter(|k| k.starts_with(&prefix))
+                        .map(|k| k[prefix.len()..].to_string())
+                        .filter(|suffix| suffix.ends_with(']'))
+                        .map(|suffix| suffix[..suffix.len()-1].to_string())
+                        .collect();
+                    matched.sort();
+                    let result: Option<String> = if direction > 0 {
+                        if let Some(ref cur) = current_sub {
+                            matched.into_iter().find(|k| k > cur)
+                        } else {
+                            matched.into_iter().next()
+                        }
+                    } else {
+                        if let Some(ref cur) = current_sub {
+                            matched.into_iter().rev().find(|k| k < cur)
+                        } else {
+                            matched.into_iter().rev().next()
+                        }
+                    };
+                    Ok(match result {
+                        Some(s) => Value::String(s),
+                        None => Value::String(String::new()),
+                    })
+                }
             }
             "$L" | "$LENGTH" => {
                 let value = self
@@ -1097,6 +1285,97 @@ impl<'a, H: Host> Vm<'a, H> {
                 Ok(Value::String(format_fnumber(number, &codes, decimals)))
             }
             "$V" | "$VIEW" => Ok(Value::Number(0.0)),
+            func_name if func_name.starts_with("$$") => {
+                // $$FUNC^ROUTINE(args) — user-defined function call
+                self.return_value = None;
+                let inner = func_name.strip_prefix("$$").unwrap_or_default();
+                let (label, routine_name) = inner.split_once('^').unwrap_or((inner, ""));
+                if routine_name.is_empty() {
+                    return Err(VmError::new("MFUNCTION",
+                        "$$FUNC without ^ROUTINE not supported yet", line));
+                }
+                let source = self.host.routine(routine_name)
+                    .map_err(|e| VmError::new("MROUTINE", e, line))?
+                    .ok_or_else(|| VmError::new("MROUTINE",
+                        format!("unknown routine {routine_name}"), line))?;
+                let program = Compiler::compile(&source)
+                    .map_err(|e| VmError::new("MCOMPILE", e, line))?;
+                let label_upper = label.to_ascii_uppercase();
+                let start_ip = *program.labels.get(&label_upper)
+                    .ok_or_else(|| VmError::new("MLABEL",
+                        format!("unknown label {label} in {routine_name}"), line))?;
+                // Parse formal parameter names from source
+                let formals = parse_formal_params(&source, &label_upper).unwrap_or_default();
+                // Process raw args: evaluate values AND handle .ref references
+                let mut evaluated: Vec<Value> = Vec::new();
+                let mut refs: Vec<(String, String)> = Vec::new(); // (source_var, param_name)
+                for (i, raw) in args.iter().enumerate() {
+                    let trimmed = raw.trim();
+                    let param_name = formals.get(i).cloned().unwrap_or_default();
+                    if trimmed.starts_with('.') && !param_name.is_empty() {
+                        let src_var = trimmed.trim_start_matches('.').trim().to_string();
+                        if is_identifier(&src_var) {
+                            // Copy array entries src_var → param_name
+                            let prefix = format!("{}[", src_var);
+                            let collected: Vec<(String, Value)> = self.state.vars.iter()
+                                .filter(|(k, _)| k.starts_with(&prefix))
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
+                            for (key, val) in &collected {
+                                let suffix = key.trim_start_matches(&prefix);
+                                self.state.vars.insert(format!("{}[{}", param_name, suffix), val.clone());
+                            }
+                            refs.push((src_var, param_name));
+                            evaluated.push(Value::Null); // placeholder
+                            continue;
+                        }
+                    }
+                    evaluated.push(self.eval_expr(raw, line)?);
+                }
+                let scope_base = self.state.local_scopes.len();
+                self.bind_arguments(evaluated.clone());
+                // Bind formal param names to positional args for non-refs
+                for (i, pname) in formals.iter().enumerate() {
+                    let trimmed = args.get(i).map(|a| a.trim()).unwrap_or("");
+                    if !trimmed.starts_with('.') {
+                        if let Some(val) = evaluated.get(i) {
+                            self.state.vars.insert(pname.clone(), val.clone());
+                        }
+                    }
+                }
+                self.inline_depth += 1;
+                let mut result = Err(VmError::new("MFUNCTION",
+                    format!("{label} in {routine_name} did not QUIT"), line));
+                for i in start_ip..program.instructions.len() {
+                    self.charge(line)?;
+                    let ctrl = self.execute_instruction(&program.instructions[i])?;
+                    match ctrl {
+                        Control::Continue => {}
+                        Control::Quit => {
+                            let rv = self.return_value.take().unwrap_or(Value::Null);
+                            result = Ok(rv);
+                            break;
+                        }
+                        Control::Halt | Control::Yield => break,
+                    }
+                }
+                self.inline_depth -= 1;
+                self.restore_local_scopes_to(scope_base);
+                // Copy back any .ref array entries (param_name → source_var)
+                for (src_var, param_name) in &refs {
+                    let prefix = format!("{}[", param_name);
+                    let collected: Vec<(String, Value)> = self.state.vars.iter()
+                        .filter(|(k, _)| k.starts_with(&prefix))
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    for (key, val) in &collected {
+                        let suffix = key.trim_start_matches(&prefix);
+                        self.state.vars.insert(format!("{}[{}", src_var, suffix), val.clone());
+                    }
+                }
+                self.restore_arguments();
+                result
+            }
             _ => Err(VmError::new(
                 "MFUNCTION",
                 format!("unsupported function {name}"),
@@ -1132,6 +1411,7 @@ impl<'a, H: Host> Vm<'a, H> {
                 let value = if argument.trim().starts_with('"')
                     || argument.trim().parse::<f64>().is_ok()
                     || self.state.vars.contains_key(argument.trim())
+                    || flatten_local_sub(argument.trim()).as_ref().map_or(false, |k| self.state.vars.contains_key(k))
                     || argument.trim().starts_with('$')
                     || argument.trim().starts_with('@')
                 {
@@ -1295,6 +1575,67 @@ fn find_top_level(value: &str, needle: &str) -> Option<usize> {
     None
 }
 
+/// Extract formal parameter names from a routine source for a given label.
+/// e.g., source="MYFUNC(x,y) Q x+y", label="MYFUNC" → Some(["x","y"])
+fn parse_formal_params(source: &str, label: &str) -> Option<Vec<String>> {
+    let label_upper = label.to_ascii_uppercase();
+    for line in source.lines() {
+        let trimmed = line.trim();
+        let first_end = trimmed.find(|c: char| c.is_whitespace() || c == '(')
+            .unwrap_or(trimmed.len());
+        let token = &trimmed[..first_end];
+        if token.to_ascii_uppercase() == label_upper {
+            // Found the label definition, extract params from (a,b,c)
+            if let Some(paren_open) = trimmed[first_end..].find('(') {
+                let after_label = &trimmed[first_end + paren_open + 1..];
+                if let Some(paren_close) = after_label.find(')') {
+                    let params_str = &after_label[..paren_close];
+                    let params: Vec<String> = params_str.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if !params.is_empty() {
+                        return Some(params);
+                    }
+                }
+            }
+            break;
+        }
+    }
+    None
+}
+
+/// Flatten a local array reference like `m("type")` to `m["type"]`.
+/// Returns None if the atom is not a local array subscript reference.
+fn flatten_local_sub(atom: &str) -> Option<String> {
+    let trimmed = atom.trim();
+    // Must NOT start with ^ (global) or $ (special)
+    if trimmed.starts_with('^') || trimmed.starts_with('$') {
+        return None;
+    }
+    // Find first '(' before which we have an identifier
+    let paren = trimmed.find('(')?;
+    let name = trimmed[..paren].trim();
+    if !is_identifier(name) {
+        return None;
+    }
+    let rest = &trimmed[paren..];
+    // Must end with matching ')'
+    if !rest.ends_with(')') {
+        return None;
+    }
+    let inner = rest[1..rest.len()-1].trim();
+    // Evaluate subscripts: for now, take as literal string if quoted, or as number
+    let sub_flat = if (inner.starts_with('"') && inner.ends_with('"') && inner.len() >= 2) {
+        inner[1..inner.len()-1].to_string()
+    } else if let Ok(n) = inner.parse::<f64>() {
+        n.to_string()
+    } else {
+        inner.to_string()
+    };
+    Some(format!("{}[{}]", name, sub_flat))
+}
+
 fn split_if(value: &str) -> (&str, &str, &str) {
     if let Some(open) = find_open_brace(value) {
         if let Some(close) = matching_brace(value, open) {
@@ -1436,9 +1777,10 @@ fn split_call_target(value: &str) -> (&str, &str) {
 }
 
 fn find_comparison(value: &str) -> Option<(usize, &'static str)> {
-    for operator in [">=", "<=", "!=", "=", ">", "<"] {
-        if let Some(index) = find_top_level(value, operator) {
-            return Some((index, operator));
+    // Must check '= BEFORE bare = to avoid matching the = of '=
+    for &(pattern, op) in &[(">=", ">="), ("<=", "<="), ("'=", "'="), ("!=", "!="), ("=", "="), (">", ">"), ("<", "<")] {
+        if let Some(index) = find_top_level(value, pattern) {
+            return Some((index, op));
         }
     }
     None
@@ -1531,7 +1873,7 @@ fn compare_values(left: &Value, right: &Value, operator: &str) -> bool {
     };
     match operator {
         "=" => ordering.is_eq(),
-        "!=" => !ordering.is_eq(),
+        "!=" | "'=" => !ordering.is_eq(),
         ">" => ordering.is_gt(),
         "<" => ordering.is_lt(),
         ">=" => !ordering.is_lt(),

@@ -1535,6 +1535,9 @@ def _publish_change(change_data: dict) -> None:
 
 def _record_change(ns: str, subs: list, op: str, old_value, new_value, conn):
     """Record a mutation in ^CHANGES for CDC. Called after every SET/KILL/MERGE."""
+    # Skip CHANGES and HISTORY namespaces to prevent self-referential bloat
+    if ns == 'CHANGES' or ns == 'HISTORY':
+        return
     try:
         ts_ns = _time.time_ns()
         ts_iso = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.gmtime(ts_ns / 1_000_000_000))
