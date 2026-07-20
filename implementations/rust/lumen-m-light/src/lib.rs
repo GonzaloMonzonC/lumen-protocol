@@ -5,6 +5,7 @@
 //! access inside `pdb_tools` instead of bypassing triggers and journals.
 
 pub mod compiler;
+pub mod compilation;
 pub mod ffi;
 pub mod host;
 pub mod transpiler;

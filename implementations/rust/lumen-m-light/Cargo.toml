@@ -16,6 +16,7 @@ sha2 = "0.10"
 ureq = { version = "3", optional = true }
 minreq = { version = "2", optional = true, features = ["json-using-serde", "https-rustls"] }
 wasm-bindgen = { version = "0.2", optional = true }
+libloading = "0.8"
 
 [features]
 default = ["minreq"]
