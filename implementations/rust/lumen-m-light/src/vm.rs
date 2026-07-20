@@ -441,7 +441,22 @@ impl<'a, H: Host> Vm<'a, H> {
     }
 
     fn exec_do(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
-        let target = argument.split_whitespace().next().unwrap_or_default();
+        // find first space outside parens/quotes (smart split for strings)
+        let target = {
+            let mut depth = 0i32;
+            let mut quoted = false;
+            let mut split_at = argument.len();
+            for (j, c) in argument.char_indices() {
+                match c {
+                    '"' => quoted = !quoted,
+                    '(' | '{' if !quoted => depth += 1,
+                    ')' | '}' if !quoted => depth -= 1,
+                    ' ' if depth == 0 && !quoted => { split_at = j; break; }
+                    _ => {}
+                }
+            }
+            &argument[..split_at]
+        };
         let (target_name, raw_arguments) = split_call_target(target);
         // Empty target = block marker DO (IF cond DO), just continue
         if target_name.is_empty() {
@@ -1970,7 +1985,7 @@ fn split_call_target(value: &str) -> (&str, &str) {
 
 fn find_comparison(value: &str) -> Option<(usize, &'static str)> {
     // Must check '= BEFORE bare = to avoid matching the = of '=
-    for &(pattern, op) in &[(">=", ">="), ("<=", "<="), ("'=", "'="), ("!=", "!="), ("=", "="), (">", ">"), ("<", "<")] {
+    for &(pattern, op) in &[(">=", ">="), ("<=", "<="), ("'=", "'="), ("!=", "!="), ("[", "["), ("=", "="), (">", ">"), ("<", "<")] {
         if let Some(index) = find_top_level(value, pattern) {
             return Some((index, op));
         }
@@ -1991,7 +2006,7 @@ fn split_arithmetic(value: &str) -> (Vec<String>, Vec<char>) {
             b'"' => quoted = !quoted,
             b'(' if !quoted => depth += 1,
             b')' if !quoted => depth -= 1,
-            op @ (b'+' | b'-' | b'*' | b'/' | b'\\' | b'#' | b'_') if !quoted && depth == 0 => {
+            op @ (b'+' | b'-' | b'*' | b'/' | b'\\' | b'#' | b'_' | b'!' | b'&') if !quoted && depth == 0 => {
                 let unary = i == start || value[start..i].trim().is_empty();
                 let hex = op == b'#' && unary;
                 if !unary && !hex {
@@ -2014,6 +2029,17 @@ fn apply_operator(
     operator: char,
     line: usize,
 ) -> Result<Value, VmError> {
+    // Logical operators: ! (OR), & (AND) — work on truthiness
+    if operator == '!' {
+        let l = left.truthy();
+        let r = right.truthy();
+        return Ok(Value::Bool(l || r));
+    }
+    if operator == '&' {
+        let l = left.truthy();
+        let r = right.truthy();
+        return Ok(Value::Bool(l && r));
+    }
     if operator == '_' {
         return Ok(Value::String(left.as_string() + &right.as_string()));
     }
@@ -2070,6 +2096,7 @@ fn compare_values(left: &Value, right: &Value, operator: &str) -> bool {
         "<" => ordering.is_lt(),
         ">=" => !ordering.is_lt(),
         "<=" => !ordering.is_gt(),
+        "[" => left.as_string().contains(&right.as_string()),
         _ => false,
     }
 }

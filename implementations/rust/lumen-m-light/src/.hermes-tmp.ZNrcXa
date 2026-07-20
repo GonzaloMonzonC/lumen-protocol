@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Apply all MVM parser fixes atomically. Uses files, not inline strings."""
+
+with open('vm.rs', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# Fix 1: split_whitespace  
+old1 = "let target = argument.split_whitespace().next().unwrap_or_default();"
+new1 = """// find first space outside parens/quotes (split_whitespace() breaks on spaces in strings)
+        let target = {
+            let mut depth = 0i32;
+            let mut quoted = false;
+            let mut split_at = argument.len();
+            for (j, c) in argument.char_indices() {
+                match c {
+                    '\"' => quoted = !quoted,
+                    '(' | '{' if !quoted => depth += 1,
+                    ')' | '}' if !quoted => depth -= 1,
+                    ' ' if depth == 0 && !quoted => { split_at = j; break; }
+                    _ => {}
+                }
+            }
+            &argument[..split_at]
+        };"""
+assert old1 in content, 'Fix 1 not found'
+content = content.replace(old1, new1, 1)
+print('Fix 1: smart space split')
+
+# Fix 2: Add [ to find_comparison
+old2 = '(">=', '">=\"), ("<=', '"<="), ("'=', '"'='), ("!=', '"!='), ("=', '"='), ("'>', "'>'"), ("'<', "'<'")]'
+# Can't easily constuct this in Python - use a different approach
+# Just search for the unique substring that doesn't have escaping issues
+# The pattern is: '(">=', '">=') etc.
+# Let me just find the right pattern by looking at the file
+with open('vm.rs', 'r', encoding='utf-8') as f:
+    for i, line in enumerate(f):
+        if 'find_comparison' in line:
+            start = i
+        if 'for &(pattern' in line:
+            print(f'Line {i}: {line.rstrip()[:100]}')
