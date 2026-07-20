@@ -68,12 +68,13 @@ class PoliState:
         return {"ok": r.get("ok"), "error": r.get("state", {}).get("error", {})}
     
     def exec(self, source: str, gas: int = 20000) -> dict:
-        """Ejecuta código M arbitrario sobre el estado actual."""
+        """Ejecuta código M arbitrario sobre el estado actual (con LLM nativo)."""
         r = ml_execute(
             source=source,
             routines=_ROUTINES,
             globals_=self.globals,
             gas_limit=gas,
+            llm_api_keys=_LLM_KEYS,
         )
         if r.get("ok"):
             self.globals = r.get("globals") or []
@@ -81,6 +82,28 @@ class PoliState:
 
 # ── Instancia única ──────────────────────────────────────────────────────────
 _STATE = PoliState()
+
+# ── API keys para LLM nativo ──────────────────────────────────────────────────
+def _load_llm_keys() -> dict[str, str]:
+    keys = {}
+    env_path = Path.home() / "AppData/Local/hermes/.env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                if k == "OPENROUTER_API_KEY": keys["openrouter"] = v
+                elif k == "DEEPSEEK_API_KEY": keys["deepseek"] = v
+    import os as _os
+    if not keys.get("openrouter"):
+        val = _os.environ.get("OPENROUTER_API_KEY")
+        if val: keys["openrouter"] = val
+    if not keys.get("deepseek"):
+        val = _os.environ.get("DEEPSEEK_API_KEY")
+        if val: keys["deepseek"] = val
+    return keys
+
+_LLM_KEYS = _load_llm_keys()
 
 # ── Handlers de herramientas ──────────────────────────────────────────────────
 
@@ -329,6 +352,39 @@ def tool_poli_seed(args: dict) -> dict:
         "mensaje": "Modos sembrados correctamente" if r.get("ok") else "Error al sembrar modos",
     }
 
+def tool_poli_llm(args: dict) -> dict:
+    """LLM call nativa desde el MVM. Usa $LLM (fork+await automático)."""
+    prompt = args.get("prompt", "").strip()
+    if not prompt:
+        return {"ok": False, "error": "prompt vacío"}
+    system = args.get("system", "")
+    provider = args.get("provider", "deepseek")
+    model = args.get("model", "deepseek-v4-flash")
+    mode = args.get("mode", "")  # "symbolic" = sin LLM
+    if mode == "symbolic":
+        return {"ok": True, "response": "[Modo simbólico — sin LLM]", "mode": "symbolic"}
+    gas = args.get("gas_limit", 500000)
+    esc_prompt = prompt.replace('"', '""')
+    esc_system = system.replace('"', '""')
+    source = f'S ^R=$LLM("{esc_prompt}","{esc_system}","{provider}","{model}")'
+    import time as _time
+    start = _time.time()
+    r = _STATE.exec(source, gas=gas)
+    elapsed = _time.time() - start
+    result = None
+    for g in (r.get("globals") or []):
+        if g.get("ns") == "R":
+            result = g.get("value")
+            break
+    return {
+        "ok": r.get("ok"),
+        "response": result,
+        "elapsed": f"{elapsed:.1f}s",
+        "execution": r.get("execution"),
+        "mode": f"{provider}/{model}",
+        "error": r.get("state", {}).get("error"),
+    }
+
 # ── Definición de herramientas ────────────────────────────────────────────────
 TOOLS = [
     {
@@ -372,6 +428,22 @@ TOOLS = [
             "properties": {},
         },
     },
+    {
+        "name": "poli_llm",
+        "description": "LLM call nativa desde el MVM Rust (sin Python HTTP). Usa $LLM fork+await con yield automático.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Prompt para el LLM"},
+                "system": {"type": "string", "description": "System prompt", "default": ""},
+                "provider": {"type": "string", "description": "deepseek (default) u openrouter", "default": "deepseek"},
+                "model": {"type": "string", "description": "deepseek-v4-flash (default) o deepseek-v4-pro", "default": "deepseek-v4-flash"},
+                "mode": {"type": "string", "description": "symbolic = sin LLM", "default": ""},
+                "gas_limit": {"type": "integer", "description": "Gas para el MVM", "default": 500000},
+            },
+            "required": ["prompt"],
+        },
+    },
 ]
 
 HANDLERS = {
@@ -379,6 +451,7 @@ HANDLERS = {
     "poli_exec": tool_poli_exec,
     "poli_status": tool_poli_status,
     "poli_seed": tool_poli_seed,
+    "poli_llm": tool_poli_llm,
 }
 
 # ── Seed automático al arranque ──────────────────────────────────────────────
