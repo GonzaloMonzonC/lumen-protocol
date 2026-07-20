@@ -11,7 +11,7 @@ use crate::transpiler::transpile_to_rust;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Compilation manager singleton
@@ -20,8 +20,8 @@ pub struct CompilationManager {
     workspace_dir: PathBuf,
     /// Cache directory for compiled .dlls (persists across restarts)
     cache_dir: PathBuf,
-    /// Cache of loaded functions: routine_hash → compiled function
-    cache: Mutex<HashMap<String, Box<dyn Fn() -> Result<i64, String> + Send + Sync>>>,
+    /// Compiled functions by name (Arc for cloneability)
+    fn_cache: Mutex<HashMap<String, Arc<dyn Fn() -> Result<i64, String> + Send + Sync>>>,
     /// Call counters for hot-path detection: routine_name → call_count
     call_counts: Mutex<HashMap<String, u32>>,
     /// Number of calls before auto-compilation triggers (default: 3)
@@ -48,7 +48,7 @@ impl CompilationManager {
         Self {
             workspace_dir: workspace_dir.to_path_buf(),
             cache_dir,
-            cache: Mutex::new(HashMap::new()),
+            fn_cache: Mutex::new(HashMap::new()),
             call_counts: Mutex::new(HashMap::new()),
             hot_threshold: 3,
             stats: Mutex::new(CompilationStats::default()),
@@ -85,13 +85,8 @@ impl CompilationManager {
     /// Returns true if a compiled version is available and should be used.
     pub fn track_call(&self, name: &str, source: &str) -> bool {
         // Check if already compiled
-        {
-            let cache = self.cache.lock().unwrap();
-            for (key, _) in cache.iter() {
-                if key.starts_with(&format!("{}:", name)) {
-                    return true; // Already compiled
-                }
-            }
+        if self.get_compiled_fn(name).is_some() {
+            return true;
         }
         
         // Increment call count
@@ -114,47 +109,51 @@ impl CompilationManager {
     }
     
     /// Check if a routine has been compiled and cached (memory or disk)
-    pub fn is_compiled(&self, name: &str, source: &str) -> bool {
-        let key = Self::cache_key(name, source);
+    pub fn is_compiled(&self, name: &str, _source: &str) -> bool {
         // Check memory cache
         {
-            let cache = self.cache.lock().unwrap();
-            if cache.keys().any(|k| k.starts_with(&format!("{}:", name))) {
+            let cache = self.fn_cache.lock().unwrap();
+            if cache.contains_key(name) {
                 return true;
             }
         }
-        // Check disk cache
-        self.cached_dll_path(&key).exists()
+        false
     }
     
     /// Set the hot threshold (minimum calls before compilation)
     pub fn set_hot_threshold(&mut self, n: u32) {
         self.hot_threshold = n;
     }
+    
+    /// Get a compiled function by routine name
+    pub fn get_compiled_fn(&self, name: &str) -> Option<Arc<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+        self.fn_cache.lock().unwrap().get(name).cloned()
+    }
+    
+    /// Store a compiled function in the cache
+    pub fn store_compiled_fn(&self, name: &str, func: Arc<dyn Fn() -> Result<i64, String> + Send + Sync>) {
+        self.fn_cache.lock().unwrap().insert(name.to_string(), func);
+    }
 
-    /// Try to compile a program and return a loaded function.
-    /// Returns None if compilation is not available or fails.
-    pub fn try_compile(&self, program: &Program, name: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+    /// Try to compile a program, store in fn_cache, and return an Arc'd function.
+    pub fn try_compile(&self, program: &Program, name: &str) -> Option<Arc<dyn Fn() -> Result<i64, String> + Send + Sync>> {
         let cache_key_str = Self::cache_key(name, &program.source);
-        let hash = format!("{}:{}", name, program.source_hash);
         
-        // Check memory cache
-        {
-            let c = self.cache.lock().unwrap();
-            if c.contains_key(&hash) {
-                self.stats.lock().unwrap().cache_hits += 1;
-                // Can't return from cache (Box not cloneable) — will recompile
-            }
+        // Check memory cache first
+        if let Some(f) = self.get_compiled_fn(name) {
+            self.stats.lock().unwrap().cache_hits += 1;
+            return Some(f);
         }
         
-        // Check disk cache first
+        // Check disk cache
         let dll_path = self.cached_dll_path(&cache_key_str);
         if dll_path.exists() {
             eprintln!("JIT: cache HIT for '{}' (loading .dll)", name);
-            if let Some(_f) = self.load_function(&dll_path, "compiled_routine") {
+            if let Some(f) = self.load_function(&dll_path, "compiled_routine") {
+                let arc_fn = Arc::new(f);
+                self.store_compiled_fn(name, arc_fn.clone());
                 self.stats.lock().unwrap().cache_hits += 1;
-                // .dll loaded and stays in memory via libloading
-                return None; // TODO: return Arc<dyn Fn> for cache reuse
+                return Some(arc_fn);
             }
         }
         
@@ -196,14 +195,14 @@ impl CompilationManager {
                 
                 match self.load_function(&dll_path, name) {
                     Some(f) => {
+                        let arc_fn = Arc::new(f);
                         self.stats.lock().unwrap().successful_compilations += 1;
-                        self.cache.lock().unwrap().insert(hash, /* store */ f);
+                        self.store_compiled_fn(name, arc_fn.clone());
                         // Save to persistent cache
                         let cache_path = self.cached_dll_path(&cache_key_str);
                         let _ = fs::copy(&dll_path, &cache_path);
                         eprintln!("JIT: cached .dll for '{}' at {:?}", name, cache_path);
-                        // Reacquire from cache
-                        None // TODO: return the loaded function properly
+                        Some(arc_fn)
                     }
                     None => {
                         self.stats.lock().unwrap().failed_compilations += 1;
@@ -251,7 +250,7 @@ impl CompilationManager {
     }
     
     /// Try to compile by routine name and source
-    pub fn try_compile_routine(&self, name: &str, source: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+    pub fn try_compile_routine(&self, name: &str, source: &str) -> Option<Arc<dyn Fn() -> Result<i64, String> + Send + Sync>> {
         let program = match crate::compiler::Compiler::compile(source) {
             Ok(p) => p,
             Err(e) => {
