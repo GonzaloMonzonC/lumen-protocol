@@ -1,5 +1,6 @@
 use crate::{Subscript, Value};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -51,8 +52,8 @@ pub trait Host {
 
 #[derive(Debug, Clone, Default)]
 pub struct MemoryHost {
-    values: HashMap<(String, Vec<Subscript>), Value>,
-    transactions: Vec<HashMap<(String, Vec<Subscript>), Value>>,
+    values: BTreeMap<(String, Vec<Subscript>), Value>,
+    transactions: Vec<BTreeMap<(String, Vec<Subscript>), Value>>,
     routines: HashMap<String, String>,
     input: Vec<String>,
     locks: HashMap<(String, Vec<Subscript>), u64>,
@@ -150,24 +151,50 @@ impl Host for MemoryHost {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
-        let mut children: Vec<Subscript> = self
-            .values
-            .keys()
-            .filter(|(candidate_ns, candidate)| {
-                candidate_ns == ns && candidate.len() > parent.len() && is_prefix(parent, candidate)
-            })
-            .map(|(_, candidate)| candidate[parent.len()].clone())
-            .collect();
-        children.sort_by(Subscript::canonical_cmp);
-        children.dedup();
-        if direction >= 0 {
-            Ok(children.into_iter().find(|candidate| {
-                current.is_none_or(|value| candidate.canonical_cmp(value).is_gt())
-            }))
+        // Construir key prefix para BTreeMap::range
+        let prefix_key = (ns.to_string(), parent.to_vec());
+        let start_key = if let Some(cur) = current {
+            let mut key = parent.to_vec();
+            key.push(cur.clone());
+            (ns.to_string(), key)
         } else {
-            Ok(children.into_iter().rev().find(|candidate| {
-                current.is_none_or(|value| candidate.canonical_cmp(value).is_lt())
-            }))
+            prefix_key.clone()
+        };
+        if direction >= 0 {
+            // Avanzar: buscar primer key >= start_key que tenga el prefijo
+            // Saltamos el match exacto con current (range() lo incluye)
+            for (k, _v) in self.values.range(start_key..) {
+                let (key_ns, key_subs) = k;
+                if key_ns.as_str() != ns { break; }
+                if key_subs.len() <= parent.len() { continue; }
+                if !is_prefix(parent, key_subs) { continue; }
+                let candidate = &key_subs[parent.len()];
+                // Saltar el item actual (range() incluye el punto de inicio)
+                if let Some(cur) = current {
+                    if candidate.canonical_cmp(cur) == std::cmp::Ordering::Equal {
+                        continue;
+                    }
+                }
+                return Ok(Some(candidate.clone()));
+            }
+            Ok(None)
+        } else {
+            // Retroceder: buscar último key < start_key con el prefijo
+            // range(..start_key) NO incluye start_key, OK
+            for (k, _v) in self.values.range(..start_key).rev() {
+                let (key_ns, key_subs) = k;
+                if key_ns.as_str() != ns { continue; }
+                if key_subs.len() <= parent.len() { continue; }
+                if !is_prefix(parent, key_subs) { continue; }
+                let candidate = &key_subs[parent.len()];
+                if let Some(cur) = current {
+                    if candidate.canonical_cmp(cur) == std::cmp::Ordering::Equal {
+                        continue;
+                    }
+                }
+                return Ok(Some(candidate.clone()));
+            }
+            Ok(None)
         }
     }
 

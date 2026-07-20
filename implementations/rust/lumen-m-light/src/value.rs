@@ -134,6 +134,7 @@ impl Subscript {
         }
     }
 
+
     pub fn canonical_cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Number(a), Self::Number(b)) => a.total_cmp(b),
@@ -141,5 +142,17 @@ impl Subscript {
             (Self::String(_), Self::Number(_)) => Ordering::Greater,
             (Self::String(a), Self::String(b)) => a.as_bytes().cmp(b.as_bytes()),
         }
+    }
+}
+
+impl Ord for Subscript {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.canonical_cmp(other)
+    }
+}
+
+impl PartialOrd for Subscript {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.canonical_cmp(other))
     }
 }
