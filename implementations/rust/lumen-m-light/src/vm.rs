@@ -1414,6 +1414,8 @@ impl<'a, H: Host> Vm<'a, H> {
                     || flatten_local_sub(argument.trim()).as_ref().map_or(false, |k| self.state.vars.contains_key(k))
                     || argument.trim().starts_with('$')
                     || argument.trim().starts_with('@')
+                    || argument.trim().starts_with('+')
+                    || argument.trim().starts_with('-')
                 {
                     self.eval_expr(&argument, line)?
                 } else {
