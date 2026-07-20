@@ -70,6 +70,12 @@ pub struct VmState {
     pub last_open_args: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<VmError>,
+    /// Yield requested by $AWAIT when future not ready.
+    #[serde(default)]
+    pub yield_requested: bool,
+    /// Future ID that caused the pending yield.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yield_future: Option<u64>,
 }
 
 fn default_io() -> i64 {
@@ -103,6 +109,8 @@ impl VmState {
             last_open_device: 0,
             last_open_args: String::new(),
             error: None,
+            yield_requested: false,
+            yield_future: None,
         }
     }
 }
@@ -218,7 +226,13 @@ impl<'a, H: Host> Vm<'a, H> {
                 return Execution::Error;
             }
             match self.execute_instruction(&instruction) {
-                Ok(Control::Continue) => {}
+                Ok(Control::Continue) => {
+                    if self.state.yield_requested {
+                        self.state.ip -= 1;
+                        self.state.yield_requested = false;
+                        return Execution::Yielded;
+                    }
+                }
                 Ok(Control::Skip(n)) => self.state.ip += n as usize,
                 Ok(Control::Quit) => {
                     self.restore_local_scopes();
@@ -1511,6 +1525,87 @@ impl<'a, H: Host> Vm<'a, H> {
                 }
             }
             "$V" | "$VIEW" => Ok(Value::Number(0.0)),
+            // ── LLM Device functions ──────────────────────────
+            "$LLM" => {
+                let prompt = self.eval_expr(args.get(0).map_or("", String::as_str), line)?.as_string();
+                let system = args.get(1).map_or("".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let provider = args.get(2).map_or("deepseek".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let model = args.get(3).map_or("deepseek-v4-flash".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                // Reuse future ID if resuming from a yield
+                let id = if let Some(fid) = self.state.yield_future.take() {
+                    fid
+                } else {
+                    self.host.llm_fork(&provider, &model, &prompt, &system)
+                        .map_err(|e| VmError::new("MLLM", e, line))?
+                };
+                match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
+                    Some(result) => Ok(Value::String(result)),
+                    None => {
+                        self.state.yield_requested = true;
+                        self.state.yield_future = Some(id);
+                        Ok(Value::Null)
+                    }
+                }
+            }
+            "$FORK" => {
+                let prompt = self.eval_expr(args.get(0).map_or("", String::as_str), line)?.as_string();
+                let system = args.get(1).map_or("".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let provider = args.get(2).map_or("deepseek".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let model = args.get(3).map_or("deepseek-v4-flash".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let id = self.host.llm_fork(&provider, &model, &prompt, &system)
+                    .map_err(|e| VmError::new("MLLM", e, line))?;
+                Ok(Value::Number(id as f64))
+            }
+            "$AWAIT" => {
+                let id = self.eval_expr(args.get(0).map_or("0", String::as_str), line)?.as_number() as u64;
+                match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
+                    Some(result) => Ok(Value::String(result)),
+                    None => {
+                        self.state.yield_requested = true;
+                        self.state.yield_future = Some(id);
+                        Ok(Value::Null)
+                    }
+                }
+            }
+            "$CHAIN" => {
+                let parent = self.eval_expr(args.get(0).map_or("0", String::as_str), line)?.as_number() as u64;
+                let prompt = self.eval_expr(args.get(1).map_or("", String::as_str), line)?.as_string();
+                let system = args.get(2).map_or("".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let provider = args.get(3).map_or("deepseek".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let model = args.get(4).map_or("deepseek-v4-flash".to_string(), |a| self.eval_expr(a, line).map(|v| v.as_string()).unwrap_or_default());
+                let id = self.host.llm_chain(parent, &provider, &model, &prompt, &system)
+                    .map_err(|e| VmError::new("MLLM", e, line))?;
+                Ok(Value::Number(id as f64))
+            }
+            "$CANCEL" => {
+                let id = self.eval_expr(args.get(0).map_or("0", String::as_str), line)?.as_number() as u64;
+                let ok = self.host.llm_cancel(id)
+                    .map_err(|e| VmError::new("MLLM", e, line))?;
+                Ok(Value::Bool(ok))
+            }
+            "$ALL" => {
+                let ids: Vec<u64> = if args.len() == 1 {
+                    let list = self.eval_expr(&args[0], line)?.as_string();
+                    list.split(',').filter_map(|s| s.trim().parse::<u64>().ok()).collect()
+                } else {
+                    let mut v = Vec::new();
+                    for a in args {
+                        v.push(self.eval_expr(a.as_str(), line)?.as_number() as u64);
+                    }
+                    v
+                };
+                let mut results = Vec::new();
+                for &id in &ids {
+                    match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
+                        Some(result) => results.push(result),
+                        None => {
+                            self.state.yield_requested = true;
+                            return Ok(Value::Null);
+                        }
+                    }
+                }
+                Ok(Value::String(results.join("|")))
+            }
             func_name if func_name.starts_with("$$") => {
                 // $$FUNC^ROUTINE(args) — user-defined function call
                 self.return_value = None;

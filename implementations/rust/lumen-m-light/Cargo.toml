@@ -13,8 +13,10 @@ crate-type = ["cdylib", "rlib"]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+ureq = { version = "3", optional = true }
+minreq = { version = "2", optional = true, features = ["json-using-serde", "https-rustls"] }
 wasm-bindgen = { version = "0.2", optional = true }
 
 [features]
-default = []
+default = ["minreq"]
 wasm = ["wasm-bindgen"]

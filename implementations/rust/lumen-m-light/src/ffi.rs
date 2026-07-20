@@ -3,6 +3,7 @@
 use crate::{Compiler, Execution, GlobalEntry, MemoryHost, Program, Value, Vm, VmState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -31,6 +32,8 @@ pub struct ExecuteRequest {
     pub gas_budget: Option<u64>,
     #[serde(default)]
     pub slice_gas: Option<u64>,
+    #[serde(default)]
+    pub llm_api_keys: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,6 +102,11 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
     }
     for value in request.input {
         host.push_input(value);
+    }
+    // Set LLM API keys as env vars so the thread pool can read them
+    for (provider, key) in &request.llm_api_keys {
+        let var_name = format!("{}_API_KEY", provider.to_uppercase());
+        std::env::set_var(&var_name, key);
     }
 
     let (execution, state) = {
