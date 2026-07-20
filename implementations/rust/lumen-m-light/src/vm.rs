@@ -707,6 +707,33 @@ impl<'a, H: Host> Vm<'a, H> {
     }
 
     fn exec_if(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
+        // Check for \x01-separated bodies (IF DO with ELSE DO compiled by compiler)
+        if let Some(sep1) = argument.find('\x01') {
+            let condition = &argument[..sep1];
+            let rest = &argument[sep1 + 1..];
+            let (true_body, false_body) = if let Some(sep2) = rest.find('\x01') {
+                (&rest[..sep2], &rest[sep2 + 1..])
+            } else {
+                (rest, "")
+            };
+            let truthy = self.eval_expr(condition, line)?.truthy();
+            self.state.test = truthy;
+            let selected = if truthy { true_body } else { false_body };
+            // Strip leading DO/D marker from inline IF body
+            let selected = {
+                let s = selected.trim_start();
+                let upper = s.to_uppercase();
+                if upper.starts_with("DO ") || upper.starts_with("D ") || upper == "DO" || upper == "D" {
+                    let after = &s[s.find(char::is_whitespace).unwrap_or(s.len())..].trim_start();
+                    if after.is_empty() { "" } else { after }
+                } else { s }
+            };
+            if !selected.is_empty() {
+                return self.exec_inline_control(selected, line);
+            }
+            return Ok(Control::Continue);
+        }
+        // Legacy format: use split_if
         let (condition, true_body, false_body) = split_if(argument);
         let truthy = self.eval_expr(condition, line)?.truthy();
         self.state.test = truthy;
