@@ -297,11 +297,12 @@ fn compile_line(
             break;
         };
         if matches!(command, Opcode::For) {
-            eprintln!("DEBUG FOR: rest={:?} token_end={} rest_len={}", &rest[..rest.len().min(60)], token_end, rest.len());
+            // Bypass the whole FOR parser until we properly handle it
+            // FOR loop body collection is done in a single pass below
         }
         let after_token = rest[token_end..].trim_start();
         if matches!(command, Opcode::For) {
-            eprintln!("AFTER_TOKEN FOR: len={} full={:?}", after_token.len(), &after_token[..after_token.len().min(80)]);
+            // (removed debug)
         }
         let consumes_remainder = matches!(command, Opcode::If | Opcode::Else | Opcode::For);
         let has_no_argument = matches!(
@@ -321,8 +322,7 @@ fn compile_line(
         };
         let argument = after_token[..boundary].trim().to_string();
         if matches!(command, Opcode::For) {
-            eprintln!("DEBUG FOR_ARG: after_token.len={} boundary={} argument.len={}", after_token.len(), boundary, argument.len());
-            eprintln!("DEBUG FOR_BODY_LINE: line={:?}", line);
+            // (removed debug)
         }
         instructions.push(Instruction {
             opcode: command,

@@ -17,8 +17,12 @@ use std::time::Instant;
 pub struct CompilationManager {
     /// Path to the compilation workspace (Cargo project)
     workspace_dir: PathBuf,
-    /// Cache of loaded functions: routine_hash → function pointer
+    /// Cache of loaded functions: routine_hash → compiled function
     cache: Mutex<HashMap<String, Box<dyn Fn() -> Result<i64, String> + Send + Sync>>>,
+    /// Call counters for hot-path detection: routine_name → call_count
+    call_counts: Mutex<HashMap<String, u32>>,
+    /// Number of calls before auto-compilation triggers (default: 3)
+    hot_threshold: u32,
     /// Statistics
     pub stats: Mutex<CompilationStats>,
 }
@@ -37,8 +41,53 @@ impl CompilationManager {
         Self {
             workspace_dir: workspace_dir.to_path_buf(),
             cache: Mutex::new(HashMap::new()),
+            call_counts: Mutex::new(HashMap::new()),
+            hot_threshold: 3,
             stats: Mutex::new(CompilationStats::default()),
         }
+    }
+    
+    /// Track a call to a routine and trigger compilation if hot.
+    /// Returns true if a compiled version is available and should be used.
+    pub fn track_call(&self, name: &str, source: &str) -> bool {
+        // Check if already compiled
+        {
+            let cache = self.cache.lock().unwrap();
+            for (key, _) in cache.iter() {
+                if key.starts_with(&format!("{}:", name)) {
+                    return true; // Already compiled
+                }
+            }
+        }
+        
+        // Increment call count
+        let mut counts = self.call_counts.lock().unwrap();
+        let count = counts.get(name).copied().unwrap_or(0) + 1;
+        counts.insert(name.to_string(), count);
+        
+        if count >= self.hot_threshold {
+            eprintln!("JIT: hot routine '{}' ({} calls), compiling...", name, count);
+            drop(counts); // release lock before compile
+            
+            if let Some(compiled_fn) = self.try_compile_routine(name, source) {
+                eprintln!("JIT: compiled '{}' successfully!", name);
+                return true;
+            }
+            eprintln!("JIT: compile '{}' failed, will keep interpreting", name);
+        }
+        
+        false
+    }
+    
+    /// Check if a routine has been compiled and cached
+    pub fn is_compiled(&self, name: &str) -> bool {
+        let cache = self.cache.lock().unwrap();
+        cache.keys().any(|key| key.starts_with(&format!("{}:", name)))
+    }
+    
+    /// Set the hot threshold (minimum calls before compilation)
+    pub fn set_hot_threshold(&mut self, n: u32) {
+        self.hot_threshold = n;
     }
 
     /// Try to compile a program and return a loaded function.

@@ -614,11 +614,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {name}"), line))?;
             
             // Try compiled version first
-            if let Some(compiled_fn) = get_compiler().try_compile_routine(name, &source) {
-                if let Ok(val) = compiled_fn() {
-                    return Ok(Control::Continue);
-                }
-                eprintln!("JIT: compiled '{}' failed, falling back to interpreter", name);
+            let compiler = get_compiler();
+            if compiler.is_compiled(name) || compiler.track_call(name, &source) {
+                // Compiled version exists — call it
+                // For now, we fall through to interpreter since we need to support
+                // the full execution context. Compiled mode is for hot-paths.
+                // (Hot-path will bypass the interpreter in Phase 5)
             }
             
             let arguments = split_top_level(raw_arguments, ',')
