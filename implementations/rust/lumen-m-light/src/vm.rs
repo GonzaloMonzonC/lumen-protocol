@@ -1,4 +1,7 @@
 use crate::compiler::{Compiler, Instruction, Opcode, Program};
+use crate::compilation::CompilationManager;
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use crate::host::Host;
 use crate::{Subscript, Value};
 use serde::{Deserialize, Serialize};
@@ -202,6 +205,16 @@ pub struct Vm<'a, H: Host> {
     return_value: Option<Value>,
     /// Cache de $H para el nudo lógico actual (Intersystems-style)
     horolog_cache: Option<String>,
+}
+
+// Global Compilation Manager for M→Rust JIT
+static COMPILER: OnceLock<CompilationManager> = OnceLock::new();
+
+fn get_compiler() -> &'static CompilationManager {
+    COMPILER.get_or_init(|| {
+        let ws = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("compiled_workspace");
+        CompilationManager::new(&ws)
+    })
 }
 
 impl<'a, H: Host> Vm<'a, H> {
@@ -599,6 +612,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .routine(name)
                 .map_err(|e| VmError::new("MROUTINE", e, line))?
                 .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {name}"), line))?;
+            
+            // Try compiled version first
+            if let Some(compiled_fn) = get_compiler().try_compile_routine(name, &source) {
+                if let Ok(val) = compiled_fn() {
+                    return Ok(Control::Continue);
+                }
+                eprintln!("JIT: compiled '{}' failed, falling back to interpreter", name);
+            }
+            
             let arguments = split_top_level(raw_arguments, ',')
                 .into_iter()
                 .filter(|value| !value.is_empty())
