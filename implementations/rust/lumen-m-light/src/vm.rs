@@ -463,6 +463,14 @@ impl<'a, H: Host> Vm<'a, H> {
         if target_name.is_empty() {
             return Ok(Control::Continue);
         }
+        // Skip dot block markers (DO .. SET → DO SET, DO . SET → DO SET)
+        if !target_name.is_empty() && target_name.chars().all(|c| c == '.') {
+            let rest = &argument[target.len()..].trim_start();
+            if !rest.is_empty() {
+                return self.exec_do(rest, line);
+            }
+            return Ok(Control::Continue);
+        }
         // DO followed by another M command — could be block marker (skip) or same-line continuation
         if is_command_name(target_name) {
             let original_arg = argument.trim();
