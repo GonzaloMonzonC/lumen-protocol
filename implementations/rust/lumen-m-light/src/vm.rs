@@ -441,6 +441,7 @@ impl<'a, H: Host> Vm<'a, H> {
     }
 
     fn exec_do(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
+        let argument = argument.trim_start();
         // find first space outside parens/quotes (smart split for strings)
         let target = {
             let mut depth = 0i32;
@@ -462,8 +463,15 @@ impl<'a, H: Host> Vm<'a, H> {
         if target_name.is_empty() {
             return Ok(Control::Continue);
         }
-        // DO followed by another M command is a block marker, not a routine call
+        // DO followed by another M command — could be block marker (skip) or same-line continuation
         if is_command_name(target_name) {
+            let original_arg = argument.trim();
+            if original_arg.len() > target_name.len() {
+                let after = &original_arg[target_name.len()..].trim();
+                if !after.is_empty() {
+                    return self.exec_inline_control(original_arg, line);
+                }
+            }
             return Ok(Control::Continue);
         }
         if target_name.starts_with('^') {
@@ -1958,6 +1966,13 @@ fn strip_block(value: &str) -> &str {
 }
 
 fn split_for_body(value: &str) -> (&str, &str) {
+    let trimmed = value.trim();
+    if let Some(space) = trimmed.find(char::is_whitespace) {
+        let first_token = &trimmed[..space];
+        if is_command_name(first_token) {
+            return ("", trimmed);
+        }
+    }
     let mut depth = 0i32;
     let mut quoted = false;
     for (index, ch) in value.char_indices() {
