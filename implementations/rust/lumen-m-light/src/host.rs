@@ -179,9 +179,17 @@ impl Host for MemoryHost {
             }
             Ok(None)
         } else {
-            // Retroceder: buscar último key < start_key con el prefijo
-            // range(..start_key) NO incluye start_key, OK
-            for (k, _v) in self.values.range(..start_key).rev() {
+            // Retroceder: buscar último key con el prefijo
+            // Cuando current=None, iterar desde el final del mapa
+            let range: Box<dyn Iterator<Item = _>> = if let Some(cur) = current {
+                let mut key = parent.to_vec();
+                key.push(cur.clone());
+                let start = (ns.to_string(), key);
+                Box::new(self.values.range(..start).rev())
+            } else {
+                Box::new(self.values.range(..).rev())
+            };
+            for (k, _v) in range {
                 let (key_ns, key_subs) = k;
                 if key_ns.as_str() != ns { continue; }
                 if key_subs.len() <= parent.len() { continue; }
