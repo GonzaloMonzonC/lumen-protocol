@@ -52,6 +52,14 @@ pub struct Compiler;
 
 impl Compiler {
     pub fn compile(source: &str) -> Result<Program, String> {
+        Self::compile_with_opts(source, true)
+    }
+
+    pub fn compile_inline(source: &str) -> Result<Program, String> {
+        Self::compile_with_opts(source, false)
+    }
+
+    fn compile_with_opts(source: &str, enable_block_collection: bool) -> Result<Program, String> {
         let mut instructions = Vec::new();
         let mut labels = BTreeMap::new();
         let lines: Vec<&str> = source.lines().collect();
@@ -76,37 +84,71 @@ impl Compiler {
                 line
             };
             if !code.is_empty() {
-                // Check if this line has FOR ending with DO (block marker)
                 let code_upper = code.trim().to_uppercase();
+                let ends_with_do = code_upper.ends_with(" DO") || code_upper.ends_with(" D");
                 let has_for = code_upper.contains("FOR")
                     || code_upper.contains(" F ")
                     || code_upper.starts_with("F ");
-                let ends_with_do = code_upper.ends_with(" DO") || code_upper.ends_with(" D");
+                let has_if = code_upper.starts_with("IF ")
+                    || code_upper.starts_with("I ")
+                    || code_upper.contains(" IF ")
+                    || code_upper.contains(" I ");
                 let for_with_do = ends_with_do && has_for;
-                if for_with_do {
-                    // Collect the FOR body from subsequent lines at higher dot level
-                    let mut body_lines = String::from(code);
-                    body_lines.push('\n');
-                    let base_dots = dot_count;
-                    let mut j = i + 1;
+                let if_with_do = ends_with_do && has_if && !has_for;
+
+                // Helper: collect body lines at higher dot level
+                let mut collect_body = |base_dots: u32, start: usize| -> (String, usize) {
+                    let mut body = String::new();
+                    let mut j = start;
                     while j < lines.len() {
-                        let next_line = strip_comment(lines[j]).trim();
-                        if next_line.is_empty() { j += 1; continue; }
-                        let (ndots, nline) = split_dots(next_line);
-                        if ndots > base_dots {
-                            body_lines.push_str(&"  ".repeat((ndots - base_dots - 1) as usize));
-                            body_lines.push_str(nline);
-                            body_lines.push('\n');
+                        let nl = strip_comment(lines[j]).trim();
+                        if nl.is_empty() { j += 1; continue; }
+                        let (nd, _) = split_dots(nl);
+                        if nd > base_dots {
+                            let (_, nline) = split_dots(nl);
+                            body.push_str(&"  ".repeat((nd - base_dots - 1) as usize));
+                            body.push_str(nline);
+                            body.push('\n');
                             j += 1;
-                        } else {
-                            break;
-                        }
+                        } else { break; }
                     }
-                    let body_trimmed = body_lines.trim();
+                    (body, j)
+                };
+
+                if enable_block_collection && for_with_do {
+                    let (body_lines, j) = collect_body(dot_count, i + 1);
+                    let body_trimmed = format!("{}\n{}", code, body_lines).trim().to_string();
                     if !body_trimmed.is_empty() {
-                        compile_line(body_trimmed, line_number, &mut instructions)?;
+                        compile_line(&body_trimmed, line_number, &mut instructions)?;
                     }
-                    i = j - 1; // Skip collected body lines
+                    i = j - 1;
+                } else if enable_block_collection && if_with_do {
+                    // IF ... DO with optional ELSE DO
+                    let (true_body, j) = collect_body(dot_count, i + 1);
+                    let mut false_body = String::new();
+                    let mut k = j;
+                    // Check if next non-empty line at base dots starts with ELSE/E
+                    while k < lines.len() {
+                        let nl = strip_comment(lines[k]).trim();
+                        if nl.is_empty() { k += 1; continue; }
+                        let (nd, eline) = split_dots(nl);
+                        if nd == dot_count {
+                            let eu = eline.trim().to_uppercase();
+                            if eu.starts_with("ELSE") || eu.starts_with("E ") || eu == "E" {
+                                // Collect ELSE body
+                                let (else_body, l) = collect_body(dot_count, k + 1);
+                                false_body = else_body;
+                                k = l;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    // Strip trailing DO/D from IF line since blocks are already collected
+                    let condition = code.trim_end_matches(" DO").trim_end_matches(" D");
+                    let if_arg = format!("{}{}{}{}{}", condition, "\x01", true_body.trim(), "\x01", false_body.trim());
+                    compile_line(&if_arg, line_number, &mut instructions)?;
+                    i = k - 1;  // Skip ELSE and its body too
                 } else {
                     compile_line(code, line_number, &mut instructions)?;
                 }
