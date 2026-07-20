@@ -360,34 +360,71 @@ def tool_poli_seed(args: dict) -> dict:
     }
 
 def tool_poli_llm(args: dict) -> dict:
-    """LLM call nativa desde el MVM. Usa $LLM (fork+await automático)."""
+    """LLM call nativa desde el MVM. Usa $LLM (fork+await automático).
+    Respeta la personalidad activa: lee provider/model de ^PERSONALITY.
+    """
     prompt = args.get("prompt", "").strip()
     if not prompt:
         return {"ok": False, "error": "prompt vacío"}
     system = args.get("system", "")
-    provider = args.get("provider", "deepseek")
-    model = args.get("model", "deepseek-v4-flash")
-    mode = args.get("mode", "")  # "symbolic" = sin LLM
-    if mode == "symbolic":
-        return {"ok": True, "response": "[Modo simbólico — sin LLM]", "mode": "symbolic"}
+    session_id = args.get("session", _STATE.default_session)
+    
+    # 1. Leer personalidad activa y su configuración de modelo
+    r = _STATE.exec(
+        f'S ^MODE=$$ACTIVE^PERSONALITY("{session_id}") '
+        f'S ^PROV=$G(^PERSONALITY($G(^MODE),"provider")) '
+        f'S ^MOD=$G(^PERSONALITY($G(^MODE),"model"))',
+        gas=30000,
+    )
+    active_mode = None
+    provider = None
+    model = None
+    for g in (r.get("globals") or []):
+        ns = g.get("ns")
+        if ns == "MODE":
+            active_mode = g.get("value")
+        elif ns == "PROV":
+            provider = str(g.get("value", ""))
+        elif ns == "MOD":
+            model = str(g.get("value", ""))
+    
+    # 2. Fallback a args o defaults
+    if not provider or provider in ("", "None", "0"):
+        provider = args.get("provider", "deepseek")
+    if not model or model in ("", "None", "0"):
+        model = args.get("model", "deepseek-v4-flash")
+    
+    # 3. Modo simbólico = sin LLM
+    if provider == "symbolic":
+        return {
+            "ok": True,
+            "response": "[Modo simbólico — sin LLM]",
+            "mode": "symbolic",
+            "personality": active_mode,
+        }
+    
     gas = args.get("gas_limit", 500000)
     esc_prompt = prompt.replace('"', '""')
     esc_system = system.replace('"', '""')
     source = f'S ^R=$DEVICE("llm:call","{esc_prompt}","{esc_system}","{provider}","{model}")'
+    
     import time as _time
     start = _time.time()
     r = _STATE.exec(source, gas=gas)
     elapsed = _time.time() - start
+    
     result = None
     for g in (r.get("globals") or []):
         if g.get("ns") == "R":
             result = g.get("value")
             break
+    
     return {
         "ok": r.get("ok"),
         "response": result,
         "elapsed": f"{elapsed:.1f}s",
         "execution": r.get("execution"),
+        "personality": active_mode,
         "mode": f"{provider}/{model}",
         "error": r.get("state", {}).get("error"),
     }
