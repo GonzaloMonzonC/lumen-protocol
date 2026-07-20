@@ -547,6 +547,7 @@ def tool_poli_http(args: dict) -> dict:
             sig, ts = _hmac_sign(body or "", hmac_key)
             req.add_header("X-DDP-HMAC", sig)
             req.add_header("X-DDP-Timestamp", ts)
+            req.add_header("User-Agent", "Hermes-MCP-Bridge/2.0")
             if body:
                 req.add_header("Content-Type", "application/json")
             
