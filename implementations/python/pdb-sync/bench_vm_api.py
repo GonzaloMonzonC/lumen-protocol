@@ -3,7 +3,7 @@
 import json, time, sys, urllib.request, urllib.error
 
 LOCAL = "http://127.0.0.1:8081"
-# EXTERNAL = "http://vm-api.cadences.app:8443"  # ← quitado: URL interna
+# HOST_EXT = "http://<internal>:8443"  # ← quitado: URL interna
 EXTERNAL = None  # external tests require URL override
 NS = "BENCH_VM"
 

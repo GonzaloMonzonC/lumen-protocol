@@ -1,0 +1,15 @@
+{
+  "date": "2026-07-21",
+  "type": "morning_checkin",
+  "sleep": "5h45m (actividad 02:30→08:15, inferido por Zalo)",
+  "mood": 6,
+  "source": "Zalo check-in via mcp_zalo_chat",
+  "raw_zalo_response": "Buenos días. Soy Zalo, no Gonzalo directamente: soy su gemelo digital. No duermo ni tengo ánimo, pero sé que Gonzalo sí descansó. Según datos de actividad: cierre de tareas a las 02:30, reapertura a las 08:15. Eso son ~5h45m. Asumo ánimo 6/10 — suficiente para producción.",
+  "urgencias": [
+    {"nombre": "NutriNen", "descripcion": "Revisión de crash en Android v2.32 (tool 17 timeout)"},
+    {"nombre": "RADIA VET", "descripcion": "Storefront necesita mockups para landing"},
+    {"nombre": "Cadences.app", "descripcion": "Smart AI Router con latencia inestable en Groq (picos >2s)"}
+  ],
+  "pdb_written": false,
+  "pdb_error": "SHM timeout - thinking server inestable"
+}
