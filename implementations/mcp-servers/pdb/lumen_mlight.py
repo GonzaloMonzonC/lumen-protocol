@@ -50,7 +50,7 @@ def ensure_built(quiet: bool = True) -> bool:
     if not _CRATE.exists() or not shutil.which("cargo"):
         return False
     result = subprocess.run(
-        ["cargo", "build", "--release"],
+        ["cargo", "build", "--release", "--features", "minreq"],
         cwd=_CRATE,
         capture_output=quiet,
         text=True,
@@ -117,6 +117,7 @@ def execute(
     gas_budget: int = 0,
     slice_gas: int | None = None,
     llm_api_keys: dict[str, str] | None = None,
+    sqlite_path: str | None = None,
 ) -> dict:
     if llm_api_keys is None:
         import os as _os
@@ -137,6 +138,7 @@ def execute(
         "gas_limit": gas_limit,
         "gas_budget": gas_budget,
         "llm_api_keys": llm_api_keys,
+        "sqlite_path": sqlite_path,
     }
     if slice_gas is not None:
         request["slice_gas"] = slice_gas
@@ -282,15 +284,22 @@ def execute_sqlite(
     *,
     persist: bool = True,
     namespaces: list[str] | None = None,
+    sqlite_path: str | None = None,
     **kwargs,
 ) -> dict:
-    """Execute Rust M-Light against a snapshot of the canonical SQLite PDB.
+    """Execute Rust M-Light against the canonical SQLite PDB.
 
-    TSTART/TCOMMIT/TROLLBACK are evaluated by the VM before the final diff is
-    exposed. Persistence is one atomic PDB batch. The snapshot boundary is
-    optimistic, but every touched key is checked at commit and conflicts fail
-    instead of overwriting a concurrent value.
+    Two modes:
+    1. Default (snapshot): snapshots namespaces from SQLite → Rust MVM → persist diff
+    2. Direct (sqlite_path): passes DB path to Rust MVM which opens SQLite directly.
+       $O, $D, $S, $K work natively against SQLite. No snapshot/persist overhead.
     """
+    if sqlite_path:
+        # Filter kwargs: only pass what execute() understands
+        exec_kwargs = {k: v for k, v in kwargs.items()
+                       if k in ('gas_limit', 'gas_budget', 'slice_gas',
+                                'routines', 'input_', 'llm_api_keys')}
+        return execute(source, sqlite_path=sqlite_path, **exec_kwargs)
     selected_namespaces = namespaces or referenced_namespaces(source)
     if "@" in source and not selected_namespaces:
         raise ValueError(

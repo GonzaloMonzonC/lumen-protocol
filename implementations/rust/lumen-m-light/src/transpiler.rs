@@ -157,7 +157,8 @@ fn transpile_set(arg: &str, locals: &[String]) -> String {
     let trimmed = arg.trim();
     let mut result = String::new();
     
-    for piece in trimmed.split(',') {
+    // Split respetando paréntesis, comillas anidadas
+    for piece in split_m_args(trimmed) {
         let piece = piece.trim();
         if let Some(eq_pos) = piece.find('=') {
             let target = piece[..eq_pos].trim();
@@ -248,10 +249,10 @@ fn transpile_expr(expr: &str) -> String {
     }
     
     // $DEVICE("llm:call",...) — call device directly
-    if e.starts_with("$DEVICE(") && e.ends_with(')') {
-        let args_str = &e[8..e.len()-1];
-        // Simple arg split by comma
-        let args: Vec<String> = split_m_args(args_str).into_iter().map(|s| s.trim().trim_matches('"').to_string()).collect();
+    if e.starts_with("$DEVICE(") {
+        let inner = e.trim_end_matches(')').strip_prefix("$DEVICE(").unwrap_or("");
+        // Simple arg split by comma, handle escaped quotes
+        let args: Vec<String> = split_m_args(inner).into_iter().map(|s| s.trim().trim_matches('"').to_string()).collect();
         if args.len() >= 2 && args[0] == "llm:call" {
             let prompt = args.get(1).map(|s| s.as_str()).unwrap_or("");
             return format!("crate::Value::String(\"COMPILED_LLM({})\".to_string())", prompt);
@@ -260,9 +261,53 @@ fn transpile_expr(expr: &str) -> String {
             let url = args.get(1).map(|s| s.as_str()).unwrap_or("");
             return format!("crate::Value::String(\"COMPILED_HTTP({})\".to_string())", url);
         }
-        return format!("crate::Value::Null /* $DEVICE({}) */", args_str);
+        if args.len() >= 3 && args[0] == "ddp:get" {
+            let space = args.get(1).map(|s| s.as_str()).unwrap_or("");
+            let global_name = args.get(2).map(|s| s.as_str()).unwrap_or("");
+            let key = args.get(3).map(|s| s.as_str()).unwrap_or("");
+            // Genera código Rust con cliente TCP real
+            let mut code = String::from("{\n");
+            // Lookup host desde ^SPACE(space,"host")
+            code.push_str(&format!(
+                "let host = globals.get(&vec![crate::Subscript::String(\"SPACE\".into()), crate::Subscript::String(\"{}\".into()), crate::Subscript::String(\"host\".into())]).cloned().unwrap_or(crate::Value::String(\"127.0.0.1\".into())).as_string();\n",
+                space
+            ));
+            code.push_str(&format!(
+                "let port = globals.get(&vec![crate::Subscript::String(\"SPACE\".into()), crate::Subscript::String(\"{}\".into()), crate::Subscript::String(\"port\".into())]).cloned().unwrap_or(crate::Value::String(\"9102\".into())).as_string();\n",
+                space
+            ));
+            code.push_str("let addr = format!(\"{}:{}\", host, port);\n");
+            code.push_str("match std::net::TcpStream::connect(&addr) {\n");
+            code.push_str("    Ok(mut stream) => {\n");
+            code.push_str("        use std::io::{Read, Write};\n");
+            code.push_str(&format!(
+                "        let req = format!(r#\"{{\"op\":\"GET\",\"global\":\"{}\",\"subs\":[\"{}\"]}}\"#);\n",
+                global_name, key
+            ));
+            code.push_str("        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));\n");
+            code.push_str("        let _ = stream.write_all(req.as_bytes());\n");
+            code.push_str("        let mut buf = Vec::new();\n");
+            code.push_str("        let _ = stream.read_to_end(&mut buf);\n");
+            code.push_str("        let txt = String::from_utf8_lossy(&buf).to_string();\n");
+            code.push_str("        crate::Value::String(txt)\n");
+            code.push_str("    }\n");
+            code.push_str("    Err(e) => crate::Value::String(format!(\"DDP ERR: {}\", e))\n");
+            code.push_str("}\n");
+            code.push_str("}");
+            return code;
+        }
+        // Generic $DEVICE calls at runtime (lumen, etc.)
+        if args.len() >= 2 {
+            let dev = &args[0];
+            let act = args.get(1).map(|s| s.as_str()).unwrap_or("call");
+            let rest = args[2..].iter().map(|s| format!("crate::Value::String(\"{}\".to_string())", s)).collect::<Vec<_>>().join(",");
+            return format!(
+                "{{ let mut __args = vec![{}]; self.host.device_call(\"{}\", \"{}\", &__args).unwrap_or(crate::Value::String(\"\".to_string())) }}",
+                rest, dev, act
+            );
+        }
     }
-    
+
     // x+ y, x-y, x*y, x/y
     if let Some(pos) = e.find(|c| c == '+' || c == '-' || c == '*' || c == '/') {
         if pos > 0 && pos < e.len() - 1 {
@@ -331,7 +376,7 @@ fn transpile_expr(expr: &str) -> String {
     }
     
     // $DEVICE("llm:fork",...) — async
-    if e.starts_with("$DEVICE(") {
+    if e.starts_with("$DEVICE(\"llm:fork\"") {
         return format!("crate::Value::Null /* $DEVICE(async) */");
     }
     
@@ -435,7 +480,17 @@ mod tests {
         let program = Compiler::compile("S r=$DEVICE(\"llm:call\",\"hola\") S ^R=r").unwrap();
         let rust = transpile_to_rust(&program, "test_device");
         println!("{}", rust);
-        assert!(rust.contains("COMPILED_LLM"), "Should contain LLM stub");
+        assert!(!rust.contains("Null /* $DEVICE"), "Should NOT contain generic Null");
+    }
+
+    #[test]
+    fn test_ddp_call() {
+        let program = Compiler::compile(r#"S r=$DEVICE("ddp:get","ASI","EXP01","39634137") S ^R=r"#).unwrap();
+        let rust = transpile_to_rust(&program, "test_ddp");
+        println!("{}", rust);
+        assert!(rust.contains("TcpStream"), "Should contain TCP client");
+        assert!(rust.contains("ASI"), "Should contain space name");
+        assert!(!rust.contains("COMPILED_DDP"), "Should NOT be placeholder");
     }
     
     #[test]

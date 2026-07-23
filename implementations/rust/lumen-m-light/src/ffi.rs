@@ -34,6 +34,8 @@ pub struct ExecuteRequest {
     pub slice_gas: Option<u64>,
     #[serde(default)]
     pub llm_api_keys: HashMap<String, String>,
+    #[serde(default)]
+    pub sqlite_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -96,7 +98,14 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
         },
     };
 
-    let mut host = MemoryHost::from_entries(request.globals);
+    let mut host = if let Some(ref db_path) = request.sqlite_path {
+        match MemoryHost::from_sqlite(db_path) {
+            Ok(h) => h,
+            Err(e) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
+        }
+    } else {
+        MemoryHost::from_entries(request.globals)
+    };
     for (name, source) in request.routines {
         host.add_routine(name, source);
     }

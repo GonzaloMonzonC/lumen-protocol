@@ -13,6 +13,9 @@ crate-type = ["cdylib", "rlib"]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+rusqlite = { version = "0.31", features = ["bundled"] }
 ureq = { version = "3", optional = true }
 minreq = { version = "2", optional = true, features = ["json-using-serde", "https-rustls"] }
 wasm-bindgen = { version = "0.2", optional = true }
