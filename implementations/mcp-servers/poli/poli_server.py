@@ -822,7 +822,7 @@ def tool_poli_smith(args: dict) -> dict:
         esc_msg = mensaje.replace('"', '""')
         esc_sys = identity.replace('"', '""')
         src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}")'
-        r5 = _STATE.exec(src, gas=200000)
+        r5 = _STATE.exec(src, gas=500000)
         result = None
         for g in (r5.get("globals") or []):
             if g.get("ns") == "R":
@@ -1071,7 +1071,16 @@ if __name__ == "__main__":
                     msg = body.get("mensaje") or body.get("message") or ""
                     if not msg:
                         return self._json(400, {"ok": False, "error": "mensaje required"})
-                    sid = body.get("session_id", "http_" + str(time.time()).replace(".",""))
+                    sid = body.get("session_id", "http_" + str(_time.time()).replace(".",""))
+                    
+                    # Detectar [Smith] en el mensaje
+                    if "[smith]" in msg.lower() or "[sm]" in msg.lower():
+                        clean = msg.replace("[Smith]","").replace("[smith]","").replace("[SM]","").replace("[sm]","").strip()
+                        r = tool_poli_smith({"mensaje": clean or msg, "session": sid})
+                        if r.get("mode") == "smith":
+                            return self._json(200, {"ok": True, "mode": "smith", **r, "session_id": sid})
+                        # Si Smith delegó a Creative, seguir flujo normal
+                    
                     msg_esc = msg.replace('"', '""')
                     r = _STATE.exec(f'D CHAT^PERSONALITY("{msg_esc}")', gas=200000)
                     response = (r.get("state") or {}).get("output", "").strip() or "Poli no respondio"
@@ -1150,11 +1159,10 @@ if __name__ == "__main__":
         httpd = http.server.HTTPServer(("127.0.0.1", POLI_HTTP_PORT), PoliHTTPHandler)
         t = threading.Thread(target=httpd.serve_forever, daemon=True)
         t.start()
-        import os; os.system(f"echo POLI HTTP en :{POLI_HTTP_PORT} &")
     except OSError:
-        import os; os.system(f"echo POLI HTTP :{POLI_HTTP_PORT} ocupado (ya corre) &")
+        pass
     
-    # ── MCP stdio loop ──────────────────────────────────────────────────────
+    # ── MCP stdio loop
     # ────────────────────────────────────────────────────────────────────────────
     for line in sys.stdin:
         line = line.strip()
