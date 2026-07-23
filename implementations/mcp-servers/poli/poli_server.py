@@ -280,6 +280,12 @@ def tool_poli_chat(args: dict) -> dict:
     mode = args.get("mode", "") or ""
     session_id = args.get("session", _STATE.default_session)
     
+    # Activar Smith si el mensaje contiene [Smith]
+    if "[smith]" in mensaje.lower() or "[sm]" in mensaje.lower():
+        # Stripear el tag y pasar el mensaje limpio
+        clean = mensaje.replace("[Smith]", "").replace("[smith]", "").replace("[SM]", "").replace("[sm]", "").strip()
+        return tool_poli_smith({"mensaje": clean or mensaje, "session": session_id})
+    
     # 1. Cambiar modo si se especifica
     if mode:
         r = _STATE.exec(
@@ -744,6 +750,116 @@ def tool_poli_http(args: dict) -> dict:
         "error": r.get("state", {}).get("error"),
     }
 
+def tool_poli_smith(args: dict) -> dict:
+    """SMITH MODE: orquestación multi-personalidad.
+    Analiza la consulta, detecta dominios, activa perfiles expertos en paralelo
+    y sintetiza respuesta unificada.
+    """
+    mensaje = args.get("mensaje", "").strip()
+    if not mensaje:
+        return {"ok": False, "error": "mensaje vacío"}
+    session_id = args.get("session", "hermes")
+    
+    # 1. Detectar dominios en Python
+    # Normalizar: quitar tildes y convertir a minúsculas
+    import unicodedata
+    q = unicodedata.normalize("NFKD", mensaje.lower()).encode("ascii", "ignore").decode("ascii")
+    domains_found = []
+    
+    # Palabras clave por dominio → personalidad (todo en minúsculas, sin tildes)
+    domain_keywords = {
+        "medico-general": ["salud", "medico", "medica", "enfermedad", "sintoma", "hospital", "clinico", "dolor", "paciente", "diagnostico", "tratamiento"],
+        "nutricionista-clinico": ["nutricion", "dieta", "alimento", "vitamina", "sobrepeso", "obesidad", "comida", "dietetico"],
+        "abogado-corporativo": ["legal", "abogado", "ley", "contrato", "demanda", "tribunal", "litigio", "abogacia", "permiso", "licencia", "normativa", "regulacion", "juridico"],
+        "finance-asesor-de-inversiones": ["finanza", "financiero", "inversion", "ahorro", "presupuesto", "contable", "impuesto", "rentabilidad", "capital", "credito", "prestamo"],
+        "education-pedagogo-innovador": ["educacion", "educativo", "aprender", "ensenar", "curso", "formacion", "estudiante", "pedagogia", "escuela", "colegio", "aula", "docente"],
+        "engineering-senior-developer": ["programacion", "software", "codigo", "programa", "desarroll", "app", "algoritmo", "sistema", "tecnologia", "informatico"],
+        "marketing-growth-hacker": ["negocio", "empresa", "startup", "emprend", "mercad", "venta", "crecimiento", "cliente", "comercial", "marketing"],
+        "agriculture-director-de-sostenibilidad": ["ambiente", "ambiental", "sostenible", "sostenibilidad", "ecologia", "reciclaje", "energia", "carbono", "verde", "renovable", "ecologico", "naturaleza"],
+        "sales-account-strategist": ["venta", "cliente", "comercial", "negociacion", "cuenta", "lead", "prospecto"],
+    }
+    
+    for personality, keywords in domain_keywords.items():
+        for kw in keywords:
+            if kw in q:
+                domains_found.append(personality)
+                break
+    
+    # Si no se detectó nada, usar creative
+    if not domains_found:
+        domains_found.append("creative")
+    
+    domains_found = list(dict.fromkeys(domains_found))  # dedup
+    domains_count = len(domains_found)
+    
+    # 4. Ejecutar cada personalidad (secuencial por ahora, fibers después)
+    partials = {}
+    for mode in domains_found[:5]:  # límite de 5
+        # Obtener identity de la personalidad
+        r4 = _STATE.exec(
+            f'S ^ID=$G(^PERSONALITY("{mode}","identity")) '
+            f'S ^P=$G(^PERSONALITY("{mode}","provider")) '
+            f'S ^M=$G(^PERSONALITY("{mode}","model"))',
+            gas=10000,
+        )
+        identity = ""
+        provider = ""
+        model = ""
+        for g in (r4.get("globals") or []):
+            ns = g.get("ns")
+            if ns == "ID": identity = str(g.get("value", ""))
+            elif ns == "P": provider = str(g.get("value", ""))
+            elif ns == "M": model = str(g.get("value", ""))
+        
+        # Fallback si la personalidad no tiene provider
+        if not provider or provider in ("symbolic", "", "None", "0"):
+            provider = "deepseek"
+            model = "deepseek-v4-flash"
+            if not identity:
+                identity = f"Eres un asesor experto en {mode}. Responde con claridad, precision y datos utiles."
+        if not model or model in ("", "None", "0"):
+            model = "deepseek-v4-flash"
+        esc_msg = mensaje.replace('"', '""')
+        esc_sys = identity.replace('"', '""')
+        src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}")'
+        r5 = _STATE.exec(src, gas=200000)
+        result = None
+        for g in (r5.get("globals") or []):
+            if g.get("ns") == "R":
+                result = g.get("value")
+                break
+        partials[mode] = result
+    
+    # 5. Sintetizar
+    if len(partials) <= 1:
+        response = next(iter(partials.values())) if partials else "No se pudieron generar respuestas"
+    else:
+        # Síntesis: unificar respuestas
+        synthesis_input = "\n\n".join(
+            f"[{mode}]: {resp}" for mode, resp in partials.items() if resp
+        )
+        esc_synth = synthesis_input.replace('"', '""')
+        esc_q = mensaje.replace('"', '""')
+        synthesis_sys = "Eres un sintetizador de perspectivas múltiples. Tu tarea es unificar las siguientes opiniones de expertos en una respuesta coherente, detectando puntos en común y tensiones creativas. Genera una síntesis que integre todas las perspectivas."
+        esc_sys = synthesis_sys.replace('"', '""')
+        src = f'S ^R=$DEVICE("llm:call","Sintetiza estas perspectivas para: {esc_q}\\n\\n{esc_synth}","{esc_sys}","deepseek","deepseek-v4-flash")'
+        r6 = _STATE.exec(src, gas=200000)
+        response = None
+        for g in (r6.get("globals") or []):
+            if g.get("ns") == "R":
+                response = g.get("value")
+                break
+    
+    return {
+        "ok": True,
+        "mode": "smith",
+        "domains_detected": domains_count,
+        "modes_activated": domains_found[:5],
+        "modes_count": len(domains_found),
+        "response": response,
+        "partials": partials,
+    }
+
 # ── Definición de herramientas ────────────────────────────────────────────────
 TOOLS = [
     {
@@ -829,6 +945,18 @@ TOOLS = [
             "required": ["url"],
         },
     },
+    {
+        "name": "poli_smith",
+        "description": "SMITH MODE: orquestación multi-personalidad. Analiza la consulta, detecta dominios, activa perfiles expertos en paralelo y sintetiza respuesta unificada.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mensaje": {"type": "string", "description": "Consulta o problema a analizar"},
+                "session": {"type": "string", "description": "ID de sesión", "default": "hermes"},
+            },
+            "required": ["mensaje"],
+        },
+    },
 ]
 
 HANDLERS = {
@@ -839,6 +967,7 @@ HANDLERS = {
     "poli_llm": tool_poli_llm,
     "poli_fiber": tool_poli_fiber,
     "poli_http": tool_poli_http,
+    "poli_smith": tool_poli_smith,
 }
 
 # ── Seed automático al arranque ──────────────────────────────────────────────
@@ -878,7 +1007,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {"listChanged": False, "toolCount": 7},
+                    "tools": {"listChanged": False, "toolCount": 8},
                 },
                 "serverInfo": {"name": "poli-server", "version": "0.1.0"},
             },
@@ -970,6 +1099,49 @@ if __name__ == "__main__":
                         "error": str(error.get("zerror", "")) if error else "",
                         "globals": [g for g in (r.get("globals") or []) if g.get("name","").startswith("^")],
                     })
+                except Exception as e:
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/smith":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    msg = body.get("mensaje") or body.get("message") or ""
+                    if not msg:
+                        return self._json(400, {"ok": False, "error": "mensaje required"})
+                    sid = body.get("session_id", "http_smith")
+                    r = tool_poli_smith({"mensaje": msg, "session": sid})
+                    if r.get("mode") == "creative":
+                        # Delegado a creative - ejecutar LLM
+                        esc_msg = msg.replace('"', '""')
+                        ident = f'^I=$G(^PERSONALITY("creative","identity"))'
+                        r2 = _STATE.exec(
+                            f'S ^M=$$ACTIVE^PERSONALITY("{sid}") {ident} '
+                            f'S ^P=$G(^PERSONALITY($G(^M),"provider")) '
+                            f'S ^D=$G(^PERSONALITY($G(^M),"model"))',
+                            gas=10000,
+                        )
+                        provider = None
+                        identity = None
+                        model = None
+                        for g in (r2.get("globals") or []):
+                            ns = g.get("ns")
+                            if ns == "M": pass
+                            elif ns == "I": identity = str(g.get("value", ""))
+                            elif ns == "P": provider = str(g.get("value", ""))
+                            elif ns == "D": model = str(g.get("value", ""))
+                        if provider and provider not in ("symbolic", "", "None", "0"):
+                            if not model or model in ("", "None", "0"):
+                                model = "deepseek-v4-flash"
+                            esc_sys = (identity or "").replace('"', '""')
+                            src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}")'
+                            r3 = _STATE.exec(src, gas=200000)
+                            response = None
+                            for g in (r3.get("globals") or []):
+                                if g.get("ns") == "R":
+                                    response = g.get("value")
+                                    break
+                            return self._json(200, {"ok": True, "mode": "creative", "response": response, "session_id": sid})
+                    return self._json(200, {**r, "session_id": sid})
                 except Exception as e:
                     return self._json(500, {"ok": False, "error": str(e)})
             self._json(404, {"error": "not found"})
