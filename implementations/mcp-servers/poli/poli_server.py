@@ -793,9 +793,10 @@ def tool_poli_smith(args: dict) -> dict:
     domains_count = len(domains_found)
     
     # 4. Ejecutar personalidades (secuencial, 2 max - cabe en Cloudflare 30s)
-    # 4. Ejecutar personalidades secuencial (hasta implementar $SMITH() en Rust)
+    # 4. Ejecutar personalidades EN PARALELO con fibers MVM
     partials = {}
-    for mode in domains_found[:2]:
+    fiber_ids = []
+    for i, mode in enumerate(domains_found[:4]):
         r4 = _STATE.exec(
             f'S ^ID=$G(^PERSONALITY("{mode}","identity")) '
             f'S ^P=$G(^PERSONALITY("{mode}","provider")) '
@@ -806,10 +807,9 @@ def tool_poli_smith(args: dict) -> dict:
         provider = ""
         model = ""
         for g in (r4.get("globals") or []):
-            ns = g.get("ns")
-            if ns == "ID": identity = str(g.get("value", ""))
-            elif ns == "P": provider = str(g.get("value", ""))
-            elif ns == "M": model = str(g.get("value", ""))
+            if g.get("ns") == "ID": identity = str(g.get("value", ""))
+            elif g.get("ns") == "P": provider = str(g.get("value", ""))
+            elif g.get("ns") == "M": model = str(g.get("value", ""))
         
         if not provider or provider in ("symbolic", "", "None", "0"):
             provider = "deepseek"
@@ -818,16 +818,35 @@ def tool_poli_smith(args: dict) -> dict:
                 identity = f"Eres un asesor experto en {mode}. Responde con claridad."
         if not model or model in ("", "None", "0"):
             model = "deepseek-v4-flash"
+        
         esc_msg = mensaje.replace('"', '""')
         esc_sys = identity.replace('"', '""')
-        src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}")'
-        r5 = _STATE.exec(src, gas=500000)
-        result = None
-        for g in (r5.get("globals") or []):
-            if g.get("ns") == "R":
-                result = g.get("value")
+        # Source para el fiber: llama LLM y escribe resultado
+        src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}") W ^R'
+        # Doble escape para meter src dentro de $FIBER("bg", src)
+        src_fiber = src.replace('"', '""')
+        fiber_cmd = f'S ^F{i}=$FIBER("bg","{src_fiber}")'
+        r_fiber = _STATE.exec(fiber_cmd, gas=50000)
+        fid = None
+        for g in (r_fiber.get("globals") or []):
+            if g.get("ns") == f"F{i}":
+                fid = g.get("value")
                 break
-        partials[mode] = result
+        if fid is not None:
+            fiber_ids.append((fid, mode))
+    
+    # Join todas (paralelo real: se ejecutan simultaneamente, join espera)
+    for fid, mode in fiber_ids:
+        try:
+            r_join = _STATE.exec(f'S ^JOINR=$FIBER("join",{fid})', gas=500000)
+            result = None
+            for g in (r_join.get("globals") or []):
+                if g.get("ns") == "JOINR":
+                    result = g.get("value")
+                    break
+            partials[mode] = result
+        except Exception:
+            partials[mode] = None
     
     # 5. Sintetizar
     if len(partials) <= 1:
@@ -1160,13 +1179,6 @@ if __name__ == "__main__":
         t.start()
     except OSError:
         pass
-    
-    # Si hay argumento --http-only, no entrar en MCP loop (standalone HTTP server)
-    if len(sys.argv) > 1 and sys.argv[1] == "--http-only":
-        import time
-        while True:
-            time.sleep(1)
-        sys.exit(0)
     
     # ── MCP stdio loop
     # ────────────────────────────────────────────────────────────────────────────
