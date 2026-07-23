@@ -1175,6 +1175,70 @@ impl Host for MemoryHost {
             "agent" => {
                 Err("LUMEN device requires minreq feature".to_string())
             }
+            "smith" if action == "orchestrate" => {
+                let msg = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                let domains_str = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                let domains: Vec<&str> = domains_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                if domains.is_empty() {
+                    return Err("Smith: al menos 1 dominio requerido".to_string());
+                }
+                let mut results: Vec<String> = Vec::new();
+                let mut fids: Vec<(String, u64)> = Vec::new();
+                for domain in &domains {
+                    let id_key = [
+                        Subscript::String("PERSONALITY".to_string()),
+                        Subscript::String(domain.to_string()),
+                        Subscript::String("identity".to_string()),
+                    ];
+                    let identity = match self.get("", &id_key) {
+                        Ok(Some(Value::String(s))) => s.clone(),
+                        _ => format!("Eres un asesor experto en {domain}. Responde con claridad."),
+                    };
+                    let prov_key = [
+                        Subscript::String("PERSONALITY".to_string()),
+                        Subscript::String(domain.to_string()),
+                        Subscript::String("provider".to_string()),
+                    ];
+                    let provider = match self.get("", &prov_key) {
+                        Ok(Some(Value::String(s))) if !s.is_empty() && s != "symbolic" => s.clone(),
+                        _ => "deepseek".to_string(),
+                    };
+                    let model_key = [
+                        Subscript::String("PERSONALITY".to_string()),
+                        Subscript::String(domain.to_string()),
+                        Subscript::String("model".to_string()),
+                    ];
+                    let model = match self.get("", &model_key) {
+                        Ok(Some(Value::String(s))) if !s.is_empty() && s != "0" => s.clone(),
+                        _ => "deepseek-v4-flash".to_string(),
+                    };
+                    match self.llm_fork(&provider, &model, &msg, &identity) {
+                        Ok(fid) => fids.push((domain.to_string(), fid)),
+                        Err(e) => results.push(format!("[{domain}]: ERROR: {e}")),
+                    }
+                }
+                let mut pending: Vec<(String, u64)> = fids;
+                let mut attempts: u32 = 0;
+                while !pending.is_empty() && attempts < 300 {
+                    attempts += 1;
+                    let mut still: Vec<(String, u64)> = Vec::new();
+                    for (domain, fid) in pending {
+                        match self.llm_poll(fid) {
+                            Ok(Some(r)) => results.push(format!("[{domain}]: {r}")),
+                            Ok(None) => still.push((domain, fid)),
+                            Err(e) => results.push(format!("[{domain}]: ERROR: {e}")),
+                        }
+                    }
+                    pending = still;
+                    if !pending.is_empty() {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                }
+                for (domain, _) in pending {
+                    results.push(format!("[{domain}]: TIMEOUT"));
+                }
+                Ok(Value::String(results.join("\n---\n")))
+            }
             _ => Err(format!("Device '{device}:{action}' not supported")),
         }
     }
