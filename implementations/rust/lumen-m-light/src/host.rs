@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
@@ -47,9 +46,7 @@ pub struct LlmThreadPool {
     futures: Arc<Mutex<HashMap<u64, Arc<Mutex<LlmFutureStatus>>>>>,
     /// WorkItems pendientes (cadenas esperando que el padre se resuelva)
     pending: Arc<Mutex<HashMap<u64, WorkItem>>>,
-    /// Multiple workers round-robin para paralelismo real
-    workers: Vec<std::sync::mpsc::Sender<WorkItem>>,
-    next_worker: AtomicUsize,
+    worker_tx: std::sync::mpsc::Sender<WorkItem>,
 }
 
 /// Process-wide LLM thread pool (singleton).
@@ -64,30 +61,26 @@ impl LlmThreadPool {
             Arc::new(Mutex::new(HashMap::new()));
         let pending: Arc<Mutex<HashMap<u64, WorkItem>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        const NUM_WORKERS: usize = 4;
-        let mut workers = Vec::with_capacity(NUM_WORKERS);
-        for _ in 0..NUM_WORKERS {
-            let (tx, rx) = std::sync::mpsc::channel::<WorkItem>();
-            let w_futures = futures.clone();
-            thread::spawn(move || {
-                for item in rx {
-                    let result = Self::do_llm_call(&item);
-                    if let Err(e) = result {
-                        if let Ok(mut state) = item.state.lock() {
-                            *state = LlmFutureStatus::Rejected(e);
-                        }
+        let (tx, rx) = std::sync::mpsc::channel::<WorkItem>();
+        let worker_futures = futures.clone();
+
+        // Worker thread: recibe WorkItems y hace HTTP blocking
+        thread::spawn(move || {
+            for item in rx {
+                let result = Self::do_llm_call(&item);
+                if let Err(e) = result {
+                    if let Ok(mut state) = item.state.lock() {
+                        *state = LlmFutureStatus::Rejected(e);
                     }
                 }
-            });
-            workers.push(tx);
-        }
+            }
+        });
 
         Self {
             next_id: AtomicU64::new(1),
             futures,
             pending,
-            workers,
-            next_worker: AtomicUsize::new(0),
+            worker_tx: tx,
         }
     }
 
@@ -165,8 +158,7 @@ impl LlmThreadPool {
             state,
         };
 
-        let idx = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.workers.len();
-        let _ = self.workers[idx].send(item);
+        let _ = self.worker_tx.send(item);
         id
     }
 
@@ -235,8 +227,7 @@ impl LlmThreadPool {
     /// Envía un WorkItem pendiente al worker cuando su dependencia se resuelve.
     fn submit_pending(&self, id: u64) {
         if let Some(item) = self.pending.lock().unwrap().remove(&id) {
-            let idx = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.workers.len();
-            let _ = self.workers[idx].send(item);
+            let _ = self.worker_tx.send(item);
         }
     }
 }
