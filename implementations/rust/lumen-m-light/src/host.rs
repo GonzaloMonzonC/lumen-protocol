@@ -447,14 +447,17 @@ pub trait Host {
 }
 
 // ── MemoryHost ─────────────────────────────────────────────────────
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct MemoryHost {
-    values: BTreeMap<(String, Vec<Subscript>), Value>,
+    pub values: BTreeMap<(String, Vec<Subscript>), Value>,
     transactions: Vec<BTreeMap<(String, Vec<Subscript>), Value>>,
-    routines: HashMap<String, String>,
-    input: Vec<String>,
+    pub routines: HashMap<String, String>,
+    pub input: Vec<String>,
     locks: HashMap<(String, Vec<Subscript>), u64>,
     pub llm_api_keys: HashMap<String, String>,
+    /// Conexión SQLite opcional. Cuando está presente, get/set/kill/data/order
+    /// operan contra SQLite directamente en vez del BTreeMap en memoria.
+    sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
 }
 
 impl MemoryHost {
@@ -464,6 +467,28 @@ impl MemoryHost {
             host.values.insert((entry.ns, entry.subs), entry.value);
         }
         host
+    }
+
+    /// Crea un MemoryHost con backend SQLite directo.
+    /// get/set/kill/data/order operan contra SQLite en vez de BTreeMap.
+    pub fn from_sqlite(db_path: &str) -> Result<Self, String> {
+        let conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| format!("SQLite open({db_path}): {e}"))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+            .map_err(|e| format!("SQLite pragma: {e}"))?;
+        Ok(Self {
+            values: BTreeMap::new(),
+            transactions: Vec::new(),
+            routines: HashMap::new(),
+            input: Vec::new(),
+            locks: HashMap::new(),
+            llm_api_keys: HashMap::new(),
+            sqlite_db: Some(Arc::new(Mutex::new(conn))),
+        })
+    }
+
+    pub fn is_sqlite(&self) -> bool {
+        self.sqlite_db.is_some()
     }
 
     pub fn entries(&self) -> Vec<GlobalEntry> {
@@ -517,33 +542,109 @@ fn compare_subscripts(a: &[Subscript], b: &[Subscript]) -> std::cmp::Ordering {
 
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
-        Ok(self.values.get(&(ns.to_string(), subs.to_vec())).cloned())
+        if let Some(ref db) = self.sqlite_db {
+            let subkey = encode_subkey(subs);
+            let conn = db.lock().map_err(|e| format!("get lock: {e}"))?;
+            match conn.query_row(
+                "SELECT value FROM _globals WHERE ns=?1 AND subkey=?2",
+                rusqlite::params![ns, subkey],
+                |row| row.get::<_, String>(0),
+            ) {
+                Ok(s) => {
+                    if let Ok(n) = s.trim().parse::<f64>() {
+                        Ok(Some(Value::Number(n)))
+                    } else {
+                        Ok(Some(Value::String(s)))
+                    }
+                }
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(format!("get query: {e}")),
+            }
+        } else {
+            Ok(self.values.get(&(ns.to_string(), subs.to_vec())).cloned())
+        }
     }
 
     fn set(&mut self, ns: &str, subs: &[Subscript], value: Value) -> Result<(), String> {
-        self.values.insert((ns.to_string(), subs.to_vec()), value);
+        if let Some(ref db) = self.sqlite_db {
+            let subkey = encode_subkey(subs);
+            let val_str = value.as_string();
+            let conn = db.lock().map_err(|e| format!("set lock: {e}"))?;
+            conn.execute(
+                "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?1, ?2, ?3)",
+                rusqlite::params![ns, subkey, val_str],
+            )
+            .map_err(|e| format!("set: {e}"))?;
+        } else {
+            self.values.insert((ns.to_string(), subs.to_vec()), value);
+        }
         Ok(())
     }
 
     fn kill(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
-        let before = self.values.len();
-        self.values.retain(|(candidate_ns, candidate), _| {
-            candidate_ns != ns || !is_prefix(subs, candidate)
-        });
-        Ok((before - self.values.len()) as u64)
+        if let Some(ref db) = self.sqlite_db {
+            let subkey = encode_subkey(subs);
+            let conn = db.lock().map_err(|e| format!("kill lock: {e}"))?;
+            if subs.is_empty() {
+                let deleted = conn
+                    .execute("DELETE FROM _globals WHERE ns=?1", rusqlite::params![ns])
+                    .map_err(|e| format!("kill ns: {e}"))?;
+                Ok(deleted as u64)
+            } else {
+                let d1 = conn
+                    .execute("DELETE FROM _globals WHERE ns=?1 AND subkey=?2",
+                        rusqlite::params![ns, subkey])
+                    .map_err(|e| format!("kill exact: {e}"))?;
+                let d2 = conn
+                    .execute("DELETE FROM _globals WHERE ns=?1 AND subkey>?2 AND subkey LIKE ?3",
+                        rusqlite::params![ns, subkey, {
+                            let mut p = subkey.clone();
+                            p.push(b'%');
+                            p
+                        }])
+                    .map_err(|e| format!("kill children: {e}"))?;
+                Ok((d1 + d2) as u64)
+            }
+        } else {
+            let before = self.values.len();
+            self.values.retain(|(candidate_ns, candidate), _| {
+                candidate_ns != ns || !is_prefix(subs, candidate)
+            });
+            Ok((before - self.values.len()) as u64)
+        }
     }
 
     fn data(&self, ns: &str, subs: &[Subscript]) -> Result<u8, String> {
-        let own = self.values.contains_key(&(ns.to_string(), subs.to_vec()));
-        let child = self.values.keys().any(|(candidate_ns, candidate)| {
-            candidate_ns == ns && candidate.len() > subs.len() && is_prefix(subs, candidate)
-        });
-        Ok(match (own, child) {
-            (true, true) => 11,
-            (true, false) => 1,
-            (false, true) => 10,
-            (false, false) => 0,
-        })
+        if let Some(ref db) = self.sqlite_db {
+            let subkey = encode_subkey(subs);
+            let conn = db.lock().map_err(|e| format!("data lock: {e}"))?;
+            let own = conn.query_row(
+                "SELECT 1 FROM _globals WHERE ns=?1 AND subkey=?2 LIMIT 1",
+                rusqlite::params![ns, subkey], |_| Ok(true),
+            ).unwrap_or(false);
+            // Children = any subkey that starts with subkey prefix but is not subkey itself
+            let child = conn.query_row(
+                "SELECT 1 FROM _globals WHERE ns=?1 AND subkey>?2 AND subkey LIKE ?3 LIMIT 1",
+                rusqlite::params![ns, subkey, {
+                    let mut p = subkey.clone();
+                    p.push(b'%');
+                    p
+                }], |_| Ok(true),
+            ).unwrap_or(false);
+            Ok(match (own, child) {
+                (true, true) => 11, (true, false) => 1,
+                (false, true) => 10, (false, false) => 0,
+            })
+        } else {
+            let own = self.values.contains_key(&(ns.to_string(), subs.to_vec()));
+            let child = self.values.keys().any(|(candidate_ns, candidate)| {
+                candidate_ns == ns && candidate.len() > subs.len() && is_prefix(subs, candidate)
+            });
+            Ok(match (own, child) {
+                (true, true) => 11, (true, false) => 1,
+                (false, true) => 10, (false, false) => 0,
+            })
+        }
     }
 
     fn order(
@@ -553,6 +654,62 @@ impl Host for MemoryHost {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
+        if let Some(ref db) = self.sqlite_db {
+            let conn = db.lock().map_err(|e| format!("order lock: {e}"))?;
+            let mut stmt = conn
+                .prepare("SELECT subkey FROM _globals WHERE ns=?1")
+                .map_err(|e| format!("order prepare: {e}"))?;
+            let rows = stmt
+                .query_map(rusqlite::params![ns], |row| row.get::<_, Vec<u8>>(0))
+                .map_err(|e| format!("order query: {e}"))?;
+
+            // Collect all subkeys and decode to canonical Vec<Subscript>
+            let mut decoded: Vec<Vec<Subscript>> = Vec::new();
+            for row in rows {
+                let subkey = row.map_err(|e| format!("order row: {e}"))?;
+                let parts = decode_subkey(&subkey);
+                let subs: Vec<Subscript> = parts.into_iter()
+                    .map(|s| if let Ok(n) = s.parse::<f64>() { Subscript::Number(n) } else { Subscript::String(s) })
+                    .collect();
+                if is_prefix(parent, &subs) && subs.len() > parent.len() {
+                    decoded.push(subs);
+                }
+            }
+
+            // Sort using canonical MUMPS ordering (numbers before strings, ASCII byte compare)
+            decoded.sort_by(|a, b| compare_subscripts(a, b));
+
+            let current_vec: Option<Vec<Subscript>> = current.map(|c| {
+                let mut v = parent.to_vec();
+                v.push(c.clone());
+                v
+            });
+
+            if direction >= 0 {
+                for subs in decoded.iter() {
+                    let candidate = &subs[parent.len()];
+                    if let Some(ref cur) = current {
+                        if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
+                            continue;
+                        }
+                    }
+                    return Ok(Some(candidate.clone()));
+                }
+            } else {
+                for subs in decoded.iter().rev() {
+                    let candidate = &subs[parent.len()];
+                    if let Some(ref cur) = current {
+                        if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
+                            continue;
+                        }
+                    }
+                    return Ok(Some(candidate.clone()));
+                }
+            }
+            return Ok(None);
+        }
+
+        // ── Non-SQLite path (BTreeMap) ──
         let prefix_key = (ns.to_string(), parent.to_vec());
         let start_key = if let Some(cur) = current {
             let mut key = parent.to_vec();
@@ -688,7 +845,33 @@ impl Host for MemoryHost {
 
     // ── Generic device call (HTTP, future devices) ────────────
     fn entries(&self) -> Result<Vec<GlobalEntry>, String> {
-        Ok(MemoryHost::entries(self))
+        if let Some(ref db) = self.sqlite_db {
+            let conn = db.lock().map_err(|e| format!("entries lock: {e}"))?;
+            let mut stmt = conn
+                .prepare("SELECT ns, subkey, value FROM _globals ORDER BY ns, subkey")
+                .map_err(|e| format!("entries prepare: {e}"))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let ns: String = row.get(0)?;
+                    let subkey: Vec<u8> = row.get(1)?;
+                    let value: String = row.get(2)?;
+                    Ok((ns, subkey, value))
+                })
+                .map_err(|e| format!("entries query: {e}"))?;
+            let mut entries = Vec::new();
+            for row in rows {
+                let (ns, subkey, value) = row.map_err(|e| format!("entries row: {e}"))?;
+                let subs = decode_subkey(&subkey);
+                let subs_enum: Vec<Subscript> = subs.into_iter()
+                    .map(|s| if let Ok(n) = s.parse::<f64>() { Subscript::Number(n) } else { Subscript::String(s) })
+                    .collect();
+                let val = if let Ok(n) = value.trim().parse::<f64>() { Value::Number(n) } else { Value::String(value) };
+                entries.push(GlobalEntry { ns, subs: subs_enum, value: val });
+            }
+            Ok(entries)
+        } else {
+            Ok(MemoryHost::entries(self))
+        }
     }
 
     fn routines_list(&self) -> Result<Vec<(String, String)>, String> {
@@ -736,7 +919,376 @@ impl Host for MemoryHost {
                     _ => Err(format!("Unknown HTTP action: {action}")),
                 }
             }
+            "ddp" => {
+                match action {
+                    "get" => {
+                        let space = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        let global = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let key = args.get(2).map(|v| v.as_string()).unwrap_or_default();
+                        
+                        // Lookup host/port from globals
+                        let sub_host = Subscript::String(format!("{}", "host"));
+                        let sub_port = Subscript::String(format!("{}", "port"));
+                        let key_host = [
+                            Subscript::String("SPACE".to_string()),
+                            Subscript::String(space.clone()),
+                            sub_host,
+                        ];
+                        let key_port = [
+                            Subscript::String("SPACE".to_string()),
+                            Subscript::String(space.clone()),
+                            sub_port,
+                        ];
+                        let host = match self.get("", &key_host) {
+                            Ok(Some(Value::String(s))) => s.clone(),
+                            _ => "127.0.0.1".to_string(),
+                        };
+                        let port = match self.get("", &key_port) {
+                            Ok(Some(Value::String(s))) => s.clone(),
+                            Ok(Some(Value::Number(n))) => n.to_string(),
+                            _ => "9102".to_string(),
+                        };
+                        
+                        let addr = format!("{}:{}", host, port);
+                        match std::net::TcpStream::connect(&addr) {
+                            Ok(mut stream) => {
+                                use std::io::{Read, Write};
+                                let req = serde_json::json!({
+                                    "op": "GET",
+                                    "global": global,
+                                    "subs": [key]
+                                }).to_string();
+                                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                                let _ = stream.write_all(req.as_bytes());
+                                let mut buf = Vec::new();
+                                let _ = stream.read_to_end(&mut buf);
+                                let txt = String::from_utf8_lossy(&buf).to_string();
+                                Ok(Value::String(txt))
+                            }
+                            Err(e) => Err(format!("DDP TCP error: {e}")),
+                        }
+                    }
+                    _ => Err(format!("Unknown DDP action: {action}")),
+                }
+            }
+            #[cfg(feature = "minreq")]
+            "agent" => {
+                match action {
+                    "call" | "notify" => {
+                        let peer = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let method = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let params = args.get(2).map(|v| v.as_string()).unwrap_or_default();
+                        
+                        // Lookup peer in Space Registry (^SYS("SPACE",peer,key))
+                        let transport = match self.get("SYS", &[Subscript::String("SPACE".into()), Subscript::String(peer.clone()), Subscript::String("transport".into())]) {
+                            Ok(Some(Value::String(s))) => s.clone(),
+                            _ => "edge".to_string(),
+                        };
+                        let url = match self.get("SYS", &[Subscript::String("SPACE".into()), Subscript::String(peer.clone()), Subscript::String("url".into())]) {
+                            Ok(Some(Value::String(s))) => s.clone(),
+                            _ => String::new(),
+                        };
+                        let hmac_key = match self.get("SYS", &[Subscript::String("SPACE".into()), Subscript::String(peer.clone()), Subscript::String("hmac_key".into())]) {
+                            Ok(Some(Value::String(s))) => s.clone(),
+                            _ => String::new(),
+                        };
+                        
+                        if transport == "edge" && !url.is_empty() {
+                            // Build JSON-RPC 2.0 request
+                            let body = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "method": method,
+                                "params": params,
+                                "id": 1,
+                            }).to_string();
+                            
+                            // Add HMAC auth if key is available
+                            let ts_str;
+                            let sig_str;
+                            let (headers, body_for_req) = if !hmac_key.is_empty() {
+                                use std::time::{SystemTime, UNIX_EPOCH};
+                                let ts = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs()
+                                    .to_string();
+                                let sig = hmac_sha256(&hmac_key, &format!("{ts}{body}{hmac_key}"));
+                                ts_str = ts;
+                                sig_str = sig;
+                                (vec![
+                                    ("X-DDP-Timestamp", ts_str.as_str()),
+                                    ("X-DDP-HMAC", sig_str.as_str()),
+                                ], body.clone())
+                            } else {
+                                (vec![], body.clone())
+                            };
+                            // RAW TCP HTTP POST (reemplaza minreq)
+                            use std::io::{Read, Write};
+                            let (edge_host, edge_port, edge_path) = if let Some(rest) = url.strip_prefix("http://") {
+                                let (h, rest2) = rest.split_once('/').unwrap_or((rest, ""));
+                                let p = if let Some(c) = h.rfind(':') { (&h[..c], h[c+1..].to_string()) } else { (h, "80".to_string()) };
+                                (p.0.to_string(), p.1, format!("/{rest2}"))
+                            } else {
+                                // HTTPS or other: keep using minreq for TLS
+                                let resp = minreq::post(&url)
+                                    .with_header("Content-Type", "application/json");
+                                let resp = headers.iter().fold(resp, |r, (k,v)| r.with_header(*k, *v));
+                                let resp = resp.with_body(body_for_req).send()
+                                    .map_err(|e| format!("AGENT {peer} POST error: {e}"))?;
+                                let text = resp.as_str().unwrap_or("").to_string();
+                                return if action == "notify" { Ok(Value::Bool(true)) } else { Ok(Value::String(text)) };
+                            };
+                            let edge_addr = format!("{edge_host}:{edge_port}");
+                            let http_body = body_for_req;
+                            let http_request = format!(
+                                "POST {edge_path} HTTP/1.1\r\nHost: {edge_host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
+                                http_body.len(),
+                                headers.iter().map(|(k,v)| format!("{k}: {v}\r\n")).collect::<String>(),
+                                http_body
+                            );
+                            match std::net::TcpStream::connect(&edge_addr) {
+                                Ok(mut stream) => {
+                                    let _ = stream.set_nodelay(true);
+                                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
+                                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
+                                    if let Err(e) = stream.write_all(http_request.as_bytes()) {
+                                        Err(format!("AGENT {peer} write error: {e}"))
+                                    } else {
+                                        let _ = stream.flush();
+                                        let mut edge_buf = [0u8; 65536];
+                                        match stream.read(&mut edge_buf) {
+                                            Ok(n) => {
+                                                let raw = String::from_utf8_lossy(&edge_buf[..n]).to_string();
+                                                // Extract body after \r\n\r\n
+                                                let text = if let Some(pos) = raw.find("\r\n\r\n") {
+                                                    raw[pos+4..].to_string()
+                                                } else { raw };
+                                                if action == "notify" {
+                                                    Ok(Value::Bool(true))
+                                                } else {
+                                                    Ok(Value::String(text))
+                                                }
+                                            }
+                                            Err(e) => Err(format!("AGENT {peer} read error: {e}"))
+                                        }
+                                    }
+                                }
+                                Err(e) => Err(format!("AGENT {peer} connect error: {e}"))
+                            }
+                        } else if transport == "local" {
+                            // Local SHM transport: raw TCP (like DDP device)
+                            use std::io::{Read, Write};
+                            let (host_str, port_str) = if let Some(rest) = url.strip_prefix("tcp://") {
+                                if let Some(colon) = rest.rfind(':') {
+                                    let h = &rest[..colon];
+                                    let p = &rest[colon+1..];
+                                    (h.to_string(), p.to_string())
+                                } else {
+                                    (rest.to_string(), "9090".to_string())
+                                }
+                            } else if let Some(rest) = url.strip_prefix("http://") {
+                                if let Some(colon) = rest.rfind(':') {
+                                    let h = &rest[..colon];
+                                    let p = rest[colon+1..].split('/').next().unwrap_or("9090");
+                                    (h.to_string(), p.to_string())
+                                } else {
+                                    (rest.split('/').next().unwrap_or("localhost").to_string(), "9090".to_string())
+                                }
+                            } else {
+                                ("localhost".to_string(), "9090".to_string())
+                            };
+                            let addr = format!("{host_str}:{port_str}");
+                            let body = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "method": method,
+                                "params": params,
+                                "id": 1,
+                            }).to_string();
+                            match std::net::TcpStream::connect(&addr) {
+                                Ok(mut stream) => {
+                                    let _ = stream.set_nodelay(true);
+                                    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
+                                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(15)));
+                                    if let Err(e) = stream.write_all(body.as_bytes()) {
+                                        Err(format!("AGENT local {peer} write error: {e}"))
+                                    } else {
+                                        let _ = stream.flush();
+                                        let mut buf = [0u8; 65536];
+                                        match stream.read(&mut buf) {
+                                            Ok(n) => {
+                                                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                                                if action == "notify" {
+                                                    Ok(Value::Bool(true))
+                                                } else {
+                                                    Ok(Value::String(text))
+                                                }
+                                            }
+                                            Err(e) => Err(format!("AGENT local {peer} read error: {e}"))
+                                        }
+                                    }
+                                }
+                                Err(e) => Err(format!("AGENT local {peer} connect error: {e}"))
+                            }
+                        } else {
+                            Err(format!("AGENT peer '{peer}' not found in Space Registry"))
+                        }
+                    }
+                    "peers" => {
+                        // List peers from Space Registry (^SYS("SPACE"))
+                        let mut peers = Vec::new();
+                        let mut cursor: Option<Subscript> = None;
+                        loop {
+                            match self.order("SYS", &[Subscript::String("SPACE".into())], cursor.as_ref(), 1) {
+                                Ok(Some(sub)) => {
+                                    if let Subscript::String(name) = &sub {
+                                        let t_key = [
+                                            Subscript::String("SYS".to_string()),
+                                            Subscript::String("SPACE".to_string()),
+                                            Subscript::String(name.clone()),
+                                            Subscript::String("transport".to_string()),
+                                        ];
+                                        let transport = match self.get("SYS", &[Subscript::String("SPACE".into()), Subscript::String(name.clone()), Subscript::String("transport".into())]) {
+                                            Ok(Some(Value::String(s))) => s.clone(),
+                                            _ => "unknown".to_string(),
+                                        };
+                                        peers.push(format!("{name}\t{transport}"));
+                                    }
+                                    cursor = Some(sub);
+                                }
+                                Ok(None) => break,
+                                Err(_) => break,
+                            }
+                        }
+                        Ok(Value::String(peers.join("\n")))
+                    }
+                    _ => Err(format!("Unknown LUMEN action: {action}")),
+                }
+            }
+            #[cfg(not(feature = "minreq"))]
+            "agent" => {
+                Err("LUMEN device requires minreq feature".to_string())
+            }
             _ => Err(format!("Device '{device}:{action}' not supported")),
+        }
+    }
+}
+
+// ── HMAC helper ────────────────────────────────────────────────
+fn hmac_sha256(key: &str, data: &str) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+        .expect("HMAC key");
+    mac.update(data.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+// ── SQLite helper functions ────────────────────────────────────
+
+/// Codificar un Subscript a formato MUMPS binario.
+fn encode_one_sub(sub: &Subscript) -> Vec<u8> {
+    let mut out = Vec::new();
+    match sub {
+        Subscript::Number(v) => {
+            out.push(0x01);
+            out.extend_from_slice(v.to_string().as_bytes());
+            out.push(0xFF);
+        }
+        Subscript::String(s) => {
+            out.push(0x02);
+            out.extend_from_slice(s.as_bytes());
+            out.push(0xFF);
+        }
+    }
+    out
+}
+
+/// Codificar vector de subscripts a formato MUMPS binario.
+fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for sub in subs {
+        out.extend(encode_one_sub(sub));
+    }
+    out
+}
+
+/// Decodificar subkey binaria a vector de strings MUMPS.
+fn decode_subkey(subkey: &[u8]) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut i = 0;
+    while i + 1 < subkey.len() {
+        let _typ = subkey[i];
+        i += 1;
+        let end = subkey[i..].iter().position(|&b| b == 0xFF)
+            .map(|p| i + p)
+            .unwrap_or(subkey.len());
+        let raw = &subkey[i..end];
+        result.push(String::from_utf8_lossy(raw).to_string());
+        i = end + 1;
+    }
+    result
+}
+
+/// Extraer el primer subscript de una subkey binaria.
+fn decode_first_sub(subkey: &[u8]) -> Option<Subscript> {
+    let parts = decode_subkey(subkey);
+    parts.into_iter().next().map(|s| {
+        if let Ok(n) = s.parse::<f64>() {
+            Subscript::Number(n)
+        } else {
+            Subscript::String(s)
+        }
+    })
+}
+
+/// Extraer el subscript en un nivel especifico de una subkey.
+fn extract_sub_at_level(subkey: &[u8], level: usize) -> Option<Subscript> {
+    let parts = decode_subkey(subkey);
+    parts.get(level).map(|s| {
+        if let Ok(n) = s.parse::<f64>() {
+            Subscript::Number(n)
+        } else {
+            Subscript::String(s.clone())
+        }
+    })
+}
+
+/// Extension trait para convertir QueryReturnedNoRows en None.
+trait OptionalExt<T> {
+    fn optional(self) -> Result<Option<T>, rusqlite::Error>;
+}
+
+impl<T> OptionalExt<T> for Result<T, rusqlite::Error> {
+    fn optional(self) -> Result<Option<T>, rusqlite::Error> {
+        match self {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl std::fmt::Debug for MemoryHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryHost")
+            .field("values", &self.values.len())
+            .field("has_sqlite", &self.sqlite_db.is_some())
+            .field("routines", &self.routines.len())
+            .finish()
+    }
+}
+
+impl Clone for MemoryHost {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            transactions: self.transactions.clone(),
+            routines: self.routines.clone(),
+            input: self.input.clone(),
+            locks: self.locks.clone(),
+            llm_api_keys: self.llm_api_keys.clone(),
+            sqlite_db: None, // SQLite connections can't be cloned
         }
     }
 }

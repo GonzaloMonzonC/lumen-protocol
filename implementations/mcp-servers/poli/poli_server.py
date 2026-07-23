@@ -19,6 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lumen_mlight import execute as ml_execute
 from poli_gateway import llm_call, MODELS
 
+# ── PDB SQLite path (persistencia real) ──────────────────────────────────────
+PDB_SQLITE = str(Path.home() / "pdb-data" / "lumen-pdb.db")
+
 # ── Config segura (fuera del repo) ───────────────────────────────────────────
 _CONFIG_FILE = Path.home() / "AppData/Local/hermes/poli_config.json"
 _CONFIG_CACHE = None  # cargado lazy en init
@@ -63,6 +66,65 @@ def _load_routines() -> dict[str, str]:
         routines[name] = mac.read_text(encoding="utf-8")
     return routines
 
+def _sanitize_globals(globals_list: list) -> list:
+    """Convierte cualquier valor bytes a string en una lista de globals."""
+    clean = []
+    for g in globals_list:
+        entry = {}
+        for k, v in g.items():
+            if isinstance(v, bytes):
+                entry[k] = v.decode("utf-8", errors="replace")
+            elif isinstance(v, list):
+                entry[k] = [s.decode("utf-8", errors="replace") if isinstance(s, bytes) else s for s in v]
+            else:
+                entry[k] = v
+        clean.append(entry)
+    return clean
+
+def _decode_subkey(data: bytes) -> list:
+    """Decodifica subkey MUMPS → lista de subscripts.
+    Formato: \\x02<str>\\xff\\x02<str>\\xff...
+    """
+    subs = []
+    remaining = data
+    while remaining:
+        if remaining[0:1] != b'\x02':
+            break
+        remaining = remaining[1:]
+        idx = remaining.find(b'\xff')
+        if idx < 0:
+            break
+        subs.append(remaining[:idx].decode("utf-8", errors="replace"))
+        remaining = remaining[idx+1:]
+    return subs
+
+def _extract_routines_from_globals(globals_list: list) -> dict[str, str]:
+    """Extrae rutinas de ^ROUTINE global en la PDB.
+    
+    ^ROUTINE(NOMBRE, linea) = "codigo M"
+    Concatena líneas en orden numérico para formar la rutina.
+    """
+    routines = {}
+    # Indexar por nombre de rutina
+    named: dict[str, dict[int, str]] = {}
+    for g in globals_list:
+        ns = g.get("ns", "")
+        value = g.get("value", "")
+        # ^ROUTINE(NOMBRE, N) → ns = "ROUTINE", subs = [NOMBRE, N]
+        if ns == "ROUTINE":
+            subs = g.get("subs", [])
+            if len(subs) >= 2:
+                routine_name = str(subs[0]).upper()
+                if isinstance(subs[1], (int, float)):
+                    line_no = int(subs[1])
+                    if routine_name not in named:
+                        named[routine_name] = {}
+                    named[routine_name][line_no] = str(value)
+    for rname, lines in named.items():
+        code = "\n".join(lines[k] for k in sorted(lines.keys()))
+        routines[rname] = code
+    return routines
+
 _ROUTINES = _load_routines()
 
 # ── Estado de sesión ─────────────────────────────────────────────────────────
@@ -82,9 +144,14 @@ class PoliState:
                 ev = v.replace('"', '""')
                 exec_parts.append(f'S ^CONFIG("{k}")="{ev}"')
             if exec_parts:
-                r = ml_execute(" ".join(exec_parts), routines=_ROUTINES, globals_=self.globals, gas_limit=10000)
+                r = ml_execute(" ".join(exec_parts), routines=_ROUTINES, globals_=self.globals, gas_limit=10000, sqlite_path=PDB_SQLITE)
                 if r.get("ok"):
                     self.globals = r.get("globals") or self.globals
+                    self.globals = _sanitize_globals(self.globals)
+        # Cargar rutinas desde ^ROUTINE en PDB
+        pdb_routines = _extract_routines_from_globals(self.globals)
+        if pdb_routines:
+            _ROUTINES.update(pdb_routines)
     
     def _globals_dict(self) -> dict:
         """Convierte self.globals a dict para inspección."""
@@ -99,16 +166,63 @@ class PoliState:
     
     def seed(self) -> dict:
         """Ejecuta SEED para cargar modos por defecto si no existen,
-        luego overrides: critic → deepseek v4 flash.
+        luego carga Synapse Studio skills desde .mac files.
         """
+        # Seed básico
         r = ml_execute(
             source='D SEED^PERSONALITY S ^PERSONALITY("critic","provider")="deepseek" S ^PERSONALITY("critic","model")="deepseek-v4-flash"',
             routines=_ROUTINES,
             globals_=self.globals,
             gas_limit=60000,
+            sqlite_path=PDB_SQLITE,
         )
         if r.get("ok"):
-            self.globals = r.get("globals") or []
+            self.globals = r.get("globals") or self.globals
+            self.globals = _sanitize_globals(self.globals)
+        
+        # Cargar todos los datos de SQLite a self.globals para que exec() los vea
+        try:
+            import sqlite3
+            db = sqlite3.connect(PDB_SQLITE)
+            rows = db.execute("SELECT ns, subkey, value FROM _globals").fetchall()
+            db.close()
+            for ns, subkey_b, value in rows:
+                # Decodificar subkey MUMPS → lista de subscripts
+                subs = _decode_subkey(subkey_b) if isinstance(subkey_b, bytes) else []
+                self.globals.append({"ns": ns, "subs": subs, "value": value})
+        except Exception:
+            pass
+        # Sanitizar después de cargar de SQLite
+        self.globals = _sanitize_globals(self.globals)
+        
+        # Cargar Synapse Studio skills desde archivos .mac
+        skills_dir = Path(__file__).resolve().parent / "synapse" / "skills"
+        if skills_dir.exists():
+            mac_files = sorted(skills_dir.glob("*.mac"))
+            for mf in mac_files:
+                try:
+                    code = mf.read_text(encoding="utf-8")
+                    # Quitar líneas de comentario y Q
+                    clean = []
+                    for l in code.split("\n"):
+                        s = l.strip()
+                        if s.startswith(";") or s == " ;" or s == "Q":
+                            continue
+                        clean.append(l)
+                    if clean:
+                        r2 = ml_execute(
+                            "\n".join(clean),
+                            routines=_ROUTINES,
+                            globals_=self.globals,
+                            gas_limit=200000,
+                            sqlite_path=PDB_SQLITE,
+                        )
+                        if r2.get("ok"):
+                            self.globals = r2.get("globals") or []
+                            self.globals = _sanitize_globals(self.globals)
+                except Exception:
+                    pass
+        
         return {"ok": r.get("ok"), "error": r.get("state", {}).get("error", {})}
     
     def exec(self, source: str, gas: int = 20000) -> dict:
@@ -121,7 +235,9 @@ class PoliState:
             llm_api_keys=_LLM_KEYS,
         )
         if r.get("ok"):
-            self.globals = r.get("globals") or []
+            self.globals = r.get("globals") or self.globals
+            # Sanitizar: convertir cualquier bytes a string
+            self.globals = _sanitize_globals(self.globals)
         return r
 
 # ── Instancia única ──────────────────────────────────────────────────────────
@@ -331,21 +447,49 @@ def tool_poli_chat(args: dict) -> dict:
         }
     
     else:
-        # Fallback: responder con el modo activo
+        # Fallback: responder con LLM usando la personalidad activa
         r = _STATE.exec(
-            f'S ^R=$$ACTIVE^PERSONALITY("{session_id}")',
-            gas=10000,
+            f'S ^M=$$ACTIVE^PERSONALITY("{session_id}") '
+            f'S ^I=$G(^PERSONALITY($G(^M),"identity")) '
+            f'S ^P=$G(^PERSONALITY($G(^M),"provider")) '
+            f'S ^D=$G(^PERSONALITY($G(^M),"model"))',
+            gas=30000,
         )
         active = None
+        identity = ""
+        provider = ""
+        model = ""
         for g in (r.get("globals") or []):
-            if g.get("ns") == "R":
-                active = g.get("value")
-                break
-        return {
-            "ok": r.get("ok"),
-            "response": f"Modo activo: {active}. ¿En qué puedo ayudarte?",
-            "active_mode": active,
-        }
+            ns = g.get("ns")
+            if ns == "M": active = g.get("value")
+            elif ns == "I": identity = str(g.get("value", ""))
+            elif ns == "P": provider = str(g.get("value", ""))
+            elif ns == "D": model = str(g.get("value", ""))
+
+        if provider and provider not in ("symbolic", "", "None", "0"):
+            esc_msg = mensaje.replace('"', '""')
+            esc_sys = identity.replace('"', '""')
+            if not model or model in ("", "None", "0"):
+                model = "deepseek-v4-flash"
+            src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}")'
+            r2 = _STATE.exec(src, gas=200000)
+            result = None
+            for g in (r2.get("globals") or []):
+                if g.get("ns") == "R":
+                    result = g.get("value")
+                    break
+            return {
+                "ok": r2.get("ok"),
+                "response": result,
+                "active_mode": active,
+                "personality_used": active,
+            }
+        else:
+            return {
+                "ok": r.get("ok"),
+                "response": f"Modo activo: {active}. En qu puedo ayudarte?",
+                "active_mode": active,
+            }
 
 def tool_poli_exec(args: dict) -> dict:
     """Ejecuta código M arbitrario sobre el estado Poli actual."""
@@ -701,6 +845,22 @@ HANDLERS = {
 # Intentar sembrar modos al iniciar (silenciosamente)
 try:
     _STATE.seed()
+    # Recargar active_mode después del seed
+    session_id = _STATE.default_session
+    r = _STATE.exec(
+        f'S ^MODE=$$ACTIVE^PERSONALITY("{session_id}") '
+        f'S ^PROV=$G(^PERSONALITY($G(^MODE),"provider")) '
+        f'S ^MOD=$G(^PERSONALITY($G(^MODE),"model"))',
+        gas=30000,
+    )
+    for g in (r.get("globals") or []):
+        ns = g.get("ns")
+        if ns == "MODE":
+            _STATE.active_mode = g.get("value")
+        elif ns == "PROV":
+            _STATE.provider = str(g.get("value", ""))
+        elif ns == "MOD":
+            _STATE.model = str(g.get("value", ""))
 except Exception:
     pass
 
@@ -759,6 +919,71 @@ def handle(msg):
         })
 
 if __name__ == "__main__":
+    # ── HTTP server (poli-api.cadences.app) ─────────────────────────────────
+    import http.server, threading, urllib.parse
+    POLI_HTTP_PORT = int(os.environ.get("POLI_HTTP_PORT", "8082"))
+    
+    class PoliHTTPHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def _json(self, code, obj):
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(obj, ensure_ascii=False).encode())
+        def do_GET(self):
+            if self.path == "/health":
+                return self._json(200, {"ok": True, "name": "poli", "status": "healthy"})
+            self._json(404, {"error": "not found"})
+        def do_POST(self):
+            if self.path == "/v1/chat":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    msg = body.get("mensaje") or body.get("message") or ""
+                    if not msg:
+                        return self._json(400, {"ok": False, "error": "mensaje required"})
+                    sid = body.get("session_id", "http_" + str(time.time()).replace(".",""))
+                    msg_esc = msg.replace('"', '""')
+                    r = _STATE.exec(f'D CHAT^PERSONALITY("{msg_esc}")', gas=200000)
+                    response = (r.get("state") or {}).get("output", "").strip() or "Poli no respondio"
+                    return self._json(200, {"ok": True, "response": response, "session_id": sid})
+                except Exception as e:
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/exec":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    code = body.get("code") or body.get("source") or ""
+                    if not code:
+                        return self._json(400, {"ok": False, "error": "code required"})
+                    gas = body.get("gas_limit", 200000)
+                    if not isinstance(gas, int) or gas < 1000:
+                        gas = 200000
+                    r = _STATE.exec(code, gas=gas)
+                    state = r.get("state", {})
+                    output = state.get("output", "")
+                    error = state.get("error", {})
+                    return self._json(200, {
+                        "ok": r.get("ok", False),
+                        "execution": r.get("execution", "error"),
+                        "output": output,
+                        "error": str(error.get("zerror", "")) if error else "",
+                        "globals": [g for g in (r.get("globals") or []) if g.get("name","").startswith("^")],
+                    })
+                except Exception as e:
+                    return self._json(500, {"ok": False, "error": str(e)})
+            self._json(404, {"error": "not found"})
+    
+    try:
+        httpd = http.server.HTTPServer(("127.0.0.1", POLI_HTTP_PORT), PoliHTTPHandler)
+        t = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t.start()
+        import os; os.system(f"echo POLI HTTP en :{POLI_HTTP_PORT} &")
+    except OSError:
+        import os; os.system(f"echo POLI HTTP :{POLI_HTTP_PORT} ocupado (ya corre) &")
+    
+    # ── MCP stdio loop ──────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────────
     for line in sys.stdin:
         line = line.strip()
         if not line:

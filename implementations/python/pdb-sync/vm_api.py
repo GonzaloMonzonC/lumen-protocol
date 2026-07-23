@@ -19,6 +19,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
+# Add lumen_mlight to path
+_mlight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'mcp-servers', 'pdb')
+if os.path.isdir(_mlight_path):
+    sys.path.insert(0, os.path.normpath(_mlight_path))
+
 import _paths  # noqa: F401
 from m_routines import RoutineExecutor, register, get_routine
 
@@ -37,48 +42,137 @@ def _verify_ddp(body_str, headers):
 
 # ── DDP Operations ──
 
-def _list_all_routines():
-    """List available routine names from PDB."""
+def _m_order(ns, subs, direction=1):
+    """\$O(^ns(subs...)) via Rust MVM SQLite direct. Returns next subscript or ''."""
     try:
-        from pdb_tools import tool_order
+        from lumen_mlight import execute_sqlite
+        subs_m = ",".join(f'"{s}"' for s in subs) if subs else ""
+        code = f'W $O(^{ns}({subs_m}))'
+        r = execute_sqlite(code, sqlite_path=_get_db(), gas_limit=50000)
+        if not r.get("ok"):
+            import sys as _sys
+            _sys.stderr.write(f"[M_ORDER FAIL] {ns}({subs_m}) -> {r.get('error','?')[:100]} zerror={r.get('state',{}).get('error',{}).get('zerror','')}\n")
+            return ""
+        return r.get('state', {}).get('output', '').strip()
+    except Exception as e:
+        import traceback, sys as _sys
+        _sys.stderr.write(f"[M_ORDER ERROR] {e}\n{traceback.format_exc()}\n")
+        return ""
+
+def _m_get(ns, subs):
+    """\$G(^ns(subs...)) via Rust MVM. Returns value string or ''."""
+    try:
+        from lumen_mlight import execute_sqlite
+        subs_m = ",".join(f'"{s}"' for s in subs)
+        code = f'W $G(^{ns}({subs_m}))'
+        r = execute_sqlite(code, sqlite_path=_get_db(), gas_limit=50000)
+        if not r.get("ok"):
+            import sys as _sys
+            _sys.stderr.write(f"[M_GET FAIL] {ns}({subs_m}) -> {r.get('error','?')[:100]}\n")
+            return ""
+        return r.get('state', {}).get('output', '').strip()
+    except Exception as e:
+        import traceback, sys as _sys
+        _sys.stderr.write(f"[M_GET ERROR] {e}\n{traceback.format_exc()}\n")
+        return ""
+
+def _m_data(ns, subs):
+    """\$D(^ns(subs...)) via Rust MVM. Returns 0/1/10/11."""
+    try:
+        from lumen_mlight import execute_sqlite
+        subs_m = ",".join(f'"{s}"' for s in subs)
+        code = f'W $D(^{ns}({subs_m}))'
+        r = execute_sqlite(code, sqlite_path=_get_db(), gas_limit=50000)
+        if not r.get("ok"):
+            import sys as _sys
+            _sys.stderr.write(f"[M_DATA FAIL] {ns}({subs_m}) -> {r.get('error','?')[:100]}\n")
+            return 0
+        d = r.get('state', {}).get('output', '').strip()
+        try: return int(d)
+        except: return 0
+    except Exception as e:
+        import traceback, sys as _sys
+        _sys.stderr.write(f"[M_DATA ERROR] {e}\n{traceback.format_exc()}\n")
+        return 0
+
+def _m_set(ns, subs, value):
+    """SET ^ns(subs...)=value via Rust MVM SQLite direct."""
+    try:
+        from lumen_mlight import execute_sqlite
+        subs_m = ",".join(f'"{s}"' for s in subs)
+        escaped = str(value).replace('"', '""')
+        code = f'S ^{ns}({subs_m})="{escaped}"'
+        r = execute_sqlite(code, sqlite_path=_get_db(), gas_limit=50000)
+        return r.get("ok", False)
+    except:
+        return False
+
+def _m_kill(ns, subs):
+    """KILL ^ns(subs...) via Rust MVM SQLite direct."""
+    try:
+        from lumen_mlight import execute_sqlite
+        subs_m = ",".join(f'"{s}"' for s in subs)
+        code = f'K ^{ns}({subs_m})'
+        r = execute_sqlite(code, sqlite_path=_get_db(), gas_limit=50000)
+        return r.get("ok", False)
+    except:
+        return False
+
+def _m_has(ns, subs):
+    """Check if node has children via Rust MVM $D."""
+    return _m_data(ns, subs) in (10, 11)
+
+def _get_db():
+    """Get DB path."""
+    import os as _os
+    db = _os.environ.get("PDB_PATH") or _os.environ.get("PDB_DB") or ""
+    if not db:
+        db = str(_paths.DB_PATH)
+    return db or ""
+
+def _list_all_routines():
+    """List available routine names from PDB via Rust MVM."""
+    try:
+        from lumen_mlight import execute_sqlite
         routines = []
         key = ""
         for _ in range(2000):
-            r = tool_order({"ns": "ROUTINE", "subs": [key], "direction": 1})
-            if not r.get("success") or r.get("value") is None:
-                break
-            key = r["value"]
+            nxt = _m_order("ROUTINE", [key])
+            if not nxt: break
+            key = nxt
             routines.append(key)
         return routines
     except:
         return []
 
 def _get_routine_code(name):
-    """Get full source code of an MSM routine from PDB."""
+    """Get full source code of an MSM routine from PDB via Rust MVM."""
     try:
-        from pdb_tools import tool_order, tool_get
+        from lumen_mlight import execute_sqlite
         lines = []
         key = ""
         while True:
-            r = tool_order({"ns": "ROUTINE", "subs": [name, key], "direction": 1})
-            if not r.get("success") or r.get("value") is None:
-                break
-            key = r["value"]
-            val = tool_get({"ns": "ROUTINE", "subs": [name, key]})
-            if val.get("success") and val.get("value") is not None:
-                lines.append(str(val["value"]))
+            nxt = _m_order("ROUTINE", [name, key])
+            if not nxt: break
+            key = nxt
+            val = _m_get("ROUTINE", [name, key])
+            if val:
+                lines.append(val)
         return "\n".join(lines)
     except:
         return ""
 
 def _list_namespaces():
-    """List all namespaces in PDB."""
+    """List all namespaces in PDB (SQL — no M equivalent for ^GLOBALS)."""
     try:
-        from pdb_tools import tool_query
-        r = tool_query({"sql": "SELECT DISTINCT ns FROM _globals ORDER BY ns", "limit": 500})
-        if r.get("success"):
-            return [row["ns"] for row in r.get("rows", [])]
-        return []
+        import sqlite3
+        db = _get_db()
+        if not db:
+            return ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
+        conn = sqlite3.connect(db)
+        rows = conn.execute("SELECT DISTINCT ns FROM _globals ORDER BY ns").fetchall()
+        conn.close()
+        return [r[0] for r in rows if r[0]]
     except:
         return ["STATE", "GLOBAL_SIZES", "HEARTBEAT", "TEST", "CONFIG", "ROUTES"]
 
@@ -114,6 +208,12 @@ def _sanitize_subs(subs):
     if not isinstance(subs, (list, tuple)):
         return [str(subs)]
     for s in subs:
+        if isinstance(s, bytes):
+            try:
+                result.append(s.decode('utf-8', errors='replace'))
+            except:
+                result.append(s.hex())
+            continue
         if not isinstance(s, str):
             if isinstance(s, (int, float)):
                 result.append(str(s))
@@ -136,100 +236,154 @@ def _sanitize_subs(subs):
     return result
 
 def _has_children(ns, base):
-    """Check if a node has children."""
-    from pdb_tools import tool_order
-    r = tool_order({"ns": ns, "subs": base + [""], "direction": 1})
-    return r.get("success") and r.get("value") is not None
+    """Check if a node has children via Rust MVM $D."""
+    return _m_has(ns, base)
 
 def _collect(ns, entries, prefix=None, depth=0, _cur_depth=0):
-    """Collect entries from PDB recursively. Walks subscripts level by level.
-    depth=0 (default) → children only (1 level, no root).
-    depth=1 → 2 levels (root+children+grandchildren).
-    depth=-1 → full tree."""
-    from pdb_tools import tool_order, tool_get, tool_has
+    """Collect entries from PDB via single M code execution."""
     base = prefix or []
-    # If first call (_cur_depth=0 and no prefix), always collect root
-    if _cur_depth == 0 and base == []:
-        val = tool_get({"ns": ns, "subs": list(base)})
-        if val.get("success"):
-            entries.append({"ns": ns, "subs": list(base), "value": val.get("value"),
-                            "has_children": bool(_has_children(ns, base))})
-    # Stop recursing if depth limit reached
-    if depth != -1 and _cur_depth >= depth:
+    # Use a single M execution to get all entries at this level
+    from lumen_mlight import execute_sqlite as _ex
+    db = _get_db()
+    if not db:
         return
-    # Walk children at this level
-    key = ""
-    while True:
-        r = tool_order({"ns": ns, "subs": base + [key], "direction": 1})
-        if not r.get("success") or r.get("value") is None:
-            break
-        key = r["value"]
-        child_val = tool_get({"ns": ns, "subs": base + [key]})
-        has_kids = _has_children(ns, base + [key])
-        entries.append({"ns": ns, "subs": base + [key], "value": child_val.get("value"),
-                        "has_children": has_kids})
-        # Recursively walk children
-        if has_kids:
-            _collect(ns, entries, base + [key], depth, _cur_depth + 1)
+
+    # Build M code that outputs all subkeys and values
+    if base:
+        # For sub-levels, need $O from the parent context
+        base_m = ",".join(f'"{s}"' for s in base)
+        code = (
+            f'S k="" F  S k=$O(^{ns}({base_m},k)) Q:k=""  W k,!,$G(^{ns}({base_m},k)),!'
+        )
+        r = _ex(code, sqlite_path=db, gas_limit=100000)
+        output = r.get('state', {}).get('output', '')
+        if output:
+            lines = output.strip().split('\n')
+            for i in range(0, len(lines), 2):
+                k = lines[i].strip()
+                v = lines[i+1] if i+1 < len(lines) else ''
+                has_kids = False  # depth-limited for now
+                entries.append({"ns": ns, "subs": base + [k], "value": v,
+                                "has_children": has_kids})
+    else:
+        # Root level: list top-level subscriptions via SQL (no M $O needed)
+        if _cur_depth == 0:
+            val = _m_get(ns, [])
+            # Get all distinct first-level subscripts via SQL
+            import os as _os2, sqlite3 as _sq3
+            _dbp = _get_db()
+            _kids = []
+            try:
+                _conn = _sq3.connect(_dbp)
+                _rows = _conn.execute(
+                    "SELECT DISTINCT substr(subkey, 2, instr(subkey||x'ff', x'ff')-2) FROM _globals WHERE ns=? AND length(subkey)>0",
+                    (ns,)).fetchall()
+                _kids = [r[0] for r in _rows if r[0]]
+                _conn.close()
+            except Exception as _e:
+                pass
+            # Decode bytes from SQLite
+            _kids = [k.decode('utf-8', errors='replace') if isinstance(k, bytes) else k for k in _kids]
+            entries.append({"ns": ns, "subs": [], "value": val or "",
+                            "has_children": len(_kids) > 0})
+            for k in _kids:
+                k = k.strip()
+                if not k:
+                    continue
+                val = _m_get(ns, [k])
+                has_kids = _m_has(ns, [k])
+                entries.append({"ns": ns, "subs": [k], "value": val or "",
+                                "has_children": has_kids})
+                if has_kids and (depth == -1 or _cur_depth + 1 <= depth):
+                    _collect(ns, entries, [k], depth, _cur_depth + 1)
 
 def _ddp_push(ns, entries):
-    """Push entries to PDB."""
+    """Push entries to PDB via Rust MVM SQLite direct."""
     try:
-        from pdb_tools import tool_set
+        db = os.environ.get("PDB_PATH") or ""
+        from lumen_mlight import execute_sqlite
         for e in entries:
-            tool_set({"ns": ns, "subs": e["subs"], "value": e["value"]})
+            subs = e.get("subs", [])
+            val = e.get("value", "")
+            # Build M code: SET ^NS(sub1,sub2)=value
+            subs_m = ",".join(f'"{s}"' for s in subs)
+            escaped_val = str(val).replace('"', '""')
+            code = f'S ^{ns}({subs_m})="{escaped_val}"'
+            execute_sqlite(code, sqlite_path=db if db else None, gas_limit=10000)
         return {"success": True, "count": len(entries)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 # ── Raw DDP Operations (bypasses MUMPS subscript navigation) ──
 
+def _decode_subkey(raw_subkey):
+    """Decode encoded MUMPS subkey (bytes) to list of subscript strings.
+    Format: \x02 + subscript_bytes + \xff for each level."""
+    if isinstance(raw_subkey, str):
+        raw_subkey = raw_subkey.encode('latin-1')
+    subs = []
+    i = 0
+    while i < len(raw_subkey):
+        if raw_subkey[i] == 0x02:  # string type marker
+            i += 1
+            end = raw_subkey.find(0xFF, i)
+            if end == -1:
+                subs.append(raw_subkey[i:].decode('utf-8', errors='replace'))
+                break
+            subs.append(raw_subkey[i:end].decode('utf-8', errors='replace'))
+            i = end + 1
+        elif raw_subkey[i] == 0xFF:
+            i += 1  # skip terminator
+        else:
+            i += 1  # unknown byte, skip
+    return subs
+
 def _ddp_raw(ns, limit=100, offset=0):
     """Pull raw entries from PDB directly (bypasses MUMPS subscript encoding).
     Returns encoded subkeys and values as-is. Useful for namespaces with
     packed binary subkeys like old MSM clinical data."""
     try:
-        from pdb_tools import tool_query
-        r = tool_query({
-            "sql": "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey LIMIT ? OFFSET ?",
-            "params": [ns, limit, offset],
-            "limit": limit
-        })
-        if not r.get("success"):
-            return {"success": False, "error": r.get("error", "query failed")}
-        rows = r.get("rows", [])
+        import sqlite3
+        db = _get_db()
+        if not db:
+            return {"success": False, "error": "no db path"}
+        conn = sqlite3.connect(db)
+        # Need to get bytes for subkey BLOB column
+        conn.text_factory = lambda x: x  # return bytes for all text columns
+        rows = conn.execute(
+            "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey LIMIT ? OFFSET ?",
+            (ns, limit, offset)).fetchall()
+        conn.close()
         entries = []
         for row in rows:
-            raw_subkey = row.get("subkey", "")
-            raw_value = row.get("value", None)
-            # Decode subkey to show structure
-            from pdb_tools import decode_subkey
+            raw_subkey = row[0]
+            raw_value = row[1]
+            # Decode subkey
             try:
-                decoded_subs = decode_subkey(raw_subkey)
+                decoded_subs = _decode_subkey(raw_subkey)
                 subs_clean = _sanitize_subs(decoded_subs)
             except:
                 subs_clean = [str(raw_subkey)[:80]]
             # Decode value
+            val_str = None
             if raw_value and isinstance(raw_value, bytes):
                 try:
                     val_str = raw_value.decode("utf-8", errors="replace")
                 except:
-                    val_str = repr(raw_value)[:200]
-            else:
-                val_str = str(raw_value) if raw_value is not None else None
+                    val_str = str(raw_value)[:200]
+            elif raw_value:
+                val_str = str(raw_value)
             entries.append({
                 "subs": subs_clean,
-                "subkey_hex": raw_subkey.hex()[:80] if isinstance(raw_subkey, bytes) else str(raw_subkey)[:80],
-                "value": val_str[:200] if val_str else None,
+                "value": val_str,
+                "subkey_hex": raw_subkey.hex() if isinstance(raw_subkey, bytes) else "",
+                "value_bytes": len(raw_value) if raw_value else 0,
             })
-        # Get total count
-        count_r = tool_query({
-            "sql": "SELECT COUNT(*) as cnt FROM _globals WHERE ns=?",
-            "params": [ns],
-            "limit": 1
-        })
-        total = count_r.get("rows", [{}])[0].get("cnt", 0) if count_r.get("success") else 0
-        return {"success": True, "ns": ns, "entries": entries, "total": total, "limit": limit, "offset": offset}
+        # Count total
+        conn2 = sqlite3.connect(db)
+        total = conn2.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", (ns,)).fetchone()[0]
+        conn2.close()
+        return {"success": True, "entries": entries, "total": total, "ns": ns}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -240,17 +394,15 @@ _local_routes = {}
 def register_web(name, routine_name):
     _local_routes[name] = routine_name
     try:
-        from pdb_tools import tool_set
-        tool_set({"ns": "ROUTES", "subs": [name], "value": routine_name})
+        _m_set("ROUTES", [name], routine_name)
     except:
         pass
 
 def web_route(name):
     try:
-        from pdb_tools import tool_get
-        r = tool_get({"ns": "ROUTES", "subs": [name]})
-        if r.get("success") and r.get("value"):
-            return r["value"]
+        val = _m_get("ROUTES", [name])
+        if val:
+            return val
     except:
         pass
     return _local_routes.get(name)
@@ -380,7 +532,8 @@ class VMHandler(BaseHTTPRequestHandler):
             result = _ddp_pull(ns, prefix, limit, offset, depth)
             self._json(result)
         except Exception as e:
-            self._json({"error": str(e)}, 500)
+            import traceback as _tb
+            self._json({"error": f"{e}\n{_tb.format_exc()}"}, 500)
 
     def _handle_ddp_raw(self, qs):
         """GET /ddp/raw?ns=clinica&limit=10&offset=0
@@ -425,8 +578,14 @@ class VMHandler(BaseHTTPRequestHandler):
                 self._json({"error": "HMAC auth failed"}, 403)
                 return
             body = json.loads(raw)
-            ns = body.get("ns", "")
-            entries = body.get("entries", [])
+            # Support both old format (list of entries, ns in query) and new (ns+entries in body)
+            qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
+            if isinstance(body, list):
+                entries = body
+                ns = qs.get("ns", "")
+            else:
+                ns = body.get("ns", qs.get("ns", ""))
+                entries = body.get("entries", [])
             if not ns or not entries:
                 self._json({"error": "ns and entries required"}, 400)
                 return
@@ -489,17 +648,147 @@ class VMHandler(BaseHTTPRequestHandler):
 
     def _handle_web(self, route_name):
         try:
+            if route_name in ("pdbnav", "navepdb"):
+                self._handle_pdb_browser()
+                return
             routine = web_route(route_name)
             if not routine:
                 self._html("<html><body><h1>404</h1><p>Ruta no encontrada</p></body></html>", 404)
                 return
-            output, error = exec_m_full_output(routine)
+            qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
+            args = [qs.get("ns", ""), qs.get("sub", "")]
+            output, error = exec_m_full_output(routine, args=args)
             if error:
                 self._html(f"<html><body><h1>Error</h1><pre>{error}</pre></body></html>", 500)
                 return
             self._html(output)
         except Exception as e:
             self._html(f"<html><body><h1>Error</h1><pre>{e}</pre></body></html>", 500)
+
+    def _handle_pdb_browser(self):
+        """PDB Browser via Rust MVM + SQLite direct."""
+        import json
+        import os
+        qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
+        ns = qs.get("ns", "").upper()
+        sub = qs.get("sub", "")
+
+        # Ruta a la PDB via entorno
+        DB = os.environ.get("PDB_PATH") or os.environ.get("PDB_DB") or ""
+        if not DB:
+            try:
+                from _paths import DB_PATH
+                DB = str(DB_PATH)
+            except ImportError:
+                self._html("<html><body><h1>Error</h1><p>PDB_PATH no configurado</p></body></html>", 500)
+                return
+
+        # Importar Rust MVM
+        try:
+            from lumen_mlight import execute_sqlite
+        except ImportError:
+            self._html("<html><body><h1>Error</h1><p>lumen_mlight no disponible</p></body></html>", 500)
+            return
+
+        def esc(s):
+            return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") if s else ""
+
+        h = ['<html><head><title>PDB Browser (Rust MVM)</title>']
+        h.append('<style>body{font-family:monospace;margin:20px}')
+        h.append('h1{color:#7c3aed;border-bottom:2px solid #7c3aed}')
+        h.append('.nav{background:#f5f3ff;padding:10px;border-radius:8px}')
+        h.append('a{color:#6366f1;text-decoration:none}')
+        h.append('table{background:white;border-radius:8px;width:100%}')
+        h.append('th{background:#7c3aed;color:white;padding:8px;text-align:left}')
+        h.append('td{padding:4px 8px;border-bottom:1px solid #eee}')
+        h.append('.val{color:#059669;max-width:400px;overflow:hidden;text-overflow:ellipsis}')
+        h.append('</style></head><body>')
+        h.append(f"<h1>🦀 PDB Browser <span style='font-size:14px;color:#999'>Rust MVM + SQLite directo</span></h1>")
+        h.append(f"<div class='nav'><a href='/web/pdbnav'>🏠</a>")
+        if ns: h.append(f" / <a href='/web/pdbnav?ns={esc(ns)}'>{esc(ns)}</a>")
+        if sub: h.append(f" / {esc(sub)}")
+        h.append("</div><hr>")
+
+        try:
+            if not ns:
+                # ── Root: list namespaces via SQL (direct sqlite3) ──
+                import sqlite3 as _sq3
+                _dbp = DB or _get_db()
+                h.append(f"<h2>📂 Namespaces</h2><div style='display:flex;flex-wrap:wrap;gap:8px'>")
+                _total = 0
+                try:
+                    _c = _sq3.connect(_dbp)
+                    _nrows = _c.execute("SELECT DISTINCT ns FROM _globals ORDER BY ns").fetchall()
+                    for _r in _nrows:
+                        _n = _r[0] or ""
+                        h.append(f"<a href='/web/pdbnav?ns={esc(_n)}' style='background:#ede9fe;padding:6px 12px;border-radius:16px;font-size:14px'>{esc(_n)}</a>")
+                    _total = _c.execute("SELECT COUNT(*) FROM _globals").fetchone()[0]
+                    _c.close()
+                except:
+                    h.append("<p>Error conectando a DB</p>")
+                h.append("</div>")
+                h.append(f"<p style='color:#999;font-size:12px'>Total registros: {_total}</p>")
+
+            else:
+                # ── Navigation via M code on Rust MVM with SQLite direct ──
+                h.append(f"<table><tr><th>Key</th><th>Valor</th></tr>")
+                if sub:
+                    # Browse sub-level of a specific key
+                    code = f'''
+ S k="" F  S k=$O(^{ns}("{sub}",k)) Q:k=""  W k,! W $G(^{ns}("{sub}",k)),!
+'''
+                    result = execute_sqlite(code, sqlite_path=DB, gas_limit=50000)
+                    output = result.get('state', {}).get('output', '')
+                    lines = output.strip().split('\n') if output else []
+                    i = 0
+                    while i < len(lines):
+                        key2 = lines[i].strip()
+                        i += 1
+                        val = lines[i].strip() if i < len(lines) else ""
+                        i += 1
+                        val_short = val[:200]
+                        h.append(f"<tr><td><b>{esc(key2)}</b></td><td><span class='val'>{esc(val_short)}</span></td></tr>")
+                else:
+                    # Browse namespace: list top-level keys via $O with SQLite direct
+                    code = f'''
+ S k="" F  S k=$O(^{ns}(k)) Q:k=""  W k,!
+ S k="" F  S k=$O(^{ns}(k)) Q:k=""  W $D(^{ns}(k)),!
+'''
+                    result = execute_sqlite(code, sqlite_path=DB, gas_limit=50000)
+                    output = result.get('state', {}).get('output', '')
+                    lines = output.strip().split('\n') if output else []
+                    # First half = keys, second half = $D values
+                    mid = len(lines) // 2 if len(lines) % 2 == 0 else len(lines) // 2 + 1
+                    keys = lines[:mid] if mid > 0 else []
+                    dvals = lines[mid:] if mid < len(lines) else []
+
+                    for idx, key1 in enumerate(keys):
+                        if not key1.strip():
+                            continue
+                        d_val = dvals[idx].strip() if idx < len(dvals) else ""
+                        has_subs = d_val in ("10", "11")
+                        if has_subs:
+                            h.append(f"<tr><td><a href='/web/pdbnav?ns={ns}&sub={esc(key1)}'>📂 {esc(key1)}</a></td><td></td></tr>")
+                        else:
+                            # Get value for leaf
+                            val_code = f'W $G(^{ns}("{key1}"))'
+                            vr = execute_sqlite(val_code, sqlite_path=DB, gas_limit=10000)
+                            val = vr.get('state', {}).get('output', '').strip()[:200]
+                            h.append(f"<tr><td><b>{esc(key1)}</b></td><td><span class='val'>{esc(val)}</span></td></tr>")
+
+                h.append("</table>")
+
+                # Error check
+                if sub:
+                    err_ns = result.get('state', {}).get('error', {}).get('zerror', '')
+                    if err_ns:
+                        h.append(f"<p style='color:red'>M error: {esc(err_ns)}</p>")
+
+        except Exception as e:
+            h.append(f"<p style='color:red'>Error: {esc(str(e))}</p>")
+
+        h.append("</body></html>")
+        self._html("\n".join(h))
 
     def _handle_execute(self):
         try:
@@ -538,8 +827,7 @@ class VMHandler(BaseHTTPRequestHandler):
                     register(tmp_name, script)
                     result = executor.exec(tmp_name, args=args)
                     try:
-                        from pdb_tools import tool_kill
-                        tool_kill({"ns": "ROUTINE", "subs": [tmp_name]})
+                        _m_kill("ROUTINE", [tmp_name])
                     except:
                         pass
             elapsed = (time.time() - start) * 1000

@@ -81,6 +81,9 @@ pub struct VmState {
     pub yield_future: Option<u64>,
     #[serde(default)]
     pub return_value: Option<Value>,
+    /// $ZH: UNIX timestamp al crear el VM (para elapsed time)
+    #[serde(default)]
+    pub zh_start: f64,
     // ── Multi-fiber scheduler ───────────────────────────────────
     #[serde(default)]
     pub fibers: Vec<FiberState>,
@@ -123,6 +126,10 @@ impl VmState {
             yield_requested: false,
             yield_future: None,
             return_value: None,
+            zh_start: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64(),
             fibers: vec![FiberState::default()],
             active_fiber: 0,
         }
@@ -1310,6 +1317,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 self.horolog_cache = Some(result.clone());
                 return Ok(Value::String(result));
             }
+            "$ZH" => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f64();
+                return Ok(Value::Number(now - self.state.zh_start));
+            }
             _ => {}
         }
         // Try direct key, then flattened local array key (e.g., m("type") → m["type"])
@@ -1420,10 +1434,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let raw_first = args.first().map_or("", String::as_str).trim();
                 if raw_first.starts_with('^') {
                     let (ns, mut subs) = self.parse_global(raw_first, line)?;
-                    let current = subs.pop().and_then(|current| match &current {
-                        Subscript::String(value) if value.is_empty() => None,
-                        _ => Some(current),
-                    });
+                    let current = subs.pop();
                     let direction = args.get(1)
                         .map(|v| self.eval_expr(v, line).map(|x| x.as_number() as i32))
                         .transpose()?
