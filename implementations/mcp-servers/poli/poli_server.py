@@ -792,10 +792,9 @@ def tool_poli_smith(args: dict) -> dict:
     domains_found = list(dict.fromkeys(domains_found))  # dedup
     domains_count = len(domains_found)
     
-    # 4. Ejecutar cada personalidad (secuencial por ahora, fibers después)
+    # 4. Ejecutar personalidades (secuencial, 2 max - cabe en Cloudflare 30s)
     partials = {}
-    for mode in domains_found[:5]:  # límite de 5
-        # Obtener identity de la personalidad
+    for mode in domains_found[:2]:
         r4 = _STATE.exec(
             f'S ^ID=$G(^PERSONALITY("{mode}","identity")) '
             f'S ^P=$G(^PERSONALITY("{mode}","provider")) '
@@ -811,12 +810,11 @@ def tool_poli_smith(args: dict) -> dict:
             elif ns == "P": provider = str(g.get("value", ""))
             elif ns == "M": model = str(g.get("value", ""))
         
-        # Fallback si la personalidad no tiene provider
         if not provider or provider in ("symbolic", "", "None", "0"):
             provider = "deepseek"
             model = "deepseek-v4-flash"
             if not identity:
-                identity = f"Eres un asesor experto en {mode}. Responde con claridad, precision y datos utiles."
+                identity = f"Eres un asesor experto en {mode}. Responde con claridad."
         if not model or model in ("", "None", "0"):
             model = "deepseek-v4-flash"
         esc_msg = mensaje.replace('"', '""')
