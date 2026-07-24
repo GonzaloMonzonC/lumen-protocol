@@ -1219,7 +1219,7 @@ impl Host for MemoryHost {
                 }
                 let mut pending: Vec<(String, u64)> = fids;
                 let mut attempts: u32 = 0;
-                while !pending.is_empty() && attempts < 300 {
+                while !pending.is_empty() && attempts < 600 {
                     attempts += 1;
                     let mut still: Vec<(String, u64)> = Vec::new();
                     for (domain, fid) in pending {
