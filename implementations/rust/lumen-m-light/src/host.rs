@@ -1237,7 +1237,40 @@ impl Host for MemoryHost {
                 for (domain, _) in pending {
                     results.push(format!("[{domain}]: TIMEOUT"));
                 }
-                Ok(Value::String(results.join("\n---\n")))
+                // Síntesis: unificar resultados con LLM final
+                if results.len() <= 1 {
+                    Ok(Value::String(
+                        results.into_iter().next().unwrap_or_default()
+                    ))
+                } else {
+                    let joined = results.join("\n---\n");
+                    let syn_msg = format!(
+                        "Synthesize these expert perspectives into a unified and coherent response. \
+                         Find common ground and integrate all viewpoints:\n\n{}",
+                        joined
+                    );
+                    let syn_sys = "You are a multi-perspective synthesizer. Your task is to unify \
+                        the following expert opinions into a coherent response, finding common ground \
+                        and creative tensions. Generate a synthesis that integrates all perspectives. \
+                        Respond in the same language as the original question.";
+                    match self.llm_fork("deepseek", "deepseek-v4-flash", &syn_msg, syn_sys) {
+                        Ok(syn_fid) => {
+                            let mut attempts = 0u32;
+                            let syn_result = loop {
+                                attempts += 1;
+                                match self.llm_poll(syn_fid) {
+                                    Ok(Some(r)) => break r,
+                                    Ok(None) if attempts < 300 => {
+                                        std::thread::sleep(std::time::Duration::from_millis(100));
+                                    }
+                                    _ => break joined,
+                                }
+                            };
+                            Ok(Value::String(syn_result))
+                        }
+                        Err(_) => Ok(Value::String(joined)),
+                    }
+                }
             }
             _ => Err(format!("Device '{device}:{action}' not supported")),
         }
