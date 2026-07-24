@@ -1,6 +1,6 @@
 use crate::compiler::Compiler;
 use crate::vm::{Execution, FiberState, VmState};
-use crate::{Subscript, Value};
+use crate::{smith::SmithRegistry, Subscript, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -48,6 +48,12 @@ pub struct LlmThreadPool {
     pending: Arc<Mutex<HashMap<u64, WorkItem>>>,
     workers: Vec<std::sync::mpsc::Sender<WorkItem>>,
     next_worker: AtomicUsize,
+}
+
+/// Process-wide Smith session registry (singleton).
+fn global_smith_registry() -> &'static SmithRegistry {
+    static REGISTRY: OnceLock<SmithRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| SmithRegistry::new())
 }
 
 /// Process-wide LLM thread pool (singleton).
@@ -454,7 +460,6 @@ pub trait Host {
 }
 
 // ── MemoryHost ─────────────────────────────────────────────────────
-#[derive(Default)]
 pub struct MemoryHost {
     pub values: BTreeMap<(String, Vec<Subscript>), Value>,
     transactions: Vec<BTreeMap<(String, Vec<Subscript>), Value>>,
@@ -465,6 +470,23 @@ pub struct MemoryHost {
     /// Conexión SQLite opcional. Cuando está presente, get/set/kill/data/order
     /// operan contra SQLite directamente en vez del BTreeMap en memoria.
     sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
+    /// Registry global de sesiones Smith streaming
+    pub smith_registry: Arc<crate::smith::SmithRegistry>,
+}
+
+impl Default for MemoryHost {
+    fn default() -> Self {
+        Self {
+            values: BTreeMap::new(),
+            transactions: Vec::new(),
+            routines: HashMap::new(),
+            input: Vec::new(),
+            locks: HashMap::new(),
+            llm_api_keys: HashMap::new(),
+            sqlite_db: None,
+            smith_registry: Arc::new(global_smith_registry().clone()),
+        }
+    }
 }
 
 impl MemoryHost {
@@ -491,6 +513,7 @@ impl MemoryHost {
             locks: HashMap::new(),
             llm_api_keys: HashMap::new(),
             sqlite_db: Some(Arc::new(Mutex::new(conn))),
+            smith_registry: Arc::new(global_smith_registry().clone()),
         })
     }
 
@@ -1175,113 +1198,327 @@ impl Host for MemoryHost {
             "agent" => {
                 Err("LUMEN device requires minreq feature".to_string())
             }
-            "smith" if action == "orchestrate" => {
-                let msg = args.get(0).map(|v| v.as_string()).unwrap_or_default();
-                let domains_str = args.get(1).map(|v| v.as_string()).unwrap_or_default();
-                let domains: Vec<&str> = domains_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-                if domains.is_empty() {
-                    return Err("Smith: al menos 1 dominio requerido".to_string());
-                }
-                let mut results: Vec<String> = Vec::new();
-                let mut fids: Vec<(String, u64)> = Vec::new();
-                for domain in &domains {
-                    let id_key = [
-                        Subscript::String("PERSONALITY".to_string()),
-                        Subscript::String(domain.to_string()),
-                        Subscript::String("identity".to_string()),
-                    ];
-                    let identity = match self.get("", &id_key) {
-                        Ok(Some(Value::String(s))) => s.clone(),
-                        _ => format!("Eres un asesor experto en {domain}. Responde con claridad."),
-                    };
-                    let prov_key = [
-                        Subscript::String("PERSONALITY".to_string()),
-                        Subscript::String(domain.to_string()),
-                        Subscript::String("provider".to_string()),
-                    ];
-                    let provider = match self.get("", &prov_key) {
-                        Ok(Some(Value::String(s))) if !s.is_empty() && s != "symbolic" => s.clone(),
-                        _ => "deepseek".to_string(),
-                    };
-                    let model_key = [
-                        Subscript::String("PERSONALITY".to_string()),
-                        Subscript::String(domain.to_string()),
-                        Subscript::String("model".to_string()),
-                    ];
-                    let model = match self.get("", &model_key) {
-                        Ok(Some(Value::String(s))) if !s.is_empty() && s != "0" => s.clone(),
-                        _ => "deepseek-v4-flash".to_string(),
-                    };
-                    match self.llm_fork(&provider, &model, &msg, &identity) {
-                        Ok(fid) => fids.push((domain.to_string(), fid)),
-                        Err(e) => results.push(format!("[{domain}]: ERROR: {e}")),
-                    }
-                }
-                let mut pending: Vec<(String, u64)> = fids;
-                let mut attempts: u32 = 0;
-                while !pending.is_empty() && attempts < 600 {
-                    attempts += 1;
-                    let mut still: Vec<(String, u64)> = Vec::new();
-                    for (domain, fid) in pending {
-                        match self.llm_poll(fid) {
-                            Ok(Some(r)) => results.push(format!("[{domain}]: {r}")),
-                            Ok(None) => still.push((domain, fid)),
-                            Err(e) => results.push(format!("[{domain}]: ERROR: {e}")),
+            "smith" => {
+                match action {
+                    "orchestrate" => {
+                        // ── Modo legacy (bloqueante) ────────────────────────
+                        let msg = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let domains_str = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let domains: Vec<&str> = domains_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                        if domains.is_empty() {
+                            return Err("Smith: al menos 1 dominio requerido".to_string());
                         }
-                    }
-                    pending = still;
-                    if !pending.is_empty() {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                }
-                for (domain, _) in pending {
-                    results.push(format!("[{domain}]: TIMEOUT"));
-                }
-                // Síntesis: unificar resultados con LLM final
-                if results.len() <= 1 {
-                    Ok(Value::String(
-                        results.into_iter().next().unwrap_or_default()
-                    ))
-                } else {
-                    // Shorten each result for synthesis prompt (first 300 chars)
-                    let short_results: Vec<String> = results.iter().map(|r| {
-                        if r.len() > 310 {
-                            format!("{}...", &r[..300])
-                        } else {
-                            r.clone()
-                        }
-                    }).collect();
-                    let joined = short_results.join("\n---\n");
-                    let total = results.len();
-                    let syn_msg = format!(
-                        "Synthesize {} expert perspectives into ONE unified, coherent response. \
-                         Find common ground and integrate viewpoints. Respond naturally:\n\n{}",
-                        total, joined
-                    );
-                    let syn_sys = "You synthesize multiple expert perspectives into one coherent answer. \
-                        Keep it concise and natural. Respond in the same language as the question.";
-                    // Reduce poll timeout for synthesis (15s max)
-                    match self.llm_fork("deepseek", "deepseek-v4-flash", &syn_msg, syn_sys) {
-                        Ok(syn_fid) => {
-                            let mut attempts = 0u32;
-                            let syn_result = loop {
-                                attempts += 1;
-                                match self.llm_poll(syn_fid) {
-                                    Ok(Some(r)) => break r,
-                                    Ok(None) if attempts < 150 => {
-                                        std::thread::sleep(std::time::Duration::from_millis(100));
-                                    }
-                                    _ => break joined,
-                                }
+                        let mut results: Vec<String> = Vec::new();
+                        let mut fids: Vec<(String, u64)> = Vec::new();
+                        for domain in &domains {
+                            let id_key = [
+                                Subscript::String("PERSONALITY".to_string()),
+                                Subscript::String(domain.to_string()),
+                                Subscript::String("identity".to_string()),
+                            ];
+                            let identity = match self.get("", &id_key) {
+                                Ok(Some(Value::String(s))) => s.clone(),
+                                _ => format!("Eres un asesor experto en {domain}. Responde con claridad."),
                             };
-                            Ok(Value::String(syn_result))
+                            let prov_key = [
+                                Subscript::String("PERSONALITY".to_string()),
+                                Subscript::String(domain.to_string()),
+                                Subscript::String("provider".to_string()),
+                            ];
+                            let provider = match self.get("", &prov_key) {
+                                Ok(Some(Value::String(s))) if !s.is_empty() && s != "symbolic" => s.clone(),
+                                _ => "deepseek".to_string(),
+                            };
+                            let model_key = [
+                                Subscript::String("PERSONALITY".to_string()),
+                                Subscript::String(domain.to_string()),
+                                Subscript::String("model".to_string()),
+                            ];
+                            let model = match self.get("", &model_key) {
+                                Ok(Some(Value::String(s))) if !s.is_empty() && s != "0" => s.clone(),
+                                _ => "deepseek-v4-flash".to_string(),
+                            };
+                            match self.llm_fork(&provider, &model, &msg, &identity) {
+                                Ok(fid) => fids.push((domain.to_string(), fid)),
+                                Err(e) => results.push(format!("[{domain}]: ERROR: {e}")),
+                            }
                         }
-                        Err(_) => Ok(Value::String(joined)),
+                        let mut pending: Vec<(String, u64)> = fids;
+                        let mut attempts: u32 = 0;
+                        while !pending.is_empty() && attempts < 600 {
+                            attempts += 1;
+                            let mut still: Vec<(String, u64)> = Vec::new();
+                            for (domain, fid) in pending {
+                                match self.llm_poll(fid) {
+                                    Ok(Some(r)) => results.push(format!("[{domain}]: {r}")),
+                                    Ok(None) => still.push((domain, fid)),
+                                    Err(e) => results.push(format!("[{domain}]: ERROR: {e}")),
+                                }
+                            }
+                            pending = still;
+                            if !pending.is_empty() {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                            }
+                        }
+                        for (domain, _) in pending {
+                            results.push(format!("[{domain}]: TIMEOUT"));
+                        }
+                        // Síntesis: unificar resultados con LLM final
+                        if results.len() <= 1 {
+                            Ok(Value::String(
+                                results.into_iter().next().unwrap_or_default()
+                            ))
+                        } else {
+                            // Shorten each result for synthesis prompt (first 300 CHARS, not bytes)
+                            use std::iter::FromIterator;
+                            let short_results: Vec<String> = results.iter().map(|r| {
+                                let chars: Vec<char> = r.chars().collect();
+                                if chars.len() > 310 {
+                                    format!("{}...", String::from_iter(&chars[..300]))
+                                } else {
+                                    r.clone()
+                                }
+                            }).collect();
+                            let joined = short_results.join("\n---\n");
+                            let total = results.len();
+                            let syn_msg = format!(
+                                "Synthesize {} expert perspectives into ONE unified, coherent response. \
+                                 Find common ground and integrate viewpoints. Respond naturally:\n\n{}",
+                                total, joined
+                            );
+                            let syn_sys = "You synthesize multiple expert perspectives into one coherent answer. \
+                                Keep it concise and natural. Respond in the same language as the question.";
+                            match self.llm_fork("deepseek", "deepseek-v4-flash", &syn_msg, syn_sys) {
+                                Ok(syn_fid) => {
+                                    let mut attempts = 0u32;
+                                    let syn_result = loop {
+                                        attempts += 1;
+                                        match self.llm_poll(syn_fid) {
+                                            Ok(Some(r)) => break r,
+                                            Ok(None) if attempts < 150 => {
+                                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                            }
+                                            _ => break joined,
+                                        }
+                                    };
+                                    Ok(Value::String(syn_result))
+                                }
+                                Err(_) => Ok(Value::String(joined)),
+                            }
+                        }
                     }
+                    "stream" => {
+                        // Crear nueva sesión Smith con streaming
+                        let domains_str = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let msg = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let domains: Vec<String> = domains_str.split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if domains.is_empty() {
+                            return Err("Smith stream: al menos 1 dominio requerido".to_string());
+                        }
+                        let registry = global_smith_registry();
+                        let session_id = registry.create_session(&domains);
+                        // Iniciar forks para cada dominio en threads separados
+                        for domain in &domains {
+                            let id_key = [
+                                Subscript::String("PERSONALITY".to_string()),
+                                Subscript::String(domain.clone()),
+                                Subscript::String("identity".to_string()),
+                            ];
+                            let identity = match self.get("", &id_key) {
+                                Ok(Some(Value::String(s))) => s.clone(),
+                                _ => format!("Eres un asesor experto en {domain}. Responde con claridad."),
+                            };
+                            let prov_key = [
+                                Subscript::String("PERSONALITY".to_string()),
+                                Subscript::String(domain.clone()),
+                                Subscript::String("provider".to_string()),
+                            ];
+                            let provider = match self.get("", &prov_key) {
+                                Ok(Some(Value::String(s))) if !s.is_empty() && s != "symbolic" => s.clone(),
+                                _ => "deepseek".to_string(),
+                            };
+                            let model_key = [
+                                Subscript::String("PERSONALITY".to_string()),
+                                Subscript::String(domain.clone()),
+                                Subscript::String("model".to_string()),
+                            ];
+                            let model = match self.get("", &model_key) {
+                                Ok(Some(Value::String(s))) if !s.is_empty() && s != "0" => s.clone(),
+                                _ => "deepseek-v4-flash".to_string(),
+                            };
+                            // Marcar como Pending en el coordinator
+                            global_smith_registry().start_fork(session_id, domain);
+                            // Fork en thread separado
+                            let d = domain.clone();
+                            let p = provider.clone();
+                            let m = model.clone();
+                            let ident = identity.clone();
+                            let q = msg.to_string();
+                            std::thread::spawn(move || {
+                                // Emitir thinking pulse inicial
+                                global_smith_registry().fork_thinking(session_id, &d, &format!("Analizando como {}...", &d));
+                                match crate::host::smith_llm_call(&p, &m, &q, &ident) {
+                                    Ok(response) => {
+                                        global_smith_registry().fork_complete(session_id, &d, &response);
+                                    }
+                                    Err(e) => {
+                                        global_smith_registry().fork_error(session_id, &d, &e);
+                                    }
+                                }
+                            });
+                        }
+                        Ok(Value::String(format!("{}", session_id)))
+                    }
+                    "poll" => {
+                        // Obtener eventos de una sesión
+                        let sid_str = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let session_id: u64 = sid_str.parse().map_err(|_| "Smith poll: session_id inválido".to_string())?;
+                        // Check timeouts first
+                        global_smith_registry().check_session_timeouts(session_id);
+                        match global_smith_registry().poll_session(session_id) {
+                            Some(events) => {
+                                let json_lines: Vec<String> = events.iter().map(|e| e.to_ndjson()).collect();
+                                Ok(Value::String(json_lines.join("\n")))
+                            }
+                            None => Err(format!("Smith: sesión {} no encontrada", session_id)),
+                        }
+                    }
+                    "collect" => {
+                        // Obtener resultados finales y síntesis
+                        let sid_str = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let session_id: u64 = sid_str.parse().map_err(|_| "Smith collect: session_id inválido".to_string())?;
+                        let done = global_smith_registry().session_done(session_id).unwrap_or(true);
+                        if !done {
+                            return Err("Smith collect: forks aún en progreso".to_string());
+                        }
+                        let results = global_smith_registry().session_results(session_id).unwrap_or_default();
+                        let results_str: Vec<String> = results.iter()
+                            .filter_map(|r| r.response.as_ref().map(|resp| format!("[{}]: {}", r.domain, resp)))
+                            .collect();
+                        if results_str.is_empty() {
+                            global_smith_registry().remove_session(session_id);
+                            return Ok(Value::String("(sin resultados)".to_string()));
+                        }
+                        // Síntesis
+                        use std::iter::FromIterator;
+                        let short_results: Vec<String> = results_str.iter().map(|r| {
+                            let chars: Vec<char> = r.chars().collect();
+                            if chars.len() > 310 {
+                                format!("{}...", String::from_iter(&chars[..300]))
+                            } else {
+                                r.clone()
+                            }
+                        }).collect();
+                        let joined = short_results.join("\n---\n");
+                        let total = results_str.len();
+                        let syn_msg = format!(
+                            "Synthesize {} expert perspectives into ONE unified, coherent response. \
+                             Find common ground and integrate viewpoints. Respond naturally:\n\n{}",
+                            total, joined
+                        );
+                        let syn_sys = "You synthesize multiple expert perspectives into one coherent answer. \
+                            Keep it concise and natural.";
+                        let synthesis = match self.llm_fork("deepseek", "deepseek-v4-flash", &syn_msg, syn_sys) {
+                            Ok(syn_fid) => {
+                                let mut attempts = 0u32;
+                                loop {
+                                    attempts += 1;
+                                    match self.llm_poll(syn_fid) {
+                                        Ok(Some(r)) => break r,
+                                        Ok(None) if attempts < 150 => {
+                                            std::thread::sleep(std::time::Duration::from_millis(100));
+                                        }
+                                        _ => break joined,
+                                    }
+                                }
+                            }
+                            Err(_) => joined.clone(),
+                        };
+                        global_smith_registry().set_synthesis(session_id, &synthesis);
+                        global_smith_registry().remove_session(session_id);
+                        Ok(Value::String(synthesis))
+                    }
+                    "status" => {
+                        let sid_str = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let session_id: u64 = sid_str.parse().unwrap_or(0);
+                        if session_id == 0 {
+                            Err("Smith status: session_id requerido".to_string())
+                        } else {
+                            match global_smith_registry().session_status(session_id) {
+                                Some(status) => {
+                                    let lines: Vec<String> = status.iter()
+                                        .map(|(d, s, t)| format!("{}:{}:{}", d, s, if *t { "1" } else { "0" }))
+                                        .collect();
+                                    Ok(Value::String(lines.join("\n")))
+                                }
+                                None => Err(format!("Smith: sesión {} no encontrada", session_id)),
+                            }
+                        }
+                    }
+                    _ => Err(format!("Unknown Smith action: {action}")),
                 }
             }
             _ => Err(format!("Device '{device}:{action}' not supported")),
         }
+    }
+}
+
+// ── Smith fork helper (standalone LLM call para smith:stream threads) ──
+
+/// Función standalone para hacer una LLM call desde un thread Smith.
+/// Usa las env vars OPENROUTER_API_KEY / DEEPSEEK_API_KEY
+pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -> Result<String, String> {
+    let url = match provider.to_lowercase().as_str() {
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+        "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+        _ => return Err(format!("unknown provider: {provider}")),
+    };
+    let key_env = match provider.to_lowercase().as_str() {
+        "openrouter" => "OPENROUTER_API_KEY",
+        "deepseek" => "DEEPSEEK_API_KEY",
+        _ => return Err(format!("unknown provider: {provider}")),
+    };
+    let api_key = std::env::var(key_env).unwrap_or_default();
+    if api_key.is_empty() {
+        return Err(format!("{key_env} no configurada"));
+    }
+    #[cfg(feature = "minreq")]
+    {
+        let body = serde_json::json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.7,
+        });
+        let body_str = serde_json::to_string(&body)
+            .map_err(|e| format!("JSON serialize: {e}"))?;
+        let resp = minreq::post(url)
+            .with_header("Authorization", &format!("Bearer {api_key}"))
+            .with_header("Content-Type", "application/json")
+            .with_body(body_str)
+            .send()
+            .map_err(|e| format!("HTTP error: {e}"))?;
+        if resp.status_code != 200 {
+            let err_text = resp.as_str().unwrap_or("unknown");
+            return Err(format!("API error {}: {}", resp.status_code, err_text));
+        }
+        let json: serde_json::Value = resp.json()
+            .map_err(|e| format!("JSON parse: {e}"))?;
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        Ok(content)
+    }
+    #[cfg(not(feature = "minreq"))]
+    {
+        Err("smith_llm_call requires minreq feature".to_string())
     }
 }
 
@@ -1401,6 +1638,7 @@ impl Clone for MemoryHost {
             locks: self.locks.clone(),
             llm_api_keys: self.llm_api_keys.clone(),
             sqlite_db: None, // SQLite connections can't be cloned
+            smith_registry: self.smith_registry.clone(),
         }
     }
 }

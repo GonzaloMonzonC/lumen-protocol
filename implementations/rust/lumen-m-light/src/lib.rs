@@ -8,6 +8,7 @@ pub mod compiler;
 pub mod compilation;
 pub mod ffi;
 pub mod host;
+pub mod smith;
 pub mod transpiler;
 pub mod value;
 pub mod vm;
