@@ -7,6 +7,11 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::{LazyLock, Mutex};
+
+/// Persistent MVM sessions: keyed by session_id, survives across exec calls.
+/// Keeps the LLM thread pool alive so futures don't get orphaned.
+static SESSIONS: LazyLock<Mutex<HashMap<String, MemoryHost>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Deserialize)]
 pub struct ExecuteRequest {
@@ -36,6 +41,10 @@ pub struct ExecuteRequest {
     pub llm_api_keys: HashMap<String, String>,
     #[serde(default)]
     pub sqlite_path: Option<String>,
+    /// If set, reuses a persistent MemoryHost (LLM pool survives).
+    /// New sessions are auto-created on first use.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +59,9 @@ pub struct ExecuteResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<VmState>,
     pub globals: Vec<GlobalEntry>,
+    /// Echoes back the session_id for the caller to pass on next invocation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl ExecuteResponse {
@@ -61,6 +73,7 @@ impl ExecuteResponse {
             program: None,
             state: None,
             globals: Vec::new(),
+            session_id: None,
         }
     }
 }
@@ -98,34 +111,56 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
         },
     };
 
-    let mut host = if let Some(ref db_path) = request.sqlite_path {
-        match MemoryHost::from_sqlite(db_path) {
-            Ok(h) => h,
-            Err(e) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
-        }
-    } else {
-        MemoryHost::from_entries(request.globals)
-    };
-    for (name, source) in request.routines {
-        host.add_routine(name, source);
-    }
-    for value in request.input {
-        host.push_input(value);
-    }
-    // Set LLM API keys as env vars so the thread pool can read them
+    // ── Set LLM API keys before anything touches the pool ──
     for (provider, key) in &request.llm_api_keys {
         let var_name = format!("{}_API_KEY", provider.to_uppercase());
         std::env::set_var(&var_name, key);
     }
 
+    // ── Obtain or create host (persistent session or fresh) ──
+    let mut sessions_guard;  // holds MutexGuard alive
+    let mut fresh_host: Option<MemoryHost> = None;
+    let host_ref: &mut MemoryHost = if let Some(ref sid) = request.session_id {
+        sessions_guard = Some(SESSIONS.lock().unwrap());
+        let sessions = sessions_guard.as_mut().unwrap();
+        if !sessions.contains_key(sid) {
+            let h = match request.sqlite_path {
+                Some(ref db_path) => match MemoryHost::from_sqlite(db_path) {
+                    Ok(h) => h,
+                    Err(e) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
+                },
+                None => MemoryHost::from_entries(request.globals),
+            };
+            sessions.insert(sid.clone(), h);
+        }
+        sessions.get_mut(sid).unwrap()
+    } else {
+        let h = match request.sqlite_path {
+            Some(ref db_path) => match MemoryHost::from_sqlite(db_path) {
+                Ok(h) => h,
+                Err(e) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
+            },
+            None => MemoryHost::from_entries(request.globals),
+        };
+        fresh_host = Some(h);
+        fresh_host.as_mut().unwrap()
+    };
+    for (name, source) in request.routines {
+        host_ref.add_routine(name, source);
+    }
+    for value in request.input {
+        host_ref.push_input(value);
+    }
+
+    // ── Run VM ──
     let (execution, state) = {
         let mut vm = match request.state {
-            Some(state) => match Vm::resume(program.clone(), state, &mut host) {
+            Some(state) => match Vm::resume(program.clone(), state, host_ref) {
                 Ok(vm) => vm,
                 Err(error) => return ExecuteResponse::error(error.zerror),
             },
             None => {
-                let mut vm = Vm::new(program.clone(), &mut host);
+                let mut vm = Vm::new(program.clone(), host_ref);
                 vm.state.vars = request.vars;
                 vm.state.job_id = request.job_id.unwrap_or_default();
                 vm
@@ -147,7 +182,8 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
         execution: Some(execution),
         program: Some(program),
         state: Some(state),
-        globals: host.entries(),
+        globals: host_ref.entries(),
+        session_id: request.session_id,
     }
 }
 

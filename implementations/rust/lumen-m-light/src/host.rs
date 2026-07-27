@@ -503,10 +503,45 @@ impl MemoryHost {
     pub fn from_sqlite(db_path: &str) -> Result<Self, String> {
         let conn = rusqlite::Connection::open(db_path)
             .map_err(|e| format!("SQLite open({db_path}): {e}"))?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
-            .map_err(|e| format!("SQLite pragma: {e}"))?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA busy_timeout=5000;
+             CREATE TABLE IF NOT EXISTS _globals (
+                 ns TEXT,
+                 subkey TEXT,
+                 value TEXT,
+                 PRIMARY KEY (ns, subkey)
+             )"
+        )
+            .map_err(|e| format!("SQLite pragma/schema: {e}"))?;
+
+        // Load existing data from SQLite into in-memory BTreeMap
+        let mut values: BTreeMap<(String, Vec<Subscript>), Value> = BTreeMap::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT ns, subkey, value FROM _globals") {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                let ns: String = row.get(0)?;
+                let subkey: Vec<u8> = row.get(1)?;
+                let value: String = row.get(2)?;
+                Ok((ns, subkey, value))
+            }) {
+                for row in rows {
+                    if let Ok((ns, subkey_bytes, value_str)) = row {
+                        let parts = decode_subkey(&subkey_bytes);
+                        let subs: Vec<Subscript> = parts.into_iter()
+                            .map(|s| if let Ok(n) = s.parse::<f64>() {
+                                Subscript::Number(n)
+                            } else {
+                                Subscript::String(s)
+                            })
+                            .collect();
+                        values.insert((ns, subs), Value::String(value_str));
+                    }
+                }
+            }
+        }
+
         Ok(Self {
-            values: BTreeMap::new(),
+            values,
             transactions: Vec::new(),
             routines: HashMap::new(),
             input: Vec::new(),
@@ -572,30 +607,14 @@ fn compare_subscripts(a: &[Subscript], b: &[Subscript]) -> std::cmp::Ordering {
 
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
-        if let Some(ref db) = self.sqlite_db {
-            let subkey = encode_subkey(subs);
-            let conn = db.lock().map_err(|e| format!("get lock: {e}"))?;
-            match conn.query_row(
-                "SELECT value FROM _globals WHERE ns=?1 AND subkey=?2",
-                rusqlite::params![ns, subkey],
-                |row| row.get::<_, String>(0),
-            ) {
-                Ok(s) => {
-                    if let Ok(n) = s.trim().parse::<f64>() {
-                        Ok(Some(Value::Number(n)))
-                    } else {
-                        Ok(Some(Value::String(s)))
-                    }
-                }
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(format!("get query: {e}")),
-            }
-        } else {
-            Ok(self.values.get(&(ns.to_string(), subs.to_vec())).cloned())
-        }
+        // Read from in-memory BTreeMap
+        Ok(self.values.get(&(ns.to_string(), subs.to_vec())).cloned())
     }
 
     fn set(&mut self, ns: &str, subs: &[Subscript], value: Value) -> Result<(), String> {
+        // Always update in-memory BTreeMap first
+        self.values.insert((ns.to_string(), subs.to_vec()), value.clone());
+        // Persist to SQLite if available
         if let Some(ref db) = self.sqlite_db {
             let subkey = encode_subkey(subs);
             let val_str = value.as_string();
@@ -605,76 +624,49 @@ impl Host for MemoryHost {
                 rusqlite::params![ns, subkey, val_str],
             )
             .map_err(|e| format!("set: {e}"))?;
-        } else {
-            self.values.insert((ns.to_string(), subs.to_vec()), value);
         }
         Ok(())
     }
 
     fn kill(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
+        // Always update in-memory BTreeMap
+        let before = self.values.len();
+        self.values.retain(|(candidate_ns, candidate), _| {
+            candidate_ns != ns || !is_prefix(subs, candidate)
+        });
+        let count = (before - self.values.len()) as u64;
+        // Persist deletion to SQLite if available
         if let Some(ref db) = self.sqlite_db {
             let subkey = encode_subkey(subs);
             let conn = db.lock().map_err(|e| format!("kill lock: {e}"))?;
             if subs.is_empty() {
-                let deleted = conn
-                    .execute("DELETE FROM _globals WHERE ns=?1", rusqlite::params![ns])
+                conn.execute("DELETE FROM _globals WHERE ns=?1", rusqlite::params![ns])
                     .map_err(|e| format!("kill ns: {e}"))?;
-                Ok(deleted as u64)
             } else {
-                let d1 = conn
+                let _ = conn
                     .execute("DELETE FROM _globals WHERE ns=?1 AND subkey=?2",
-                        rusqlite::params![ns, subkey])
-                    .map_err(|e| format!("kill exact: {e}"))?;
-                let d2 = conn
+                        rusqlite::params![ns, subkey]);
+                let _ = conn
                     .execute("DELETE FROM _globals WHERE ns=?1 AND subkey>?2 AND subkey LIKE ?3",
                         rusqlite::params![ns, subkey, {
                             let mut p = subkey.clone();
                             p.push(b'%');
                             p
-                        }])
-                    .map_err(|e| format!("kill children: {e}"))?;
-                Ok((d1 + d2) as u64)
+                        }]);
             }
-        } else {
-            let before = self.values.len();
-            self.values.retain(|(candidate_ns, candidate), _| {
-                candidate_ns != ns || !is_prefix(subs, candidate)
-            });
-            Ok((before - self.values.len()) as u64)
         }
+        Ok(count)
     }
 
     fn data(&self, ns: &str, subs: &[Subscript]) -> Result<u8, String> {
-        if let Some(ref db) = self.sqlite_db {
-            let subkey = encode_subkey(subs);
-            let conn = db.lock().map_err(|e| format!("data lock: {e}"))?;
-            let own = conn.query_row(
-                "SELECT 1 FROM _globals WHERE ns=?1 AND subkey=?2 LIMIT 1",
-                rusqlite::params![ns, subkey], |_| Ok(true),
-            ).unwrap_or(false);
-            // Children = any subkey that starts with subkey prefix but is not subkey itself
-            let child = conn.query_row(
-                "SELECT 1 FROM _globals WHERE ns=?1 AND subkey>?2 AND subkey LIKE ?3 LIMIT 1",
-                rusqlite::params![ns, subkey, {
-                    let mut p = subkey.clone();
-                    p.push(b'%');
-                    p
-                }], |_| Ok(true),
-            ).unwrap_or(false);
-            Ok(match (own, child) {
-                (true, true) => 11, (true, false) => 1,
-                (false, true) => 10, (false, false) => 0,
-            })
-        } else {
-            let own = self.values.contains_key(&(ns.to_string(), subs.to_vec()));
-            let child = self.values.keys().any(|(candidate_ns, candidate)| {
-                candidate_ns == ns && candidate.len() > subs.len() && is_prefix(subs, candidate)
-            });
-            Ok(match (own, child) {
-                (true, true) => 11, (true, false) => 1,
-                (false, true) => 10, (false, false) => 0,
-            })
-        }
+        let own = self.values.contains_key(&(ns.to_string(), subs.to_vec()));
+        let child = self.values.keys().any(|(candidate_ns, candidate)| {
+            candidate_ns == ns && candidate.len() > subs.len() && is_prefix(subs, candidate)
+        });
+        Ok(match (own, child) {
+            (true, true) => 11, (true, false) => 1,
+            (false, true) => 10, (false, false) => 0,
+        })
     }
 
     fn order(
@@ -684,51 +676,37 @@ impl Host for MemoryHost {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
-        if let Some(ref db) = self.sqlite_db {
-            let conn = db.lock().map_err(|e| format!("order lock: {e}"))?;
-            let mut stmt = conn
-                .prepare("SELECT subkey FROM _globals WHERE ns=?1")
-                .map_err(|e| format!("order prepare: {e}"))?;
-            let rows = stmt
-                .query_map(rusqlite::params![ns], |row| row.get::<_, Vec<u8>>(0))
-                .map_err(|e| format!("order query: {e}"))?;
+        // Collect all subscripts for this ns that are descendants of parent
+        let mut decoded: Vec<Vec<Subscript>> = self.values.keys()
+            .filter(|(candidate_ns, subs)| {
+                candidate_ns == ns && is_prefix(parent, subs) && subs.len() > parent.len()
+            })
+            .map(|(_, subs)| subs.clone())
+            .collect();
 
-            // Collect all subkeys and decode to canonical Vec<Subscript>
-            let mut decoded: Vec<Vec<Subscript>> = Vec::new();
-            for row in rows {
-                let subkey = row.map_err(|e| format!("order row: {e}"))?;
-                let parts = decode_subkey(&subkey);
-                let subs: Vec<Subscript> = parts.into_iter()
-                    .map(|s| if let Ok(n) = s.parse::<f64>() { Subscript::Number(n) } else { Subscript::String(s) })
-                    .collect();
-                if is_prefix(parent, &subs) && subs.len() > parent.len() {
-                    decoded.push(subs);
-                }
-            }
+        // Sort using canonical MUMPS ordering (numbers before strings, ASCII byte compare)
+        decoded.sort_by(|a, b| compare_subscripts(a, b));
 
-            // Sort using canonical MUMPS ordering (numbers before strings, ASCII byte compare)
-            decoded.sort_by(|a, b| compare_subscripts(a, b));
+        let current_vec: Option<Vec<Subscript>> = current.map(|c| {
+            let mut v = parent.to_vec();
+            v.push(c.clone());
+            v
+        });
 
-            let current_vec: Option<Vec<Subscript>> = current.map(|c| {
-                let mut v = parent.to_vec();
-                v.push(c.clone());
-                v
-            });
-
-            if direction >= 0 {
-                for subs in decoded.iter() {
-                    let candidate = &subs[parent.len()];
-                    if let Some(ref cur) = current {
-                        if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
-                            continue;
-                        }
+        if direction >= 0 {
+            for subs in decoded.iter() {
+                let candidate = &subs[parent.len()];
+                if let Some(ref cur) = current {
+                    if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
+                        continue;
                     }
-                    return Ok(Some(candidate.clone()));
                 }
-            } else {
-                for subs in decoded.iter().rev() {
-                    let candidate = &subs[parent.len()];
-                    if let Some(ref cur) = current {
+                return Ok(Some(candidate.clone()));
+            }
+        } else {
+            for subs in decoded.iter().rev() {
+                let candidate = &subs[parent.len()];
+                if let Some(ref cur) = current {
                         if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
                             continue;
                         }
@@ -737,56 +715,6 @@ impl Host for MemoryHost {
                 }
             }
             return Ok(None);
-        }
-
-        // ── Non-SQLite path (BTreeMap) ──
-        let prefix_key = (ns.to_string(), parent.to_vec());
-        let start_key = if let Some(cur) = current {
-            let mut key = parent.to_vec();
-            key.push(cur.clone());
-            (ns.to_string(), key)
-        } else {
-            prefix_key.clone()
-        };
-        if direction >= 0 {
-            for (k, _v) in self.values.range(start_key..) {
-                let (key_ns, key_subs) = k;
-                if key_ns.as_str() != ns { break; }
-                if key_subs.len() <= parent.len() { continue; }
-                if !is_prefix(parent, key_subs) { continue; }
-                let candidate = &key_subs[parent.len()];
-                if let Some(cur) = current {
-                    if candidate.canonical_cmp(cur) == std::cmp::Ordering::Equal {
-                        continue;
-                    }
-                }
-                return Ok(Some(candidate.clone()));
-            }
-            Ok(None)
-        } else {
-            let range: Box<dyn Iterator<Item = _>> = if let Some(cur) = current {
-                let mut key = parent.to_vec();
-                key.push(cur.clone());
-                let start = (ns.to_string(), key);
-                Box::new(self.values.range(..start).rev())
-            } else {
-                Box::new(self.values.range(..).rev())
-            };
-            for (k, _v) in range {
-                let (key_ns, key_subs) = k;
-                if key_ns.as_str() != ns { continue; }
-                if key_subs.len() <= parent.len() { continue; }
-                if !is_prefix(parent, key_subs) { continue; }
-                let candidate = &key_subs[parent.len()];
-                if let Some(cur) = current {
-                    if candidate.canonical_cmp(cur) == std::cmp::Ordering::Equal {
-                        continue;
-                    }
-                }
-                return Ok(Some(candidate.clone()));
-            }
-            Ok(None)
-        }
     }
 
     fn transaction_start(&mut self) -> Result<(), String> {
