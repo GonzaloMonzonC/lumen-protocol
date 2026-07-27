@@ -99,6 +99,7 @@ impl LlmThreadPool {
         let url = match item.provider.to_lowercase().as_str() {
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
             "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+            "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
             _ => return Err(format!("unknown provider: {}", item.provider)),
         };
 
@@ -154,6 +155,7 @@ impl LlmThreadPool {
         let api_key = match provider.to_lowercase().as_str() {
             "openrouter" => std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
             "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+            "lingyi" | "zai" | "yi" => std::env::var("LINGYI_API_KEY").unwrap_or_default(),
             _ => String::new(),
         };
 
@@ -217,6 +219,7 @@ impl LlmThreadPool {
         let api_key = match provider.to_lowercase().as_str() {
             "openrouter" => std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
             "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+            "lingyi" | "zai" | "yi" => std::env::var("LINGYI_API_KEY").unwrap_or_default(),
             _ => String::new(),
         };
 
@@ -1402,11 +1405,13 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
     let url = match provider.to_lowercase().as_str() {
         "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
         "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+        "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
         _ => return Err(format!("unknown provider: {provider}")),
     };
     let key_env = match provider.to_lowercase().as_str() {
         "openrouter" => "OPENROUTER_API_KEY",
         "deepseek" => "DEEPSEEK_API_KEY",
+        "lingyi" | "zai" | "yi" | "01ai" => "LINGYI_API_KEY",
         _ => return Err(format!("unknown provider: {provider}")),
     };
     let api_key = std::env::var(key_env).unwrap_or_default();
