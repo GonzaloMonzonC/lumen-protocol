@@ -196,32 +196,44 @@ class PoliState:
         self.globals = _sanitize_globals(self.globals)
         
         # Cargar Synapse Studio skills desde archivos .mac
-        skills_dir = Path(__file__).resolve().parent / "synapse" / "skills"
-        if skills_dir.exists():
-            mac_files = sorted(skills_dir.glob("*.mac"))
-            for mf in mac_files:
-                try:
-                    code = mf.read_text(encoding="utf-8")
-                    # Quitar líneas de comentario y Q
-                    clean = []
-                    for l in code.split("\n"):
-                        s = l.strip()
-                        if s.startswith(";") or s == " ;" or s == "Q":
-                            continue
-                        clean.append(l)
-                    if clean:
-                        r2 = ml_execute(
-                            "\n".join(clean),
-                            routines=_ROUTINES,
-                            globals_=self.globals,
-                            gas_limit=200000,
-                            sqlite_path=PDB_SQLITE,
-                        )
-                        if r2.get("ok"):
-                            self.globals = r2.get("globals") or []
-                            self.globals = _sanitize_globals(self.globals)
-                except Exception:
-                    pass
+        # Buscar en multiple ubicaciones
+        skills_candidates = [
+            Path(__file__).resolve().parent / "synapse" / "skills",
+            Path(__file__).resolve().parent.parent.parent.parent / "poli" / "scripts" / "synapse" / "skills",
+            Path.home() / "Documents" / "GitHub" / "poli" / "scripts" / "synapse" / "skills",
+        ]
+        for skills_dir in skills_candidates:
+            if skills_dir.exists():
+                mac_files = sorted(skills_dir.glob("*.mac"))
+                for mf in mac_files:
+                    try:
+                        code = mf.read_text(encoding="utf-8")
+                        clean = []
+                        for l in code.split("\n"):
+                            s = l.strip()
+                            if s.startswith(";") or s == " ;" or s == "Q":
+                                continue
+                            clean.append(l)
+                        if clean:
+                            r2 = ml_execute(
+                                "\n".join(clean),
+                                routines=_ROUTINES,
+                                globals_=self.globals,
+                                gas_limit=200000,
+                                sqlite_path=PDB_SQLITE,
+                            )
+                            if r2.get("ok") and r2.get("globals"):
+                                # Merge: mantener globals existentes + nuevos
+                                new_globals = {f"{g['ns']}:{g.get('subs',[])}": g 
+                                    for g in self.globals}
+                                for g in r2["globals"]:
+                                    key = f"{g['ns']}:{g.get('subs',[])}"
+                                    new_globals[key] = g
+                                self.globals = list(new_globals.values())
+                                self.globals = _sanitize_globals(self.globals)
+                    except Exception:
+                        pass
+                break  # found a valid skills_dir
         
         return {"ok": r.get("ok"), "error": r.get("state", {}).get("error", {})}
     
@@ -233,6 +245,7 @@ class PoliState:
             globals_=self.globals,
             gas_limit=gas,
             llm_api_keys=_LLM_KEYS,
+            sqlite_path=PDB_SQLITE,
         )
         if r.get("ok"):
             self.globals = r.get("globals") or self.globals
@@ -791,12 +804,12 @@ def tool_poli_smith(args: dict) -> dict:
     
     domains_found = list(dict.fromkeys(domains_found))  # dedup
     domains_count = len(domains_found)
+    max_domains = int(args.get("max_domains", 4))
     
-    # 4. Ejecutar personalidades (secuencial, 2 max - cabe en Cloudflare 30s)
     # 4. Ejecutar personalidades EN PARALELO con fibers MVM
     partials = {}
     fiber_ids = []
-    for i, mode in enumerate(domains_found[:4]):
+    for i, mode in enumerate(domains_found[:max_domains]):
         r4 = _STATE.exec(
             f'S ^ID=$G(^PERSONALITY("{mode}","identity")) '
             f'S ^P=$G(^PERSONALITY("{mode}","provider")) '
@@ -848,17 +861,42 @@ def tool_poli_smith(args: dict) -> dict:
         except Exception:
             partials[mode] = None
     
+    # Nombres legibles para cada modo
+    MODE_LABELS = {
+        "creative": "🎨 Creative (Idea Generator)",
+        "analytical": "📊 Analytical (Data Analyst)",
+        "technical": "⚙️ Technical (Senior Engineer)",
+        "critic": "🔍 Critic (Devil's Advocate)",
+        "engineering-senior-developer": "⚙️ Engineering Senior Developer",
+        "finance-asesor-de-inversiones": "📈 Finance Investment Advisor",
+        "medico-general": "🏥 Medical General Practitioner",
+        "nutricionista-clinico": "🥗 Clinical Nutritionist",
+        "abogado-corporativo": "⚖️ Corporate Lawyer",
+        "education-pedagogo-innovador": "🎓 Innovative Educator",
+        "marketing-growth-hacker": "🚀 Marketing Growth Hacker",
+        "agriculture-director-de-sostenibilidad": "🌱 Sustainability Director",
+        "sales-account-strategist": "💼 Sales Account Strategist",
+    }
+
+    def _label(mode):
+        return MODE_LABELS.get(mode, mode)
+
     # 5. Sintetizar
     if len(partials) <= 1:
-        response = next(iter(partials.values())) if partials else "No se pudieron generar respuestas"
+        mode = next(iter(partials.keys())) if partials else None
+        raw = next(iter(partials.values())) if partials else "No se pudieron generar respuestas"
+        if mode:
+            response = f"[{_label(mode)}]\n{raw}"
+        else:
+            response = raw
     else:
         # Síntesis: unificar respuestas
         synthesis_input = "\n\n".join(
-            f"[{mode}]: {resp}" for mode, resp in partials.items() if resp
+            f"[{_label(mode)}]: {resp}" for mode, resp in partials.items() if resp
         )
         esc_synth = synthesis_input.replace('"', '""')
         esc_q = mensaje.replace('"', '""')
-        synthesis_sys = "Eres un sintetizador de perspectivas múltiples. Tu tarea es unificar las siguientes opiniones de expertos en una respuesta coherente, detectando puntos en común y tensiones creativas. Genera una síntesis que integre todas las perspectivas."
+        synthesis_sys = "Eres un sintetizador de perspectivas múltiples. Tu tarea es unificar las siguientes opiniones de expertos en una respuesta coherente. IMPORTANTE: al inicio de cada aportación experta, DEBES mantener la etiqueta del experto (ej: [Engineering Senior Developer]:) para que quede claro quién opina. Detecta puntos en común y tensiones creativas. Termina con una sección '## Contribuciones' listando qué expertos participaron."
         esc_sys = synthesis_sys.replace('"', '""')
         src = f'S ^R=$DEVICE("llm:call","Sintetiza estas perspectivas para: {esc_q}\\n\\n{esc_synth}","{esc_sys}","deepseek","deepseek-v4-flash")'
         r6 = _STATE.exec(src, gas=200000)
@@ -1094,7 +1132,10 @@ if __name__ == "__main__":
                     # Detectar [Smith] en el mensaje
                     if "[smith]" in msg.lower() or "[sm]" in msg.lower():
                         clean = msg.replace("[Smith]","").replace("[smith]","").replace("[SM]","").replace("[sm]","").strip()
-                        r = tool_poli_smith({"mensaje": clean or msg, "session": sid})
+                        max_d = int(body.get("max_domains", 2))
+                        if max_d < 1: max_d = 1
+                        if max_d > 4: max_d = 4
+                        r = tool_poli_smith({"mensaje": clean or msg, "session": sid, "max_domains": max_d})
                         if r.get("mode") == "smith":
                             return self._json(200, {"ok": True, "mode": "smith", **r, "session_id": sid})
                         # Si Smith delegó a Creative, seguir flujo normal
