@@ -100,28 +100,50 @@ impl LlmThreadPool {
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
             "deepseek" => "https://api.deepseek.com/v1/chat/completions",
             "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
+            "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
             _ => return Err(format!("unknown provider: {}", item.provider)),
         };
 
         #[cfg(feature = "minreq")]
         {
-            let body = serde_json::json!({
-                "model": item.model,
-                "messages": [
-                    {"role": "system", "content": item.system},
-                    {"role": "user", "content": item.prompt}
-                ],
-                "max_tokens": 4096,
-                "temperature": 0.7,
-            });
+            let is_anthropic = item.provider.to_lowercase() == "anthropic";
+            
+            let body = if is_anthropic {
+                serde_json::json!({
+                    "model": item.model,
+                    "max_tokens": 4096,
+                    "system": item.system,
+                    "messages": [
+                        {"role": "user", "content": item.prompt}
+                    ],
+                })
+            } else {
+                serde_json::json!({
+                    "model": item.model,
+                    "messages": [
+                        {"role": "system", "content": item.system},
+                        {"role": "user", "content": item.prompt}
+                    ],
+                    "max_tokens": 4096,
+                    "temperature": 0.7,
+                })
+            };
 
             let body_str = serde_json::to_string(&body)
                 .map_err(|e| format!("JSON serialize error: {e}"))?;
-            let resp = minreq::post(url)
-                .with_header("Authorization", &format!("Bearer {}", item.api_key))
+            
+            let mut req = minreq::post(url)
                 .with_header("Content-Type", "application/json")
-                .with_body(body_str)
-                .send()
+                .with_body(body_str);
+            
+            if is_anthropic {
+                req = req.with_header("x-api-key", &item.api_key)
+                         .with_header("anthropic-version", "2023-06-01");
+            } else {
+                req = req.with_header("Authorization", &format!("Bearer {}", item.api_key));
+            }
+            
+            let resp = req.send()
                 .map_err(|e| format!("HTTP error: {e}"))?;
 
             if resp.status_code != 200 {
@@ -132,10 +154,17 @@ impl LlmThreadPool {
             let json: serde_json::Value = resp.json()
                 .map_err(|e| format!("JSON parse error: {e}"))?;
 
-            let content = json["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
+            let content = if is_anthropic {
+                json["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                json["choices"][0]["message"]["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            };
 
             if let Ok(mut state) = item.state.lock() {
                 *state = LlmFutureStatus::Resolved(content.clone());
@@ -156,6 +185,7 @@ impl LlmThreadPool {
             "openrouter" => std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
             "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
             "lingyi" | "zai" | "yi" => std::env::var("LINGYI_API_KEY").unwrap_or_default(),
+            "anthropic" => std::env::var("ANTHROPIC_AUTH_TOKEN").unwrap_or_default(),
             _ => String::new(),
         };
 
@@ -1406,12 +1436,14 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
         "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
         "deepseek" => "https://api.deepseek.com/v1/chat/completions",
         "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
+        "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
         _ => return Err(format!("unknown provider: {provider}")),
     };
     let key_env = match provider.to_lowercase().as_str() {
         "openrouter" => "OPENROUTER_API_KEY",
         "deepseek" => "DEEPSEEK_API_KEY",
         "lingyi" | "zai" | "yi" | "01ai" => "LINGYI_API_KEY",
+        "anthropic" => "ANTHROPIC_AUTH_TOKEN",
         _ => return Err(format!("unknown provider: {provider}")),
     };
     let api_key = std::env::var(key_env).unwrap_or_default();
@@ -1420,22 +1452,42 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
     }
     #[cfg(feature = "minreq")]
     {
-        let body = serde_json::json!({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 4096,
-            "temperature": 0.7,
-        });
+        let is_anthropic = provider.to_lowercase() == "anthropic";
+        
+        let body = if is_anthropic {
+            serde_json::json!({
+                "model": model,
+                "max_tokens": 4096,
+                "system": system,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+            })
+        } else {
+            serde_json::json!({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 4096,
+                "temperature": 0.7,
+            })
+        };
         let body_str = serde_json::to_string(&body)
             .map_err(|e| format!("JSON serialize: {e}"))?;
-        let resp = minreq::post(url)
-            .with_header("Authorization", &format!("Bearer {api_key}"))
+        
+        let mut req = minreq::post(url)
             .with_header("Content-Type", "application/json")
-            .with_body(body_str)
-            .send()
+            .with_body(body_str);
+        
+        if is_anthropic {
+            req = req.with_header("x-api-key", &api_key)
+                     .with_header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.with_header("Authorization", &format!("Bearer {api_key}"));
+        }
+        let resp = req.send()
             .map_err(|e| format!("HTTP error: {e}"))?;
         if resp.status_code != 200 {
             let err_text = resp.as_str().unwrap_or("unknown");
@@ -1443,15 +1495,18 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
         }
         let json: serde_json::Value = resp.json()
             .map_err(|e| format!("JSON parse: {e}"))?;
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let content = if is_anthropic {
+            json["content"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        } else {
+            json["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        };
         Ok(content)
-    }
-    #[cfg(not(feature = "minreq"))]
-    {
-        Err("smith_llm_call requires minreq feature".to_string())
     }
 }
 
