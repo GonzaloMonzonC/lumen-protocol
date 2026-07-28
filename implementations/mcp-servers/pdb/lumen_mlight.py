@@ -144,7 +144,7 @@ def execute(
         request["slice_gas"] = slice_gas
     response = _call("lm_execute_json", json.dumps(request, ensure_ascii=False))
     # Auto-resume on yield: loop until completed or error
-    max_loops = 300  # ~30s max
+    max_loops = 600  # ~60s max
     loop_count = 0
     import time as _time
     while response.get("execution") == "yielded" and loop_count < max_loops:
