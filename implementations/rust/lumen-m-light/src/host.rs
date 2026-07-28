@@ -1508,6 +1508,10 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
         };
         Ok(content)
     }
+    #[cfg(not(feature = "minreq"))]
+    {
+        Err("smith_llm_call requires minreq feature".to_string())
+    }
 }
 
 // ── HMAC helper ────────────────────────────────────────────────
