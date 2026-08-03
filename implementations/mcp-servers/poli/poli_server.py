@@ -265,8 +265,9 @@ def _load_llm_keys() -> dict[str, str]:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
-                if k == "OPENROUTER_API_KEY": keys["openrouter"] = v
+                if k == "ZAI_API_KEY": keys["zai"] = v
                 elif k == "DEEPSEEK_API_KEY": keys["deepseek"] = v
+                elif k == "OPENROUTER_API_KEY": keys["openrouter"] = v  # legacy
     import os as _os
     if not keys.get("openrouter"):
         val = _os.environ.get("OPENROUTER_API_KEY")
@@ -967,8 +968,8 @@ TOOLS = [
             "properties": {
                 "prompt": {"type": "string", "description": "Prompt para el LLM"},
                 "system": {"type": "string", "description": "System prompt", "default": ""},
-                "provider": {"type": "string", "description": "deepseek (default) u openrouter", "default": "deepseek"},
-                "model": {"type": "string", "description": "deepseek-v4-flash (default) o deepseek-v4-pro", "default": "deepseek-v4-flash"},
+                "provider": {"type": "string", "description": "deepseek (default) | zai (GLM 5.2)", "default": "deepseek"},
+                "model": {"type": "string", "description": "deepseek-v4-flash (default) | glm-5.2 | glm-4.6", "default": "deepseek-v4-flash"},
                 "mode": {"type": "string", "description": "symbolic = sin LLM", "default": ""},
                 "gas_limit": {"type": "integer", "description": "Gas para el MVM", "default": 500000},
             },
