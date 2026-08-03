@@ -180,11 +180,17 @@ class PoliState:
             self.globals = r.get("globals") or self.globals
             self.globals = _sanitize_globals(self.globals)
         
-        # Cargar todos los datos de SQLite a self.globals para que exec() los vea
+        # Cargar datos esenciales de SQLite a self.globals para que exec() los vea.
+        # LIMITADO a namespaces funcionales: los logs masivos (HISTORY/CHANGES)
+        # se cargan bajo demanda, no al arranque (evita colgar la DLL Rust con
+        # payloads de 17K+ globals en el seed).
         try:
             import sqlite3
             db = sqlite3.connect(PDB_SQLITE)
-            rows = db.execute("SELECT ns, subkey, value FROM _globals").fetchall()
+            rows = db.execute(
+                "SELECT ns, subkey, value FROM _globals WHERE ns NOT IN "
+                "('HISTORY', 'CHANGES')"
+            ).fetchall()
             db.close()
             for ns, subkey_b, value in rows:
                 # Decodificar subkey MUMPS → lista de subscripts
@@ -196,6 +202,10 @@ class PoliState:
         self.globals = _sanitize_globals(self.globals)
         
         # Cargar Synapse Studio skills desde archivos .mac
+        # LIMITADO al core: ejecutar 305 skills en import time colgaba la DLL
+        # Rust (payloads enormes). El resto se cargan bajo demanda por exec().
+        _SKILLS_SEED_LIMIT = int(os.environ.get("POLI_SKILLS_SEED_LIMIT", "10"))
+        _skills_seeded = 0
         # Buscar en multiple ubicaciones
         skills_candidates = [
             Path(__file__).resolve().parent / "synapse" / "skills",
@@ -206,6 +216,8 @@ class PoliState:
             if skills_dir.exists():
                 mac_files = sorted(skills_dir.glob("*.mac"))
                 for mf in mac_files:
+                    if _skills_seeded >= _SKILLS_SEED_LIMIT:
+                        break
                     try:
                         code = mf.read_text(encoding="utf-8")
                         clean = []
@@ -222,6 +234,7 @@ class PoliState:
                                 gas_limit=200000,
                                 sqlite_path=PDB_SQLITE,
                             )
+                            _skills_seeded += 1
                             if r2.get("ok") and r2.get("globals"):
                                 # Merge: mantener globals existentes + nuevos
                                 new_globals = {f"{g['ns']}:{g.get('subs',[])}": g 
