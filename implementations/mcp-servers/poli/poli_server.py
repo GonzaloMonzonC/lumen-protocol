@@ -1143,8 +1143,16 @@ if __name__ == "__main__":
                         return self._json(400, {"ok": False, "error": "mensaje required"})
                     sid = body.get("session_id", "http_" + str(_time.time()).replace(".",""))
                     
-                    # Detectar [Smith] en el mensaje
-                    if "[smith]" in msg.lower() or "[sm]" in msg.lower():
+                    # Personalidad explícita por sesión (WLA: routing por contacto/grupo)
+                    mode = str(body.get("mode") or "").strip()
+                    if mode:
+                        try:
+                            _STATE.exec(f'D SWITCH^PERSONALITY("{sid}","{mode}")', gas=10000)
+                        except Exception:
+                            pass
+                    
+                    # Detectar [Smith] en el mensaje (o flag smith=true)
+                    if body.get("smith") or "[smith]" in msg.lower() or "[sm]" in msg.lower():
                         clean = msg.replace("[Smith]","").replace("[smith]","").replace("[SM]","").replace("[sm]","").strip()
                         max_d = int(body.get("max_domains", 2))
                         if max_d < 1: max_d = 1
@@ -1155,9 +1163,46 @@ if __name__ == "__main__":
                         # Si Smith delegó a Creative, seguir flujo normal
                     
                     msg_esc = msg.replace('"', '""')
+                    # Flujo por sesión (como MCP chat): modo → identity → provider/model → llm:call
+                    rp = _STATE.exec(
+                        f'S ^M=$$ACTIVE^PERSONALITY("{sid}") '
+                        f'S ^I=$G(^PERSONALITY($G(^M),"identity")) '
+                        f'S ^P=$G(^PERSONALITY($G(^M),"provider")) '
+                        f'S ^D=$G(^PERSONALITY($G(^M),"model"))',
+                        gas=30000,
+                    )
+                    active = None
+                    identity = ""
+                    provider = ""
+                    model = ""
+                    for g in (rp.get("globals") or []):
+                        ns = g.get("ns")
+                        if ns == "M":
+                            active = g.get("value")
+                        elif ns == "I":
+                            identity = str(g.get("value", ""))
+                        elif ns == "P":
+                            provider = str(g.get("value", ""))
+                        elif ns == "D":
+                            model = str(g.get("value", ""))
+                    if provider and provider not in ("symbolic", "", "None", "0"):
+                        esc_sys = identity.replace('"', '""')
+                        if not model or model in ("", "None", "0"):
+                            model = "deepseek-v4-flash"
+                        rl = _STATE.exec(
+                            f'S ^R=$DEVICE("llm:call","{msg_esc}","{esc_sys}","{provider}","{model}")',
+                            gas=200000,
+                        )
+                        result = None
+                        for g in (rl.get("globals") or []):
+                            if g.get("ns") == "R":
+                                result = g.get("value")
+                                break
+                        if result:
+                            return self._json(200, {"ok": True, "mode": active, "response": result, "session_id": sid})
                     r = _STATE.exec(f'D CHAT^PERSONALITY("{msg_esc}")', gas=200000)
                     response = (r.get("state") or {}).get("output", "").strip() or "Poli no respondio"
-                    return self._json(200, {"ok": True, "response": response, "session_id": sid})
+                    return self._json(200, {"ok": True, "mode": active, "response": response, "session_id": sid})
                 except Exception as e:
                     return self._json(500, {"ok": False, "error": str(e)})
             if self.path == "/v1/exec":
