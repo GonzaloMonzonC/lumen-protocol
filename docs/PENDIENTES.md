@@ -51,6 +51,13 @@ no apareció en la prueba. Mejora menor (P4): el sintetizador renombra a los ase
 como roles genéricos en vez de mantener los nombres del gabinete — ajustar el prompt de
 síntesis para conservar las etiquetas reales (pamies/porto/vega).
 
+**ESTRÉS SUPERADO 2026-08-05 (noche)**: 3 rondas simultáneas (pamies+porto+vega,
+roberto+javier, mixta con Sina) — todas con síntesis OK, sin timeouts, sin huérfanos
+en ^SYNTH (0 en dump), límite 3 asesores respetado (R3 detectó 5, ejecutó 3). El consejo
+delibera en paralelo y sintetiza de forma robusta. Próximo (Fase 1 de Zalo): suite de
+pruebas formales en ^KANBAN registrando inputs, vectores, partials, orden de síntesis
+y score de coherencia antes de abrir Poli a más personalidades.
+
 ---
 
 ## Registro de jornadas
