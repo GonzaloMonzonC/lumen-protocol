@@ -16,19 +16,19 @@ import urllib.error
 logger = logging.getLogger(__name__)
 
 # ── Modelos por modo ─────────────────────────────────────────────────────────
-# deep  → GLM 5.2 (Z.AI) con FALLBACK a DeepSeek (rate-limits de Z.AI por horas)
+# deep  → DeepSeek V4 Pro (thinking profundo) con FALLBACK a V4 Flash
 # fast  → DeepSeek V4 Flash directo (sin OpenRouter)
 # symbolic → razonamiento simbólico MVM puro
 MODELS = {
     "deep": {
-        "model": "glm-5.2",                 # GLM 5.2 — thinking profundo (Z.AI)
-        "provider": "zai",
-        "fallback_model": "deepseek-chat",  # fallback: DeepSeek V4 Flash
+        "model": "deepseek-v4-pro",        # DeepSeek V4 Pro — thinking profundo
+        "provider": "deepseek",
+        "fallback_model": "deepseek-v4-flash",  # fallback: V4 Flash
         "fallback_provider": "deepseek",
-        "description": "Razonamiento profundo (GLM 5.2 / Z.AI, fallback DeepSeek)",
+        "description": "Razonamiento profundo (DeepSeek V4 Pro, fallback Flash)",
     },
     "fast": {
-        "model": "deepseek-chat",           # DeepSeek V4 Flash — trabajo ligero
+        "model": "deepseek-v4-flash",      # DeepSeek V4 Flash — trabajo ligero
         "provider": "deepseek",
         "description": "Razonamiento rápido (DeepSeek V4 Flash)",
     },
