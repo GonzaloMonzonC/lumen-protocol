@@ -257,9 +257,15 @@ class LumenStdioTransport(Transport):
         def _run() -> None:
             try:
                 while True:
-                    # 64 KiB chunks — large enough to amortize syscall cost,
-                    # small enough to keep latency acceptable.
-                    chunk = stdout.read(65536)
+                    # read1(), NOT read(): on Windows pipes BufferedReader.read(N)
+                    # blocks until N bytes or EOF, so small frames (PROBE_ACK ~50B,
+                    # JSON-RPC responses of a few KB) never satisfy it and the
+                    # reader thread deadlocks forever. read1() performs at most
+                    # one raw read and returns as soon as ANY data is available,
+                    # matching the TypeScript stream semantics this was ported from.
+                    # (Regression reintroduced by commit 8108831 "reader thread
+                    # (64KB chunks)" after the original fix in 70370fa.)
+                    chunk = stdout.read1(65536)
                     if chunk is not None:
                         loop.call_soon_threadsafe(self._chunk_queue.put_nowait, chunk)
                     if not chunk:
