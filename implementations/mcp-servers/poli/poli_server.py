@@ -944,7 +944,20 @@ def tool_poli_smith(args: dict) -> dict:
             f"[{_label(mode)}]: {resp}" for mode, resp in partials.items() if resp
         )
         esc_q = mensaje.replace('"', '""')
-        synthesis_sys = "Eres un sintetizador de perspectivas múltiples. Tu tarea es unificar las siguientes opiniones de expertos en una respuesta coherente. IMPORTANTE: al inicio de cada aportación experta, DEBES mantener la etiqueta del experto (ej: [Engineering Senior Developer]:) para que quede claro quién opina. Detecta puntos en común y tensiones creativas. Termina con una sección '## Contribuciones' listando qué expertos participaron."
+        # Etiquetas REALES de los asesores que participan (dinámicas del gabinete)
+        real_labels = ", ".join(f'[{_label(m)}]' for m in partials.keys() if partials.get(m))
+        synthesis_sys = (
+            "Eres un sintetizador de perspectivas múltiples. Tu tarea es unificar las "
+            "siguientes opiniones de expertos en una respuesta coherente. "
+            "REGLAS OBLIGATORIAS: "
+            f"1) Las ÚNICAS etiquetas de experto permitidas son EXACTAMENTE estas: {real_labels}. "
+            "2) NO inventes, renombres ni traduzcas las etiquetas: usa literalmente las que "
+            "aparecen al inicio de cada aportación (entre corchetes). "
+            "3) Al citar a cada experto, mantén su etiqueta original entre corchetes. "
+            "4) Detecta puntos en común y tensiones creativas. "
+            "5) Termina con una sección '## Contribuciones' listando SOLO las etiquetas reales "
+            "de los expertos que participaron, sin modificarlas."
+        )
         # Escribir el texto de síntesis en globales M por trozos (evita reventar
         # el escaping del src con prompts gigantes) y referenciar con $G() en el LLM
         chunk = 2500
