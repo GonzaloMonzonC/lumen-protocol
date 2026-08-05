@@ -43,6 +43,14 @@ bien (~30-60s). La primera prueba multi-asesor (vega+pamies) dio TimeoutError de
 
 **Pendiente**: decidir streaming vs async puro tras medir coste de habilitar streaming.
 
+**Estado 2026-08-05 (noche)**: P3 (síntesis rota) RESUELTO — los partials se escriben en
+globals M por trozos (^SYNTH(n)) y se referencian con $G() en vez de incrustar el prompt
+gigante en el src M. Commit 2fad84a. Prueba multi-asesor (pamies+porto+vega) devolvió
+síntesis unificada completa con puntos comunes, tensiones y contribuciones. El timeout
+no apareció en la prueba. Mejora menor (P4): el sintetizador renombra a los asesores
+como roles genéricos en vez de mantener los nombres del gabinete — ajustar el prompt de
+síntesis para conservar las etiquetas reales (pamies/porto/vega).
+
 ---
 
 ## Registro de jornadas
