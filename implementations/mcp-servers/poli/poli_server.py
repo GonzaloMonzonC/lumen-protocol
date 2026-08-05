@@ -943,17 +943,32 @@ def tool_poli_smith(args: dict) -> dict:
         synthesis_input = "\n\n".join(
             f"[{_label(mode)}]: {resp}" for mode, resp in partials.items() if resp
         )
-        esc_synth = synthesis_input.replace('"', '""')
         esc_q = mensaje.replace('"', '""')
         synthesis_sys = "Eres un sintetizador de perspectivas múltiples. Tu tarea es unificar las siguientes opiniones de expertos en una respuesta coherente. IMPORTANTE: al inicio de cada aportación experta, DEBES mantener la etiqueta del experto (ej: [Engineering Senior Developer]:) para que quede claro quién opina. Detecta puntos en común y tensiones creativas. Termina con una sección '## Contribuciones' listando qué expertos participaron."
+        # Escribir el texto de síntesis en globales M por trozos (evita reventar
+        # el escaping del src con prompts gigantes) y referenciar con $G() en el LLM
+        chunk = 2500
+        trozos = [synthesis_input[i:i+chunk] for i in range(0, len(synthesis_input), chunk)]
+        set_src = " ".join(
+            f'S ^SYNTH({i})="{t.replace(chr(34), chr(34)+chr(34))}"' for i, t in enumerate(trozos, 1)
+        )
+        _STATE.exec(set_src, gas=50000)
+        refs = "_".join(f'$G(^SYNTH({i}))' for i in range(1, len(trozos) + 1))
         esc_sys = synthesis_sys.replace('"', '""')
-        src = f'S ^R=$DEVICE("llm:call","Sintetiza estas perspectivas para: {esc_q}\\n\\n{esc_synth}","{esc_sys}","deepseek","deepseek-v4-flash")'
-        r6 = _STATE.exec(src, gas=200000)
+        src = f'S ^R=$DEVICE("llm:call","Sintetiza estas perspectivas para: {esc_q}\\n\\n"_{refs},"{esc_sys}","deepseek","deepseek-v4-flash")'
+        r6 = _STATE.exec(src, gas=300000)
         response = None
         for g in (r6.get("globals") or []):
             if g.get("ns") == "R":
                 response = g.get("value")
                 break
+        # Limpiar trozos temporales
+        _STATE.exec(" ".join(f'K ^SYNTH({i})' for i in range(1, len(trozos) + 1)), gas=10000)
+        if not response:
+            # Fallback: si la síntesis LLM falla, concatenar los partials con etiquetas
+            response = "\n\n".join(
+                f"[{_label(mode)}]: {resp}" for mode, resp in partials.items() if resp
+            )
     
     return {
         "ok": True,
