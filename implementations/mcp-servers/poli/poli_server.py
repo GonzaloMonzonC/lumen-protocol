@@ -959,11 +959,14 @@ def tool_poli_smith(args: dict) -> dict:
             "de los expertos que participaron, sin modificarlas."
         )
         # Escribir el texto de síntesis en globales M por trozos (evita reventar
-        # el escaping del src con prompts gigantes) y referenciar con $G() en el LLM
+        # el escaping del src con prompts gigantes) y referenciar con $G() en el LLM.
+        # IMPORTANTE: los partials contienen saltos de línea reales que parten el
+        # src M en varias líneas e invalidan el SET — se sustituyen por espacios.
         chunk = 2500
         trozos = [synthesis_input[i:i+chunk] for i in range(0, len(synthesis_input), chunk)]
         set_src = " ".join(
-            f'S ^SYNTH({i})="{t.replace(chr(34), chr(34)+chr(34))}"' for i, t in enumerate(trozos, 1)
+            f'S ^SYNTH({i})="{t.replace(chr(34), chr(34)+chr(34)).replace(chr(10), " ").replace(chr(13), " ")}"'
+            for i, t in enumerate(trozos, 1)
         )
         _STATE.exec(set_src, gas=50000)
         refs = "_".join(f'$G(^SYNTH({i}))' for i in range(1, len(trozos) + 1))
