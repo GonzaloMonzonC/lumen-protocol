@@ -58,6 +58,16 @@ delibera en paralelo y sintetiza de forma robusta. Próximo (Fase 1 de Zalo): su
 pruebas formales en ^KANBAN registrando inputs, vectores, partials, orden de síntesis
 y score de coherencia antes de abrir Poli a más personalidades.
 
+**P4 RESUELTO + BUG SÍNTESIS ENCONTRADO 2026-08-05 (noche)**: 
+- P4 (etiquetas reales): el prompt de síntesis inyecta las etiquetas dinámicas del
+  gabinete (real_labels) como reglas obligatorias — commit 96466ae. Validado: la síntesis
+  conserva [🏗️ Roberto], [🤝 Javier], etc.
+- BUG: los partials no llegaban al sintetizador (pedía "las aportaciones"). Causa raíz
+  PROBADA en el MVM: un SET M con salto de línea real falla (ok:false, execution:error).
+  Los partials con markdown multi-línea rompían S ^SYNTH(n) → $G() vacío → prompt sin
+  aportaciones. Fix: reemplazar \n/\r por espacios al escribir los trozos — commit 825afa9.
+  Validado: síntesis completa con aportaciones + etiquetas reales integradas.
+
 ---
 
 ## Registro de jornadas
