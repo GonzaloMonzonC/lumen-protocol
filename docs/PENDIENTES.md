@@ -26,14 +26,21 @@ Poli activo (mismo proceso), no crear uno nuevo.
 
 ## Registro de jornadas
 
-### 2026-08-05
-- LUMEN MCP: fix config `lumen_thinking` → `server.py` + `transport: stdio` (server_native
+### 2026-08-05 (tarde-noche)
+- **Estabilización Telegram**: gateway relanzado limpio (PID 5920, polling mode, 52 cmd).
+  Causa de la caída: reinicio del gateway a las 22:09 que no volvió a levantarse solo.
+  Bridge único gestionado por watchdog_fabella (:8086/:8087). Cola de updates vaciada.
+  Lección: al reiniciar el gateway hay que verificar que vuelve (arranque manual si no).
+- **LUMEN MCP**: fix config `lumen_thinking` → `server.py` + `transport: stdio` (server_native
   no respondía al handshake JSON-RPC). 81 tools montadas vía lumen-shm-bridge.
-- Personalidades MVM: creadas pamies (finanzas/datos), porto (IA/fullstack) desde perfiles
+- **Personalidades MVM**: creadas pamies (finanzas/datos), porto (IA/fullstack) desde perfiles
   reales del repo cadenceslab. Vega (volatilidad/dispersión) creada tras autopsia de Poli.
-- Autopsia real (5 acciones) → critical_rules ajustadas de roberto/javier/pamies/porto.
-- SMITH CONSEJO: routing del gabinete en `^SMITH("routing",dominio)=asesor`, reglas
+- **Autopsia real** (5 acciones) → critical_rules ajustadas de roberto/javier/pamies/porto.
+- **SMITH CONSEJO**: routing del gabinete en `^SMITH("routing",dominio)=asesor`, reglas
   (max_asesores=3, umbral=0.6, default=poli, consejo_conciliado=1, fibras_paralelas=1).
-- `poli_server.py` actualizado: routing del gabinete (commit 2878e7b).
+- `poli_server.py` actualizado: routing del gabinete + labels (commit 2878e7b).
 - Wiki Poli: "PERSONALIDADES INTERNAS" + "SMITH CONSEJO".
-- Push: lumen-protocol 5002544→2878e7b; cadenceslab-social 037fba3.
+- Push: lumen-protocol 5002544→2878e7b→13dc967; cadenceslab-social 037fba3.
+- Prueba de detección de dominios: 6/6 OK (roberto, javier, pamies, porto, vega, default poli).
+- Pendiente verificación en vivo: Smith con código nuevo tras reinicio del gateway (el MCP
+  server de Poli se relanza con el gateway, así que el nuevo código debería estar activo).
