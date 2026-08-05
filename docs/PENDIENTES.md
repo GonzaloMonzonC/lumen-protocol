@@ -24,6 +24,27 @@ Poli activo (mismo proceso), no crear uno nuevo.
 
 ---
 
+## P2. Timeout de Smith multi-asesor (>300s) (ALTA)
+
+**Problema detectado**: 2026-08-05 — Smith con 2+ asesores del gabinete (fibras LLM
+paralelas + síntesis) excede el timeout de 300s del MCP server. Con 1 asesor responde
+bien (~30-60s). La primera prueba multi-asesor (vega+pamies) dio TimeoutError de 300s.
+
+**Veredicto del equipo** (Tom + Campo + Angi, 2026-08-05):
+- NO parchear timeout, NO limitar asesores (baja calidad del consejo), NO reducir
+  timeout de LLMs (degrada calidad).
+- Solución: **ACK temprano + asíncrono** — el MCP responde al instante `202 + job_id`,
+  las fibras corren en background, entrega posterior (consulta `/status/{job_id}` o
+  aviso al chat cuando la síntesis esté lista).
+- **Streaming con feedback parcial** (Campo): opción para UX ("asesor 1 listo, asesor 2
+  deliberando") con heartbeats; SHM ya acumula resultados parciales; Zalo puede emitir
+  eventos de progreso. Plan B = async puro.
+- Cambio acotado al adaptador MCP de Poli, sin tocar el núcleo de Smith ni el gateway.
+
+**Pendiente**: decidir streaming vs async puro tras medir coste de habilitar streaming.
+
+---
+
 ## Registro de jornadas
 
 ### 2026-08-05 (tarde-noche)
