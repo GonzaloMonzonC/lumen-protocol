@@ -7,7 +7,17 @@
 del MCP server de Poli en vez de conectarse a la existente.
 
 **Impacto**: memoria desperdiciada, estado fragmentado entre instancias, respuestas
-cacheadas de sesiones viejas (vimos una respuesta de otra sesión en un test).
+cacheadas de sesiones anteriores.
+
+**RESUELTO 2026-08-06 (madrugada)**: diagnóstico real — cada reinicio del gateway lanza
+un par de MCP servers nuevo (venv+uv) y los anteriores quedan huérfanos (el gateway
+muerto no mata a sus hijos). Se encontraron 11 procesos acumulados de 6 arranques.
+Limpieza: matados los 9 huérfanos (quedan los 2 del gateway actual). El gateway relanza
+sus MCP automáticamente al detectar la muerte de los suyos (verificado: poli responde,
+351 modos). Prevención: `restart_gateway.py` ahora ejecuta `cleanup_orphan_mcp()` antes
+de relanzar (mata poli_server de gateways muertos). Pendiente opcional: investigar por
+qué el MCP manager lanza 2 procesos (venv+uv) por gateway — probablemente dos entradas
+de config o dos perfiles; no bloquea pero conviene entenderlo.
 
 **Investigación pendiente**:
 - ¿Cómo lanza el MCP manager de Hermes los servers stdio? ¿Por sesión o por proceso?
