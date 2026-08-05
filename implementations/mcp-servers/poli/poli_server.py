@@ -985,7 +985,34 @@ def tool_poli_smith(args: dict) -> dict:
             response = "\n\n".join(
                 f"[{_label(mode)}]: {resp}" for mode, resp in partials.items() if resp
             )
-    
+
+    # ── Registro de deliberación (suite Zalo: ^SMITHLOG) ──────────────────────
+    # Guarda cada deliberación para medir repetibilidad y detectar regresiones.
+    import time as _time
+    ts = _time.strftime("%Y%m%d%H%M%S")
+    asesores = list(partials.keys())
+    n_partials = sum(1 for r in partials.values() if r)
+    len_synth = len(response or "")
+    # Score de coherencia simple: cuántas etiquetas reales aparecen en la síntesis
+    coh = 0
+    if response:
+        for m in asesores:
+            lab = _label(m).split(" (")[0].strip("[]")
+            if lab and lab in response:
+                coh += 1
+    score = round(coh / max(len(asesores), 1), 2)
+    try:
+        _STATE.exec(
+            f'S ^SMITHLOG("{ts}","input")="{esc_q}" '
+            f'S ^SMITHLOG("{ts}","asesores")="{",".join(asesores)}" '
+            f'S ^SMITHLOG("{ts}","partials")="{n_partials}" '
+            f'S ^SMITHLOG("{ts}","synth_len")="{len_synth}" '
+            f'S ^SMITHLOG("{ts}","score")="{score}"',
+            gas=50000,
+        )
+    except Exception:
+        pass  # el registro no debe romper la respuesta
+
     return {
         "ok": True,
         "mode": "smith",
@@ -994,6 +1021,7 @@ def tool_poli_smith(args: dict) -> dict:
         "modes_count": len(domains_found),
         "response": response,
         "partials": partials,
+        "score_coherencia": score,
     }
 
 # ── Definición de herramientas ────────────────────────────────────────────────
