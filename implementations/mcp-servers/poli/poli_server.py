@@ -793,18 +793,47 @@ def tool_poli_smith(args: dict) -> dict:
     q = unicodedata.normalize("NFKD", mensaje.lower()).encode("ascii", "ignore").decode("ascii")
     domains_found = []
     
+    # Leer reglas del consejo desde el MVM (configurables en runtime)
+    r_rules = _STATE.exec(
+        f'S ^MX=$G(^SMITH("regla","max_asesores")) '
+        f'S ^UT=$G(^SMITH("regla","umbral_confianza")) '
+        f'S ^DF=$G(^SMITH("regla","default_si_umbral_no_superado"))',
+        gas=10000,
+    )
+    max_asesores = 3
+    umbral_conf = 0.6
+    default_mode = "poli"
+    for g in (r_rules.get("globals") or []):
+        if g.get("ns") == "MX" and g.get("value"):
+            try: max_asesores = int(str(g.get("value")))
+            except Exception: pass
+        elif g.get("ns") == "UT" and g.get("value"):
+            try: umbral_conf = float(str(g.get("value")))
+            except Exception: pass
+        elif g.get("ns") == "DF" and g.get("value"):
+            default_mode = str(g.get("value"))
+    
     # Palabras clave por dominio → personalidad (todo en minúsculas, sin tildes)
+    # Capa 1: GABINETE INTERNO (roberto, javier, pamies, porto, vega) — consejo conciliado
     domain_keywords = {
+        "roberto": ["estrategia", "estructura", "dependencia", "flujo", "state machine", "orquestacion", "planificacion", "arquitectura de procesos", "orden", "roadmap tecnico"],
+        "javier": ["relacion", "conflicto", "mediar", "comunicacion", "cohesion", "equipo", "friccion", "perspectiva", "narrativa", "colaboracion"],
+        "pamies": ["finanza", "financiero", "inversion", "presupuesto", "contable", "impuesto", "rentabilidad", "capital", "credito", "prestamo", "analitica", "datos", "privacidad", "seguridad de datos", "negocio", "viabilidad economica", "k-anonimato"],
+        "porto": ["implementacion", "fullstack", "desarroll", "programacion", "software", "codigo", "app", "integracion ia", "llm", "automatizacion", "business intelligence", "bi", "produccion", "despliegue", "tecnologia"],
+        "vega": ["volatilidad", "dispersion", "correlacion", "riesgo de mercado", "divergencia", "activos", "btc", "eth", "multi-activo", "concentracion", "mercado"],
+    }
+    # Capa 2: DOMINIOS IMPORTADOS (catálogo Sina)
+    domain_keywords.update({
         "medico-general": ["salud", "medico", "medica", "enfermedad", "sintoma", "hospital", "clinico", "dolor", "paciente", "diagnostico", "tratamiento"],
         "nutricionista-clinico": ["nutricion", "dieta", "alimento", "vitamina", "sobrepeso", "obesidad", "comida", "dietetico"],
         "abogado-corporativo": ["legal", "abogado", "ley", "contrato", "demanda", "tribunal", "litigio", "abogacia", "permiso", "licencia", "normativa", "regulacion", "juridico"],
-        "finance-asesor-de-inversiones": ["finanza", "financiero", "inversion", "ahorro", "presupuesto", "contable", "impuesto", "rentabilidad", "capital", "credito", "prestamo"],
+        "finance-asesor-de-inversiones": ["inversion", "ahorro", "bolsa", "acciones", "portfolio", "diversificacion", "renta fija", "renta variable"],
         "education-pedagogo-innovador": ["educacion", "educativo", "aprender", "ensenar", "curso", "formacion", "estudiante", "pedagogia", "escuela", "colegio", "aula", "docente"],
         "engineering-senior-developer": ["programacion", "software", "codigo", "programa", "desarroll", "app", "algoritmo", "sistema", "tecnologia", "informatico"],
         "marketing-growth-hacker": ["negocio", "empresa", "startup", "emprend", "mercad", "venta", "crecimiento", "cliente", "comercial", "marketing"],
         "agriculture-director-de-sostenibilidad": ["ambiente", "ambiental", "sostenible", "sostenibilidad", "ecologia", "reciclaje", "energia", "carbono", "verde", "renovable", "ecologico", "naturaleza"],
         "sales-account-strategist": ["venta", "cliente", "comercial", "negociacion", "cuenta", "lead", "prospecto"],
-    }
+    })
     
     for personality, keywords in domain_keywords.items():
         for kw in keywords:
@@ -812,13 +841,13 @@ def tool_poli_smith(args: dict) -> dict:
                 domains_found.append(personality)
                 break
     
-    # Si no se detectó nada, usar creative
+    # Si no se detectó nada, usar el default del consejo (poli base por regla MVM)
     if not domains_found:
-        domains_found.append("creative")
+        domains_found.append(default_mode)
     
     domains_found = list(dict.fromkeys(domains_found))  # dedup
     domains_count = len(domains_found)
-    max_domains = int(args.get("max_domains", 4))
+    max_domains = max_asesores  # regla del consejo: máx asesores por consulta
     
     # 4. Ejecutar personalidades EN PARALELO con fibers MVM
     partials = {}
@@ -881,6 +910,12 @@ def tool_poli_smith(args: dict) -> dict:
         "analytical": "📊 Analytical (Data Analyst)",
         "technical": "⚙️ Technical (Senior Engineer)",
         "critic": "🔍 Critic (Devil's Advocate)",
+        "poli": "🌐 Poli (Base)",
+        "roberto": "🏗️ Roberto (Estructura y Dependencias)",
+        "javier": "🤝 Javier (Relaciones y Cohesión)",
+        "pamies": "💼 Pamies (Finanzas y Datos)",
+        "porto": "🚀 Porto (IA y Full-Stack)",
+        "vega": "📡 Vega (Volatilidad y Dispersión)",
         "engineering-senior-developer": "⚙️ Engineering Senior Developer",
         "finance-asesor-de-inversiones": "📈 Finance Investment Advisor",
         "medico-general": "🏥 Medical General Practitioner",
