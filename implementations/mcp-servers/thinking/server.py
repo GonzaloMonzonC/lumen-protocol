@@ -4897,4 +4897,10 @@ def _start_dashboard(port: int = 9876) -> None:
 
 
 if __name__ == "__main__":
+    # Fix import circular: cuando server.py corre como __main__, los módulos
+    # que hacen "import server" (kanban.py, objective_loop.py, etc.) re-importan
+    # server.py como módulo nuevo → atributos como _pdb_save_lock inexistentes
+    # (AttributeError → timeouts MCP). Registrar __main__ como "server" lo evita.
+    import sys as _sys
+    _sys.modules.setdefault("server", _sys.modules["__main__"])
     main()
