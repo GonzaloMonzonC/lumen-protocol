@@ -153,15 +153,28 @@ class PoliState:
         if pdb_routines:
             _ROUTINES.update(pdb_routines)
     
-    def _globals_dict(self) -> dict:
-        """Convierte self.globals a dict para inspección."""
+    def _globals_dict(self, max_entries: int = 300, max_value_len: int = 500) -> dict:
+        """Convierte self.globals a dict para inspección, FILTRADO.
+
+        A) Salta ruido pesado: ^CHANGES (logs de cambios), identities enormes
+        de ^PERSONALITY y valores gigantes. Limita nº de entradas y tamaño.
+        (Fix 2026-08-06: 21K globals ≈ 10.8MB por respuesta → ahogaba el MCP.)
+        """
         g = {}
         for entry in self.globals:
+            if len(g) >= max_entries:
+                break
             ns = entry.get("ns", "")
             subs = entry.get("subs") or []
-            # Construir clave plana para el log
+            if ns == "CHANGES":
+                continue  # logs de cambios: ruido, nunca se inspeccionan
+            if ns == "PERSONALITY" and any("identity" in str(s).lower() for s in subs):
+                continue  # identities de 20-34KB c/u — no para inspección ligera
+            value = entry.get("value")
+            if isinstance(value, str) and len(value) > max_value_len:
+                value = value[:max_value_len] + f"...<truncated {len(value)}>"
             key = f"^{ns}({','.join(str(s) for s in subs)})" if subs else f"^{ns}"
-            g[key] = entry.get("value")
+            g[key] = value
         return g
     
     def seed(self) -> dict:
@@ -340,7 +353,8 @@ def tool_poli_chat(args: dict) -> dict:
                 "ok": r.get("ok"),
                 "active_mode": active,
                 "mensaje": f"Modo activo: {active}" if active else "No hay modo activo",
-                "globals": _STATE._globals_dict(),
+                # B) globals SOLO bajo demanda (fix 2026-08-06: 10MB por respuesta)
+                "globals": _STATE._globals_dict() if args.get("include_globals") else {},
             }
         else:
             r = _STATE.exec(f'D LIST^PERSONALITY(.modes,"") S ^LC=modes', gas=50000)
@@ -475,7 +489,7 @@ def tool_poli_chat(args: dict) -> dict:
         )
         return {
             "ok": r.get("ok"),
-            "globals": _STATE._globals_dict(),
+            "globals": _STATE._globals_dict(),  # A) filtrado (fix 10MB)
             "execution": r.get("execution"),
         }
     
@@ -567,7 +581,7 @@ def tool_poli_status(args: dict) -> dict:
         "active_mode": active,
         "mode_count": int(mode_count) if mode_count else 0,
         "routines_loaded": list(_ROUTINES.keys()),
-        "globals": _STATE._globals_dict(),
+        "globals": _STATE._globals_dict(),  # A) filtrado (fix 10MB)
         "execution": r.get("execution"),
     }
 
