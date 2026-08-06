@@ -27,10 +27,35 @@ de config o dos perfiles; no bloquea pero conviene entenderlo.
 - Ver el watchdog de Poli (¿existe? ¿relanza instancias?): `watchdog_fabella.py` solo
   cubre el bridge MTProto
 
+**RECURRENCIA 2026-08-06 (tarde)**: vuelve a haber 5 `poli_server.py` vivos
+(11244, 15284, 2484, 11820, 14696) pese al cleanup. Síntoma nuevo: el HTTP de Poli
+en :8082 lo atiende un proceso duplicado que devuelve SIEMPRE la misma respuesta
+cacheada en `/v1/chat` (ignora mensajes y sesiones nuevas); el canal MCP habla con
+otro proceso y funciona. → La duplicación vuelve a acumularse; el cleanup del
+`restart_gateway.py` no cubre relanzamientos intermedios. (registrado con Angi)
+
 **Solución deseada**: 1 instancia de Poli. Cuando llega una sesión nueva, hablar con el
 Poli activo (mismo proceso), no crear uno nuevo.
 
 **Referencia**: `config.yaml` → `mcp_servers.poli` ; `poli_server.py` → `_STATE`
+
+---
+
+## P5. Router de keywords de poli_chat con folding de acentos (MEDIA)
+
+**Problema detectado**: 2026-08-06 — el mensaje "Decision clave" (sin acento) disparó
+la rama DECISIONS de `tool_poli_chat` porque "decision" es el fold ASCII de
+"decisión" → creó un `dec_` fantasma (dec_1785985350). La detección de keywords
+normaliza acentos pero no exige límites de palabra, así que cualquier palabra que
+contenga el fold de una keyword (decision, estado, piensa, guarda...) secuestra la
+conversación.
+
+**Fix propuesto**: normalizar texto Y keywords a ASCII, y exigir límites de palabra
+(expresiones tipo `\bkeyword\b`) o al menos que el match no sea substring de una
+palabra más larga con sentido distinto.
+
+**Workaround mientras tanto**: escanear el mensaje normalizado a ASCII contra las
+keywords antes de enviar; reformular ("Eleccion de diseno" en vez de "Decision clave").
 
 ---
 
