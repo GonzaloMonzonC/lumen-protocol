@@ -63,10 +63,16 @@ impl Compiler {
     fn compile_with_opts(source: &str, enable_block_collection: bool) -> Result<Program, String> {
         let mut instructions = Vec::new();
         let mut labels = BTreeMap::new();
-        let lines: Vec<&str> = source.lines().collect();
+        // Dividir por líneas RESPETANDO strings abiertos: si una línea termina
+        // con una comilla sin cerrar (p. ej. un prompt multi-línea dentro de
+        // $DEVICE("llm:call","...")), la siguiente línea es continuación del
+        // string y NO debe compilarse como código M.
+        // Fix 2026-08-09: prompts largos con comillas rompían el parser
+        // (MUNDEF/MFUNCTION) porque source.lines() partía el string.
+        let lines: Vec<String> = split_lines_respecting_strings(source);
         let mut i = 0;
         while i < lines.len() {
-            let raw_line = lines[i];
+            let raw_line = lines[i].as_str();
             let line_number = i + 1;
             let trimmed = strip_comment(raw_line).trim();
             let (dot_count, line) = split_dots(trimmed);
@@ -102,7 +108,7 @@ impl Compiler {
                     let mut body = String::new();
                     let mut j = start;
                     while j < lines.len() {
-                        let raw = strip_comment(lines[j]);
+                        let raw = strip_comment(lines[j].as_str());
                         if raw.trim().is_empty() { j += 1; continue; }
                         let (nd, nline) = split_dots(raw);
                         if nd > base_dots {
@@ -133,7 +139,7 @@ impl Compiler {
                     let mut k = j;
                     // Check if next non-empty line at base dots starts with ELSE/E
                     while k < lines.len() {
-                        let nl = strip_comment(lines[k]).trim();
+                        let nl = strip_comment(lines[k].as_str()).trim();
                         if nl.is_empty() { k += 1; continue; }
                         let (nd, eline) = split_dots(nl);
                         if nd == dot_count {
@@ -168,6 +174,47 @@ impl Compiler {
             source: source.to_string(),
         })
     }
+}
+
+/// Divide el source en líneas lógicas, pero SI una línea termina con un
+/// string M abierto (comilla sin cerrar), continúa acumulando las siguientes
+/// líneas dentro del mismo string. Así un prompt multi-línea embebido en
+/// $DEVICE("llm:call","...") no se parte en comandos M inválidos.
+fn split_lines_respecting_strings(source: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let bytes = source.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'\n' {
+            if quoted {
+                // String abierto: el newline es parte del literal
+                current.push('\n');
+            } else {
+                lines.push(std::mem::take(&mut current));
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' {
+            if quoted && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                // Comilla escapada ("") dentro de string — se conserva tal cual
+                current.push('"');
+                current.push('"');
+                i += 2;
+                continue;
+            }
+            quoted = !quoted;
+        }
+        current.push(b as char);
+        i += 1;
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 fn strip_comment(line: &str) -> &str {
