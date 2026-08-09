@@ -652,7 +652,34 @@ def tool_poli_llm(args: dict) -> dict:
     for g in (r.get("globals") or []):
         if g.get("ns") == "R":
             result = g.get("value")
-            break
+    
+    # ── Fallback HTTP directo si la vía MVM falla ──
+    # Bug real (2026-08-09): prompts largos con comillas dobles o multi-línea
+    # rompen el parser M de lumen_mlight (MUNDEF/MFUNCTION) y la personalidad
+    # devuelve su ejemplo hardcodeado en vez de generar. Si hay error de
+    # ejecución o resultado vacío, llamamos a DeepSeek directamente.
+    exec_err = r.get("state", {}).get("error", {})
+    ecode = exec_err.get("ecode") if isinstance(exec_err, dict) else None
+    exec_failed = (not r.get("ok")) or ecode in ("MUNDEF", "MFUNCTION", "MEXPR", "MSYNTAX")
+    result_empty = result is None or (isinstance(result, str) and not result.strip())
+    
+    if exec_failed or result_empty:
+        try:
+            from poli_gateway import _call_deepseek
+            fb = _call_deepseek(prompt, model=model, system_prompt=system)
+            if fb and fb.get("ok") and fb.get("response"):
+                return {
+                    "ok": True,
+                    "response": fb["response"],
+                    "elapsed": f"{_time.time() - start:.1f}s",
+                    "execution": "fallback_http",
+                    "personality": active_mode,
+                    "mode": f"{provider}/{model}",
+                    "fallback": True,
+                    "error": None,
+                }
+        except Exception as e:
+            print(f"⚠️ [poli_llm] fallback HTTP falló: {e}")
     
     return {
         "ok": r.get("ok"),
