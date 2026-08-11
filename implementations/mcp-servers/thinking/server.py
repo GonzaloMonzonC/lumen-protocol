@@ -2667,11 +2667,13 @@ def tool_agent_message(args: dict) -> dict:
     if len(_agent_messages) > 200:
         _agent_messages[:] = _agent_messages[-200:]
     # Persist to PDB immediately
+    # Fix 2026-08-11: copy-paste de qa_ask usaba qa_id inexistente (_qa_pairs) →
+    # NameError silencioso en except; los mensajes A2A nunca se persistían.
     try:
         import sqlite3, json as _j, os as _os
         _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
-                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+                   ('STATE', f'global:msg:{int(time.time())}'.encode(), _j.dumps(msg).encode()))
         _c.commit(); _c.close()
     except Exception:
         pass
@@ -3096,11 +3098,13 @@ def tool_web_snapshot(args: dict) -> dict:
     _web_snapshots[sid] = {"id":sid,"url":url,"title":result.get("title","")[:200],"content":result.get("content",""),"word_count":result.get("word_count",0),"task_id":tid or None,"created_at":time.time()}
     if tid and tid in _tasks: _tasks[tid].setdefault("references",{}).setdefault("urls",[]).append(url)
     # Persist to PDB immediately
+    # Fix 2026-08-11: mismo copy-paste que agent_message — qa_id no existe aquí;
+    # los snapshots web nunca se persistían en PDB (solo en memoria).
     try:
         import sqlite3, json as _j, os as _os
         _c = _pdb.pdb_connect()
         _c.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
-                   ('STATE', f'global:qa:{qa_id}'.encode(), _j.dumps(_qa_pairs[qa_id]).encode()))
+                   ('STATE', f'global:snap:{sid}'.encode(), _j.dumps(_web_snapshots[sid]).encode()))
         _c.commit(); _c.close()
     except Exception:
         pass
