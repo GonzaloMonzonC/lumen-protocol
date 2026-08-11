@@ -105,6 +105,34 @@ y score de coherencia antes de abrir Poli a más personalidades.
 
 ---
 
+## Plan de Mejora LUMEN — Selección propia (2026-08-11)
+
+**Contexto**: el equipo externo envió un "Plan de Mejora" genérico de consultora (OAuth+SCIM,
+Shadow AI+MDM, Redis/RabbitMQ queue, sagas, marketplace… ~34 semanas / 6 devs). **Decisión de
+Gonzalo: coger solo lo que nos interesa; el resto es generalista y no encaja con el
+posicionamiento (nicho, 0 dependencias externas, single-node).**
+
+**ADOPTADO** (≈8-10 semanas reales, 1 dev + agentes):
+
+| # | Item | Esfuerzo | Estado |
+|---|------|----------|--------|
+| 1 | Graceful Shutdown + Bounded Channels en MVM (mpsc con backpressure, drain de mailbox, persistir estado pendiente) | 1-2 sem | ⏳ pendiente |
+| 2 | Suite de tests formal del thinking server + test env in-memory (time skip, mocking de tools) | 2-3 sem | ⏳ pendiente |
+| 3 | A2A estandarizado: Agent Cards (`/.well-known/agent.json`) + task lifecycle 6 estados (submitted→working→input-required→completed/failed/canceled) — ya tenemos agent_message/inbox y ^TASKS, falta el estándar | 2 sem | ⏳ pendiente |
+| 4 | Auth del dashboard (token simple estilo DDP HMAC; NO OAuth/SCIM) | 1 sem | ⏳ pendiente |
+| 5 | Benchmarks CI con umbral de regresión >5% (cargo bench + benchmark_poli.json en CI) | 1 sem | ⏳ pendiente |
+| 6 | Fuzzing del protocolo LUMEN (frames corruptos, length overflow, zlib bomb) | 2 sem | ⏳ pendiente |
+
+**RECHAZADO** (no encaja / sobreingeniería para el nicho):
+OAuth 2.0 + SCIM, Shadow AI + MDM, Redis/RabbitMQ job queue (rompe 0-deps), sagas +
+compensaciones (prematuro), marketplace de tools (sin ecosistema), SDK Python completo (de
+momento), Redb como storage (ya existe lumen-pdb redb; la migración completa es otro tema).
+
+**Nota**: el score "16.3/20" del equipo flota según cómo se pesen los bugs corregidos; no lo
+tomamos como métrica oficial.
+
+---
+
 ## Registro de jornadas
 
 ### 2026-08-05 (tarde-noche)
@@ -125,3 +153,19 @@ y score de coherencia antes de abrir Poli a más personalidades.
 - Prueba de detección de dominios: 6/6 OK (roberto, javier, pamies, porto, vega, default poli).
 - Pendiente verificación en vivo: Smith con código nuevo tras reinicio del gateway (el MCP
   server de Poli se relanza con el gateway, así que el nuevo código debería estar activo).
+
+### 2026-08-11 (revisión externa + fixes)
+- **Feedback del equipo externo** (3 análisis del ecosistema LUMEN): verificado todo contra el
+  repo. Análisis 1 (compilador M-Light): cifras Python exactas (154/945/v2.1.0), errores en
+  Rust (~1.535 vs 6.727 reales, "sin JIT" falso — existe compilation.rs M→Rust→dll). Análisis 2
+  (agentes MCP): 4.906 líneas exactas, budget 100, dashboard completo, redb en lumen-pdb
+  confirmado; errores: 48 tools vs 81 reales, "4 servidores" (son módulos), Fase D ya
+  implementada. Análisis 3 (veredicto 16.4/20): checklist, budget 3 niveles, SSRF, WS LUMEN
+  confirmados; errores: 88 vs 81 tools (inputSchema), "sin CI/CD" falso (ci.yml existe).
+- **Bug real encontrado por el equipo**: `tool_agent_message` usaba `qa_id` (copy-paste de
+  qa_ask) → NameError silencioso, mensajes A2A nunca persistían. **Bonus propio**:
+  `tool_web_snapshot` tenía el mismo bug. Ambos corregidos (commit fb52fe1).
+- **Fix Smith async anti-timeout MCP 300s** (commit 2113a10): poli_smith_start/status con
+  partials progresivos + guardia 240s en poli_smith. 8 zombies poli_server eliminados.
+- **Decisión**: plan de mejora del equipo → selección propia (6 items adoptados, resto
+  rechazado por generalista). Ver sección "Plan de Mejora LUMEN — Selección propia".
