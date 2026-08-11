@@ -122,6 +122,7 @@ posicionamiento (nicho, 0 dependencias externas, single-node).**
 | 4 | Auth del dashboard (token simple estilo DDP HMAC; NO OAuth/SCIM) | 1 sem | ⏳ pendiente |
 | 5 | Benchmarks CI con umbral de regresión >5% (cargo bench + benchmark_poli.json en CI) | 1 sem | ⏳ pendiente |
 | 6 | Fuzzing del protocolo LUMEN (frames corruptos, length overflow, zlib bomb) | 2 sem | ⏳ pendiente |
+| 7 | Health endpoint `/healthz` con probes del MVM (jobs activos, mailbox depth, último persist, gas) — sugerencia del equipo externo, aceptada; prioridad BAJA | 2 días | ⏳ pendiente |
 
 **RECHAZADO** (no encaja / sobreingeniería para el nicho):
 OAuth 2.0 + SCIM, Shadow AI + MDM, Redis/RabbitMQ job queue (rompe 0-deps), sagas +
