@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json, logging, os, sys
+import threading
 import time as _time
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -818,15 +819,21 @@ def tool_poli_http(args: dict) -> dict:
         "error": r.get("state", {}).get("error"),
     }
 
-def tool_poli_smith(args: dict) -> dict:
+def _smith_pipeline(mensaje: str, session_id: str, max_domains_override: int = 0, emit=None) -> dict:
     """SMITH MODE: orquestación multi-personalidad.
     Analiza la consulta, detecta dominios, activa perfiles expertos en paralelo
-    y sintetiza respuesta unificada.
+    y sintetiza respuesta unificada. `emit(phase, **data)` publica progreso
+    incremental (anti-timeout MCP 300s: partials por asesor conforme llegan).
     """
-    mensaje = args.get("mensaje", "").strip()
     if not mensaje:
         return {"ok": False, "error": "mensaje vacío"}
-    session_id = args.get("session", "hermes")
+    
+    def pub(**kw):
+        if emit:
+            try:
+                emit(**kw)
+            except Exception:
+                pass
     
     # 1. Detectar dominios en Python
     # Normalizar: quitar tildes y convertir a minúsculas
@@ -888,7 +895,8 @@ def tool_poli_smith(args: dict) -> dict:
     
     domains_found = list(dict.fromkeys(domains_found))  # dedup
     domains_count = len(domains_found)
-    max_domains = max_asesores  # regla del consejo: máx asesores por consulta
+    max_domains = max_domains_override or max_asesores  # regla del consejo: máx asesores (override permitido)
+    pub(phase="domains", domains=domains_found[:max_domains], count=domains_count)
     
     # 4. Ejecutar personalidades EN PARALELO con fibers MVM
     partials = {}
@@ -933,7 +941,8 @@ def tool_poli_smith(args: dict) -> dict:
             fiber_ids.append((fid, mode))
     
     # Join todas (paralelo real: se ejecutan simultaneamente, join espera)
-    for fid, mode in fiber_ids:
+    # Publica cada partial conforme llega → polling progresivo (anti-timeout 300s)
+    for n, (fid, mode) in enumerate(fiber_ids, 1):
         try:
             r_join = _STATE.exec(f'S ^JOINR=$FIBER("join",{fid})', gas=500000)
             result = None
@@ -944,6 +953,7 @@ def tool_poli_smith(args: dict) -> dict:
             partials[mode] = result
         except Exception:
             partials[mode] = None
+        pub(phase="partial", mode=mode, done=n, total=len(fiber_ids), partial=partials.get(mode))
     
     # Nombres legibles para cada modo
     MODE_LABELS = {
@@ -972,6 +982,7 @@ def tool_poli_smith(args: dict) -> dict:
         return MODE_LABELS.get(mode, mode)
 
     # 5. Sintetizar
+    pub(phase="synthesis", modes=[m for m, r in partials.items() if r])
     if len(partials) <= 1:
         mode = next(iter(partials.keys())) if partials else None
         raw = next(iter(partials.values())) if partials else "No se pudieron generar respuestas"
@@ -1054,6 +1065,7 @@ def tool_poli_smith(args: dict) -> dict:
     except Exception:
         pass  # el registro no debe romper la respuesta
 
+    pub(phase="done", score=score, modes=list(partials.keys()))
     return {
         "ok": True,
         "mode": "smith",
@@ -1064,6 +1076,146 @@ def tool_poli_smith(args: dict) -> dict:
         "partials": partials,
         "score_coherencia": score,
     }
+
+# ── Smith async (anti-timeout MCP 300s) ──────────────────────────────────────
+# El pipeline publica progreso incremental; se puede lanzar en background y
+# consultar con poli_smith_status. El wrapper síncrono espera como máximo 240s
+# (guardia) y si no termina devuelve job_id + partials parciales para polling.
+# El lock serializa el acceso a _STATE: durante un Smith en marcha, las demás
+# herramientas esperan en vez de corromper el estado compartido de globals.
+_SMITH_EXEC_LOCK = threading.Lock()
+_smith_jobs: dict = {}
+_smith_jobs_lock = threading.Lock()
+_next_smith_job = 0
+
+
+def _new_smith_job(mensaje: str, session_id: str) -> str:
+    global _next_smith_job
+    with _smith_jobs_lock:
+        _next_smith_job += 1
+        job_id = f"smith_{_next_smith_job}"
+        _smith_jobs[job_id] = {
+            "job_id": job_id, "status": "running",
+            "mensaje": mensaje[:100], "session": session_id,
+            "partials": {}, "phases": [],
+            "created_at": _time.time(), "updated_at": _time.time(),
+        }
+        # Prune: jobs terminados con más de 30 min, conservando los últimos 20
+        now = _time.time()
+        old = [j for j, d in _smith_jobs.items()
+               if d.get("status") in ("done", "error") and now - d.get("updated_at", 0) > 1800]
+        for j in sorted(old)[:-20]:
+            _smith_jobs.pop(j, None)
+        return job_id
+
+
+def _run_smith_job(job_id: str, mensaje: str, session_id: str, max_domains: int = 3) -> None:
+    def emit(**kw):
+        with _smith_jobs_lock:
+            job = _smith_jobs.get(job_id)
+            if not job:
+                return
+            job["updated_at"] = _time.time()
+            if kw.get("phase") == "partial":
+                job["partials"][kw["mode"]] = kw.get("partial")
+            job["phases"].append({**kw, "ts": _time.time()})
+    try:
+        with _SMITH_EXEC_LOCK:
+            result = _smith_pipeline(mensaje, session_id, max_domains, emit=emit)
+        with _smith_jobs_lock:
+            job = _smith_jobs.get(job_id)
+            if job:
+                job["status"] = "done"
+                job["result"] = result
+    except Exception as e:
+        with _smith_jobs_lock:
+            job = _smith_jobs.get(job_id)
+            if job:
+                job["status"] = "error"
+                job["error"] = str(e)
+
+
+def _smith_snapshot(job_id: str) -> dict:
+    with _smith_jobs_lock:
+        job = _smith_jobs.get(job_id)
+        if not job:
+            return {"ok": False, "error": f"job no encontrado: {job_id}"}
+        snap = dict(job)
+        snap["elapsed_s"] = round(_time.time() - job.get("created_at", _time.time()), 1)
+        return snap
+
+
+def tool_poli_smith_start(args: dict) -> dict:
+    """Lanza SMITH MODE en background (no bloquea). Devuelve job_id al instante;
+    el progreso (partials por asesor conforme llegan) se consulta con
+    poli_smith_status(job_id=...)."""
+    mensaje = args.get("mensaje", "").strip()
+    if not mensaje:
+        return {"ok": False, "error": "mensaje vacío"}
+    session_id = args.get("session", "hermes")
+    max_d = int(args.get("max_domains", 3) or 3)
+    if max_d < 1:
+        max_d = 1
+    if max_d > 4:
+        max_d = 4
+    job_id = _new_smith_job(mensaje, session_id)
+    t = threading.Thread(target=_run_smith_job, args=(job_id, mensaje, session_id, max_d), daemon=True)
+    t.start()
+    return {"ok": True, "action": "started", "job_id": job_id, "status": "running",
+            "modos": "detectando dominios...",
+            "aviso": "Usa poli_smith_status(job_id=...) para ver el progreso (partials por asesor)"}
+
+
+def tool_poli_smith_status(args: dict) -> dict:
+    """Estado/progreso de un job Smith asíncrono: partials por asesor conforme
+    llegan, fases recorridas y response final cuando termina."""
+    job_id = args.get("job_id", "").strip()
+    if not job_id:
+        return {"ok": False, "error": "job_id requerido"}
+    snap = _smith_snapshot(job_id)
+    if snap.get("ok") is False:
+        return snap
+    status = snap.get("status")
+    out = {"ok": True, "job_id": job_id, "status": status,
+           "elapsed_s": snap.get("elapsed_s"),
+           "partials": snap.get("partials", {}),
+           "phases": snap.get("phases", [])[-8:]}
+    if status == "done":
+        out.update(snap.get("result", {}))
+    elif status == "error":
+        out["error"] = snap.get("error")
+    return out
+
+
+def tool_poli_smith(args: dict) -> dict:
+    """SMITH MODE síncrono con guardia anti-timeout: espera hasta 240s; si el
+    pipeline no termina, devuelve job_id + partials parciales (status running)
+    para continuar con polling vía poli_smith_status."""
+    mensaje = args.get("mensaje", "").strip()
+    if not mensaje:
+        return {"ok": False, "error": "mensaje vacío"}
+    session_id = args.get("session", "hermes")
+    max_d = int(args.get("max_domains", 3) or 3)
+    if max_d < 1:
+        max_d = 1
+    if max_d > 4:
+        max_d = 4
+    job_id = _new_smith_job(mensaje, session_id)
+    t = threading.Thread(target=_run_smith_job, args=(job_id, mensaje, session_id, max_d), daemon=True)
+    t.start()
+    t.join(timeout=240)  # guardia: siempre por debajo del timeout MCP (300s)
+    snap = _smith_snapshot(job_id)
+    if snap.get("ok") is False:
+        return snap
+    if snap.get("status") == "done":
+        result = snap.get("result") or {}
+        return {"ok": True, "mode": "smith", "job_id": job_id, "sync": True, **result}
+    return {"ok": True, "mode": "smith", "job_id": job_id, "sync": False,
+            "status": snap.get("status"),
+            "aviso": "Pipeline en background (guardia 240s): consulta poli_smith_status(job_id=...) para el progreso.",
+            "partials": snap.get("partials", {}),
+            "phases": snap.get("phases", [])[-8:]}
+
 
 # ── Definición de herramientas ────────────────────────────────────────────────
 TOOLS = [
@@ -1162,6 +1314,30 @@ TOOLS = [
             "required": ["mensaje"],
         },
     },
+    {
+        "name": "poli_smith_start",
+        "description": "Lanza SMITH MODE en background (no bloquea). Devuelve job_id al instante; el progreso (partials por asesor) se consulta con poli_smith_status.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mensaje": {"type": "string", "description": "Consulta o problema a analizar"},
+                "session": {"type": "string", "description": "ID de sesión", "default": "hermes"},
+                "max_domains": {"type": "integer", "description": "Máx asesores (1-4)", "default": 3},
+            },
+            "required": ["mensaje"],
+        },
+    },
+    {
+        "name": "poli_smith_status",
+        "description": "Estado/progreso de un job Smith asíncrono: partials por asesor conforme llegan, fases recorridas y response final cuando termina.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "ID del job (de poli_smith_start o poli_smith)"},
+            },
+            "required": ["job_id"],
+        },
+    },
 ]
 
 HANDLERS = {
@@ -1173,6 +1349,8 @@ HANDLERS = {
     "poli_fiber": tool_poli_fiber,
     "poli_http": tool_poli_http,
     "poli_smith": tool_poli_smith,
+    "poli_smith_start": tool_poli_smith_start,
+    "poli_smith_status": tool_poli_smith_status,
 }
 
 # ── Seed automático al arranque ──────────────────────────────────────────────
@@ -1212,7 +1390,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {"listChanged": False, "toolCount": 8},
+                    "tools": {"listChanged": False, "toolCount": 10},
                 },
                 "serverInfo": {"name": "poli-server", "version": "0.1.0"},
             },
