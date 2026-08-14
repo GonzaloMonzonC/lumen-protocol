@@ -573,7 +573,7 @@ class VMHandler(BaseHTTPRequestHandler):
     def _handle_ddp_push(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length).decode() if length else "{}"
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
             if not _verify_ddp(raw, self.headers):
                 self._json({"error": "HMAC auth failed"}, 403)
                 return
@@ -624,10 +624,24 @@ class VMHandler(BaseHTTPRequestHandler):
 
     # ── Web handlers ──
 
+    @staticmethod
+    def _read_json(rfile, length):
+        """Lee body JSON tolerando encodings rotos (Windows/MSYS curl manda
+        cp1252 en vez de UTF-8). Nunca debe reventar el server."""
+        raw = rfile.read(length) if length else b""
+        if not raw:
+            return {}
+        for enc in ("utf-8", "cp1252", "latin-1"):
+            try:
+                return json.loads(raw.decode(enc))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+        return {}
+
     def _handle_web_register(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
+            body = self._read_json(self.rfile, length)
             register_web(body.get("route", ""), body.get("routine", ""))
             self._json({"ok": True})
         except Exception as e:
@@ -636,7 +650,7 @@ class VMHandler(BaseHTTPRequestHandler):
     def _handle_register(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
+            body = self._read_json(self.rfile, length)
             name, code = body.get("name", ""), body.get("code", "")
             if not name or not code:
                 self._json({"error": "name and code required"}, 400)
