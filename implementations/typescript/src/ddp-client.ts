@@ -108,7 +108,7 @@ export async function kanbanNextTaskId(env: any): Promise<number> {
   try {
     const keyStr = (env as any).DDP_HMAC_KEY || ''
     if (!keyStr) return 0
-    const path = '/ddp/raw?ns=KANBAN&subs=counter,next_task&limit=1'
+    const path = '/ddp/raw?ns=KANBAN&prefix=counter&limit=1'
     const ts = String(Math.floor(Date.now() / 1000))
     const sig = await hmacHex(keyStr, ts + path + keyStr)
     const res = await fetch(VM_API + path, {
@@ -118,7 +118,7 @@ export async function kanbanNextTaskId(env: any): Promise<number> {
     if (!res.ok) return 0
     const data = await res.json() as any
     for (const e of data?.entries || []) {
-      if (Array.isArray(e.subs) && e.subs.includes('counter') && e.subs.includes('next_task')) {
+      if (Array.isArray(e.subs) && e.subs[0] === 'counter' && e.subs[1] === 'next_task') {
         const raw = typeof e.value === 'string' ? e.value.replace(/^"|"$/g, '') : String(e.value)
         const n = parseInt(raw, 10)
         if (!isNaN(n)) return n

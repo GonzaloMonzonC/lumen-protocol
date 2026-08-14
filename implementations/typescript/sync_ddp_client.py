@@ -15,7 +15,7 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent.parent  # lumen-protocol/
+ROOT = Path(__file__).resolve().parent.parent.parent  # lumen-protocol/ (implementations/typescript/ → 3 up)
 CANONICAL = ROOT / "implementations" / "typescript" / "src" / "ddp-client.ts"
 
 WORKERS = {
