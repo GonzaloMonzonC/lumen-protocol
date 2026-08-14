@@ -1437,6 +1437,19 @@ if __name__ == "__main__":
     
     class PoliHTTPHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
+        @staticmethod
+        def _read_json(rfile, length):
+            """Lee el body JSON tolerando encodings rotos (Windows/MSYS curl manda
+            cp1252 en vez de UTF-8: ¿ → 0xBF suelto). Nunca debe reventar el server."""
+            raw = rfile.read(length) if length else b""
+            if not raw:
+                return {}
+            for enc in ("utf-8", "cp1252", "latin-1"):
+                try:
+                    return json.loads(raw.decode(enc))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+            return {}
         def _json(self, code, obj):
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
@@ -1450,7 +1463,7 @@ if __name__ == "__main__":
             if self.path == "/v1/chat":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = json.loads(self.rfile.read(length)) if length else {}
+                    body = self._read_json(self.rfile, length)
                     msg = body.get("mensaje") or body.get("message") or ""
                     if not msg:
                         return self._json(400, {"ok": False, "error": "mensaje required"})
@@ -1521,7 +1534,7 @@ if __name__ == "__main__":
             if self.path == "/v1/exec":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = json.loads(self.rfile.read(length)) if length else {}
+                    body = self._read_json(self.rfile, length)
                     code = body.get("code") or body.get("source") or ""
                     if not code:
                         return self._json(400, {"ok": False, "error": "code required"})
@@ -1544,7 +1557,7 @@ if __name__ == "__main__":
             if self.path == "/v1/smith":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = json.loads(self.rfile.read(length)) if length else {}
+                    body = self._read_json(self.rfile, length)
                     msg = body.get("mensaje") or body.get("message") or ""
                     if not msg:
                         return self._json(400, {"ok": False, "error": "mensaje required"})
