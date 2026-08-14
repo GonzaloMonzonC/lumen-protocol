@@ -160,7 +160,10 @@ class SyncEngine:
                     skipped += 1
                     continue
 
-            # Aplicar localmente
+            # Aplicar localmente — LOCAL ES CANÓNICO (regla Gonzalo 14-08-2026):
+            #   - local no existe  → aplicar (el cloud rellena huecos)
+            #   - cloud ESTRICTAMENTE más nuevo (timestamp embebido) → aplicar
+            #   - local existe y es igual/más nuevo (o sin timestamps) → saltar
             try:
                 val = entry_data.get("value", "")
                 # Extraer el valor real si viene envuelto en un entry de journal
@@ -173,7 +176,37 @@ class SyncEngine:
                         if parsed.get("key"):
                             actual_subs = [parsed["key"]]
                 except Exception:
-                    pass
+                    parsed = None
+
+                from pdb_tools import tool_get, tool_set
+
+                def _ts_of(v):
+                    if isinstance(v, dict):
+                        for k in ("saved_at", "updated_at", "timestamp", "ts", "created_at"):
+                            if k in v and isinstance(v[k], (int, float)):
+                                return v[k]
+                    return None
+
+                def _as_dict(v):
+                    if isinstance(v, dict):
+                        return v
+                    if isinstance(v, str):
+                        try:
+                            j = json.loads(v)
+                            return j if isinstance(j, dict) else None
+                        except Exception:
+                            return None
+                    return None
+
+                local_r = tool_get({"ns": actual_ns, "subs": actual_subs})
+                local_val = local_r.get("value") if local_r.get("success") else None
+                if local_val is not None:
+                    lt = _ts_of(_as_dict(local_val))
+                    it = _ts_of(parsed if isinstance(parsed, dict) else _as_dict(actual_val))
+                    # El local manda: solo se aplica si el cloud es ESTRICTAMENTE más nuevo
+                    if lt is None or it is None or it <= lt:
+                        skipped += 1
+                        continue
 
                 tool_set({"ns": actual_ns, "subs": actual_subs, "value": actual_val})
                 applied += 1
