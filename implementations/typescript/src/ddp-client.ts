@@ -44,6 +44,21 @@ export function encodeSubkey(subs: string[]): string {
 
 export const VM_API = 'https://vm-api.cadences.app'
 
+/**
+ * JSON-encode un valor con escapes ASCII (\uXXXX para no-ASCII).
+ * CONVENCIÓN DEL PROTOCOLO: los valores viajan SIEMPRE como JSON ASCII-safe —
+ * el motor M-Light/Rust corrompe literales con unicode real (→ se guarda como
+ * cp1252 mojibake). Los escapes \u round-trippan perfecto (igual que el resto
+ * del store, que ya usa ensure_ascii).
+ */
+export function jsonEsc(v: any): string {
+  const s = JSON.stringify(v)
+  return s.replace(/[^\x00-\x7F]/g, (c) => {
+    const hex = c.charCodeAt(0).toString(16).padStart(4, '0')
+    return '\\u' + hex
+  })
+}
+
 /** POST /ddp/push con HMAC (ts+body+key). Formato nativo de vm_api: subs en claro. */
 export async function pdbPush(env: any, ns: string, entries: PdbEntry[]): Promise<PdbPushResult> {
   try {
@@ -74,13 +89,14 @@ export async function pdbPush(env: any, ns: string, entries: PdbEntry[]): Promis
   }
 }
 
-/** GET /ddp/raw?ns=X&prefix=a,b&limit=N con HMAC (ts+path+key) — lectura canónica */
-export async function pdbRead(env: any, ns: string, prefix?: string[], limit = 200): Promise<any[]> {
+/** GET /ddp/raw?ns=X&prefix=a,b&limit=N&offset=M con HMAC (ts+path+key) — lectura canónica */
+export async function pdbRead(env: any, ns: string, prefix?: string[], limit = 200, offset = 0): Promise<any[]> {
   try {
     const keyStr = (env as any).DDP_HMAC_KEY || ''
     if (!keyStr) return []
     const qs = new URLSearchParams({ ns, limit: String(limit) })
     if (prefix && prefix.length) qs.set('prefix', prefix.join(','))
+    if (offset > 0) qs.set('offset', String(offset))
     const path = '/ddp/raw?' + qs.toString()
     const ts = String(Math.floor(Date.now() / 1000))
     const sig = await hmacHex(keyStr, ts + path + keyStr)
@@ -143,31 +159,37 @@ export async function pdbPushToKanban(env: any, tarea: any): Promise<void> {
   const tid = `task_${next}`
   const st = KANBAN_STATUS_MAP[tarea.estado] || 'backlog'
   await pdbPush(env, 'KANBAN', [
-    { subs: ['task', tid, 'title'], value: JSON.stringify(tarea.titulo) },
-    { subs: ['task', tid, 'status'], value: JSON.stringify(st) },
-    { subs: ['task', tid, 'priority'], value: JSON.stringify(tarea.priority || 'medium') },
-    { subs: ['task', tid, 'niche'], value: JSON.stringify(tarea.niche || 'niche_91') },
-    { subs: ['task', tid, 'owner'], value: JSON.stringify(tarea.owner || tarea.agente || 'hermes') },
-    { subs: ['task', tid, 'desc'], value: JSON.stringify((tarea.detalle || tarea.desc || '').slice(0, 500)) },
-    { subs: ['task', tid, 'src'], value: JSON.stringify(tarea.src || 'ddp-client') },
-    { subs: ['task', tid, 'src_id'], value: JSON.stringify(tarea.id || '') },
-    { subs: ['counter', 'next_task'], value: JSON.stringify(next + 1) },
+    { subs: ['task', tid, 'title'], value: jsonEsc(tarea.titulo) },
+    { subs: ['task', tid, 'status'], value: jsonEsc(st) },
+    { subs: ['task', tid, 'priority'], value: jsonEsc(tarea.priority || 'medium') },
+    { subs: ['task', tid, 'niche'], value: jsonEsc(tarea.niche || 'niche_91') },
+    { subs: ['task', tid, 'owner'], value: jsonEsc(tarea.owner || tarea.agente || 'hermes') },
+    { subs: ['task', tid, 'desc'], value: jsonEsc((tarea.detalle || tarea.desc || '').slice(0, 500)) },
+    { subs: ['task', tid, 'src'], value: jsonEsc(tarea.src || 'ddp-client') },
+    { subs: ['task', tid, 'src_id'], value: jsonEsc(tarea.id || '') },
+    { subs: ['counter', 'next_task'], value: jsonEsc(next + 1) },
   ])
 }
 
-/** Reflejar un cambio de estado de tarea en el KANBAN (busca por src_id). */
+/** Reflejar un cambio de estado de tarea en el KANBAN (busca por src_id, paginado). */
 export async function pdbUpdateKanbanStatus(env: any, srcId: string, estado: string): Promise<void> {
   const st = KANBAN_STATUS_MAP[estado] || 'backlog'
-  const entries = await pdbRead(env, 'KANBAN', ['task'], 500)
-  for (const e of entries) {
-    const s = e.subs || []
-    if (s.length >= 3 && s[0] === 'task' && s[1].startsWith('task_') && s[2] === 'src_id') {
-      let v = e.value
-      if (typeof v === 'string') v = v.replace(/^"|"$/g, '')
-      if (v === srcId) {
-        await pdbPush(env, 'KANBAN', [{ subs: ['task', s[1], 'status'], value: JSON.stringify(st) }])
-        return
+  // El KANBAN tiene miles de entries: paginar con offset hasta encontrar el src_id
+  for (let offset = 0; offset < 12000; offset += 500) {
+    const entries = await pdbRead(env, 'KANBAN', ['task'], 500, offset)
+    if (!entries.length) break
+    let found = false
+    for (const e of entries) {
+      const s = e.subs || []
+      if (s.length >= 3 && s[0] === 'task' && s[1].startsWith('task_') && s[2] === 'src_id') {
+        let v = e.value
+        if (typeof v === 'string') v = v.replace(/^"|"$/g, '')
+        if (v === srcId) {
+          await pdbPush(env, 'KANBAN', [{ subs: ['task', s[1], 'status'], value: jsonEsc(st) }])
+          return
+        }
       }
     }
+    if (!found && entries.length < 500) break
   }
 }
