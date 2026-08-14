@@ -79,8 +79,8 @@ def reindex_kanban():
         statuses = {"backlog": 0, "in_progress": 0, "done": 0}
         prios = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         for tid in task_ids:
-            st = tool_get({"ns": "KANBAN", "subs": ["task", f"task_{tid}", "status"]}).get("value", "").strip('"')
-            pr = tool_get({"ns": "KANBAN", "subs": ["task", f"task_{tid}", "priority"]}).get("value", "").strip('"')
+            st = (tool_get({"ns": "KANBAN", "subs": ["task", f"task_{tid}", "status"]}).get("value") or "").strip('"')
+            pr = (tool_get({"ns": "KANBAN", "subs": ["task", f"task_{tid}", "priority"]}).get("value") or "").strip('"')
             statuses[st] = statuses.get(st, 0) + 1
             prios[pr] = prios.get(pr, 0) + 1
 
