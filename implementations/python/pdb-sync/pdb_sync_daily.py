@@ -23,6 +23,7 @@ Salida (para cron watchdog):
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import _paths  # noqa: F401  # sys.path del stack PDB
@@ -37,6 +38,69 @@ CHECKPOINT = Path(os.environ.get(
 ))
 
 MAX_PAGES = 60  # 60 × 500 = 30k entries por ns — safety
+
+
+def reindex_kanban():
+    """Recomputar ^KANBAN(meta) desde los datos REALES del PDB local.
+
+    El meta es un resumen derivado — tras cada pull debe reflejar el estado real
+    (nº tareas, niches, status, prioridades, saved_at=now), no valores stale.
+    LOCAL ES CANÓNICO.
+    """
+    try:
+        from pdb_tools import tool_order, tool_get, tool_set
+        import re as _re
+
+        def children(ns, prefix):
+            key = ""
+            out = []
+            for _ in range(3000):
+                r = tool_order({"ns": ns, "subs": prefix + [key], "direction": 1})
+                if not r.get("success") or not r.get("value"):
+                    break
+                key = r["value"]
+                out.append(key)
+            return out
+
+        tasks = children("KANBAN", ["task"])
+        task_ids = []
+        for t in tasks:
+            m = _re.match(r"task_(\d+)$", t.strip())
+            if m:
+                task_ids.append(int(m.group(1)))
+        task_ids = sorted(set(task_ids))
+
+        niches = set()
+        for nk in children("KANBAN", ["niche"]):
+            m = _re.match(r"niche_(\d+)$", nk.strip())
+            if m:
+                niches.add(m.group(1))
+
+        statuses = {"backlog": 0, "in_progress": 0, "done": 0}
+        prios = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for tid in task_ids:
+            st = tool_get({"ns": "KANBAN", "subs": ["task", f"task_{tid}", "status"]}).get("value", "").strip('"')
+            pr = tool_get({"ns": "KANBAN", "subs": ["task", f"task_{tid}", "priority"]}).get("value", "").strip('"')
+            statuses[st] = statuses.get(st, 0) + 1
+            prios[pr] = prios.get(pr, 0) + 1
+
+        total = len(task_ids)
+        meta = {
+            "total": total,
+            "niches": len(niches),
+            "done": statuses["done"],
+            "backlog": statuses["backlog"],
+            "in_progress": statuses["in_progress"],
+            "critical": prios["critical"],
+            "high": prios["high"],
+            "medium": prios["medium"],
+            "low": prios["low"],
+            "saved_at": time.time(),
+        }
+        tool_set({"ns": "KANBAN", "subs": ["meta"], "value": json.dumps(meta)})
+        return meta
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def main() -> int:
@@ -81,6 +145,14 @@ def main() -> int:
     if not dry:
         CHECKPOINT.parent.mkdir(parents=True, exist_ok=True)
         CHECKPOINT.write_text(json.dumps(engine.last_sync, indent=2), encoding="utf-8")
+
+    # Tras el pull, el meta del kanban debe reflejar la realidad local (canónico)
+    if not dry:
+        meta = reindex_kanban()
+        if isinstance(meta, dict) and "error" not in meta:
+            report.append(f"↻ KANBAN meta reindexado: {meta.get('total')} tareas, {meta.get('niches')} niches")
+        elif isinstance(meta, dict):
+            report.append(f"⚠ reindex kanban: {meta.get('error')}")
 
     if errors:
         print("ERRORES: " + "; ".join(errors), flush=True)

@@ -115,23 +115,29 @@ class DDPClient:
         """Estado de sync del bridge (HMAC)."""
         return self._get("/ddp/status")
 
-    def pull(self, ns: str, since: str | None = None, batch_size: int = 500) -> dict:
+    def pull(self, ns: str, since: str | None = None, batch_size: int = 500, last_key: str | None = None) -> dict:
         """Pull incremental de un namespace desde `since` (POST /ddp/sync).
 
-        Devuelve {entries: [{key(hex), value, updated_at}], checksum, more, since}.
+        Keyset pagination: pasar `last_key` (hex de la última subkey) cuando
+        `more=True` — evita el estancamiento cuando muchas rows comparten el
+        mismo updated_at (imports masivos).
+
+        Devuelve {entries: [{key(hex), value, updated_at}], checksum, more, since, last_key}.
         """
         if not self.key:
             raise DDPError("DDP_HMAC_KEY no configurada (DDPClient)")
-        return self._post("/ddp/sync", {
-            "ns": ns, "since": since or "1970-01-01", "batch_size": batch_size,
-        })
+        body = {"ns": ns, "since": since or "1970-01-01", "batch_size": batch_size}
+        if last_key:
+            body["last_key"] = last_key
+        return self._post("/ddp/sync", body)
 
     def pull_all(self, ns: str, since: str | None = None, batch_size: int = 500) -> list[dict]:
-        """Pull paginado completo de un namespace."""
+        """Pull paginado completo de un namespace (keyset: timestamp + subkey)."""
         entries: list[dict] = []
         cursor = since or "1970-01-01"
+        last_key = None
         for _ in range(100):  # safety: 100 páginas
-            r = self.pull(ns, since=cursor, batch_size=batch_size)
+            r = self.pull(ns, since=cursor, batch_size=batch_size, last_key=last_key)
             if "error" in r:
                 raise DDPError(f"pull {ns}: {r['error']}")
             batch = r.get("entries", [])
@@ -139,6 +145,9 @@ class DDPClient:
             if not r.get("more"):
                 break
             cursor = r.get("since", cursor)
+            last_key = r.get("last_key")
+            if not last_key:
+                break  # sin cursor de keyset, no podemos avanzar de forma segura
         return entries
 
     def push(self, ns: str, entries: list[dict]) -> dict:

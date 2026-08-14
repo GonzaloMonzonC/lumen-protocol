@@ -111,116 +111,133 @@ class SyncEngine:
         result = self.ddp.push(ns, ddp_entries)
         if "error" not in result:
             cursor_set("push", max(e["seq"] for e in wal_entries))
-            result["cursor"] = max(e["seq"] for e in wal_entries)
-        return result
-    
-    # ── Pull (cloud → local) ──
     def pull_and_apply(self, ns: str) -> dict:
-        """Traer cambios del cloud y aplicarlos localmente.
-        
+        """Traer cambios del cloud y aplicarlos localmente (paginado keyset).
+
+        Paginación compuesta (updated_at + subkey) — sin estancamiento cuando
+        muchas rows comparten el mismo updated_at (imports masivos).
         Anti-bucle: ignora entries con source=local (vinieron de aquí).
+        LOCAL ES CANÓNICO: solo se aplica lo que no existe localmente o lo que
+        el cloud tiene ESTRICTAMENTE más nuevo (timestamp embebido en el valor).
         """
         ok, reason = self._authz(ns, "write")
         if not ok:
             return {"error": f"macaroon: {reason}"}
-        result = self.ddp.pull(ns, since=self.last_sync.get(ns), batch_size=500)
-        if "error" in result:
-            return result
-        
-        entries = result.get("entries", [])
-        applied = 0
-        skipped = 0
 
-        from pdb_tools import tool_set, decode_subkey
+        from pdb_tools import tool_set, tool_get, decode_subkey
 
-        for entry_data in entries:
-            source = entry_data.get("source", "cloud")
+        total_applied = 0
+        total_skipped = 0
+        total_entries = 0
+        cursor = self.last_sync.get(ns)
+        last_key = None
+        last_ts = None
 
-            # ⚠️ Anti-bucle: si el entry vino de "local", lo saltamos
-            if source == self.source:
-                skipped += 1
-                continue
+        for _ in range(100):  # safety: 100 páginas
+            result = self.ddp.pull(ns, since=cursor, batch_size=500, last_key=last_key)
+            if "error" in result:
+                return result
 
-            raw_key = entry_data.get("key", "")
-            if isinstance(raw_key, str) and raw_key and all(c in '0123456789abcdefABCDEF' for c in raw_key):
-                key_bytes = bytes.fromhex(raw_key)
-            else:
-                key_bytes = str(raw_key).encode()
+            entries = result.get("entries", [])
+            total_entries += len(entries)
 
-            # La clave del wire puede ser un string utf-8 simple (SyncEngine)
-            # o una subkey ya codificada con encode_subkey (full_sync)
-            subs = None
-            try:
-                subs = [key_bytes.decode()]
-            except UnicodeDecodeError:
-                try:
-                    subs = decode_subkey(key_bytes)
-                except Exception:
-                    self._log(f"clave no decodificable: {str(raw_key)[:32]}")
-                    skipped += 1
+            for entry_data in entries:
+                source = entry_data.get("source", "cloud")
+
+                # ⚠️ Anti-bucle: si el entry vino de "local", lo saltamos
+                if source == self.source:
+                    total_skipped += 1
                     continue
 
-            # Aplicar localmente — LOCAL ES CANÓNICO (regla Gonzalo 14-08-2026):
-            #   - local no existe  → aplicar (el cloud rellena huecos)
-            #   - cloud ESTRICTAMENTE más nuevo (timestamp embebido) → aplicar
-            #   - local existe y es igual/más nuevo (o sin timestamps) → saltar
-            try:
-                val = entry_data.get("value", "")
-                # Extraer el valor real si viene envuelto en un entry de journal
-                actual_ns, actual_subs, actual_val = ns, subs, val
+                raw_key = entry_data.get("key", "")
+                if isinstance(raw_key, str) and raw_key and all(c in '0123456789abcdefABCDEF' for c in raw_key):
+                    key_bytes = bytes.fromhex(raw_key)
+                else:
+                    key_bytes = str(raw_key).encode()
+
+                # La clave del wire puede ser un string utf-8 simple (SyncEngine)
+                # o una subkey ya codificada con encode_subkey (full_sync)
+                subs = None
                 try:
-                    parsed = json.loads(val)
-                    if isinstance(parsed, dict) and "value" in parsed:
-                        actual_val = parsed["value"]
-                        actual_ns = parsed.get("ns", ns)
-                        if parsed.get("key"):
-                            actual_subs = [parsed["key"]]
-                except Exception:
-                    parsed = None
-
-                from pdb_tools import tool_get, tool_set
-
-                def _ts_of(v):
-                    if isinstance(v, dict):
-                        for k in ("saved_at", "updated_at", "timestamp", "ts", "created_at"):
-                            if k in v and isinstance(v[k], (int, float)):
-                                return v[k]
-                    return None
-
-                def _as_dict(v):
-                    if isinstance(v, dict):
-                        return v
-                    if isinstance(v, str):
-                        try:
-                            j = json.loads(v)
-                            return j if isinstance(j, dict) else None
-                        except Exception:
-                            return None
-                    return None
-
-                local_r = tool_get({"ns": actual_ns, "subs": actual_subs})
-                local_val = local_r.get("value") if local_r.get("success") else None
-                if local_val is not None:
-                    lt = _ts_of(_as_dict(local_val))
-                    it = _ts_of(parsed if isinstance(parsed, dict) else _as_dict(actual_val))
-                    # El local manda: solo se aplica si el cloud es ESTRICTAMENTE más nuevo
-                    if lt is None or it is None or it <= lt:
-                        skipped += 1
+                    subs = [key_bytes.decode()]
+                except UnicodeDecodeError:
+                    try:
+                        subs = decode_subkey(key_bytes)
+                    except Exception:
+                        self._log(f"clave no decodificable: {str(raw_key)[:32]}")
+                        total_skipped += 1
                         continue
 
-                tool_set({"ns": actual_ns, "subs": actual_subs, "value": actual_val})
-                applied += 1
-            except Exception as e:
-                self._log(f"Apply error: {e}")
-        
-        if result.get("since"):
-            self.last_sync[ns] = result["since"]
-        
+                if not subs or (len(subs) == 1 and not subs[0]):
+                    total_skipped += 1
+                    continue
+
+                # ── Aplicar localmente — LOCAL ES CANÓNICO (regla Gonzalo 14-08-2026): ──
+                #   - local no existe  → aplicar (el cloud rellena huecos)
+                #   - cloud ESTRICTAMENTE más nuevo (timestamp embebido) → aplicar
+                #   - local existe y es igual/más nuevo (o sin timestamps) → saltar
+                try:
+                    val = entry_data.get("value", "")
+                    # Extraer el valor real si viene envuelto en un entry de journal
+                    actual_ns, actual_subs, actual_val = ns, subs, val
+                    try:
+                        parsed = json.loads(val)
+                        if isinstance(parsed, dict) and "value" in parsed:
+                            actual_val = parsed["value"]
+                            actual_ns = parsed.get("ns", ns)
+                            if parsed.get("key"):
+                                actual_subs = [parsed["key"]]
+                    except Exception:
+                        parsed = None
+
+                    def _ts_of(v):
+                        if isinstance(v, dict):
+                            for k in ("saved_at", "updated_at", "timestamp", "ts", "created_at"):
+                                if k in v and isinstance(v[k], (int, float)):
+                                    return v[k]
+                        return None
+
+                    def _as_dict(v):
+                        if isinstance(v, dict):
+                            return v
+                        if isinstance(v, str):
+                            try:
+                                j = json.loads(v)
+                                return j if isinstance(j, dict) else None
+                            except Exception:
+                                return None
+                        return None
+
+                    local_r = tool_get({"ns": actual_ns, "subs": actual_subs})
+                    local_val = local_r.get("value") if local_r.get("success") else None
+                    if local_val is not None:
+                        lt = _ts_of(_as_dict(local_val))
+                        it = _ts_of(parsed if isinstance(parsed, dict) else _as_dict(actual_val))
+                        # El local manda: solo se aplica si el cloud es ESTRICTAMENTE más nuevo
+                        if lt is None or it is None or it <= lt:
+                            total_skipped += 1
+                            continue
+
+                    tool_set({"ns": actual_ns, "subs": actual_subs, "value": actual_val})
+                    total_applied += 1
+                except Exception as e:
+                    self._log(f"Apply error: {e}")
+
+            if not result.get("more"):
+                break
+            cursor = result.get("since", cursor)
+            last_key = result.get("last_key")
+            if not last_key:
+                break  # sin cursor de keyset no avanzamos de forma segura
+
+        if cursor:
+            self.last_sync[ns] = cursor
+
         return {
-            "entries": len(entries),
-            "applied": applied,
-            "skipped": skipped,
-            "more": result.get("more", False),
+            "entries": total_entries,
+            "applied": total_applied,
+            "skipped": total_skipped,
+            "more": False,
         }
     
     # ── Sync completo ──
