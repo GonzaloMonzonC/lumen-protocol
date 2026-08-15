@@ -65,14 +65,44 @@
 
 > Gonzalo: *"la buena es Rust"*. Veredicto del equipo (debate Smith `smith_3`, 15-08-2026): **la "MVM Python" no existe como intérprete** — es un bridge + tooling. La documentación debe dejar la jerarquía explícita para que nadie la confunda.
 
-| Capa | Implementación | Rol |
-|---|---|---|
-| **Motor MVM (canónico)** | `implementations/rust/` — `lumen-m-light`, `lumen-mvm`, `lumen-pdb` | Intérprete M, gas, ejecución directa sobre SQLite. **La única MVM.** |
-| **Bridge FFI** | `lumen_mlight.py` (ctypes → DLL Rust, `lm_execute_json`) | Python habla con el motor. Necesario, no es un motor. |
-| **Tooling / servidores** | `pdb-sync/` (cliente DDP, motor de sync, vm_api), `poli_server.py`, MCP servers | Orquestación, HTTP, scripts. Nada de esto ejecuta M de forma canónica. |
+### Arquitectura de capas (Layered Architecture of Lumen-Protocol)
 
-**Qué aporta la capa Python**: sincronización edge↔local, HTTP APIs (vm-api/poli), tooling operativo, scripting rápido, MCP.
-**Qué NO aporta**: ejecución de M. Cualquier intención de "MVM en Python" es un anti-patrón — el motor es Rust, punto.
+```text
+┌──────────────────────────────────────────────────────────────┐
+│  CAPA 4: APLICACIONES / AGENTES (Python — Business Logic)   │
+│  MCP Servers, pdb-sync (orquestación), vm_api/poli_server   │
+│  (Contienen lógica de flujo, pero NO ejecutan M).           │
+├──────────────────────────────────────────────────────────────┤
+│  CAPA 3: ACCESO / BINDINGS (Python — Thin Client)           │
+│  lumen_mlight.py (ctypes FFI)                               │
+│  [SOLO enlaza con la DLL Rust. No implementa nada.]         │
+├──────────────────────────────────────────────────────────────┤
+│  CAPA 2: LÓGICA DE NEGOCIO CORE (Rust — Exports)            │
+│  MVM (intérprete, gas, ejecución de opcodes)                │
+│  lumen-pdb (SQLite directo, persistencia)                   │
+├──────────────────────────────────────────────────────────────┤
+│  CAPA 1: RUNTIME / EMBEBIDO (Rust — Binary)                 │
+│  lumen-m-light (motor ejecutable)                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Reglas de documentación (para matar la confusión)
+1. **El motor MVM canónico es Rust.** La capa Python es binding + orquestación. **No existe "MVM Python" como motor de producción** — prohibido ese término en docs/código; usar "Python Bindings for MVM Core" / "Orchestration Layer".
+2. **⚠️ Estado real (15-08-2026)**: SÍ existe un evaluador M en Python — `m_light.py` (MUMPS evaluator, `MEvaluator`) — y es el **DEFAULT en `pdb_tools.py`** (`MLIGHT_ENGINE` default `"python"`). Es **legacy**: camino histórico de compatibilidad MSM. La estrategia es **Rust-first**: `execute_sqlite(sqlite_path=...)` = modo directo Rust (lo que usa vm_api, el camino canónico), y `MLIGHT_ENGINE=rust` para el resto. El roadmap (debate Smith `smith_3`) es **invertir el default a `rust`** tras verificar paridad de tests.
+3. **Responsabilidades**: Rust = semántica de M, gas metering, persistencia SQLite, estado global · Python = I/O, HTTP, procesos, integración ML/LLM, sync, CLI.
+4. **Contrato de dependencia**: `lumen_mlight.py` lleva el header "FFI wrapper — los bugs de lógica M se reportan al repo Rust".
+5. **Versionado atado**: la versión del paquete Python referencia el hash del commit de la DLL Rust que envuelve (ej: `lumen_py-1.2.0 (binds lumen-mvm-core rev a4b9c)`).
+
+### Qué aporta cada capa Python
+| Componente | Rol | ¿Aporta? |
+|---|---|---|
+| `lumen_mlight.py` (ctypes FFI) | Driver de cliente (como psycopg2→PostgreSQL) | Sí — puerta de entrada al motor desde Python/LLMs |
+| `pdb-sync` (DDP + sync) | Orquestador de datos edge↔local | Sí — transporte/reconciliación |
+| `vm_api` / `poli_server` | Capa de APIs HTTP | Sí — expone el motor como servicio |
+| MCP Servers | Capa de Agentes (LLMs consumen MCP) | Sí — **el oro**: sin esto los LLM no tocan el motor |
+| Benches | Calidad/CI | Sí |
+
+**Veredicto del equipo**: la capa Python **NO sobra** — aporta el ecosistema (adopción LLM, HTTP, sync). Rust gana en velocidad/seguridad; Python gana en velocidad de desarrollo y adopción. Lo que sobra es CUALQUIER intención de "MVM en Python".
 
 ---
 
