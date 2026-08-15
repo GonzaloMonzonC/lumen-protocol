@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """ctypes binding for the Rust M-Light compiler and resumable VM.
 
+⚠️ CONTRATO DE DEPENDENCIA: este módulo es un FFI wrapper de la DLL Rust.
+Los bugs de lógica M se reportan al repo Rust (implementations/rust/),
+NO aquí. La "MVM" es Rust; Python es binding + orquestación (ver
+docs/SSOT_ARQUITECTURA.md §4 — Layered Architecture).
+
 The Rust VM never opens a database. ``execute_sqlite`` snapshots only the
 referenced namespaces and writes the final diff through ``pdb_tools`` so the
 canonical SQLite engine keeps owning encoding, triggers, indices and journal.
-The default production evaluator remains Python unless ``MLIGHT_ENGINE=rust``.
+Legacy note: `pdb_tools` defaults to the Python evaluator (`m_light.py`)
+unless ``MLIGHT_ENGINE=rust`` — Rust-first es la estrategia (roadmap:
+invertir el default tras verificar paridad de tests).
 """
 
 from __future__ import annotations
