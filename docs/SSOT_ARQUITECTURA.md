@@ -88,7 +88,7 @@
 
 ### Reglas de documentación (para matar la confusión)
 1. **El motor MVM canónico es Rust.** La capa Python es binding + orquestación. **No existe "MVM Python" como motor de producción** — prohibido ese término en docs/código; usar "Python Bindings for MVM Core" / "Orchestration Layer".
-2. **⚠️ Estado real (15-08-2026)**: SÍ existe un evaluador M en Python — `m_light.py` (MUMPS evaluator, `MEvaluator`) — y es el **DEFAULT en `pdb_tools.py`** (`MLIGHT_ENGINE` default `"python"`). Es **legacy**: camino histórico de compatibilidad MSM. La estrategia es **Rust-first**: `execute_sqlite(sqlite_path=...)` = modo directo Rust (lo que usa vm_api, el camino canónico), y `MLIGHT_ENGINE=rust` para el resto. El roadmap (debate Smith `smith_3`) es **invertir el default a `rust`** tras verificar paridad de tests.
+2. **✅ Invertido el default (15-08-2026)**: `pdb_tools.py` ahora usa **Rust por defecto** (`MLIGHT_ENGINE` default `"rust"`) tras verificar paridad de tests (fallos idénticos entre motores; Rust 6.4× más rápido: 12.7s vs 80.9s). El evaluador Python (`m_light.py`) queda como **fallback/legacy** con `MLIGHT_ENGINE=python`. `execute_sqlite(sqlite_path=...)` = modo directo Rust (camino canónico, vm_api). `MLIGHT_ENGINE_STRICT=1` = fallar si Rust no está disponible.
 3. **Responsabilidades**: Rust = semántica de M, gas metering, persistencia SQLite, estado global · Python = I/O, HTTP, procesos, integración ML/LLM, sync, CLI.
 4. **Contrato de dependencia**: `lumen_mlight.py` lleva el header "FFI wrapper — los bugs de lógica M se reportan al repo Rust".
 5. **Versionado atado**: la versión del paquete Python referencia el hash del commit de la DLL Rust que envuelve (ej: `lumen_py-1.2.0 (binds lumen-mvm-core rev a4b9c)`).

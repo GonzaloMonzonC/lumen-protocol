@@ -478,7 +478,7 @@ def tool_m_eval(args: dict) -> dict:
     expr = args.get("expression", "")
     if not expr.strip():
         return {"success": False, "error": "Empty expression"}
-    if os.environ.get("MLIGHT_ENGINE", "python").lower() == "rust":
+    if os.environ.get("MLIGHT_ENGINE", "rust").lower() == "rust":
         try:
             from lumen_mlight import execute_sqlite
             response = execute_sqlite(
