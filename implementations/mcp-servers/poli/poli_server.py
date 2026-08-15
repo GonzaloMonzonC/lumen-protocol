@@ -563,6 +563,59 @@ def tool_poli_exec(args: dict) -> dict:
         result["error"] = str(err.get("zerror", ""))
     return result
 
+def tool_poli_read_file(args: dict) -> dict:
+    """Lee un fichero de texto del sistema local (SOLO lectura, con allowlist de rutas).
+
+    Permite a Poli/Smith acceder a ficheros reales (repos, pdb-data, scripts de hermes)
+    para análisis — sin depender de que el orquestador le pase el contenido.
+    """
+    import os as _os
+
+    path = args.get("path", "").strip()
+    if not path:
+        return {"ok": False, "error": "path requerido"}
+    try:
+        max_chars = int(args.get("max_chars", 20000) or 20000)
+    except (TypeError, ValueError):
+        max_chars = 20000
+    try:
+        offset = int(args.get("offset", 0) or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    if max_chars > 100000:
+        max_chars = 100000
+    if offset < 0:
+        offset = 0
+
+    allowed_roots = [
+        r"C:\Users\gonzalo\Documents\GitHub",
+        r"C:\Users\gonzalo\pdb-data",
+        r"C:\Users\gonzalo\AppData\Local\hermes\scripts",
+        r"C:\Users\gonzalo\.hermes",
+    ]
+    try:
+        p = _os.path.abspath(path)
+        if not any(p.startswith(root) for root in allowed_roots):
+            return {"ok": False, "error": f"ruta no permitida (allowlist): {path}"}
+        if not _os.path.isfile(p):
+            return {"ok": False, "error": f"no es un fichero: {path}"}
+        size = _os.path.getsize(p)
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(offset)
+            content = f.read(max_chars)
+        return {
+            "ok": True,
+            "path": p,
+            "bytes": size,
+            "offset": offset,
+            "chars": len(content),
+            "truncated": offset + len(content) < size,
+            "content": content,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def tool_poli_status(args: dict) -> dict:
     """Snapshot completo del estado actual de Poli."""
     r = _STATE.exec(
@@ -1338,6 +1391,19 @@ TOOLS = [
             "required": ["job_id"],
         },
     },
+    {
+        "name": "poli_read_file",
+        "description": "Lee un fichero de texto del sistema local (SOLO lectura, allowlist: Documents/GitHub, pdb-data, hermes/scripts, .hermes). Permite a Poli/Smith analizar ficheros reales (repos, docs, scripts). Pagina con offset+max_chars.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Ruta absoluta (p.ej. C:\\Users\\gonzalo\\Documents\\GitHub\\angular-standards\\README.md)"},
+                "max_chars": {"type": "integer", "description": "Máximo de caracteres a leer (default 20000, tope 100000)", "default": 20000},
+                "offset": {"type": "integer", "description": "Offset de caracteres para paginar", "default": 0},
+            },
+            "required": ["path"],
+        },
+    },
 ]
 
 HANDLERS = {
@@ -1351,6 +1417,7 @@ HANDLERS = {
     "poli_smith": tool_poli_smith,
     "poli_smith_start": tool_poli_smith_start,
     "poli_smith_status": tool_poli_smith_status,
+    "poli_read_file": tool_poli_read_file,
 }
 
 # ── Seed automático al arranque ──────────────────────────────────────────────
@@ -1390,7 +1457,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {"listChanged": False, "toolCount": 10},
+                    "tools": {"listChanged": False, "toolCount": 11},
                 },
                 "serverInfo": {"name": "poli-server", "version": "0.1.0"},
             },
@@ -1456,8 +1523,26 @@ if __name__ == "__main__":
             self.end_headers()
             self.wfile.write(json.dumps(obj, ensure_ascii=False).encode())
         def do_GET(self):
-            if self.path == "/health":
+            from urllib.parse import parse_qs, urlparse
+            parsed = urlparse(self.path)
+            if parsed.path == "/health":
                 return self._json(200, {"ok": True, "name": "poli", "status": "healthy"})
+            if parsed.path == "/fs/read":
+                # Lectura de ficheros local (solo 127.0.0.1). Permite a rutinas M/Smith
+                # leer ficheros reales vía $DEVICE("http:get") — análisis de repos, docs, scripts.
+                q = parse_qs(parsed.query)
+                path = (q.get("path") or [""])[0]
+                if not path:
+                    return self._json(400, {"ok": False, "error": "path requerido (?path=...)"})
+                args = {"path": path}
+                try:
+                    if q.get("max_chars"):
+                        args["max_chars"] = int(q["max_chars"][0])
+                    if q.get("offset"):
+                        args["offset"] = int(q["offset"][0])
+                except (TypeError, ValueError):
+                    pass
+                return self._json(200, tool_poli_read_file(args))
             self._json(404, {"error": "not found"})
         def do_POST(self):
             if self.path == "/v1/chat":
