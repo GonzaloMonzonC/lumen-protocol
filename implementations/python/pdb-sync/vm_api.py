@@ -7,6 +7,7 @@ Endpoints:
   GET  /ddp/health          → estado DDP (HMAC status)
   GET  /ddp/pull?ns=X       → pull cambios desde PDB
   POST /ddp/push            → push entries a PDB
+  POST /ddp/allocate        → asignación atómica de contador (lee+incrementa+devuelve)
   POST /vm/execute          → ejecutar script M → JSON
   POST /vm/register         → registrar rutina M
   POST /web/register        → registrar ruta web
@@ -316,6 +317,38 @@ def _ddp_push(ns, entries):
 
 # ── Raw DDP Operations (bypasses MUMPS subscript navigation) ──
 
+def _ddp_allocate(ns, subs, step=1):
+    """Asignación atómica de contador: lee, incrementa y devuelve el nuevo valor.
+
+    El servidor HTTPServer es SINGLE-THREADED → read-modify-write dentro de un
+    mismo handler es atómico entre clientes (dos peticiones concurrentes
+    obtienen valores distintos). Resuelve el race del contador KANBAN
+    (antes: GET /ddp/raw + POST /ddp/push eran 2 round-trips separados).
+    """
+    import sqlite3
+    from pdb_tools import encode_subkey
+    db = _get_db()
+    if not db:
+        return {"success": False, "error": "no db path"}
+    key = encode_subkey(subs)
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT value FROM _globals WHERE ns=? AND subkey=?", (ns, key)).fetchone()
+        cur = 0
+        if row and row["value"] is not None:
+            try:
+                cur = int(json.loads(row["value"]))
+            except Exception:
+                cur = 0
+        new = cur + step
+        conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                     (ns, key, json.dumps(new)))
+        conn.commit()
+        return {"success": True, "value": new}
+    finally:
+        conn.close()
+
 def _decode_subkey(raw_subkey):
     """Decode encoded MUMPS subkey (bytes) to list of subscript strings.
     Format: \x02 + subscript_bytes + \xff for each level."""
@@ -499,6 +532,8 @@ class VMHandler(BaseHTTPRequestHandler):
             self._with_auth("web", "register", self._handle_web_register)
         elif path == "/ddp/push":
             self._handle_ddp_push()
+        elif path == "/ddp/allocate":
+            self._handle_ddp_allocate()
         else:
             self._json({"error": "not found"}, 404)
 
@@ -591,6 +626,24 @@ class VMHandler(BaseHTTPRequestHandler):
                 return
             result = _ddp_push(ns, entries)
             self._json(result)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def _handle_ddp_allocate(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
+            if not _verify_ddp(raw, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
+            body = json.loads(raw)
+            ns = body.get("ns", "")
+            subs = body.get("subs", [])
+            step = int(body.get("step", 1))
+            if not ns or not subs:
+                self._json({"error": "ns and subs required"}, 400)
+                return
+            self._json(_ddp_allocate(ns, subs, step))
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
