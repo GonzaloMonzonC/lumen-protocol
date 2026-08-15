@@ -561,7 +561,10 @@ def _dashboard_status():
         conn = sqlite3.connect(db)
         try:
             for ns, cnt in conn.execute("SELECT ns, COUNT(*) FROM _globals GROUP BY ns ORDER BY 2 DESC LIMIT 14"):
-                ns_counts.append({"ns": ns, "count": cnt})
+                entry = {"ns": ns, "count": cnt}
+                if ns == "KANBAN":
+                    entry["detail"] = "entries"  # los counts son subkeys; las tareas reales salen del meta
+                ns_counts.append(entry)
             row = conn.execute("SELECT value FROM _globals WHERE ns='KANBAN' AND subkey=?", (b"\x02meta\xff",)).fetchone()
             if row:
                 try:
@@ -578,6 +581,10 @@ def _dashboard_status():
                     kanban["next_task"] = json.loads(row[0])
                 except Exception:
                     kanban["next_task"] = row[0]
+            if kanban.get("total") is not None:
+                for e in ns_counts:
+                    if e["ns"] == "KANBAN":
+                        e["detail"] = f"{kanban['total']} tareas"
             for ns in ("PRODUCT", "X_PUB", "DECISIONS"):
                 cnt = conn.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", (ns,)).fetchone()[0]
                 ns_counts.append({"ns": ns + " (canónico)", "count": cnt})
@@ -670,7 +677,9 @@ def _web_dashboard(self):
            if w["status"] and w["status"] != 0
            else f'<span class="bad big">↓</span> <span class="dim">{w.get("err", "sin respuesta")}</span>')
         + "</div>" for w in st["workers"])
-    nsrows = "".join(f'<div class="ns"><span>{n["ns"]}</span><span>{n["count"]}</span></div>' for n in st["namespaces"])
+    nsrows = "".join(
+        f'<div class="ns"><span>{n["ns"]}</span><span>{n["count"]} <span class="dim">{n.get("detail", "")}</span></span></div>'
+        for n in st["namespaces"])
     k = st["kanban"]
     kanban_html = "".join(f'<div class="ns"><span>{key}</span><span>{k.get(key, "—")}</span></div>'
                           for key in ("total", "backlog", "in_progress", "done", "next_task"))
