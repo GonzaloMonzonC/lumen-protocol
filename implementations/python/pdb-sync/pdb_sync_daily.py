@@ -30,7 +30,7 @@ import _paths  # noqa: F401  # sys.path del stack PDB
 from pdb_sync_engine import SyncEngine
 
 # Globals de agentes que se replican (configurados por Gonzalo, 14-08-2026)
-AGENT_NS = ["KANBAN", "COLAB", "ROUTINE", "DECISIONS", "X_PUB", "X_STATE"]
+AGENT_NS = ["KANBAN", "COLAB", "ROUTINE", "DECISIONS", "X_PUB", "X_STATE", "PRODUCT"]
 
 CHECKPOINT = Path(os.environ.get(
     "PDB_SYNC_CHECKPOINT",
