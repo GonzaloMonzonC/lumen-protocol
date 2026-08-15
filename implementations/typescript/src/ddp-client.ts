@@ -149,6 +149,40 @@ export async function kanbanNextTaskId(env: any): Promise<number> {
   }
 }
 
+/**
+ * Asignación ATÓMICA de contador: POST /ddp/allocate (lee+incrementa+devuelve en
+ * un solo handler — el servidor vm_api es single-threaded, así que dos clientes
+ * concurrentes obtienen valores DISTINTOS). Resuelve el race del contador KANBAN
+ * (antes: GET /ddp/raw + POST /ddp/push eran 2 round-trips separados).
+ * LANZA en fallo (contrato del cliente).
+ */
+export async function kanbanAllocate(env: any, ns: string, subs: string[], step = 1): Promise<number> {
+  const keyStr = (env as any).DDP_HMAC_KEY || ''
+  if (!keyStr) throw new Error('DDP_HMAC_KEY no configurada')
+  const body = JSON.stringify({ ns, subs, step })
+  const ts = String(Math.floor(Date.now() / 1000))
+  const sig = await hmacHex(keyStr, ts + body + keyStr)
+  const res = await fetch(VM_API + '/ddp/allocate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-DDP-Timestamp': ts,
+      'X-DDP-HMAC': sig,
+      'User-Agent': 'Mozilla/5.0 LUMEN-DDP/1.0',
+    },
+    body,
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`allocate HTTP ${res.status}: ${txt.slice(0, 120)}`)
+  }
+  const data = await res.json() as any
+  const v = parseInt(data?.value, 10)
+  if (isNaN(v)) throw new Error(`allocate rechazado: ${JSON.stringify(data).slice(0, 200)}`)
+  return v
+}
+
 // ── Helpers de tareas → KANBAN único (usadas por Angi PM; otros agentes pueden usarlas) ──
 export const KANBAN_STATUS_MAP: Record<string, string> = {
   pendiente: 'backlog', en_curso: 'in_progress', completada: 'done',
@@ -157,8 +191,9 @@ export const KANBAN_STATUS_MAP: Record<string, string> = {
 
 /** Escribir una tarea nueva en el KANBAN único del PDB local. */
 export async function pdbPushToKanban(env: any, tarea: any): Promise<void> {
-  const next = await kanbanNextTaskId(env)
-  if (!next) throw new Error('kanbanNextTaskId no disponible (túnel/contador) — KANBAN NO actualizado')
+  // Asignación ATÓMICA del id: el contador se lee+incrementa en un solo handler
+  // de vm_api (/ddp/allocate) — dos peticiones concurrentes nunca reciben el mismo id.
+  const next = await kanbanAllocate(env, 'KANBAN', ['counter', 'next_task'])
   const tid = `task_${next}`
   const st = KANBAN_STATUS_MAP[tarea.estado] || 'backlog'
   await pdbPush(env, 'KANBAN', [
@@ -170,8 +205,9 @@ export async function pdbPushToKanban(env: any, tarea: any): Promise<void> {
     { subs: ['task', tid, 'desc'], value: jsonEsc((tarea.detalle || tarea.desc || '').slice(0, 500)) },
     { subs: ['task', tid, 'src'], value: jsonEsc(tarea.src || 'ddp-client') },
     { subs: ['task', tid, 'src_id'], value: jsonEsc(tarea.id || '') },
-    { subs: ['counter', 'next_task'], value: jsonEsc(next + 1) },
   ])
+  // El contador YA avanzó en la asignación — si este push falla, el retry del
+  // caller re-asigna (next+1) y queda un hueco en los ids (monotónico, ok).
 }
 
 /** Reflejar un cambio de estado de tarea en el KANBAN (busca por src_id, paginado). */
