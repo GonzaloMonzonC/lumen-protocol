@@ -13,8 +13,8 @@
 | **Tareas (kanban)** | `^KANBAN` — PDB local | Edge = réplica (sync diario). El kanban es UNO: tareas cognitivas + tareas PM de Angi (niche `pm-angi`) |
 | **Decisiones** | `^DECISIONS` — PDB local | Angi registra aquí (no en su D1) |
 | **Perfiles / relaciones / coaching / 360** | `^TEAM` — PDB local | Migración en curso (Fase 1 SSOT) |
-| **Roadmaps / requirements / blockers** | `^PRODUCT` — PDB local | Migración en curso (Fase 2 SSOT, Campo) |
-| **Contenido social (cola publicación)** | `^X_PUB` / `^X_STATE` — PDB local | Gon escribe aquí (drafts_cache D1 = solo cache) |
+| **Roadmaps / requirements / blockers** | `^PRODUCT` — PDB local | ✅ Fase 2 (15-08): Campo dual-write (`campo/src/product.ts`). D1 = espejo |
+| **Contenido social (cola publicación)** | `^X_PUB` / `^X_STATE` — PDB local | ✅ Fase 2 (15-08): Gon escribe la cola aquí (REST + MCP). `drafts_cache` D1 = solo cache |
 | **Rutinas** | `^ROUTINE` — PDB local | Ya canónico |
 | **Colaboración A2A** | `^COLAB` — PDB local | Ya canónico |
 | **Sesiones de chat / eventos / caches** | D1 de cada worker | **Privado por agente** — efímero, NO se unifica |
@@ -43,6 +43,8 @@
 3. **Valores SIEMPRE JSON ASCII-safe** (`jsonEsc` → `\uXXXX`): el motor M-Light (Rust) **corrompe literales con unicode real** en M (`→` se guarda como mojibake cp1252 `â\x86\x92`). Con escapes `\u` round-trippea perfecto — y coincide con la convención del store (ensure_ascii).
 4. **Fire-and-forget en Cloudflare Workers = cancelación**: los promises sueltos se matan al devolver la respuesta. Dual-writes SIEMPRE con `c.executionCtx.waitUntil(...)`.
 5. **HMAC M2M**: `ts + raw_body + key` (POST) / `ts + path?query + key` (GET) — headers `X-DDP-Timestamp`, `X-DDP-HMAC`, clave compartida `DDP_HMAC_KEY`.
+6. **⚠️ `tool_set` (pdb_tools local) espera valores RAW** — encoda él con `json.dumps(..., ensure_ascii=False)`; `tool_get` devuelve decodificado. Pasar valores pre-encodados = doble-encodado en el store (lecciones 15-08).
+7. **⚠️ Bridge MCP de Hermes (Windows)**: los ARGS de tools con unicode llegan mojibakeados al worker (cp1252) — el path REST es limpio. Para contenido con acentos/unicode vía MCP, usar ASCII o ir por REST.
 
 ### Cliente TS canónico (SSOT de código)
 - **`implementations/typescript/src/ddp-client.ts`** = LA implementación TS del protocolo (hmacHex, pdbPush, pdbRead, jsonEsc, kanbanNextTaskId, helpers KANBAN).
