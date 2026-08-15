@@ -45,6 +45,7 @@
 5. **HMAC M2M**: `ts + raw_body + key` (POST) / `ts + path?query + key` (GET) — headers `X-DDP-Timestamp`, `X-DDP-HMAC`, clave compartida `DDP_HMAC_KEY`.
 6. **⚠️ `tool_set` (pdb_tools local) espera valores RAW** — encoda él con `json.dumps(..., ensure_ascii=False)`; `tool_get` devuelve decodificado. Pasar valores pre-encodados = doble-encodado en el store (lecciones 15-08).
 7. **⚠️ Bridge MCP de Hermes (Windows)**: los ARGS de tools con unicode llegan mojibakeados al worker (cp1252) — el path REST es limpio. Para contenido con acentos/unicode vía MCP, usar ASCII o ir por REST.
+8. **Contadores atómicos**: `POST /ddp/allocate {ns, subs, step}` (vm_api) — lee+incrementa+devuelve en UN handler (servidor single-threaded = atómico entre clientes). El cliente canónico expone `kanbanAllocate()`; `pdbPushToKanban` lo usa — el id de tarea se asigna atómicamente (race del contador resuelto 15-08-2026: antes era GET /ddp/raw + POST /ddp/push = 2 round-trips con colisión posible).
 
 ### Cliente TS canónico (SSOT de código)
 - **`implementations/typescript/src/ddp-client.ts`** = LA implementación TS del protocolo (hmacHex, pdbPush, pdbRead, jsonEsc, kanbanNextTaskId, helpers KANBAN).
