@@ -52,41 +52,44 @@ export const VM_API = 'https://vm-api.cadences.app'
  * del store, que ya usa ensure_ascii).
  */
 export function jsonEsc(v: any): string {
-  const s = JSON.stringify(v)
+  const s = JSON.stringify(v ?? '')
   return s.replace(/[^\x00-\x7F]/g, (c) => {
     const hex = c.charCodeAt(0).toString(16).padStart(4, '0')
     return '\\u' + hex
   })
 }
 
-/** POST /ddp/push con HMAC (ts+body+key). Formato nativo de vm_api: subs en claro. */
-export async function pdbPush(env: any, ns: string, entries: PdbEntry[]): Promise<PdbPushResult> {
-  try {
-    const keyStr = (env as any).DDP_HMAC_KEY || ''
-    if (!keyStr) return { ok: false, error: 'DDP_HMAC_KEY no configurada' }
-    const body = JSON.stringify({ ns, entries })
-    const ts = String(Math.floor(Date.now() / 1000))
-    const sig = await hmacHex(keyStr, ts + body + keyStr)
-    const res = await fetch(VM_API + '/ddp/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-DDP-Timestamp': ts,
-        'X-DDP-HMAC': sig,
-        'User-Agent': 'Mozilla/5.0 LUMEN-DDP/1.0',
-      },
-      body,
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '')
-      return { ok: false, error: `HTTP ${res.status}: ${txt.slice(0, 120)}` }
-    }
-    const data = await res.json() as any
-    return { ok: data?.ok !== false && data?.success !== false }
-  } catch (e: any) {
-    return { ok: false, error: e.message || String(e) }
+/**
+ * POST /ddp/push con HMAC (ts+body+key). Formato nativo de vm_api: subs en claro.
+ * CONTRATO: LANZA en cualquier fallo (sin key, HTTP error, ok:false) — los
+ * callers usan try/catch o .catch(); nunca devolver ok:false en silencio.
+ */
+export async function pdbPush(env: any, ns: string, entries: PdbEntry[]): Promise<{ ok: boolean }> {
+  const keyStr = (env as any).DDP_HMAC_KEY || ''
+  if (!keyStr) throw new Error('DDP_HMAC_KEY no configurada')
+  const body = JSON.stringify({ ns, entries })
+  const ts = String(Math.floor(Date.now() / 1000))
+  const sig = await hmacHex(keyStr, ts + body + keyStr)
+  const res = await fetch(VM_API + '/ddp/push', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-DDP-Timestamp': ts,
+      'X-DDP-HMAC': sig,
+      'User-Agent': 'Mozilla/5.0 LUMEN-DDP/1.0',
+    },
+    body,
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`)
   }
+  const data = await res.json() as any
+  if (data?.ok === false || data?.success === false) {
+    throw new Error(`push rechazado: ${JSON.stringify(data).slice(0, 200)}`)
+  }
+  return { ok: true }
 }
 
 /** GET /ddp/raw?ns=X&prefix=a,b&limit=N&offset=M con HMAC (ts+path+key) — lectura canónica */
