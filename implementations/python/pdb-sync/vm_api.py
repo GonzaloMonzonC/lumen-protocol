@@ -507,21 +507,27 @@ WORKERS = [
 def _dashboard_status():
     """Estado agregado del ecosistema (workers + PDB) para /api/status y /web/dashboard."""
     import urllib.request
-    workers = []
-    for name, url in WORKERS:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _check(name, url):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 lumen-dashboard"})
             t0 = time.time()
-            with urllib.request.urlopen(req, timeout=4) as r:
-                workers.append({"name": name, "status": r.status, "ms": round((time.time() - t0) * 1000)})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                return {"name": name, "status": r.status, "ms": round((time.time() - t0) * 1000)}
         except urllib.error.HTTPError as e:
-            workers.append({"name": name, "status": e.code, "ms": None})  # 401/404 = vivo sin handler raíz
+            return {"name": name, "status": e.code, "ms": None}  # 401/404 = vivo sin handler raíz
         except Exception as e:
-            workers.append({"name": name, "status": 0, "ms": None, "err": str(e)[:60]})
+            return {"name": name, "status": 0, "ms": None, "err": str(e)[:60]}
+
+    # En paralelo: 9 workers × hasta 3s de timeout, secuencial serían 27s de página
+    with ThreadPoolExecutor(max_workers=9) as ex:
+        workers = list(ex.map(lambda w: _check(*w), WORKERS))
 
     db = _get_db()
     ns_counts = []
     kanban = {}
+    product = xpub = decisions_recent = None
     if db:
         import sqlite3
         conn = sqlite3.connect(db)

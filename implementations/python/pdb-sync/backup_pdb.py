@@ -21,10 +21,22 @@ if not os.path.isfile(DB_PATH):
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
 stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+tmp = os.path.join(BACKUP_DIR, f".lumen-pdb-{stamp}.tmp")
 out = os.path.join(BACKUP_DIR, f"lumen-pdb-{stamp}.db.gz")
 
-with open(DB_PATH, "rb") as f_in, gzip.open(out, "wb") as f_out:
+# ⚠️ El DB está en journal_mode=WAL: copiar el fichero .db crudo puede dar un
+# snapshot atrasado/inconsistente (cambios vivos en el -wal). VACUUM INTO hace
+# un snapshot consistente del estado transaccional actual.
+import sqlite3
+con = sqlite3.connect(DB_PATH)
+try:
+    con.execute("VACUUM INTO ?", (tmp,))
+finally:
+    con.close()
+
+with open(tmp, "rb") as f_in, gzip.open(out, "wb") as f_out:
     shutil.copyfileobj(f_in, f_out, 1024 * 1024)
+os.remove(tmp)
 
 size_mb = round(os.path.getsize(out) / 1e6, 2)
 
