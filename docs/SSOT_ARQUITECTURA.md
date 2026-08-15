@@ -14,7 +14,8 @@
 | **Decisiones** | `^DECISIONS` — PDB local | Angi registra aquí (no en su D1) |
 | **Perfiles / relaciones / coaching / 360** | `^TEAM` — PDB local | Migración en curso (Fase 1 SSOT) |
 | **Roadmaps / requirements / blockers** | `^PRODUCT` — PDB local | ✅ Fase 2 (15-08): Campo dual-write (`campo/src/product.ts`). D1 = espejo |
-| **Contenido social (cola publicación)** | `^X_PUB` / `^X_STATE` — PDB local | ✅ Fase 2 (15-08): Gon escribe la cola aquí (REST + MCP). `drafts_cache` D1 = solo cache |
+| **Agenda social (calendario)** | `^X_PUB(agenda,…)` — PDB local | ✅ Fase 3 (15-08): Angi dual-write (`angi/src/agenda.ts` → mirrorAgendaToXPub). D1 = espejo |
+| **Contenido social (cola publicación)** | `^X_PUB` / `^X_STATE` — PDB local | ✅ Fase 2 (15-08): Gon dual-write. D1 = espejo |
 | **Rutinas** | `^ROUTINE` — PDB local | Ya canónico |
 | **Colaboración A2A** | `^COLAB` — PDB local | Ya canónico |
 | **Sesiones de chat / eventos / caches** | D1 de cada worker | **Privado por agente** — efímero, NO se unifica |
@@ -46,6 +47,11 @@
 6. **⚠️ `tool_set` (pdb_tools local) espera valores RAW** — encoda él con `json.dumps(..., ensure_ascii=False)`; `tool_get` devuelve decodificado. Pasar valores pre-encodados = doble-encodado en el store (lecciones 15-08).
 7. **⚠️ Bridge MCP de Hermes (Windows)**: los ARGS de tools con unicode llegan mojibakeados al worker (cp1252) — el path REST es limpio. Para contenido con acentos/unicode vía MCP, usar ASCII o ir por REST.
 8. **Contadores atómicos**: `POST /ddp/allocate {ns, subs, step}` (vm_api) — lee+incrementa+devuelve en UN handler (servidor single-threaded = atómico entre clientes). El cliente canónico expone `kanbanAllocate()`; `pdbPushToKanban` lo usa — el id de tarea se asigna atómicamente (race del contador resuelto 15-08-2026: antes era GET /ddp/raw + POST /ddp/push = 2 round-trips con colisión posible).
+
+### Dashboard unificado (Fase 3, 15-08-2026)
+- **`GET /web/dashboard`** (vm_api, también por túnel `https://vm-api.cadences.app/web/dashboard`) — HTML con estado de los 9 workers, KANBAN meta, namespaces top y fuentes canónicas. Auto-refresh 60s.
+- **`GET /api/status`** — JSON del mismo estado (para agents/cron). Workers: 200/404 = vivo (404 = sin handler raíz); 000 = caído.
+- Nota: el meta de KANBAN se almacena como UN objeto JSON en `KANBAN(meta)` y **puede estar doble-encodado en reposo** (legacy) — parsear dos veces al leer raw.
 
 ### Cliente TS canónico (SSOT de código)
 - **`implementations/typescript/src/ddp-client.ts`** = LA implementación TS del protocolo (hmacHex, pdbPush, pdbRead, jsonEsc, kanbanNextTaskId, helpers KANBAN).

@@ -490,6 +490,119 @@ def _authorize(handler, ns, op):
     except Exception as e:
         return False, f"macaroon: {e}"
 
+# ── Status / Dashboard unificado (Fase 3) ──
+
+WORKERS = [
+    ("angi", "https://angi.WORKER_INTERNAL_URL/"),
+    ("campo", "https://campo.WORKER_INTERNAL_URL/"),
+    ("gon", "https://gon.WORKER_INTERNAL_URL/"),
+    ("zalo", "https://zalo.WORKER_INTERNAL_URL/"),
+    ("lisa", "https://lisa.WORKER_INTERNAL_URL/"),
+    ("tom", "https://tom.WORKER_INTERNAL_URL/"),
+    ("eco", "https://eco.WORKER_INTERNAL_URL/"),
+    ("pdb-edge", "https://pdb-edge.WORKER_INTERNAL_URL/"),
+    ("poli-api", "https://poli-api.cadences.app/"),
+]
+
+def _dashboard_status():
+    """Estado agregado del ecosistema (workers + PDB) para /api/status y /web/dashboard."""
+    import urllib.request
+    workers = []
+    for name, url in WORKERS:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 lumen-dashboard"})
+            t0 = time.time()
+            with urllib.request.urlopen(req, timeout=4) as r:
+                workers.append({"name": name, "status": r.status, "ms": round((time.time() - t0) * 1000)})
+        except urllib.error.HTTPError as e:
+            workers.append({"name": name, "status": e.code, "ms": None})  # 401/404 = vivo sin handler raíz
+        except Exception as e:
+            workers.append({"name": name, "status": 0, "ms": None, "err": str(e)[:60]})
+
+    db = _get_db()
+    ns_counts = []
+    kanban = {}
+    if db:
+        import sqlite3
+        conn = sqlite3.connect(db)
+        try:
+            for ns, cnt in conn.execute("SELECT ns, COUNT(*) FROM _globals GROUP BY ns ORDER BY 2 DESC LIMIT 14"):
+                ns_counts.append({"ns": ns, "count": cnt})
+            row = conn.execute("SELECT value FROM _globals WHERE ns='KANBAN' AND subkey=?", (b"\x02meta\xff",)).fetchone()
+            if row:
+                try:
+                    m = json.loads(row[0])
+                    if isinstance(m, str):
+                        m = json.loads(m)  # legacy: valor doble-encodado en reposo
+                    if isinstance(m, dict):
+                        kanban.update(m)
+                except Exception:
+                    kanban["meta_raw"] = str(row[0])[:80]
+            row = conn.execute("SELECT value FROM _globals WHERE ns='KANBAN' AND subkey=?", (b"\x02counter\xff\x02next_task\xff",)).fetchone()
+            if row:
+                try:
+                    kanban["next_task"] = json.loads(row[0])
+                except Exception:
+                    kanban["next_task"] = row[0]
+            for ns in ("PRODUCT", "X_PUB", "DECISIONS"):
+                cnt = conn.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", (ns,)).fetchone()[0]
+                ns_counts.append({"ns": ns + " (canónico)", "count": cnt})
+        finally:
+            conn.close()
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "workers": workers,
+        "namespaces": ns_counts,
+        "kanban": kanban,
+        "db": db,
+    }
+
+DASHBOARD_CSS = """
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}
+h1{font-size:20px;margin:0 0 4px} .sub{color:#8b949e;font-size:12px;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:24px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 14px}
+.card h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;color:#8b949e;letter-spacing:.05em}
+.ok{color:#3fb950} .warn{color:#d29922} .bad{color:#f85149} .dim{color:#8b949e}
+.big{font-size:26px;font-weight:700} table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{text-align:left;padding:5px 8px;border-bottom:1px solid #21262d}
+.ns{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d;font-size:13px}
+a{color:#58a6ff;text-decoration:none}
+"""
+
+def _web_dashboard(self):
+    st = _dashboard_status()
+    wrows = "".join(
+        f'<div class="card"><h3>{w["name"]}</h3>'
+        + ('<span class="ok big">{}</span> <span class="dim">{} ms</span>'.format(w["status"], w.get("ms") or "—")
+           if w["status"] and w["status"] != 0
+           else f'<span class="bad big">↓</span> <span class="dim">{w.get("err", "sin respuesta")}</span>')
+        + "</div>" for w in st["workers"])
+    nsrows = "".join(f'<div class="ns"><span>{n["ns"]}</span><span>{n["count"]}</span></div>' for n in st["namespaces"])
+    k = st["kanban"]
+    kanban_html = "".join(f'<div class="ns"><span>{key}</span><span>{k.get(key, "—")}</span></div>'
+                          for key in ("total", "backlog", "in_progress", "done", "next_task"))
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="60">
+<title>LUMEN Dashboard</title><style>{DASHBOARD_CSS}</style></head><body>
+<h1>⚡ LUMEN — Dashboard del ecosistema</h1>
+<div class="sub">PDB local: {st["db"]} · generado: {st["generated_at"]} · auto-refresh 60s · <a href="/api/status">/api/status</a></div>
+<h3>Workers</h3><div class="grid">{wrows}</div>
+<div class="grid">
+<div class="card"><h3>KANBAN (tareas)</h3>{kanban_html}</div>
+<div class="card"><h3>Namespaces top</h3>{nsrows}</div>
+</div>
+<div class="card"><h3>Fuentes canónicas SSOT</h3>
+<div class="dim">KANBAN = tareas · PRODUCT = roadmaps/requirements/blockers · X_PUB = cola social · DECISIONS = decisiones.
+Replicación: workers → túnel → PDB local → edge (sync diario 05:30).</div></div>
+</body></html>"""
+    payload = html.encode("utf-8")
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.send_header("Content-Length", str(len(payload)))
+    self.end_headers()
+    self.wfile.write(payload)
+
 # ── Handler ──
 
 class VMHandler(BaseHTTPRequestHandler):
@@ -506,6 +619,10 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_ddp_pull(qs)
         elif path == "/ddp/namespaces":
             self._json({"success": True, "namespaces": _list_namespaces()})
+        elif path == "/api/status":
+            self._json(_dashboard_status())
+        elif path == "/web/dashboard":
+            _web_dashboard(self)
         elif path == "/ddp/raw":
             self._handle_ddp_raw(qs)
         elif path.startswith("/ddp/routine"):
