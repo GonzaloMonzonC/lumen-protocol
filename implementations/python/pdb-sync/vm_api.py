@@ -492,6 +492,34 @@ def _authorize(handler, ns, op):
 
 # ── Status / Dashboard unificado (Fase 3) ──
 
+DASHBOARD_TOKEN_FILE = os.path.expanduser("~/.hermes/dashboard.token")
+
+def _dashboard_token():
+    """Token del dashboard: env DASHBOARD_TOKEN > fichero ~/.hermes/dashboard.token.
+    Vacío = dashboard público (dev). El token NO es auth fuerte — es el gate
+    temporal hasta Cloudflare Access (Google IdP)."""
+    tok = os.environ.get("DASHBOARD_TOKEN", "").strip()
+    if tok:
+        return tok
+    try:
+        if os.path.isfile(DASHBOARD_TOKEN_FILE):
+            return open(DASHBOARD_TOKEN_FILE, encoding="utf-8").read().strip()
+    except Exception:
+        pass
+    return ""
+
+def _dashboard_gate(self, qs):
+    """401 si hay token configurado y la petición no lo trae (?t= o X-Dashboard-Token)."""
+    tok = _dashboard_token()
+    if not tok:
+        return True
+    if self.headers.get("X-Dashboard-Token", "").strip() == tok:
+        return True
+    if qs.get("t") == tok:
+        return True
+    self._json({"error": "token requerido"}, 401)
+    return False
+
 WORKERS = [
     ("angi", "https://angi.WORKER_INTERNAL_URL/"),
     ("campo", "https://campo.WORKER_INTERNAL_URL/"),
@@ -710,9 +738,11 @@ class VMHandler(BaseHTTPRequestHandler):
         elif path == "/ddp/namespaces":
             self._json({"success": True, "namespaces": _list_namespaces()})
         elif path == "/api/status":
-            self._json(_dashboard_status())
+            if _dashboard_gate(self, qs):
+                self._json(_dashboard_status())
         elif path == "/web/dashboard":
-            _web_dashboard(self)
+            if _dashboard_gate(self, qs):
+                _web_dashboard(self)
         elif path == "/ddp/raw":
             self._handle_ddp_raw(qs)
         elif path.startswith("/ddp/routine"):
