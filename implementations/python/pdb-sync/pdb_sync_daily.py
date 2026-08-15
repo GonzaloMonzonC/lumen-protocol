@@ -103,8 +103,19 @@ def reindex_kanban():
         return {"error": str(e)}
 
 
+def _log_run(entry: dict):
+    """Registro de invocaciones (forense: detectar ejecuciones fuera de horario)."""
+    try:
+        log = Path.home() / ".hermes" / "pdb-sync-runs.jsonl"
+        with log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
 def main() -> int:
     dry = "--dry-run" in sys.argv
+    _log_run({"ts": time.time(), "event": "start", "argv": sys.argv})
     engine = SyncEngine()
     if CHECKPOINT.exists():
         try:
@@ -155,8 +166,10 @@ def main() -> int:
             report.append(f"⚠ reindex kanban: {meta.get('error')}")
 
     if errors:
+        _log_run({"ts": time.time(), "event": "end", "ok": False, "errors": errors})
         print("ERRORES: " + "; ".join(errors), flush=True)
         return 1
+    _log_run({"ts": time.time(), "event": "end", "ok": True})
     if report:
         print("Sync DDP diario:", flush=True)
         for line in report:
