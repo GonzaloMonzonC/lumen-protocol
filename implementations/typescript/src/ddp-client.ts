@@ -158,7 +158,7 @@ export const KANBAN_STATUS_MAP: Record<string, string> = {
 /** Escribir una tarea nueva en el KANBAN único del PDB local. */
 export async function pdbPushToKanban(env: any, tarea: any): Promise<void> {
   const next = await kanbanNextTaskId(env)
-  if (!next) return // túnel no disponible — el emisor mantiene su espejo local
+  if (!next) throw new Error('kanbanNextTaskId no disponible (túnel/contador) — KANBAN NO actualizado')
   const tid = `task_${next}`
   const st = KANBAN_STATUS_MAP[tarea.estado] || 'backlog'
   await pdbPush(env, 'KANBAN', [
