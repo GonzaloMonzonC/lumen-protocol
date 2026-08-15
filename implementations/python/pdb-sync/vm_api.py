@@ -547,14 +547,52 @@ def _dashboard_status():
             for ns in ("PRODUCT", "X_PUB", "DECISIONS"):
                 cnt = conn.execute("SELECT COUNT(*) FROM _globals WHERE ns=?", (ns,)).fetchone()[0]
                 ns_counts.append({"ns": ns + " (canónico)", "count": cnt})
+
+            # Secciones canónicas (Fase 3): conteos por tipo + muestras recientes
+            def _by_prefix(ns, prefix):
+                return conn.execute("SELECT COUNT(*) FROM _globals WHERE ns=? AND subkey LIKE ?",
+                                    (ns, prefix.encode() + b"%")).fetchone()[0]
+
+            product = {
+                "roadmaps": _by_prefix("PRODUCT", "\x02roadmap\xff"),
+                "requirements": _by_prefix("PRODUCT", "\x02requirement\xff"),
+                "blockers": _by_prefix("PRODUCT", "\x02blocker\xff"),
+            }
+            xpub = {
+                "queue": _by_prefix("X_PUB", "\x02queue\xff"),
+                "agenda": _by_prefix("X_PUB", "\x02agenda\xff"),
+            }
+            decisions_recent = []
+            for (sk,) in conn.execute("SELECT subkey FROM _globals WHERE ns='DECISIONS' ORDER BY rowid DESC LIMIT 300"):
+                parts = [p.lstrip(b"\x02").decode("utf-8", "replace") for p in sk.split(b"\xff") if p.lstrip(b"\x02")]
+                if len(parts) >= 2 and parts[1] not in [d[0] for d in decisions_recent]:
+                    decisions_recent.append((parts[1], parts[0]))
+                    if len(decisions_recent) >= 5:
+                        break
         finally:
             conn.close()
+
+    # Estado del sync diario (checkpoint con cursors por ns)
+    sync = None
+    cp = os.path.expanduser("~/.hermes/pdb-sync-daily-checkpoint.json")
+    if os.path.isfile(cp):
+        try:
+            with open(cp, encoding="utf-8") as f:
+                sync = {"file": cp, "mtime": datetime.fromtimestamp(os.path.getmtime(cp)).isoformat(timespec="seconds"),
+                        "cursors": json.load(f)}
+        except Exception as e:
+            sync = {"error": str(e)[:80]}
+
     return {
         "ok": True,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "workers": workers,
         "namespaces": ns_counts,
         "kanban": kanban,
+        "product": product,
+        "xpub": xpub,
+        "decisions_recent": decisions_recent,
+        "sync": sync,
         "db": db,
     }
 
@@ -583,6 +621,20 @@ def _web_dashboard(self):
     k = st["kanban"]
     kanban_html = "".join(f'<div class="ns"><span>{key}</span><span>{k.get(key, "—")}</span></div>'
                           for key in ("total", "backlog", "in_progress", "done", "next_task"))
+    p = st.get("product") or {}
+    product_html = "".join(f'<div class="ns"><span>{key}</span><span>{p.get(key, 0)}</span></div>'
+                           for key in ("roadmaps", "requirements", "blockers"))
+    x = st.get("xpub") or {}
+    xpub_html = "".join(f'<div class="ns"><span>{key}</span><span>{x.get(key, 0)}</span></div>'
+                        for key in ("queue", "agenda"))
+    dec_html = "".join(f'<div class="ns"><span class="dim">{src}</span><span>{dec_id}</span></div>'
+                       for dec_id, src in (st.get("decisions_recent") or []))
+    s = st.get("sync")
+    if s and s.get("mtime"):
+        curs = ", ".join(f'{ns}: {ts[:19]}' for ns, ts in (s.get("cursors") or {}).items())
+        sync_html = f'<div class="ns"><span>última ejecución</span><span>{s["mtime"]}</span></div><div class="dim" style="font-size:11px">{curs}</div>'
+    else:
+        sync_html = '<div class="dim">sin checkpoint (el cron diario aún no ha corrido o falló)</div>'
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="60">
 <title>LUMEN Dashboard</title><style>{DASHBOARD_CSS}</style></head><body>
 <h1>⚡ LUMEN — Dashboard del ecosistema</h1>
@@ -590,11 +642,15 @@ def _web_dashboard(self):
 <h3>Workers</h3><div class="grid">{wrows}</div>
 <div class="grid">
 <div class="card"><h3>KANBAN (tareas)</h3>{kanban_html}</div>
+<div class="card"><h3>PRODUCT (canónico)</h3>{product_html}</div>
+<div class="card"><h3>X_PUB (canónico)</h3>{xpub_html}</div>
+<div class="card"><h3>Decisiones recientes</h3>{dec_html or '<div class="dim">—</div>'}</div>
+<div class="card"><h3>Sync edge ↔ local</h3>{sync_html}</div>
 <div class="card"><h3>Namespaces top</h3>{nsrows}</div>
 </div>
 <div class="card"><h3>Fuentes canónicas SSOT</h3>
-<div class="dim">KANBAN = tareas · PRODUCT = roadmaps/requirements/blockers · X_PUB = cola social · DECISIONS = decisiones.
-Replicación: workers → túnel → PDB local → edge (sync diario 05:30).</div></div>
+<div class="dim">KANBAN = tareas · PRODUCT = roadmaps/requirements/blockers · X_PUB = agenda + cola social · DECISIONS = decisiones.
+Replicación: workers → túnel → PDB local → edge (sync diario 05:30) + backup local 05:40 (backup_pdb.py, retención 14).</div></div>
 </body></html>"""
     payload = html.encode("utf-8")
     self.send_response(200)
