@@ -625,6 +625,8 @@ class VMHandler(BaseHTTPRequestHandler):
                 self._json({"error": "ns and entries required"}, 400)
                 return
             result = _ddp_push(ns, entries)
+            if isinstance(result, dict) and result.get("success") is False:
+                print(f"[VM] DDP-PUSH-FAIL {ns}: {json.dumps(result)[:400]} | entries[0]={json.dumps(entries[0])[:200]}")
             self._json(result)
         except Exception as e:
             self._json({"error": str(e)}, 500)
