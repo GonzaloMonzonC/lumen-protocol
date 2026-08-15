@@ -589,6 +589,24 @@ def _dashboard_status():
         except Exception as e:
             sync = {"error": str(e)[:80]}
 
+    # Estado del backup local (backup_pdb.py)
+    backup = None
+    bk_dir = os.path.join(os.path.dirname(os.path.abspath(_get_db() or "")), "backups")
+    try:
+        if os.path.isdir(bk_dir):
+            bks = sorted(f for f in os.listdir(bk_dir) if f.endswith(".db.gz"))
+            if bks:
+                latest = os.path.join(bk_dir, bks[-1])
+                backup = {
+                    "dir": bk_dir,
+                    "latest": bks[-1],
+                    "size_mb": round(os.path.getsize(latest) / 1e6, 2),
+                    "mtime": datetime.fromtimestamp(os.path.getmtime(latest)).isoformat(timespec="seconds"),
+                    "count": len(bks),
+                }
+    except Exception as e:
+        backup = {"error": str(e)[:80]}
+
     return {
         "ok": True,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -599,6 +617,7 @@ def _dashboard_status():
         "xpub": xpub,
         "decisions_recent": decisions_recent,
         "sync": sync,
+        "backup": backup,
         "db": db,
     }
 
@@ -641,6 +660,14 @@ def _web_dashboard(self):
         sync_html = f'<div class="ns"><span>última ejecución</span><span>{s["mtime"]}</span></div><div class="dim" style="font-size:11px">{curs}</div>'
     else:
         sync_html = '<div class="dim">sin checkpoint (el cron diario aún no ha corrido o falló)</div>'
+    b = st.get("backup")
+    if b and b.get("latest"):
+        backup_html = (f'<div class="ns"><span>último</span><span class="ok">{b["latest"][10:17]}</span></div>'
+                       f'<div class="ns"><span>tamaño</span><span>{b["size_mb"]} MB</span></div>'
+                       f'<div class="ns"><span>copias</span><span>{b["count"]}</span></div>'
+                       f'<div class="ns"><span>fecha</span><span>{b["mtime"][:16]}</span></div>')
+    else:
+        backup_html = '<div class="dim">sin backups aún</div>'
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="60">
 <title>LUMEN Dashboard</title><style>{DASHBOARD_CSS}</style></head><body>
 <h1>⚡ LUMEN — Dashboard del ecosistema</h1>
@@ -652,6 +679,7 @@ def _web_dashboard(self):
 <div class="card"><h3>X_PUB (canónico)</h3>{xpub_html}</div>
 <div class="card"><h3>Decisiones recientes</h3>{dec_html or '<div class="dim">—</div>'}</div>
 <div class="card"><h3>Sync edge ↔ local</h3>{sync_html}</div>
+<div class="card"><h3>Backup local</h3>{backup_html}</div>
 <div class="card"><h3>Namespaces top</h3>{nsrows}</div>
 </div>
 <div class="card"><h3>Fuentes canónicas SSOT</h3>
