@@ -269,6 +269,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Doc | Content |
 |-----|---------|
 | **[docs/INDEX.md](docs/INDEX.md)** | 📍 Documentation map — start here (updated 2026-07-15) |
+| **[docs/SSOT_ARQUITECTURA.md](docs/SSOT_ARQUITECTURA.md)** | 🔀 **Fuente de Verdad Única (14-08-2026)**: dónde vive cada dato, convenciones del wire DDP (push subs / prefix / jsonEsc / waitUntil / HMAC), cliente TS canónico + vendoring, jerarquía MVM (Rust = motor, Python = capa) |
 | **[docs/PLAN_EVOLUCION.md](docs/PLAN_EVOLUCION.md)** | Evolution plan: PDB + M-Light + MVM roadmap by ROI |
 | **[docs/CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md)** | Agent-to-agent use cases: shared Namespaces, hibernation and node migration |
 | **[README_EXT.md](README_EXT.md)** | Protocol spec, all benchmarks, architecture deep-dive (EN) |
