@@ -13,6 +13,7 @@ from datetime import datetime
 DB_PATH = os.environ.get("PDB_PATH", "C:/Users/gonzalo/pdb-data/lumen-pdb.db")
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "backups")
 KEEP = int(sys.argv[sys.argv.index("--keep") + 1]) if "--keep" in sys.argv else 14
+QUIET = "--quiet" in sys.argv
 
 if not os.path.isfile(DB_PATH):
     print(f"ERROR: no existe {DB_PATH}")
@@ -33,5 +34,10 @@ removed = 0
 while len(backs) > KEEP:
     os.remove(backs.pop(0))
     removed += 1
+
+if QUIET:
+    # Silencioso en éxito (la rotación es normal); los fallos ya salen con
+    # traceback y exit != 0 (el cron alerta automáticamente).
+    sys.exit(0)
 
 print(f"✅ Backup: {out} ({size_mb} MB) | total: {len(backs)} | eliminados: {removed}")
