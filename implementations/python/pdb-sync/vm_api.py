@@ -15,7 +15,7 @@ Endpoints:
   GET  /web/admin/invites   → UI admin invitaciones
 """
 
-import sys, os, json, time, hashlib, hmac, threading
+import sys, os, json, time, hashlib, hmac, threading, subprocess, tempfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -819,6 +819,82 @@ def _bitacora_tail(tail, agente):
             lines.append(e)
     return lines[-int(tail):] if tail else lines
 
+# ── Puente Lumen Quantum (rutinas cQASM de la PDB → Quantum Inspire) ──
+# El ecosistema M guarda las plantillas en ^quantum (ns quantum de la PDB);
+# este puente las envía a QI vía la CLI (tokens ya autenticados del usuario).
+
+QI_EXE = r"C:/Users/gonzalo/Documents/GitHub/lumen-mcp-quantum/.venv-q/Scripts/qi.exe"
+QI_PY = r"C:/Users/gonzalo/Documents/GitHub/lumen-mcp-quantum/.venv-q/Scripts/python.exe"
+QI_BACKENDS = {"qx": 1, "emulador": 1, "emulator": 1, "tuna5": 4, "tuna-5": 4, "ry": 5,
+               "tuna9": 6, "tuna-9": 6, "tuna17": 7, "tuna-17": 7}
+_QUANTUM_DIR = os.path.expanduser("~/pdb-data/quantum")
+os.makedirs(_QUANTUM_DIR, exist_ok=True)
+
+def _qi_run(args, timeout=180):
+    """Ejecuta la CLI de QI con el entorno limpio (sin PYTHONPATH de hermes)."""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "VIRTUAL_ENV")}
+    try:
+        r = subprocess.run([QI_EXE] + args, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout, env=env)
+        return r.returncode, r.stdout, r.stderr
+    except Exception as e:
+        return -1, "", str(e)
+
+def _quantum_submit(cqasm_code, backend, shots):
+    """Sube el cQASM a QI. → (ok, job_id|error)"""
+    btype = QI_BACKENDS.get(str(backend).lower(), None)
+    if btype is None:
+        try:
+            btype = int(backend)
+        except Exception:
+            return False, f"backend desconocido: {backend} (usa 1, 4, 5, 6, 7 o tuna9/tuna17)"
+    path = os.path.join(_QUANTUM_DIR, "run_%d.cq" % int(time.time()))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(cqasm_code)
+    code, out, err = _qi_run(["files", "upload", path, str(btype)])
+    try:
+        os.unlink(path)
+    except Exception:
+        pass
+    import re
+    m = re.search(r"job_id\s+(\d+)", out)
+    if m:
+        return True, m.group(1)
+    return False, (err or out or "sin job_id")[:300]
+
+def _quantum_result(job_id):
+    """Consulta el resultado de un job vía el SDK (JSON puro)."""
+    script = (
+        "import sys, json\n"
+        "sys.path.insert(0, r'C:/Users/gonzalo/Documents/GitHub/lumen-mcp-quantum/.venv-q/Lib/site-packages')\n"
+        "from quantuminspire.util.api.remote_backend import RemoteBackend\n"
+        "b = RemoteBackend()\n"
+        "r = b.get_results(%s)\n"
+        "d = r if isinstance(r, dict) else (r.to_dict() if hasattr(r, 'to_dict') else r.model_dump() if hasattr(r, 'model_dump') else vars(r))\n"
+        "print(json.dumps(d, default=str))\n" % str(job_id)
+    )
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "VIRTUAL_ENV")}
+    try:
+        r = subprocess.run([QI_PY, "-c", script], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=180, env=env)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    out = r.stdout.strip()
+    if r.returncode != 0 or not out:
+        return {"ok": False, "error": (r.stderr or out or "sin salida")[:300]}
+    try:
+        data = json.loads(out)
+        items = data.get("items", []) if isinstance(data, dict) else data
+        if isinstance(items, list) and items:
+            it = items[0]
+            return {"ok": True, "status": str(it.get("status", "done")),
+                    "message": str(it.get("message", ""))[:200],
+                    "counts": it.get("results"), "shots_done": it.get("shots_done"),
+                    "execution_time": it.get("execution_time_in_seconds"), "raw_data": it.get("raw_data")}
+        return {"ok": True, "status": "done", "message": str(data)[:200]}
+    except Exception as e:
+        return {"ok": False, "error": f"parse: {e} | out: {out[:200]}"}
+
 # ── Handler ──
 
 class VMHandler(BaseHTTPRequestHandler):
@@ -843,6 +919,13 @@ class VMHandler(BaseHTTPRequestHandler):
                 tail = qs.get("tail", "")
                 agente = qs.get("agente", "")
                 self._json({"success": True, "entries": _bitacora_tail(tail, agente), "verify": _bitacora_verify()})
+        elif path == "/quantum/result":
+            if _dashboard_gate(self, qs):
+                jid = qs.get("job_id", "")
+                if not jid:
+                    self._json({"error": "job_id required"}, 400)
+                else:
+                    self._json(_quantum_result(jid))
         elif path == "/api/status":
             if _dashboard_gate(self, qs):
                 self._json(_dashboard_status())
@@ -879,6 +962,8 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_ddp_allocate()
         elif path == "/ddp/bitacora":
             self._handle_ddp_bitacora()
+        elif path == "/quantum/run":
+            self._handle_quantum_run()
         else:
             self._json({"error": "not found"}, 404)
 
@@ -1015,6 +1100,31 @@ class VMHandler(BaseHTTPRequestHandler):
                 self._json({"error": "append failed"}, 500)
                 return
             self._json({"success": True, "seq": seq, "hash": h, "verify": _bitacora_verify()})
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    # ── Puente Lumen Quantum ──
+
+    def _handle_quantum_run(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
+            if not _verify_ddp(raw, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
+            body = json.loads(raw)
+            programa = body.get("programa") or body.get("cqasm") or ""
+            backend = str(body.get("backend", "1"))
+            shots = int(body.get("shots", 1024) or 1024)
+            if not programa:
+                self._json({"error": "programa o cqasm required"}, 400)
+                return
+            ok, job_id = _quantum_submit(programa, backend, shots)
+            if not ok:
+                self._json({"error": job_id}, 500)
+                return
+            self._json({"success": True, "job_id": job_id, "backend": backend,
+                        "consulta": f"/quantum/result?job_id={job_id}"})
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
