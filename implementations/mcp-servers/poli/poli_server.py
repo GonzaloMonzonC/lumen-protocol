@@ -266,6 +266,10 @@ class PoliState:
     
     def exec(self, source: str, gas: int = 20000) -> dict:
         """Ejecuta código M arbitrario sobre el estado actual (con LLM nativo)."""
+        # Rutinas EN CALIENTE: en M las rutinas se añaden/modifican en cualquier
+        # momento. Re-extraemos ^ROUTINE del estado actual ANTES de ejecutar,
+        # para que cualquier SET de una ejecución previa ya esté disponible.
+        _ROUTINES.update(_extract_routines_from_globals(self.globals))
         r = ml_execute(
             source=source,
             routines=_ROUTINES,
@@ -278,6 +282,8 @@ class PoliState:
             self.globals = r.get("globals") or self.globals
             # Sanitizar: convertir cualquier bytes a string
             self.globals = _sanitize_globals(self.globals)
+            # Rutinas EN CALIENTE: recoger los SET a ^ROUTINE de ESTA ejecución
+            _ROUTINES.update(_extract_routines_from_globals(self.globals))
         return r
 
 # ── Instancia única ──────────────────────────────────────────────────────────

@@ -520,6 +520,13 @@ def _dashboard_gate(self, qs):
     self._json({"error": "token requerido"}, 401)
     return False
 
+def _dashboard_token_ok(qs_t, headers):
+    """True si el token de la query o el header coinciden con el del dashboard."""
+    tok = _dashboard_token()
+    if not tok:
+        return True
+    return headers.get("X-Dashboard-Token", "").strip() == tok or qs_t == tok
+
 WORKERS = [
     ("angi", "https://angi.WORKER_INTERNAL_URL/"),
     ("campo", "https://campo.WORKER_INTERNAL_URL/"),
@@ -830,6 +837,18 @@ QI_BACKENDS = {"qx": 1, "emulador": 1, "emulator": 1, "tuna5": 4, "tuna-5": 4, "
 _QUANTUM_DIR = os.path.expanduser("~/pdb-data/quantum")
 os.makedirs(_QUANTUM_DIR, exist_ok=True)
 
+def _pdb_get(ns, key):
+    """Lee un global de la PDB: W $G(^ns("key")) vía el MVM de Rust."""
+    try:
+        from lumen_mlight import execute_sqlite
+        code = f'W $G(^{ns}("{key}"))'
+        r = execute_sqlite(code, sqlite_path=_get_db(), gas_limit=50000)
+        if not r.get("ok"):
+            return ""
+        return r.get("state", {}).get("output", "").strip()
+    except Exception:
+        return ""
+
 def _qi_run(args, timeout=180):
     """Ejecuta la CLI de QI con el entorno limpio (sin PYTHONPATH de hermes)."""
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "VIRTUAL_ENV")}
@@ -1109,8 +1128,12 @@ class VMHandler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
-            if not _verify_ddp(raw, self.headers):
-                self._json({"error": "HMAC auth failed"}, 403)
+            # Auth: HMAC de DDP (workers) o token del dashboard (rutinas M / ecosistema)
+            ok_hmac = _verify_ddp(raw, self.headers)
+            qs_t = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
+            ok_token = _dashboard_token_ok(qs_t.get("t", ""), self.headers)
+            if not (ok_hmac or ok_token):
+                self._json({"error": "auth failed (HMAC o token)"}, 403)
                 return
             body = json.loads(raw)
             programa = body.get("programa") or body.get("cqasm") or ""
@@ -1119,6 +1142,13 @@ class VMHandler(BaseHTTPRequestHandler):
             if not programa:
                 self._json({"error": "programa o cqasm required"}, 400)
                 return
+            # Si es un NOMBRE de rutina → leer el cQASM de la PDB (^quantum(nombre))
+            if not (programa.lstrip().startswith("version") or "qubit[" in programa):
+                cq = _pdb_get("quantum", programa)
+                if not cq:
+                    self._json({"error": f"rutina '{programa}' no encontrada en ^quantum (PDB)"}, 404)
+                    return
+                programa = cq
             ok, job_id = _quantum_submit(programa, backend, shots)
             if not ok:
                 self._json({"error": job_id}, 500)
