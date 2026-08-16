@@ -15,7 +15,7 @@ Endpoints:
   GET  /web/admin/invites   → UI admin invitaciones
 """
 
-import sys, os, json, time, hashlib, hmac
+import sys, os, json, time, hashlib, hmac, threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -730,6 +730,95 @@ Replicación: workers → túnel → PDB local → edge (sync diario 05:30) + ba
     self.end_headers()
     self.wfile.write(payload)
 
+# ── Bitácora Inmutable (El Prisma → tecnología: "la luz que se cuenta") ──
+# Log append-only con hash-chain. Físicamente imposible UPDATE/DELETE (JSONL).
+# La integridad se verifica re-calculando la cadena (GET /ddp/bitacora/verify).
+
+_BITACORA_LOCK = threading.Lock()
+_BITACORA_DIR = os.environ.get("PDB_PATH", "").strip()
+_BITACORA_FILE = os.path.join(os.path.dirname(_BITACORA_DIR), "lumen-bitacora.jsonl") if _BITACORA_DIR else os.path.expanduser("~/pdb-data/lumen-bitacora.jsonl")
+
+def _bitacora_path():
+    return _BITACORA_FILE
+
+def _bitacora_append(agente, accion, estado):
+    """Append atómico con hash-chain. Devuelve (ok, seq, hash) o (False, err, None)."""
+    import hashlib
+    with _BITACORA_LOCK:
+        os.makedirs(os.path.dirname(_BITACORA_FILE), exist_ok=True)
+        prev_hash = "GENESIS"
+        seq = 0
+        if os.path.isfile(_BITACORA_FILE):
+            with open(_BITACORA_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            prev = json.loads(line)
+                            prev_hash = prev.get("hash", prev_hash)
+                            seq = int(prev.get("seq", seq))
+                        except Exception:
+                            pass
+        seq += 1
+        ts = datetime.now(timezone.utc).isoformat()
+        estado_s = json.dumps(estado, ensure_ascii=False, sort_keys=True) if estado is not None else ""
+        h = hashlib.sha256(f"{prev_hash}|{seq}|{ts}|{agente}|{accion}|{estado_s}".encode("utf-8")).hexdigest()
+        entry = {"seq": seq, "ts": ts, "agente": agente, "accion": accion, "estado": estado, "prev_hash": prev_hash, "hash": h}
+        with open(_BITACORA_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return True, seq, h
+
+def _bitacora_verify():
+    """Recorre TODA la cadena y verifica hashes. → {"ok": bool, "entries": n, "broken": [...]}"""
+    import hashlib
+    if not os.path.isfile(_BITACORA_FILE):
+        return {"ok": True, "entries": 0, "broken": []}
+    prev_hash = "GENESIS"
+    seq = 0
+    broken = []
+    n = 0
+    with open(_BITACORA_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            n += 1
+            try:
+                e = json.loads(line)
+            except Exception as ex:
+                broken.append({"line": n, "error": f"json: {ex}"})
+                continue
+            expected_seq = seq + 1
+            if int(e.get("seq", 0)) != expected_seq:
+                broken.append({"line": n, "error": f"seq {e.get('seq')} != {expected_seq}"})
+            estado_s = json.dumps(e.get("estado"), ensure_ascii=False, sort_keys=True) if e.get("estado") is not None else ""
+            h = hashlib.sha256(f"{prev_hash}|{expected_seq}|{e.get('ts','')}|{e.get('agente','')}|{e.get('accion','')}|{estado_s}".encode("utf-8")).hexdigest()
+            if h != e.get("hash"):
+                broken.append({"line": n, "error": f"hash mismatch (cadena rota en seq {expected_seq})"})
+            prev_hash = e.get("hash", prev_hash)
+            seq = expected_seq
+    return {"ok": len(broken) == 0, "entries": n, "last_seq": seq, "last_hash": prev_hash, "broken": broken[:10]}
+
+def _bitacora_tail(tail, agente):
+    if not os.path.isfile(_BITACORA_FILE):
+        return []
+    lines = []
+    with open(_BITACORA_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            if agente and e.get("agente") != agente:
+                continue
+            lines.append(e)
+    return lines[-int(tail):] if tail else lines
+
 # ── Handler ──
 
 class VMHandler(BaseHTTPRequestHandler):
@@ -746,6 +835,14 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_ddp_pull(qs)
         elif path == "/ddp/namespaces":
             self._json({"success": True, "namespaces": _list_namespaces()})
+        elif path == "/ddp/bitacora/verify":
+            if _dashboard_gate(self, qs):
+                self._json({"success": True, "bitacora": _bitacora_verify()})
+        elif path == "/ddp/bitacora":
+            if _dashboard_gate(self, qs):
+                tail = qs.get("tail", "")
+                agente = qs.get("agente", "")
+                self._json({"success": True, "entries": _bitacora_tail(tail, agente), "verify": _bitacora_verify()})
         elif path == "/api/status":
             if _dashboard_gate(self, qs):
                 self._json(_dashboard_status())
@@ -780,6 +877,8 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_ddp_push()
         elif path == "/ddp/allocate":
             self._handle_ddp_allocate()
+        elif path == "/ddp/bitacora":
+            self._handle_ddp_bitacora()
         else:
             self._json({"error": "not found"}, 404)
 
@@ -892,6 +991,30 @@ class VMHandler(BaseHTTPRequestHandler):
                 self._json({"error": "ns and subs required"}, 400)
                 return
             self._json(_ddp_allocate(ns, subs, step))
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    # ── Bitácora Inmutable ──
+
+    def _handle_ddp_bitacora(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
+            if not _verify_ddp(raw, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
+            body = json.loads(raw)
+            agente = str(body.get("agente", "")).strip()
+            accion = str(body.get("accion", "")).strip()
+            if not agente or not accion:
+                self._json({"error": "agente and accion required"}, 400)
+                return
+            estado = body.get("estado")
+            ok, seq, h = _bitacora_append(agente, accion, estado)
+            if not ok:
+                self._json({"error": "append failed"}, 500)
+                return
+            self._json({"success": True, "seq": seq, "hash": h, "verify": _bitacora_verify()})
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
