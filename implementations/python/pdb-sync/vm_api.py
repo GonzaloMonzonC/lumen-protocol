@@ -17,7 +17,7 @@ Endpoints:
 
 import sys, os, json, time, hashlib, hmac, threading, subprocess, tempfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl
 from datetime import datetime, timezone
 
 # Add lumen_mlight to path
@@ -877,6 +877,49 @@ def _espectro_rebuild(hasta_seq=None):
     return {"ok": verify["ok"], "cadena": {k: verify[k] for k in ("ok", "entries", "last_seq", "last_hash")},
             "eventos": total, "agentes": agentes, "snapshot": snapshot}
 
+# ── El Salón: espacio común del equipo (team-lab en cadenceslab-social) ──
+# Poli (MVM) lee y escribe en el salón vía HTTP: GET /ddp/salon/read?path=...
+# y POST /ddp/salon/write con {path, content} (token dashboard + HMAC opcional).
+# El path se sanitiza: solo ficheros .md dentro de team-lab (sin traversal).
+
+_SALON_DIR = os.environ.get("SALON_DIR", "").strip() or os.path.expanduser(
+    "~/Documents/GitHub/cadenceslab-social/team-lab")
+_SALON_LOCK = threading.Lock()
+
+
+def _salon_resolve(rel_path):
+    """Resuelve un path relativo dentro del salón. Devuelve ruta absoluta o None."""
+    if not rel_path:
+        return None
+    rel = rel_path.replace("\\", "/").lstrip("/")
+    if not rel.endswith(".md"):
+        return None
+    base = os.path.realpath(_SALON_DIR)
+    full = os.path.realpath(os.path.join(base, rel))
+    if full != base and not full.startswith(base + os.sep):
+        return None
+    return full
+
+
+def _salon_read(rel_path):
+    full = _salon_resolve(rel_path)
+    if not full or not os.path.isfile(full):
+        return None
+    with open(full, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _salon_write(rel_path, content):
+    full = _salon_resolve(rel_path)
+    if not full:
+        return None
+    with _SALON_LOCK:
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(content)
+    return full
+
+
 # ── Puente Lumen Quantum (rutinas cQASM de la PDB → Quantum Inspire) ──
 # El ecosistema M guarda las plantillas en ^quantum (ns quantum de la PDB);
 # este puente las envía a QI vía la CLI (tokens ya autenticados del usuario).
@@ -997,6 +1040,30 @@ class VMHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     hasta_seq = None
                 self._json({"success": True, "espectro": _espectro_rebuild(hasta_seq=hasta_seq)})
+        elif path == "/ddp/salon/read":
+            if _dashboard_gate(self, qs):
+                rel = qs.get("path", "")
+                content = _salon_read(rel)
+                if content is None:
+                    self._json({"success": False, "error": "path no válido o no existe (.md dentro de team-lab)"}, 400)
+                else:
+                    self._json({"success": True, "path": rel, "content": content})
+        elif path == "/ddp/salon/write":
+            if _dashboard_gate(self, qs):
+                try:
+                    body = json.loads(self.body or b"{}")
+                except Exception:
+                    body = {}
+                rel = body.get("path", "")
+                content = body.get("content", "")
+                if not isinstance(content, str):
+                    self._json({"success": False, "error": "content debe ser texto"}, 400)
+                    return
+                full = _salon_write(rel, content)
+                if full is None:
+                    self._json({"success": False, "error": "path no válido (.md dentro de team-lab)"}, 400)
+                else:
+                    self._json({"success": True, "path": rel, "saved": full})
         elif path == "/quantum/result":
             if _dashboard_gate(self, qs):
                 jid = qs.get("job_id", "")
@@ -1042,6 +1109,28 @@ class VMHandler(BaseHTTPRequestHandler):
             self._handle_ddp_bitacora()
         elif path == "/quantum/run":
             self._handle_quantum_run()
+        elif path == "/ddp/salon/write":
+            try:
+                qs = dict(parse_qsl(urlparse(self.path).query))
+            except Exception:
+                qs = {}
+            if _dashboard_gate(self, qs):
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
+                    body = json.loads(raw)
+                except Exception:
+                    body = {}
+                rel = body.get("path", "")
+                content = body.get("content", "")
+                if not isinstance(content, str):
+                    self._json({"success": False, "error": "content debe ser texto"}, 400)
+                    return
+                full = _salon_write(rel, content)
+                if full is None:
+                    self._json({"success": False, "error": "path no válido (.md dentro de team-lab)"}, 400)
+                else:
+                    self._json({"success": True, "path": rel, "saved": full})
         else:
             self._json({"error": "not found"}, 404)
 
