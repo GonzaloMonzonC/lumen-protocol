@@ -31,8 +31,14 @@ def check(name, ok, detail=""):
 
 
 def http_json(url, timeout=30):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return json.loads(r.read())
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except Exception:
+            return {"success": False, "error": f"http {e.code}"}
 
 
 def http_json_post(url, payload, timeout=60):
@@ -144,6 +150,22 @@ try:
     check("dashboard sin token bloqueado", st2 in (301, 302, 401, 403), f"status={st2}")
 except Exception as e:
     check("dashboard token", False, str(e)[:80])
+
+print("=== 8. El Salón (Poli lee/escribe) ===")
+try:
+    r = http_json(auth(f"{BASE}/ddp/salon/read?path=README.md"), 15)
+    check("salon read README", r.get("success") is True and "El Salón" in r.get("content", ""))
+    s = http_json_post(auth(f"{BASE}/ddp/salon/write"),
+                       {"path": "partes/test-suite.md", "content": "test de la suite"}, 15)
+    check("salon write", s.get("success") is True and "partes/test-suite.md" in s.get("path", ""))
+    r2 = http_json(auth(f"{BASE}/ddp/salon/read?path=partes/test-suite.md"), 15)
+    check("salon read vuelta", r2.get("content", "").strip() == "test de la suite")
+    b = http_json(auth(f"{BASE}/ddp/salon/read?path=../secret.md"), 15)
+    check("traversal bloqueado", b.get("success") is False)
+except Exception as e:
+    check("salon", False, str(e)[:80])
+    check("salon read vuelta", False, "")
+    check("traversal bloqueado", False, "")
 
 print(f"\n{'='*50}\nRESULTADO: {len(PASS)} ✅  |  {len(FAIL)} ❌")
 if FAIL:
