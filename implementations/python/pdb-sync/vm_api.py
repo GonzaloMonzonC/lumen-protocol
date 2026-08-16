@@ -826,6 +826,57 @@ def _bitacora_tail(tail, agente):
             lines.append(e)
     return lines[-int(tail):] if tail else lines
 
+
+# ── El Espectro: reconstrucción de estado desde los eventos de la bitácora ──
+# El prisma descompone la luz: la bitácora guarda eventos crudos (append-only);
+# el Espectro los recomponen en un snapshot del estado del ecosistema, con
+# rollback: ?hasta_seq=N devuelve el estado reconstruido hasta ese punto.
+
+def _espectro_rebuild(hasta_seq=None):
+    """Reconstruye el estado del ecosistema desde la cadena de eventos.
+    → {"ok", "cadena": verify, "eventos": n, "agentes": {...}, "snapshot": {...}}"""
+    verify = _bitacora_verify()
+    agentes = {}
+    total = 0
+    ultimo_seq = 0
+    if os.path.isfile(_BITACORA_FILE):
+        with open(_BITACORA_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                seq = int(e.get("seq", 0) or 0)
+                if hasta_seq is not None and seq > hasta_seq:
+                    break
+                total += 1
+                ultimo_seq = seq
+                a = e.get("agente", "?")
+                acc = e.get("accion", "?")
+                info = agentes.setdefault(a, {"eventos": 0, "primera": None, "ultima": None,
+                                              "ultima_accion": None, "ultimo_estado": None})
+                info["eventos"] += 1
+                ts = e.get("ts", "")
+                if info["primera"] is None or ts < info["primera"]:
+                    info["primera"] = ts
+                if info["ultima"] is None or ts > info["ultima"]:
+                    info["ultima"] = ts
+                info["ultima_accion"] = acc
+                info["ultimo_estado"] = e.get("estado")
+    snapshot = {
+        "version": ultimo_seq,
+        "generado": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "hasta_seq": hasta_seq,
+        "eventos": total,
+        "agentes": {a: {"eventos": i["eventos"], "ultima_accion": i["ultima_accion"],
+                        "ultima": i["ultima"]} for a, i in sorted(agentes.items())},
+    }
+    return {"ok": verify["ok"], "cadena": {k: verify[k] for k in ("ok", "entries", "last_seq", "last_hash")},
+            "eventos": total, "agentes": agentes, "snapshot": snapshot}
+
 # ── Puente Lumen Quantum (rutinas cQASM de la PDB → Quantum Inspire) ──
 # El ecosistema M guarda las plantillas en ^quantum (ns quantum de la PDB);
 # este puente las envía a QI vía la CLI (tokens ya autenticados del usuario).
@@ -938,6 +989,14 @@ class VMHandler(BaseHTTPRequestHandler):
                 tail = qs.get("tail", "")
                 agente = qs.get("agente", "")
                 self._json({"success": True, "entries": _bitacora_tail(tail, agente), "verify": _bitacora_verify()})
+        elif path == "/ddp/espectro":
+            if _dashboard_gate(self, qs):
+                hasta = qs.get("hasta_seq", "")
+                try:
+                    hasta_seq = int(hasta) if hasta else None
+                except ValueError:
+                    hasta_seq = None
+                self._json({"success": True, "espectro": _espectro_rebuild(hasta_seq=hasta_seq)})
         elif path == "/quantum/result":
             if _dashboard_gate(self, qs):
                 jid = qs.get("job_id", "")
