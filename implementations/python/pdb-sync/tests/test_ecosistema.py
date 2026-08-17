@@ -213,6 +213,43 @@ except Exception as e:
     check("pesos purga", False, "")
     check("pesos meta", False, "")
 
+print("=== 11. Trigger ON_SET: audit trail en M (quién-cuándo-qué) ===")
+try:
+    import hmac as _hm, hashlib as _hl, re as _re
+    _bat = ""
+    try:
+        _bat = open(os.path.expanduser("~/.cloudflared/vm-api-start.bat"), encoding="utf-8", errors="ignore").read()
+    except Exception:
+        _bat = ""
+    _m = _re.search(r"set DDP_HMAC_KEY=(\S+)", _bat)
+    if not _m:
+        raise RuntimeError("DDP_HMAC_KEY no encontrada")
+    _key = _m.group(1)
+    _path = "/ddp/push?t=" + TOKEN
+    _body = json.dumps({"ns": "AUDIT_CHK", "entries": [{"subkey": "k1", "value": "v1"}]})
+    _ts = str(int(time.time()))
+    _msg = (_ts + _body + _key).encode()
+    _sig = _hm.new(_key.encode(), _msg, _hl.sha256).hexdigest()
+    _req = urllib.request.Request(BASE + _path, data=_body.encode(),
+                                  headers={"Content-Type": "application/json",
+                                           "X-DDP-Timestamp": _ts, "X-DDP-HMAC": _sig,
+                                           "X-Agent": "suite-test"}, method="POST")
+    with urllib.request.urlopen(_req, timeout=20) as _r:
+        _push = json.loads(_r.read())
+    check("audit push", _push.get("success") is True and _push.get("count") == 1, str(_push)[:80])
+    _aud = http_json(auth(f"{BASE}/ddp/audit?ns=AUDIT_CHK&limit=3"), 15)
+    _e = (_aud.get("entries") or [])
+    check("audit entrada registrada", len(_e) == 1 and _e[0].get("ns") == "AUDIT_CHK", f"e={_e}")
+    check("audit quién-cuándo-qué", bool(_e) and _e[0].get("op") == "SET" and _e[0].get("via") == "suite-test" and _e[0].get("ts"), f"e={_e[0] if _e else '?'}")
+    # limpieza (el AUDIT_CHK del ns + su audit)
+    _c = _sq.connect(_db)
+    _c.execute("DELETE FROM _globals WHERE ns IN ('AUDIT_CHK','AUDIT') AND subkey LIKE ?", (b"\x02AUDIT_CHK\xff%",))
+    _c.commit(); _c.close()
+except Exception as e:
+    check("audit push", False, str(e)[:100])
+    check("audit entrada registrada", False, "")
+    check("audit quién-cuándo-qué", False, "")
+
 print(f"\n{'='*50}\nRESULTADO: {len(PASS)} ✅  |  {len(FAIL)} ❌")
 if FAIL:
     print("FALLOS:", " | ".join(FAIL))

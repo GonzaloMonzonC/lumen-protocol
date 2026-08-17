@@ -96,6 +96,132 @@ def _lente_pesos(sql, params=()):
         pass  # el peso nunca debe romper la query que lo registra
 
 
+# ── Trigger ON_SET: audit trail automático (Los Que Hablan, cap 9) ──
+_WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+
+
+def _lente_audit(sql, params=()):
+    """Audita cada escritura en la PDB: ^AUDIT(ns, timestamp) = op|via.
+    Formato M: subkey = \\x02<ns>\\xff\\x02<ts>\\xff. El 'quién' viene del
+    header X-Agent de la llamada (los workers CF lo mandan) o 'local'."""
+    try:
+        head = sql.lstrip().upper()
+        if not head.startswith(_WRITE_PREFIXES) or " _globals" not in (" " + head):
+            return
+        # ns desde los parámetros: INSERT/REPLACE → el primer param (columna ns);
+        # UPDATE/DELETE → la posición del '?' de "ns=?"
+        if head.startswith(("INSERT", "REPLACE")):
+            if not params:
+                return
+            ns = str(params[0])
+            if "\x02" in ns:
+                return  # el primer param es un subkey (INSERT con ns literal)
+        else:
+            m = re.search(r"ns\s*=\s*\?", sql)
+            if m and params:
+                q_before = sql[: m.start()].count("?")
+                if q_before < len(params):
+                    ns = str(params[q_before])
+                else:
+                    return
+            else:
+                return
+        if ns in ("AUDIT", "WEIGHTS"):
+            return  # no auditar el propio audit (evitar bucle)
+        now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")[:-3] + "Z"
+        via = _AUDIT_VIA.get()
+        subkey = b"\x02" + ns.encode() + b"\xff" + b"\x02" + now.encode() + b"\xff"
+        conn = _sqlite_connect_original(_LENTE_DBPATH)
+        try:
+            conn.execute("INSERT INTO _globals (ns, subkey, value) VALUES ('AUDIT', ?, ?)",
+                         (subkey, head.split(" ", 1)[0] + "|" + via))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass  # el audit nunca debe romper la query que audita
+
+
+class _AuditVia(threading.local):
+    """El 'quién' de la llamada actual (se fija en el handler HTTP)."""
+    value = "local"
+
+
+_AUDIT_VIA = _AuditVia()
+
+
+def _audit_engine_write(code, sqlite_path=None, gas_limit=10000):
+    """Wrapper de lumen_mlight.execute_sqlite: audita las escrituras del M.
+    El code del push es S ^NS(sub)="v" → el ns se extrae con regex y el
+    registro se escribe en el global ^AUDIT(ns, ts) con el formato binario
+    del M (el mismo que el MVM usa — el M lo ve al instante)."""
+    r = _audit_engine_original(code, sqlite_path=sqlite_path, gas_limit=gas_limit)
+    try:
+        m = re.match(r"\s*S\s+\^([A-Z0-9_]+)\(", code)
+        if m:
+            ns = m.group(1)
+            if ns not in ("AUDIT", "WEIGHTS", "CHANGES"):
+                now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+                subkey = b"\x02" + ns.encode() + b"\xff" + b"\x02" + now.encode() + b"\xff"
+                conn = _sqlite_connect_original(_LENTE_DBPATH)
+                try:
+                    conn.execute(
+                        "INSERT INTO _globals (ns, subkey, value) VALUES ('AUDIT', ?, ?)",
+                        (subkey, "SET|" + (getattr(_AUDIT_VIA, "value", "") or "local")))
+                    conn.commit()
+                finally:
+                    conn.close()
+    except Exception as e:
+        print(f"[VM] AUDIT-ERR: {e}")  # visible en el log, no rompe el flujo
+    return r
+
+
+_audit_engine_original = None
+
+
+def _install_engine_audit():
+    """Monkeypatch de lumen_mlight.execute_sqlite en este proceso (el camino
+    del /ddp/push). El MVM de Poli (8082) se instrumenta en su propio server."""
+    global _audit_engine_original
+    try:
+        import lumen_mlight as _lm
+        if _audit_engine_original is None:
+            _audit_engine_original = _lm.execute_sqlite
+            _lm.execute_sqlite = _audit_engine_write
+        return True
+    except Exception:
+        return False
+
+
+def _audit_trail(ns="", limit=20):
+    """Lee el trail de auditoría: ^AUDIT(ns, ts) = op|via. Más reciente primero."""
+    try:
+        conn = _sqlite_connect_original(_LENTE_DBPATH)
+        try:
+            if ns:
+                # prefijo hex del ns: 02<hex(ns)>FF
+                prefix = b"\x02" + ns.encode() + b"\xff"
+                rows = conn.execute(
+                    "SELECT subkey, value FROM _globals WHERE ns='AUDIT' AND subkey >= ? "
+                    "AND subkey < ? ORDER BY subkey DESC LIMIT ?",
+                    (prefix, prefix + b"\xff", limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT subkey, value FROM _globals WHERE ns='AUDIT' ORDER BY subkey DESC LIMIT ?",
+                    (limit,)).fetchall()
+            out = []
+            for sk, val in rows:
+                parts = sk.split(b"\xff")
+                _n = parts[0][1:].decode("utf-8", "replace") if parts and parts[0][:1] == b"\x02" else ""
+                _t = parts[1][1:].decode("utf-8", "replace") if len(parts) > 1 and parts[1][:1] == b"\x02" else ""
+                out.append({"ns": _n, "ts": _t, "op": val.split("|", 1)[0], "via": val.split("|", 1)[1] if "|" in val else ""})
+            return {"ok": True, "entries": out, "count": len(out)}
+        finally:
+            conn.close()
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120]}
+
+
 def _lente_percentile(durs, p):
     if not durs:
         return 0.0
@@ -117,6 +243,7 @@ class _LenteCursor:
             return self._cur.execute(sql, params)
         finally:
             _lente_log(sql, (time.perf_counter() - t0) * 1000, params)
+            _lente_audit(sql, params)
 
     def executemany(self, sql, seq):
         t0 = time.perf_counter()
@@ -142,6 +269,7 @@ class _LenteConn:
             return self._conn.execute(sql, params)
         finally:
             _lente_log(sql, (time.perf_counter() - t0) * 1000, params)
+            _lente_audit(sql, params)
 
 
 def _lente_connect(*args, **kwargs):
@@ -1160,6 +1288,7 @@ def _quantum_result(job_id):
 class VMHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+        _AUDIT_VIA.value = self.headers.get("X-Agent", "local") or "local"
         path = urlparse(self.path).path.rstrip("/")
         qs = dict((p.split("=", 1)[0], unquote_plus(p.split("=", 1)[1])) for p in urlparse(self.path).query.split("&") if "=" in p)
 
@@ -1209,6 +1338,21 @@ class VMHandler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": "sql vacío"}, 400)
                 else:
                     self._json(_lente_plan(sql))
+        elif path == "/ddp/audit":
+            if _dashboard_gate(self, qs):
+                try:
+                    _lim = int(qs.get("limit", "20") or 20)
+                except ValueError:
+                    _lim = 20
+                self._json(_audit_trail(qs.get("ns", ""), _lim))
+        elif path == "/ddp/audit/health":
+            if _dashboard_gate(self, qs):
+                _ac = _sqlite_connect_original(_LENTE_DBPATH)
+                try:
+                    _n = _ac.execute("SELECT COUNT(*) FROM _globals WHERE ns='AUDIT'").fetchone()[0]
+                    self._json({"ok": True, "audit_entries": _n})
+                finally:
+                    _ac.close()
         elif path == "/ddp/salon/write":
             if _dashboard_gate(self, qs):
                 try:
@@ -1254,6 +1398,7 @@ class VMHandler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
+        _AUDIT_VIA.value = self.headers.get("X-Agent", "local") or "local"
         path = urlparse(self.path).path
 
         if path == "/vm/execute":
@@ -1764,6 +1909,8 @@ if __name__ == "__main__":
  W "</body></html>" Q
 """)
     register_web("saludo", "SALUDO^%WEB")
+
+    _install_engine_audit()  # Trigger ON_SET: audita las escrituras del M (push edge)
 
     server = HTTPServer(("0.0.0.0", port), VMHandler)
     print(f"🚀 MVM Web Engine + DDP en http://localhost:{port}")
