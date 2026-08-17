@@ -151,10 +151,10 @@ _AUDIT_VIA = _AuditVia()
 
 
 def _audit_engine_write(code, sqlite_path=None, gas_limit=10000):
-    """Wrapper de lumen_mlight.execute_sqlite: audita las escrituras del M.
-    El code del push es S ^NS(sub)="v" → el ns se extrae con regex y el
-    registro se escribe en el global ^AUDIT(ns, ts) con el formato binario
-    del M (el mismo que el MVM usa — el M lo ve al instante)."""
+    """El registro del audit se hace EN M: el code del push es S ^NS(...)="v".
+    El wrapper encadena el código M del registro — S ^AUDIT(ns,ts)=$INCREMENT(...)
+    ejecutado por el MISMO engine M (formato binario automático, el M lo ve).
+    La lógica del registro vive en el código M, no en Python."""
     r = _audit_engine_original(code, sqlite_path=sqlite_path, gas_limit=gas_limit)
     try:
         m = re.match(r"\s*S\s+\^([A-Z0-9_]+)\(", code)
@@ -162,15 +162,9 @@ def _audit_engine_write(code, sqlite_path=None, gas_limit=10000):
             ns = m.group(1)
             if ns not in ("AUDIT", "WEIGHTS", "CHANGES"):
                 now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-                subkey = b"\x02" + ns.encode() + b"\xff" + b"\x02" + now.encode() + b"\xff"
-                conn = _sqlite_connect_original(_LENTE_DBPATH)
-                try:
-                    conn.execute(
-                        "INSERT INTO _globals (ns, subkey, value) VALUES ('AUDIT', ?, ?)",
-                        (subkey, "SET|" + (getattr(_AUDIT_VIA, "value", "") or "local")))
-                    conn.commit()
-                finally:
-                    conn.close()
+                _audit_engine_original(
+                    f'S ^AUDIT("{ns}","{now}")=$INCREMENT(^AUDIT("{ns}","{now}"))',
+                    sqlite_path=sqlite_path, gas_limit=2000)
     except Exception as e:
         print(f"[VM] AUDIT-ERR: {e}")  # visible en el log, no rompe el flujo
     return r
@@ -214,7 +208,7 @@ def _audit_trail(ns="", limit=20):
                 parts = sk.split(b"\xff")
                 _n = parts[0][1:].decode("utf-8", "replace") if parts and parts[0][:1] == b"\x02" else ""
                 _t = parts[1][1:].decode("utf-8", "replace") if len(parts) > 1 and parts[1][:1] == b"\x02" else ""
-                out.append({"ns": _n, "ts": _t, "op": val.split("|", 1)[0], "via": val.split("|", 1)[1] if "|" in val else ""})
+                out.append({"ns": _n, "ts": _t, "count": int(val) if str(val).isdigit() else 0})
             return {"ok": True, "entries": out, "count": len(out)}
         finally:
             conn.close()
