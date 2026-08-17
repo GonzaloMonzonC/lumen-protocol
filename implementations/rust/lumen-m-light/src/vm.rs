@@ -2286,6 +2286,12 @@ fn split_if(value: &str) -> (&str, &str, &str) {
                     | "L"
                     | "LOCK"
                     | "UNLOCK"
+                    | "I"
+                    | "IF"
+                    | "F"
+                    | "FOR"
+                    | "X"
+                    | "XECUTE"
             ) {
                 return (value[..index].trim(), candidate, "");
             }

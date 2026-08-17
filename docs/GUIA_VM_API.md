@@ -310,6 +310,51 @@ S r=$DEVICE("llm:call",$1,ident,prov,mod)
 La identidad se edita re-ejecutando el seed (INSERT OR REPLACE); la rutina la
 lee desde `^PERSONALITY` en cada llamada — no hay que recompilar nada.
 
+### Parto autónomo: NACER (agente que crea agentes)
+
+`seed_agente_shuttle.py` también siembra **NACER** — el progenitor. Con la
+identidad del padre (`^NACER("padre")`, default `shuttle`) como system prompt,
+el LLM elige nombre+dominio del hijo, diseña su identidad y la escribe en la
+PDB (^PERSONALITY + ^ROUTINE + linaje). El parto va en **dos invocaciones**
+(una sola `llm:call` por invocación — ver pitfalls):
+
+```bash
+# 1) concebir: el LLM elige NOMBRE||DOMINIO
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  --data-binary @parto1.json       # {"script": "NACER", "args": ["diseno"]}
+# → CONCEBIDO APOLLO (dominio: ...) — ahora invoca NACER('identidad')
+
+# 2) nacer: diseña la identidad y escribe al hijo
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  --data-binary @parto2.json       # {"script": "NACER", "args": ["identidad"]}
+# → NACIDO APOLLO (dominio: ...) — linaje: 1
+```
+
+El hijo recién nacido se invoca como rutina (`{"script": "NOMBRE", "args": [...]}`)
+o vía Smith (`smith:orchestrate` con su dominio). Verificado en vivo 2026-08-18:
+SHUTTLE engendró a **APOLLO-CORE** (experto en ingeniería de software crítico
+de la era Apolo/Shuttle + MUMPS) y este respondió por su cuenta.
+
+### ⚠️ Pitfalls del parto (verificados en la práctica)
+
+7. **`I cond I cond` encadenados**: el runtime del MVM no los parseaba
+   (`undefined variable: "x" I $F(...)`) — **arreglado en el repo** (vm.rs
+   `split_if` reconoce `I`/`IF`/`F`/`FOR`/`X`/`XECUTE` como límite de cuerpo).
+   Recompilar la DLL para recoger el fix.
+8. **Una rutina con >1 `$DEVICE("llm:call")` secuencial + yield** → el resume
+   **re-ejecuta la rutina desde el principio** (los efectos son casi
+   idempotentes pero contadores/registros se ensucian). Regla: **una llamada
+   LLM por invocación de rutina** — dividir el flujo en fases (como NACER).
+9. **GOTO/DO a etiquetas interiores** (`G DIS`) → `unknown label DIS`: el
+   dispatch de fases con `I cond G label` no funciona; usar postcondicionales
+   encadenados (arreglados en 7) o rutinas separadas.
+10. **Nombres de rutina con `_`** → `unknown label`: identificadores M válidos
+    son solo letras, dígitos y `%`.
+11. **Modelos lentos en fases largas**: deepseek-v4-flash con system prompts
+    largos puede exceder el cap de yield (120s→240s en `lumen_mlight.py`).
+    Para pasos de orquestación usar `deepseek-chat` explícito:
+    `$DEVICE("llm:call",prompt,sys,"deepseek","deepseek-chat")`.
+
 ---
 
 ## Ver también

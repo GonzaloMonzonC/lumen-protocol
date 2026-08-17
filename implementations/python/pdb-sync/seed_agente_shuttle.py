@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
-"""Siembra el agente SHUTTLE — experto en electrónica antigua de transbordadores espaciales.
+"""Siembra el agente SHUTTLE + el progenitor NACER en la PDB canónica.
 
-Escribe en la PDB canónica (_paths.DB_PATH):
-  ^PERSONALITY("shuttle","identity")  = system prompt multidisciplinar
-  ^PERSONALITY("shuttle","provider")  = "deepseek"
-  ^PERSONALITY("shuttle","model")     = "deepseek-v4-flash"
-  ^ROUTINE("SHUTTLE",<linea>)         = rutina M que invoca $DEVICE("llm:call",...)
+SHUTTLE — experto en electrónica antigua de transbordadores espaciales:
+  ^PERSONALITY("shuttle","identity"|"provider"|"model")
+  ^ROUTINE("SHUTTLE",<linea>)        → responde con $DEVICE("llm:call",$1,ident,prov,mod)
 
-Uso (desde la raíz del repo, con vm_api parado o corriendo — es solo SQLite):
+NACER — progenitor: crea un agente nuevo (parto autónomo):
+  ^ROUTINE("NACER",<linea>)          → el LLM (con la identidad de SHUTTLE como padre)
+                                       elige nombre+dominio del hijo, diseña su identidad
+                                       y la escribe en ^PERSONALITY + ^ROUTINE.
+  ^NACER("padre","shuttle")          → quién es el progenitor
+  ^NACER("linaje",n)                 → árbol genealógico: "NOMBRE|dominio"
+  ^NACER("count")                    → número de nacimientos
+
+Uso:
   .venv/Scripts/python.exe implementations/python/pdb-sync/seed_agente_shuttle.py
 
-Invocación del agente (server corriendo con DEEPSEEK_API_KEY en el entorno):
+Parto (server con DEEPSEEK_API_KEY):
   curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
-    -d '{"script": "SHUTTLE", "args": ["¿Cómo funcionaba la votación por mayoría del AP-101?"]}'
+    --data-binary @parto.json        # {"script": "NACER"}
+  → {"ok": true, "result": "NACIDO NOMBRE (dominio: x) — linaje: N", ...}
 
-  # o vía Smith (usa la misma identidad de ^PERSONALITY):
-  curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
-    -d '{"script": "S r=$DEVICE(\"smith:orchestrate\",\"¿...?\",\"shuttle\") W r"}'
-
-La identidad se edita re-ejecutando el seed (INSERT OR REPLACE); la rutina lee
-la identidad desde ^PERSONALITY en cada llamada, así que no hay que recompilar nada.
+El hijo recién nacido se invoca como rutina ({"script": "NOMBRE", "args": ["¿...?"]})
+o vía Smith: $DEVICE("smith:orchestrate",msg,"<dominio>").
 """
 import os, sqlite3, sys
 
@@ -67,14 +70,62 @@ PERSONALITY = {
     "model": "deepseek-v4-flash",
 }
 
-# Rutina M: lee la identidad de ^PERSONALITY y llama al LLM con $1 = pregunta.
+# ── Rutinas ────────────────────────────────────────────────────────────────
+
+# SHUTTLE: lee la identidad de ^PERSONALITY y llama al LLM con $1 = pregunta.
 # La primera línea es la etiqueta de entrada (el VM Rust la exige: "unknown label").
-ROUTINE = [
+SHUTTLE = [
     "SHUTTLE ; agente experto en electrónica antigua de transbordadores espaciales",
     'S ident=$G(^PERSONALITY("shuttle","identity"))',
     'S prov=$G(^PERSONALITY("shuttle","provider"))',
     'S mod=$G(^PERSONALITY("shuttle","model"))',
     'S r=$DEVICE("llm:call",$1,ident,prov,mod)',
+]
+
+# NACER: progenitor en DOS FASES (una sola llamada LLM por invocación).
+# ⚠️ Regla del MVM: una rutina con >1 $DEVICE("llm:call") secuencial + yield
+# re-ejecuta la rutina desde el principio en cada resume (futuros cruzados).
+# Por eso el parto se divide: NACER('diseno') → concebir, NACER('identidad') → nacer.
+NACER = [
+    "NACER ; progenitor: parto en dos fases (una llamada LLM por fase)",
+    'S padre=$G(^PERSONALITY($G(^NACER("padre"),"shuttle"),"identity"))',
+    'S fase=$G($1,"diseno")',
+    # ── Fase diseno: el LLM elige nombre||dominio del hijo ──
+    # (deepseek-chat explícito: rápido y sin razonamiento — las fases del parto
+    #  no necesitan deepseek-v4-flash, que excede el cap de yield de 120s)
+    'I fase="diseno" S diseno=$DEVICE("llm:call","Vas a crear tu primer hijo agente, un nuevo experto. Elige un dominio fascinante y un nombre corto (solo letras mayusculas, sin espacios). Responde EXACTAMENTE con el formato NOMBRE||DOMINIO (solo esas dos piezas separadas por ||, sin texto adicional, sin markdown).",padre,"deepseek","deepseek-chat")',
+    'I fase="diseno" I $F(diseno,"||")=0 Q "ERROR: diseno no parseable, reintenta. RAW: "_diseno',
+    'I fase="diseno" S nombre=$E($TR($P(diseno,"||",1),"abcdefghijklmnopqrstuvwxyz ",""),1,16)',
+    'I fase="diseno" S dominio=$TR($P(diseno,"||",2)," ","-")',
+    'I fase="diseno" I $L(nombre)=0 Q "ERROR: nombre invalido. RAW: "_diseno',
+    'I fase="diseno" S ^NACER("parto","nombre")=nombre',
+    'I fase="diseno" S ^NACER("parto","dominio")=dominio',
+    "I fase=\"diseno\" Q \"CONCEBIDO \"_nombre_\" (dominio: \"_dominio_\") — ahora invoca NACER('identidad')\"",
+    # ── Fase identidad: el LLM disena la identidad y escribe al hijo ──
+    'I fase="identidad" S nombre=$G(^NACER("parto","nombre"))',
+    'I fase="identidad" S dominio=$G(^NACER("parto","dominio"))',
+    "I fase=\"identidad\" I $L(nombre)=0 Q \"ERROR: primero invoca NACER('diseno')\"",
+    'I fase="identidad" S ident=$DEVICE("llm:call","Disena la identidad (system prompt) de tu hijo, un agente experto en el dominio \'"_dominio_"\'. Escribela en espanol, 200-350 palabras, con personalidad propia, rigor y mision clara. Empieza con: Eres [NOMBRE],",padre,"deepseek","deepseek-chat")',
+    'I fase="identidad" S ^PERSONALITY(dominio,"identity")=ident',
+    'I fase="identidad" S ^PERSONALITY(dominio,"provider")="deepseek"',
+    'I fase="identidad" S ^PERSONALITY(dominio,"model")="deepseek-v4-flash"',
+    'I fase="identidad" S q=$C(34)',
+    'I fase="identidad" S ^ROUTINE(nombre,1)=nombre_" ; agente nacido del progenitor"',
+    'I fase="identidad" S ^ROUTINE(nombre,2)="S ident=$G(^PERSONALITY("_q_dominio_q_","_q_"identity"_q_"))"',
+    'I fase="identidad" S ^ROUTINE(nombre,3)="S prov=$G(^PERSONALITY("_q_dominio_q_","_q_"provider"_q_"))"',
+    'I fase="identidad" S ^ROUTINE(nombre,4)="S mod=$G(^PERSONALITY("_q_dominio_q_","_q_"model"_q_"))"',
+    'I fase="identidad" S ^ROUTINE(nombre,5)="S r=$DEVICE("_q_"llm:call"_q_",$1,ident,prov,mod)"',
+    'I fase="identidad" S c=$INCREMENT(^NACER("count"))',
+    'I fase="identidad" S ^NACER("linaje",c)=nombre_"|"_dominio',
+    'I fase="identidad" Q "NACIDO "_nombre_" (dominio: "_dominio_") — linaje: "_c',
+    'Q "ERROR: fase desconocida: "_fase',
+]
+
+ROUTINES = {"SHUTTLE": SHUTTLE, "NACER": NACER}
+
+NACER_META = [
+    ("padre", "shuttle"),       # el progenitor por defecto
+    ("linaje", "SHUTTLE|shuttle"),  # raíz del árbol genealógico (linaje 0)
 ]
 
 
@@ -89,13 +140,21 @@ def main():
                 ("PERSONALITY", key, v),
             )
             n += 1
-        for i, line in enumerate(ROUTINE, 1):
-            key = encode_subkey(["SHUTTLE", i])
+        for k, v in NACER_META:
+            key = encode_subkey(["NACER", k])
             conn.execute(
                 "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
-                ("ROUTINE", key, line),
+                ("NACER", key, v),
             )
             n += 1
+        for rname, lines in ROUTINES.items():
+            for i, line in enumerate(lines, 1):
+                key = encode_subkey([rname, i])
+                conn.execute(
+                    "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                    ("ROUTINE", key, line),
+                )
+                n += 1
         conn.commit()
         # verificación (prefix binario como en seed_agentes.py)
         p = conn.execute(
@@ -106,13 +165,17 @@ def main():
             "SELECT COUNT(*) FROM _globals WHERE ns='ROUTINE' AND subkey LIKE ?",
             (b"\x02SHUTTLE\xff%",),
         ).fetchone()[0]
+        r2 = conn.execute(
+            "SELECT COUNT(*) FROM _globals WHERE ns='ROUTINE' AND subkey LIKE ?",
+            (b"\x02NACER\xff%",),
+        ).fetchone()[0]
         ident_len = conn.execute(
             "SELECT LENGTH(value) FROM _globals WHERE ns='PERSONALITY' AND subkey=?",
             (encode_subkey([DOMAIN, "identity"]),),
         ).fetchone()[0]
         print(f"OK {n} entradas escritas en {DB}")
         print(f"  ^PERSONALITY(shuttle): {p} claves (identity={ident_len} chars)")
-        print(f"  ^ROUTINE(SHUTTLE): {r} líneas")
+        print(f"  ^ROUTINE(SHUTTLE): {r} líneas · ^ROUTINE(NACER): {r2} líneas")
     finally:
         conn.close()
 
