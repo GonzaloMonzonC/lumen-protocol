@@ -21,7 +21,7 @@ from lumen_mlight import execute as ml_execute
 from poli_gateway import llm_call, MODELS
 
 # ── PDB SQLite path (persistencia real) ──────────────────────────────────────
-PDB_SQLITE = str(Path.home() / "pdb-data" / "lumen-pdb.db")
+PDB_SQLITE = os.environ.get("PDB_PATH") or os.environ.get("PDB_DB") or str(Path(__file__).resolve().parent.parent / "pdb" / "lumen-pdb.db")
 
 # ── Config segura (fuera del repo) ───────────────────────────────────────────
 _CONFIG_FILE = Path.home() / "AppData/Local/hermes/poli_config.json"
@@ -57,7 +57,7 @@ logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
 # ── Ruta base de Poli ────────────────────────────────────────────────────────
-_POLI_CORE = Path(os.environ.get("POLI_CORE", r"C:\Users\gonzalo\Documents\GitHub\poli\src\core"))
+_POLI_CORE = Path(os.environ.get("POLI_CORE", str(Path.home() / "Documents" / "GitHub" / "poli" / "src" / "core")))
 
 # ── Cargar rutinas M una vez ─────────────────────────────────────────────────
 def _load_routines() -> dict[str, str]:
@@ -593,11 +593,12 @@ def tool_poli_read_file(args: dict) -> dict:
     if offset < 0:
         offset = 0
 
+    _home = str(Path.home())
     allowed_roots = [
-        r"C:\Users\gonzalo\Documents\GitHub",
-        r"C:\Users\gonzalo\pdb-data",
-        r"C:\Users\gonzalo\AppData\Local\hermes\scripts",
-        r"C:\Users\gonzalo\.hermes",
+        os.path.join(_home, "Documents", "GitHub"),
+        os.path.join(_home, "pdb-data"),
+        os.path.join(_home, "AppData", "Local", "hermes", "scripts"),
+        os.path.join(_home, ".hermes"),
     ]
     try:
         p = _os.path.abspath(path)
@@ -1403,7 +1404,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta absoluta (p.ej. C:\\Users\\gonzalo\\Documents\\GitHub\\angular-standards\\README.md)"},
+                "path": {"type": "string", "description": "Ruta absoluta (p.ej. ~/Documents/GitHub/angular-standards/README.md)"},
                 "max_chars": {"type": "integer", "description": "Máximo de caracteres a leer (default 20000, tope 100000)", "default": 20000},
                 "offset": {"type": "integer", "description": "Offset de caracteres para paginar", "default": 0},
             },

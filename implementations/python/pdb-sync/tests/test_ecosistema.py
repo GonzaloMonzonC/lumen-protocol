@@ -13,6 +13,9 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import _paths  # noqa: E402
+
 BASE = "http://127.0.0.1:8081"
 POLI = "http://127.0.0.1:8082"
 SITE = "https://libros.cadenceslab.com"
@@ -181,7 +184,7 @@ except Exception as e:
 print("=== 10. Los Pesos del Tiempo (decay + coherencia binaria) ===")
 try:
     import sqlite3 as _sq
-    _db = os.environ.get("PDB_PATH", r"C:\Users\gonzalo\pdb-data\lumen-pdb.db")
+    _db = os.environ.get("PDB_PATH") or _paths.DB_PATH
     # 10.1 sembrar desde el MVM (formato binario M) → el fichero lo ve en binario
     s1 = http_json_post(f"{POLI}/v1/exec", {"code": 'S ^WEIGHTS(TESTA)="7|2|2026-08-10T00:00:00Z" S ^WEIGHTS(TESTB)="0.05|1|2026-07-01T00:00:00Z"', "gas_limit": 20000}, 15)
     _c = _sq.connect(_db)

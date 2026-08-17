@@ -2,8 +2,9 @@
 """Apply permanent MVM fixes (no debugs)."""
 import os
 
-VM = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\vm.rs'
-HOST = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\host.rs'
+_SRC = os.path.dirname(os.path.abspath(__file__))
+VM = os.path.join(_SRC, 'vm.rs')
+HOST = os.path.join(_SRC, 'host.rs')
 
 # Fix 1: split_for_body - detect command names
 with open(VM, 'r', encoding='utf-8') as f:

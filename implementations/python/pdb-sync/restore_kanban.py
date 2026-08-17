@@ -2,7 +2,7 @@
 import _paths, sqlite3, gzip, os, shutil
 from _paths import DB_PATH
 
-BK = r"C:\Users\gonzalo\pdb-data\backups\lumen-pdb-20260815-185642.db.gz"
+BK = os.path.expanduser("~/pdb-data/backups/lumen-pdb-20260815-185642.db.gz")
 TMP = os.path.join(os.path.dirname(DB_PATH), "_bk_kanban_only.db")
 
 # Extraer backup a sqlite temporal

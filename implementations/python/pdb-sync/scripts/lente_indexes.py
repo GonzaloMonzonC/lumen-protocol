@@ -5,8 +5,11 @@ Crea los índices que El Lente recomienda sobre la PDB (86K filas en _globals).
 Idempotente: CREATE INDEX IF NOT EXISTS — se puede correr cuando se quiera.
 """
 import sqlite3
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import _paths  # noqa: E402
 
-DB = r"C:\Users\gonzalo\pdb-data\lumen-pdb.db"
+DB = _paths.DB_PATH
 INDEXES = [
     # El más lento detectado: GROUP BY ns del dashboard (14.4ms → 6.4ms)
     "CREATE INDEX IF NOT EXISTS idx_globals_ns ON _globals(ns)",

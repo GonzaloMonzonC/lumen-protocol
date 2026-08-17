@@ -274,11 +274,12 @@ Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_herm
 > `tools/list` and no `initialize`, which made the client hang. All 4 servers
 > now pass the full handshake — verified live (115 tools, 0 errors).
 >
-> **Data path fix**: `pdb_tools.py` previously hardcoded the SQLite DB path to
-> `C:\Users\gonzalo\pdb-data\lumen-pdb.db` (the developer's machine), so
-> `pdb_set` failed with "unable to open database file" anywhere else. It now
-> defaults to `~/.hermes/lumen-pdb.db` (auto-created), overridable via
-> `PDB_PATH` / `PDB_DB`.
+> **Data path fix**: `pdb_tools.py` (and several pdb-sync scripts) previously
+> hardcoded the SQLite DB path to `C:\Users\gonzalo\pdb-data\lumen-pdb.db`
+> (the developer's machine), so `pdb_set` failed with "unable to open database
+> file" anywhere else. Everything now resolves through `_paths.py` to
+> `implementations/mcp-servers/pdb/lumen-pdb.db` (repo-relative), overridable
+> via `PDB_PATH` / `PDB_DB`.
 
 115 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
 

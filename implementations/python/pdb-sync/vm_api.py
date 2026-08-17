@@ -37,7 +37,7 @@ import sqlite3 as _sq3
 _LENTE_LOGS = _collections.deque(maxlen=500)
 _LENTE_AGG = {}
 _LENTE_MAX_PER_FIRMA = 300
-_LENTE_DBPATH = os.environ.get("PDB_PATH") or r"C:\Users\gonzalo\pdb-data\lumen-pdb.db"
+_LENTE_DBPATH = _paths.DB_PATH
 _sqlite_connect_original = _sq3.connect
 
 
@@ -320,7 +320,7 @@ def _lente_slow(top=10):
 
 def _lente_plan(sql):
     try:
-        conn = _sqlite_connect_original(r"C:\Users\gonzalo\pdb-data\lumen-pdb.db")
+        conn = _sqlite_connect_original(_LENTE_DBPATH)
         rows = conn.execute("EXPLAIN QUERY PLAN " + sql).fetchall()
         conn.close()
         plan = [{"id": r[0], "parent": r[1], "notused": r[2], "detail": r[3]} for r in rows]
@@ -1224,8 +1224,9 @@ def _salon_write(rel_path, content):
 # El ecosistema M guarda las plantillas en ^quantum (ns quantum de la PDB);
 # este puente las envía a QI vía la CLI (tokens ya autenticados del usuario).
 
-QI_EXE = r"C:/Users/gonzalo/Documents/GitHub/lumen-mcp-quantum/.venv-q/Scripts/qi.exe"
-QI_PY = r"C:/Users/gonzalo/Documents/GitHub/lumen-mcp-quantum/.venv-q/Scripts/python.exe"
+_QUANTUM_VENV = os.path.expanduser("~/Documents/GitHub/lumen-mcp-quantum/.venv-q")
+QI_EXE = os.path.join(_QUANTUM_VENV, "Scripts", "qi.exe")
+QI_PY = os.path.join(_QUANTUM_VENV, "Scripts", "python.exe")
 QI_BACKENDS = {"qx": 1, "emulador": 1, "emulator": 1, "tuna5": 4, "tuna-5": 4, "ry": 5,
                "tuna9": 6, "tuna-9": 6, "tuna17": 7, "tuna-17": 7}
 _QUANTUM_DIR = os.path.expanduser("~/pdb-data/quantum")
@@ -1279,12 +1280,12 @@ def _quantum_result(job_id):
     """Consulta el resultado de un job vía el SDK (JSON puro)."""
     script = (
         "import sys, json\n"
-        "sys.path.insert(0, r'C:/Users/gonzalo/Documents/GitHub/lumen-mcp-quantum/.venv-q/Lib/site-packages')\n"
+        "sys.path.insert(0, r'%s')\n"
         "from quantuminspire.util.api.remote_backend import RemoteBackend\n"
         "b = RemoteBackend()\n"
         "r = b.get_results(%s)\n"
         "d = r if isinstance(r, dict) else (r.to_dict() if hasattr(r, 'to_dict') else r.model_dump() if hasattr(r, 'model_dump') else vars(r))\n"
-        "print(json.dumps(d, default=str))\n" % str(job_id)
+        "print(json.dumps(d, default=str))\n" % (os.path.join(_QUANTUM_VENV, "Lib", "site-packages"), str(job_id))
     )
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "VIRTUAL_ENV")}
     try:
