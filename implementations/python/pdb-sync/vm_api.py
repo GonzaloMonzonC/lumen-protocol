@@ -1345,6 +1345,9 @@ class VMHandler(BaseHTTPRequestHandler):
                     self._json({"success": False, "error": "path no válido o no existe (.md dentro de team-lab)"}, 400)
                 else:
                     self._json({"success": True, "path": rel, "content": content})
+        elif path == "/ddp/agent/list":
+            if _dashboard_gate(self, qs):
+                self._json({"success": True, "agentes": self._agent_registry_list()})
         elif path == "/ddp/lente/slow":
             if _dashboard_gate(self, qs):
                 try:
@@ -1461,6 +1464,8 @@ class VMHandler(BaseHTTPRequestHandler):
                     self._json({"success": False, "error": "path no válido (.md dentro de team-lab)"}, 400)
                 else:
                     self._json({"success": True, "path": rel, "saved": full})
+        elif path == "/ddp/agent/chat":
+            self._handle_agent_chat()
         else:
             self._json({"error": "not found"}, 404)
 
@@ -1597,6 +1602,131 @@ class VMHandler(BaseHTTPRequestHandler):
                 self._json({"error": "append failed"}, 500)
                 return
             self._json({"success": True, "seq": seq, "hash": h, "verify": _bitacora_verify()})
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    # ── Dispatcher de agentes (MCP compartido parametrizable) ──
+    # Registro: ^AGENTES("routing", <nombre>) en la PDB local (ver seed_agentes.py).
+    # Auth: HMAC DDP (workers) o token del dashboard (MCP ecosistema local).
+
+    def _agent_registry_get(self, agente):
+        """Lee ^AGENTES("routing",<agente>) → dict JSON o None."""
+        import sqlite3
+        from pdb_tools import encode_subkey
+        db = _get_db()
+        if not db:
+            return None
+        key = encode_subkey(["routing", agente])
+        conn = sqlite3.connect(db)
+        try:
+            row = conn.execute("SELECT value FROM _globals WHERE ns='AGENTES' AND subkey=?", (key,)).fetchone()
+            if not row or not row[0]:
+                return None
+            return json.loads(row[0])
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _agent_registry_list(self):
+        """Lista ^AGENTES("routing",*) → {nombre: meta} decodificado."""
+        import sqlite3
+        from pdb_tools import encode_subkey
+        db = _get_db()
+        if not db:
+            return {}
+        prefix = encode_subkey(["routing"])
+        out = {}
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                "SELECT subkey, value FROM _globals WHERE ns='AGENTES' AND subkey >= ? AND subkey < ?",
+                (prefix, prefix + b"\xff"),
+            ).fetchall()
+            for k, v in rows:
+                subs = _decode_subkey(k)
+                if subs:
+                    nombre = subs[-1]
+                    try:
+                        out[nombre] = json.loads(v)
+                    except Exception:
+                        out[nombre] = {"raw": v}
+            return out
+        except Exception:
+            return {}
+        finally:
+            conn.close()
+
+    def _agent_hmac(self, body_str):
+        """Firma HMAC ts+body+key (misma firma que ddpFetch de los workers)."""
+        key = os.environ.get("DDP_HMAC_KEY", "")
+        if not key:
+            return None, None
+        ts = str(int(time.time()))
+        msg = (ts + body_str + key).encode()
+        sig = hmac.new(key.encode(), msg, hashlib.sha256).hexdigest()
+        return ts, sig
+
+    def _handle_agent_chat(self):
+        """POST /ddp/agent/chat {agente, mensaje, session} → responde el agente destino.
+
+        - tipo=worker: POST <url>/v1/chat con HMAC (campo mensaje|message según registro)
+        - tipo=poli:   POST http://127.0.0.1:8082/v1/chat con {mensaje, mode, session}
+        """
+        import urllib.request
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else "{}"
+            ok_hmac = _verify_ddp(raw, self.headers)
+            qs_t = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
+            ok_token = _dashboard_token_ok(qs_t.get("t", ""), self.headers)
+            if not (ok_hmac or ok_token):
+                self._json({"error": "auth failed (HMAC o token)"}, 403)
+                return
+            body = json.loads(raw)
+            agente = str(body.get("agente", "")).strip().lower()
+            mensaje = str(body.get("mensaje", "")).strip()
+            session = str(body.get("session", "hermes")).strip() or "hermes"
+            if not agente or not mensaje:
+                self._json({"error": "agente and mensaje required"}, 400)
+                return
+            meta = self._agent_registry_get(agente)
+            if not meta:
+                self._json({"error": f"agente '{agente}' no registrado en ^AGENTES"}, 404)
+                return
+            t0 = time.time()
+            if meta.get("tipo") == "worker":
+                url = meta["url"].rstrip("/") + "/v1/chat"
+                campo = meta.get("campo", "mensaje")
+                payload = {campo: mensaje, "session_id": session}
+                body_str = json.dumps(payload, ensure_ascii=False)
+                ts, sig = self._agent_hmac(body_str)
+                headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 Hermes/1.0"}
+                if sig:
+                    headers["X-DDP-HMAC"] = sig
+                    headers["X-DDP-Timestamp"] = ts
+                req = urllib.request.Request(url, data=body_str.encode("utf-8"), headers=headers)
+                with urllib.request.urlopen(req, timeout=90) as r:
+                    data = json.loads(r.read().decode("utf-8", errors="replace"))
+                respuesta = (data.get("respuesta") or data.get("response")
+                             or data.get("message") or json.dumps(data, ensure_ascii=False))
+                via = f"worker:{agente}"
+            elif meta.get("tipo") == "poli":
+                mode = meta.get("mode", agente)
+                url = "http://127.0.0.1:8082/v1/chat"
+                payload = {"mensaje": mensaje, "mode": mode, "session": session}
+                body_str = json.dumps(payload, ensure_ascii=False)
+                req = urllib.request.Request(url, data=body_str.encode("utf-8"),
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=90) as r:
+                    data = json.loads(r.read().decode("utf-8", errors="replace"))
+                respuesta = data.get("response") or data.get("mensaje") or json.dumps(data, ensure_ascii=False)
+                via = f"poli:{mode}"
+            else:
+                self._json({"error": f"tipo '{meta.get('tipo')}' no soportado"}, 400)
+                return
+            self._json({"success": True, "agente": agente, "via": via, "response": respuesta,
+                        "ms": round((time.time() - t0) * 1000)})
         except Exception as e:
             self._json({"error": str(e)}, 500)
 

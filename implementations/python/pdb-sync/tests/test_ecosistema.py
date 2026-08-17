@@ -267,6 +267,34 @@ except Exception as e:
     check("cordon registra en M", False, "")
     check("cordon visible desde el MVM", False, "")
 
+print("=== 13. Dispatcher de agentes (MCP compartido parametrizable) ===")
+try:
+    reg = http_json(auth(f"{BASE}/ddp/agent/list"), 15)
+    agentes = reg.get("agentes", {})
+    check("registro ^AGENTES(routing)", reg.get("success") is True and len(agentes) >= 16, f"n={len(agentes)}")
+    check("4 nuevos registrados", all(a in agentes for a in ("danae", "bio-logos", "entropia-zero", "arche")),
+          f"faltan={[a for a in ('danae','bio-logos','entropia-zero','arche') if a not in agentes]}")
+    # chat con Vega (personalidad Poli) vía dispatcher
+    _v = http_json_post(auth(f"{BASE}/ddp/agent/chat"), {"agente": "vega", "mensaje": "Responde solo: operativo", "session": "suite-test"}, 90)
+    check("chat vega vía dispatcher", _v.get("success") is True and _v.get("via") == "poli:vega" and bool(_v.get("response")),
+          str(_v)[:100])
+    # chat con Dánae (nacida de la nada) vía dispatcher
+    _d = http_json_post(auth(f"{BASE}/ddp/agent/chat"), {"agente": "danae", "mensaje": "Responde solo: operativo", "session": "suite-test"}, 90)
+    check("chat danae vía dispatcher", _d.get("success") is True and _d.get("via") == "poli:danae" and bool(_d.get("response")),
+          str(_d)[:100])
+    # agente no registrado → 404
+    try:
+        http_json_post(auth(f"{BASE}/ddp/agent/chat"), {"agente": "fantasma", "mensaje": "hola"}, 15)
+        check("agente no registrado rechazado", False, "debió fallar")
+    except urllib.error.HTTPError as _e:
+        check("agente no registrado rechazado", _e.code == 404, f"code={_e.code}")
+except Exception as e:
+    check("registro ^AGENTES(routing)", False, str(e)[:100])
+    check("4 nuevos registrados", False, "")
+    check("chat vega vía dispatcher", False, "")
+    check("chat danae vía dispatcher", False, "")
+    check("agente no registrado rechazado", False, "")
+
 print(f"\n{'='*50}\nRESULTADO: {len(PASS)} ✅  |  {len(FAIL)} ❌")
 if FAIL:
     print("FALLOS:", " | ".join(FAIL))
