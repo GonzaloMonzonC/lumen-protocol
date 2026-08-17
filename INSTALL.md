@@ -127,6 +127,38 @@ mcp_servers:
 
 ---
 
+## Optional: Run the MVM Web Engine + DDP Server (`vm_api.py`) locally
+
+The ecosystem also ships a local HTTP server (port `8081`) that executes M code
+on the **Rust MVM** and serves DDP sync (`/ddp/pull`, `/ddp/push`, `/ddp/allocate`).
+
+> ⚠️ **First-time prerequisite**: the Rust MVM is a DLL (`lumen_mlight.dll`) that
+> is **not** committed. Without it, the first start silently runs a blocking
+> `cargo build --release` (~4 min) that looks like a hang. Build it once:
+
+```bash
+cd implementations/rust/lumen-m-light
+cargo build --release --features minreq     # → target/release/lumen_mlight.dll
+cd ../../..
+```
+
+Then start the server:
+
+```bash
+# Windows
+.venv/Scripts/python.exe implementations/python/pdb-sync/vm_api.py 8081
+# macOS / Linux
+.venv/bin/python implementations/python/pdb-sync/vm_api.py 8081
+
+curl http://localhost:8081/ddp/health       # → {"ok": true, "ddp": "local", "hmac": false}
+```
+
+Optional auth: `export DDP_HMAC_KEY=<secret>` (unset = local mode, no signature
+required). Full endpoint map, the `/vm/execute` contract, audit trail and
+troubleshooting: **[docs/GUIA_VM_API.md](docs/GUIA_VM_API.md)**.
+
+---
+
 ## Troubleshooting
 
 ### "MCP server failed to connect" / discovery hangs
