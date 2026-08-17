@@ -26,9 +26,20 @@ GT.M, MUMPS y Python nacieron monohost: su extensión ($ZF, callouts, módulos) 
 una máquina local con procesos locales. Nosotros podemos replicarnos entre servidores
 por Internet y crecer al infinito — los sistemas antiguos no podían tenerlo en cuenta.
 Consecuencia objetiva: **toda capacidad nueva debe ser agnóstica del host** — funcionar
-igual en cualquier réplica. Un "device de subprocesos locales" sería ANTI-replicación
-(rompe en cuanto el MVM vive en otro servidor). El FFI (JSON C ABI), el HTTP (device 8)
-y el WASM (sandbox portable) SÍ son agnósticos del host → son los caminos correctos.
+igual en cualquier réplica. El FFI (JSON C ABI), el HTTP (device 8) y el WASM (sandbox
+portable) SÍ son agnósticos del host → son los caminos correctos.
+
+**Matiz (Gonzalo): la integración con procesos locales SÍ, per-ámbito.**
+En la distribución, cuando hay sistemas instalados en distintos servidores, cada
+despliegue tiene SUS procesos locales — y el MVM de ese ámbito debe poder trabajar
+con ellos. No es el monohost de GT.M (un solo servidor fijo): es cada réplica con
+su vecindario local. La integración local ya está resuelta sin device nuevo:
+- **HTTP local** (device 8 → `127.0.0.1:puerto`) — el M habla con cualquier proceso local
+- **Puente Python del poli_server** — el proceso local del ámbito ejecuta código Python
+- **vm-api local** — el MVM habla con su infraestructura local (PDB, salón, quantum)
+El registro `^EXT` describe los módulos/procesos de CADA ámbito (los locales del
+despliegue), con `replicable: true` para lo portable y la lista de procesos locales
+por instancia cuando los haya.
 
 Nuestro ecosistema no necesita:
 - ❌ Compilar rutinas C para drivers de hardware (el caso de $ZF en GT.M hospitalario)
