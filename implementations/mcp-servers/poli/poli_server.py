@@ -1507,6 +1507,12 @@ if __name__ == "__main__":
     # ── HTTP server (poli-api.cadences.app) ─────────────────────────────────
     import http.server, threading, urllib.parse
     POLI_HTTP_PORT = int(os.environ.get("POLI_HTTP_PORT", "8082"))
+
+    # ── Blindaje exec (2026-08-17): un exec mal formado (p.ej. F var="" en
+    # M-Light) puede colgar el engine M. Con lock serializador + timeout,
+    # el server HTTP nunca muere: exec colgado → 504, MVM ocupado → 503.
+    _EXEC_LOCK = threading.Lock()
+    _EXEC_TIMEOUT = float(os.environ.get("POLI_EXEC_TIMEOUT", "30"))
     
     class PoliHTTPHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
@@ -1632,7 +1638,27 @@ if __name__ == "__main__":
                     gas = body.get("gas_limit", 200000)
                     if not isinstance(gas, int) or gas < 1000:
                         gas = 200000
-                    r = _STATE.exec(code, gas=gas)
+                    if not _EXEC_LOCK.acquire(timeout=5):
+                        return self._json(503, {"ok": False, "error": "MVM ocupado por un exec colgado; reinicia poli_server"})
+                    result = {}
+                    def _run():
+                        try:
+                            result["r"] = _STATE.exec(code, gas=gas)
+                        except Exception as e:
+                            result["e"] = e
+                    t = threading.Thread(target=_run, daemon=True)
+                    t.start()
+                    t.join(timeout=_EXEC_TIMEOUT)
+                    if t.is_alive():
+                        # NO liberar el lock: el hilo zombie lo mantiene hasta reiniciar
+                        return self._json(504, {"ok": False, "error": f"exec timeout >{_EXEC_TIMEOUT}s (posible bucle o F malformado)"})
+                    try:
+                        _EXEC_LOCK.release()
+                    except RuntimeError:
+                        pass
+                    if "e" in result:
+                        raise result["e"]
+                    r = result["r"]
                     state = r.get("state", {})
                     output = state.get("output", "")
                     error = state.get("error", {})
@@ -1644,6 +1670,10 @@ if __name__ == "__main__":
                         "globals": [g for g in (r.get("globals") or []) if g.get("name","").startswith("^")],
                     })
                 except Exception as e:
+                    try:
+                        _EXEC_LOCK.release()
+                    except RuntimeError:
+                        pass
                     return self._json(500, {"ok": False, "error": str(e)})
             if self.path == "/v1/smith":
                 try:
@@ -1691,7 +1721,7 @@ if __name__ == "__main__":
             self._json(404, {"error": "not found"})
     
     try:
-        httpd = http.server.HTTPServer(("127.0.0.1", POLI_HTTP_PORT), PoliHTTPHandler)
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", POLI_HTTP_PORT), PoliHTTPHandler)
         t = threading.Thread(target=httpd.serve_forever, daemon=True)
         t.start()
     except OSError:
