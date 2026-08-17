@@ -200,6 +200,77 @@ PDB_PATH (env) > PDB_DB (env) > <repo>/implementations/mcp-servers/pdb/lumen-pdb
 
 ---
 
+## 11. Agentes con LLM dentro del MVM (`$DEVICE("llm:call", ...)` / Smith)
+
+**El MVM tiene LLM nativo.** Solo necesita la key en el entorno del proceso:
+
+| Provider | Env var | Endpoint |
+|----------|---------|----------|
+| `deepseek` (default) | `DEEPSEEK_API_KEY` | `api.deepseek.com/v1/chat/completions` |
+| `openrouter` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1/chat/completions` |
+| `lingyi`/`zai`/`yi`/`01ai` | `LINGYI_API_KEY` | `api.lingyiwanwu.com` |
+| `anthropic` | `ANTHROPIC_AUTH_TOKEN` | `api.z.ai/api/anthropic` |
+
+**Contrato M** (verificado 2026-08-18 con deepseek-v4-flash):
+
+```m
+; llamada síncrona — el VM hace fork + yield + resume automáticamente
+S r=$DEVICE("llm:call", prompt, system, provider, model)
+; defaults: provider="deepseek", model="deepseek-v4-flash"
+
+; fork explícito (async) → id, luego await:
+S id=$DEVICE("llm:fork", prompt, system, "deepseek", "deepseek-v4-flash")
+S resp=$DEVICE("llm:await", id)
+
+; encadenar: llm:chain(parent_id, prompt, system, provider, model)
+; esperar varios: llm:all("id1,id2")   ·  cancelar: llm:cancel(id)
+```
+
+**Smith — orquestación multi-agente** (fork por dominio + síntesis):
+
+```m
+S r=$DEVICE("smith:orchestrate", "mensaje", "fisica,poesia")
+```
+
+Cada dominio es un fork con identidad propia configurable en la PDB:
+`^PERSONALITY("<dominio>","identity"|"provider"|"model")` — si no se define,
+`identity` por defecto es "Eres un asesor experto en <dominio>..." y
+provider/model = deepseek / deepseek-v4-flash. El resultado final es una
+**síntesis** de todas las respuestas (verificado: 2 forks + síntesis en ~19s).
+
+**Ejemplos curl verificados** (con `DEEPSEEK_API_KEY` en el entorno del server):
+
+```bash
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  -d '{"script": "S r=$DEVICE(\"llm:call\",\"Presentate en 1 frase\",\"Eres un agente LUMEN\") W r"}'
+
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  -d '{"script": "S r=$DEVICE(\"smith:orchestrate\",\"Que es la entropia?\",\"fisica,poesia\") W r"}'
+```
+
+### ⚠️ Pitfalls descubiertos en la práctica (Windows)
+
+1. **Procesos background no heredan `export`**: al lanzar vm_api en background
+   (nohup/&/gestor de procesos), el shell hijo no ve los `export` de la sesión →
+   `401 Authentication Fails (auth header format should be Bearer sk-...)`.
+   Pasar la key **literal en el comando**: `DEEPSEEK_API_KEY=sk-... python vm_api.py`.
+2. **DLL bloqueada en Windows**: si el server está corriendo, `cargo build` falla
+   con `Acceso denegado (os error 5)` porque `lumen_mlight.dll` está cargada.
+   Parar el server → recompilar → relanzar.
+3. **DLL obsoleta tras commits de Rust**: `ensure_built()` compara mtimes de
+   `src/*.rs` contra la DLL; si el repo se actualizó, el backend degrada
+   **silenciosamente** a StackVM Python y `$DEVICE` devuelve `[UNKNOWN $DEVICE]`.
+   Síntoma clásico: `ok:true` pero `[UNKNOWN $DEVICE]`. Solución: recompilar.
+4. **Modelos reasoning** (`deepseek-v4-flash`): agotan el presupuesto en
+   `reasoning_content` y dejan `content` vacío — el MVM ya hace fallback
+   automático (`reasoning_content` + `max_tokens` 8192). Para respuestas
+   directas sin razonamiento, pasar `"deepseek-chat"` como modelo.
+5. **Capturar el resultado**: `W $DEVICE(...)` escribe al stream de salida;
+   usar `S r=$DEVICE(...)` para que el valor quede en el stack y aparezca en
+   `result` de la API.
+
+---
+
 ## Ver también
 
 - [`EXTENSIBILIDAD-MVM.md`](EXTENSIBILIDAD-MVM.md) — device HTTP del MVM (F1) y fases F2/F3
