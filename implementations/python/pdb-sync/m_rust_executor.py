@@ -13,7 +13,7 @@ PDB_DIR = _paths.PDB_DIR_S
 if PDB_DIR not in sys.path:
     sys.path.insert(0, PDB_DIR)
 
-from lumen_mlight import execute as ml_execute
+from lumen_mlight import execute_sqlite
 
 _routines = {}  # cache local: name → code
 
@@ -86,11 +86,12 @@ class RustExecutor:
             vars_dict.update(vars_in)
 
         try:
-            response = ml_execute(
+            response = execute_sqlite(
                 source=source,
                 routines={routine: code},
                 variables=vars_dict,
                 gas_limit=100000,
+                sqlite_path=_paths.DB_PATH,
             )
 
             # Extraer resultado
@@ -116,15 +117,30 @@ class RustExecutor:
     def exec_code(self, source: str, args: list = None, vars_in: dict = None) -> dict:
         """Ejecutar código M inline via Rust MVM."""
         try:
-            response = ml_execute(
+            # Preparar vars: args → $1..$n + $ZARGS (mismo contrato que exec)
+            vars_dict = {}
+            if args:
+                for i, arg in enumerate(args, 1):
+                    vars_dict[f"${i}"] = arg
+                vars_dict["$ZARGS"] = len(args)
+            if vars_in:
+                vars_dict.update(vars_in)
+
+            response = execute_sqlite(
                 source=source,
-                variables=vars_in or {},
+                variables=vars_dict,
                 gas_limit=100000,
+                sqlite_path=_paths.DB_PATH,
             )
             state = response.get("state", {})
             error = state.get("error", {}).get("zerror")
+
+            # Resultado = último valor en el stack (QUIT), como en exec()
+            stack = state.get("stack", [])
+            result = stack[-1] if stack else None
+
             return {
-                "result": None,
+                "result": result,
                 "vars": {},
                 "error": error,
                 "_rust": True,
