@@ -1675,6 +1675,43 @@ if __name__ == "__main__":
                     except RuntimeError:
                         pass
                     return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/fixer/gen":
+                # Proxy de generación de código M → Tom /v1/mgen (Workers AI gratis).
+                # El HMAC se firma aquí (transporte puro); la lógica del fix vive en la rutina M ^FIXER.
+                # Respuesta TEXT/PLAIN (newlines REALES) para parseo M directo: ok\nmodel\ncode
+                # (el $DEVICE del MVM no parsea JSON — devuelve el body crudo)
+                def _text(text):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(text.encode("utf-8"))
+                try:
+                    import hmac, hashlib, urllib.request
+                    from datetime import datetime, timezone
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = self._read_json(self.rfile, length)
+                    task = (body.get("task") or "").strip()
+                    if not task:
+                        return _text("0\n\ntask required")
+                    payload = {"task": task}
+                    if body.get("routine"):
+                        payload["routine"] = body["routine"]
+                    if body.get("rules"):
+                        payload["rules"] = body["rules"]
+                    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    key = (os.environ.get("DDP_HMAC_KEY") or "").encode()
+                    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                    sig = hmac.new(key, (ts + raw.decode("utf-8") + key.decode()).encode(), hashlib.sha256).hexdigest()
+                    req = urllib.request.Request("https://tom.WORKER_INTERNAL_URL/v1/mgen",
+                        data=raw, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
+                                           "X-DDP-Timestamp": ts, "X-DDP-HMAC": sig}, method="POST")
+                    with urllib.request.urlopen(req, timeout=60) as r:
+                        resp = json.loads(r.read())
+                    if resp.get("ok") and resp.get("code"):
+                        return _text("1\n" + (resp.get("model") or "") + "\n" + resp["code"])
+                    return _text("0\n\n" + (resp.get("error") or "sin respuesta de Tom"))
+                except Exception as e:
+                    return _text("0\n\nerror proxy: " + str(e))
             if self.path == "/v1/smith":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
