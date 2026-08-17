@@ -649,6 +649,91 @@ fn compare_subscripts(a: &[Subscript], b: &[Subscript]) -> std::cmp::Ordering {
     a.len().cmp(&b.len())
 }
 
+/// Device HTTP COMPLETO (F1 2026-08-17 — acceso Internet MVM, sin deuda técnica):
+/// GET/HEAD/POST/PUT/DELETE con headers, timeout, User-Agent por defecto y límite de
+/// respuesta. Contrato JSON estructurado {status, ok, body, truncated} SIEMPRE.
+///   get/head:        (url, [headers_json], [timeout_s])
+///   post/put/delete: (url, body, [headers_json], [timeout_s])
+#[cfg(feature = "minreq")]
+fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
+    const MAX_BODY: usize = 200 * 1024;
+    let url = args.first().map(|v| v.as_string()).unwrap_or_default();
+    if url.trim().is_empty() {
+        return Err("HTTP: url requerida".to_string());
+    }
+    let has_body = matches!(action, "post" | "put" | "delete");
+    let body = if has_body {
+        args.get(1).map(|v| v.as_string()).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let headers_json = if has_body {
+        args.get(2).map(|v| v.as_string()).unwrap_or_default()
+    } else {
+        args.get(1).map(|v| v.as_string()).unwrap_or_default()
+    };
+    let timeout_raw = if has_body {
+        args.get(3).map(|v| v.as_string()).unwrap_or_default()
+    } else {
+        args.get(2).map(|v| v.as_string()).unwrap_or_default()
+    };
+    let timeout_s: u64 = timeout_raw.trim().parse().unwrap_or(30).clamp(1, 300);
+
+    let mut headers: Vec<(String, String)> = Vec::new();
+    if !headers_json.trim().is_empty() {
+        let parsed: serde_json::Value = serde_json::from_str(&headers_json)
+            .map_err(|e| format!("HTTP: headers_json inválido: {e}"))?;
+        if let Some(obj) = parsed.as_object() {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    headers.push((k.clone(), s.to_string()));
+                } else {
+                    headers.push((k.clone(), v.to_string()));
+                }
+            }
+        }
+    }
+    // Defaults solo si el usuario no los pasa (evita duplicados y WAF 403 por UA de bot)
+    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")) {
+        headers.push((
+            "User-Agent".to_string(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36".to_string(),
+        ));
+    }
+    if has_body && !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type")) {
+        headers.push(("Content-Type".to_string(), "application/json".to_string()));
+    }
+
+    let mut req = match action {
+        "get" => minreq::get(&url),
+        "head" => minreq::head(&url),
+        "post" => minreq::post(&url),
+        "put" => minreq::put(&url),
+        "delete" => minreq::delete(&url),
+        _ => return Err(format!("HTTP: método no soportado: {action}")),
+    }
+    .with_timeout(timeout_s);
+    for (k, v) in &headers {
+        req = req.with_header(k.as_str(), v.as_str());
+    }
+    if has_body {
+        req = req.with_body(body);
+    }
+
+    let resp = req.send().map_err(|e| format!("HTTP {action} error: {e}"))?;
+    let status = resp.status_code;
+    let bytes = resp.as_bytes();
+    let truncated = bytes.len() > MAX_BODY;
+    let body_out = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_BODY)]).to_string();
+    let out = serde_json::json!({
+        "status": status,
+        "ok": status >= 200 && status < 300,
+        "body": body_out,
+        "truncated": truncated,
+    });
+    Ok(Value::String(out.to_string()))
+}
+
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
         // Read from in-memory BTreeMap
@@ -900,23 +985,16 @@ impl Host for MemoryHost {
         match device {
             #[cfg(feature = "minreq")]
             "http" => {
+                // Device HTTP COMPLETO (2026-08-17 — F1 acceso Internet MVM, sin deuda técnica):
+                //   $DEVICE("http:get", url, [headers_json], [timeout_s])
+                //   $DEVICE("http:post", url, body, [headers_json], [timeout_s])
+                //   $DEVICE("http:put"|"http:delete"|"http:head", ...)   (igual que post/get)
+                // Devuelve SIEMPRE JSON: {"status":N,"ok":bool,"body":"..."} (body truncado a 200KB).
+                // Compat: el antiguo "get"/"post" plano se sustituye por este contrato estructurado
+                // (ninguna rutina en producción usaba el plano — verificado 17-08).
                 match action {
-                    "get" => {
-                        let url = args.first().map(|v| v.as_string()).unwrap_or_default();
-                        let resp = minreq::get(&url)
-                            .send()
-                            .map_err(|e| format!("HTTP GET error: {e}"))?;
-                        Ok(Value::String(resp.as_str().unwrap_or("").to_string()))
-                    }
-                    "post" => {
-                        let url = args.first().map(|v| v.as_string()).unwrap_or_default();
-                        let body = args.get(1).map(|v| v.as_string()).unwrap_or_default();
-                        let resp = minreq::post(&url)
-                            .with_header("Content-Type", "application/json")
-                            .with_body(body)
-                            .send()
-                            .map_err(|e| format!("HTTP POST error: {e}"))?;
-                        Ok(Value::String(resp.as_str().unwrap_or("").to_string()))
+                    "get" | "head" | "post" | "put" | "delete" => {
+                        http_full_request(action, &args)
                     }
                     _ => Err(format!("Unknown HTTP action: {action}")),
                 }
