@@ -268,6 +268,47 @@ curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
 5. **Capturar el resultado**: `W $DEVICE(...)` escribe al stream de salida;
    usar `S r=$DEVICE(...)` para que el valor quede en el stack y aparezca en
    `result` de la API.
+6. **UTF-8 en Windows/git-bash**: `curl -d '{"script": ..., "args": ["¿...?"]}'`
+   con acentos o `¿` manda el body en la codepage de la consola y el server
+   falla con `'utf-8' codec can't decode byte 0xbf ... invalid start byte`
+   (el `¿` es 0xC2 0xBF). Solución: escribir el JSON a un archivo UTF-8 y usar
+   `curl --data-binary @archivo.json`.
+
+### Ejemplo completo: crear tu primer agente (SHUTTLE)
+
+El repo incluye `implementations/python/pdb-sync/seed_agente_shuttle.py` — un
+agente experto en electrónica antigua de transbordadores espaciales
+(multidisciplinar: aviónica del Shuttle, AGC del Apolo, TMR/PASS-BFS,
+MIL-STD-1553, historia de MUMPS y su aplicación a sistemas actuales):
+
+```bash
+# 1. sembrar identidad (^PERSONALITY) + rutina (^ROUTINE) en la PDB canónica
+.venv/Scripts/python.exe implementations/python/pdb-sync/seed_agente_shuttle.py
+
+# 2. invocarlo (server con DEEPSEEK_API_KEY en el entorno)
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  --data-binary @pregunta.json        # {"script": "SHUTTLE", "args": ["¿...?"]}
+
+# 3. o vía Smith con su dominio (misma identidad)
+#    {"script": "S r=$DEVICE(\"smith:orchestrate\",\"¿...?\",\"shuttle\") W r"}
+```
+
+**Patrón para crear tu propio agente**: escribe en la PDB
+`^PERSONALITY("<dominio>","identity"|"provider"|"model")` y una rutina M en
+`^ROUTINE("NOMBRE",<línea>)` cuya **primera línea sea la etiqueta de entrada**
+(`NOMBRE ; comentario` — el VM Rust devuelve `unknown label` si falta) y que
+llame al LLM con la pregunta como `$1`:
+
+```m
+NOMBRE ; comentario
+S ident=$G(^PERSONALITY("<dominio>","identity"))
+S prov=$G(^PERSONALITY("<dominio>","provider"))
+S mod=$G(^PERSONALITY("<dominio>","model"))
+S r=$DEVICE("llm:call",$1,ident,prov,mod)
+```
+
+La identidad se edita re-ejecutando el seed (INSERT OR REPLACE); la rutina la
+lee desde `^PERSONALITY` en cada llamada — no hay que recompilar nada.
 
 ---
 

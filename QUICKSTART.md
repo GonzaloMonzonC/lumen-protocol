@@ -206,6 +206,7 @@ Follow **[INSTALL.md](INSTALL.md)** (or `INSTALL_ES.md`).
 | `401 ... should be Bearer sk-...` | Key missing in the **server process** env | Pass the key literally in the launch command (step 5) |
 | `cargo build` → "Access denied" | Server running with the DLL loaded (Windows) | Stop the server, rebuild, restart |
 | `HMAC auth failed` (DDP/workers) | Secret mismatch between local and worker | Set the same `DDP_HMAC_KEY` on both sides |
+| `'utf-8' codec can't decode byte 0xbf...` in `/vm/execute` with accents/`¿` | Windows git-bash `curl -d` sends the body in the console codepage, not UTF-8 | Write the JSON to a UTF-8 file and use `curl --data-binary @file.json` |
 | `/vm/execute` errors | Read the `error` field in the response | It's the engine's actual message |
 | DB "unable to open database file" | `PDB_PATH`/`PDB_DB` points elsewhere | Unset them or point to a writable path |
 
