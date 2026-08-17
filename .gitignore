@@ -83,3 +83,4 @@ implementations/mcp-servers/poli/routines/*.mac
 # Temp checkin files
 implementations/mcp-servers/pdb/checkin_*.py
 implementations/mcp-servers/pdb/checkin_*.md
+.venv/

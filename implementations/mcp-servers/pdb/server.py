@@ -20,7 +20,9 @@ while True:
         mid = msg.get("id")
         method = msg.get("method", "")
         if method == "initialize":
-            send({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{"tools":{}}}})
+            send({"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"lumen-pdb","version":"1.0.0"}}})
+        elif method == "tools/list":
+            send({"jsonrpc":"2.0","id":mid,"result":{"tools":TOOLS}})
         elif method == "tools/call":
             p = msg.get("params",{})
             h = HANDLERS.get(p.get("name",""))
