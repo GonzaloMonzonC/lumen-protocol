@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Apply ALL missing MVM fixes in one pass."""
-import subprocess, sys
+import subprocess, sys, os
 
-VM = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\vm.rs'
-HOST = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\host.rs'
-COMP = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\compiler.rs'
+_SRC = os.path.dirname(os.path.abspath(__file__))
+VM = os.path.join(_SRC, 'vm.rs')
+HOST = os.path.join(_SRC, 'host.rs')
+COMP = os.path.join(_SRC, 'compiler.rs')
 
 # --- VM fixes ---
 with open(VM, 'r', encoding='utf-8') as f:
@@ -95,7 +96,7 @@ print(f'\\nTotal changes: {changes}')
 if changes > 0:
     print('\\nBuilding...')
     r = subprocess.run(['cargo', 'build', '--release'], 
-                       cwd=r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light',
+                       cwd=os.path.dirname(_SRC),
                        capture_output=True, text=True)
     if r.returncode == 0:
         print('  Build OK')

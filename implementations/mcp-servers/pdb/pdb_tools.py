@@ -106,7 +106,7 @@ def _get_db_path() -> str:
         _DB_PATH = (
             os.environ.get("PDB_PATH")
             or os.environ.get("PDB_DB")
-            or str(Path(os.path.expanduser("~/.hermes")) / "lumen-pdb.db")
+            or str(Path(__file__).resolve().parent / "lumen-pdb.db")
         )
         # SQLite no crea directorios: asegura que el padre exista.
         parent = os.path.dirname(_DB_PATH)

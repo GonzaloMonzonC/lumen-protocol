@@ -2,7 +2,7 @@
 """Patch vm.rs: local DO .ref handling."""
 import os
 
-vm_path = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\vm.rs'
+vm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vm.rs')
 
 with open(vm_path, 'r', encoding='utf-8') as f:
     content = f.read()

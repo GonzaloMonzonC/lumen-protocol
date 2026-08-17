@@ -150,10 +150,10 @@ Then re-test the server manually:
 
 ### `pdb_set` returns "unable to open database file"
 
-The database now defaults to `~/.hermes/lumen-pdb.db` (created automatically).
-It previously pointed at a hardcoded path on the developer's machine. You can
-override it with the `PDB_PATH` / `PDB_DB` environment variables (useful for
-benchmarks):
+The database now lives at `implementations/mcp-servers/pdb/lumen-pdb.db` (inside
+the repo, auto-created — see `_paths.py`). It previously pointed at a hardcoded
+path on the developer's machine. Override with the `PDB_PATH` / `PDB_DB`
+environment variables (useful for benchmarks):
 
 ```bash
 export PDB_PATH=/path/to/my-pdb.db

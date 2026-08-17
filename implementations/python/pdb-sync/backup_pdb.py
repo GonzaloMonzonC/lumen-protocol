@@ -9,8 +9,9 @@ Para automatizarlo: cron diario con wrapper .py (sin bash, ver skill).
 """
 import gzip, os, shutil, sys, glob
 from datetime import datetime
+import _paths  # DB_PATH canónico (cero hardcode)
 
-DB_PATH = os.environ.get("PDB_PATH", "C:/Users/gonzalo/pdb-data/lumen-pdb.db")
+DB_PATH = _paths.DB_PATH
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "backups")
 KEEP = int(sys.argv[sys.argv.index("--keep") + 1]) if "--keep" in sys.argv else 14
 QUIET = "--quiet" in sys.argv

@@ -151,10 +151,10 @@ Y prueba el servidor manualmente:
 
 ### `pdb_set` devuelve "unable to open database file"
 
-La base de datos por defecto ahora vive en `~/.hermes/lumen-pdb.db` (se crea
-automáticamente). Antes apuntaba a una ruta hardcodeada de la máquina del
-desarrollador. Puedes sobrescribirla con las variables de entorno `PDB_PATH`
-o `PDB_DB` (útil para benchmarks):
+La base de datos ahora vive en `implementations/mcp-servers/pdb/lumen-pdb.db`
+(dentro del repo, se crea automáticamente — ver `_paths.py`). Antes apuntaba a
+una ruta hardcodeada de la máquina del desarrollador. Puedes sobrescribirla con
+las variables de entorno `PDB_PATH` o `PDB_DB` (útil para benchmarks):
 
 ```bash
 export PDB_PATH=/ruta/a/mi-pdb.db

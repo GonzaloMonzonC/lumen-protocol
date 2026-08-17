@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Apply all MVM parser fixes atomically."""
 import re
+import os
 
-VM_RS = r'C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\vm.rs'
+VM_RS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vm.rs')
 
 with open(VM_RS, 'r', encoding='utf-8') as f:
     content = f.read()
