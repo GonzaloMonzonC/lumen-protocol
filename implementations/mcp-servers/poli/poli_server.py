@@ -1512,7 +1512,7 @@ if __name__ == "__main__":
     # M-Light) puede colgar el engine M. Con lock serializador + timeout,
     # el server HTTP nunca muere: exec colgado → 504, MVM ocupado → 503.
     _EXEC_LOCK = threading.Lock()
-    _EXEC_TIMEOUT = float(os.environ.get("POLI_EXEC_TIMEOUT", "30"))
+    _EXEC_TIMEOUT = float(os.environ.get("POLI_EXEC_TIMEOUT", "120"))
     
     class PoliHTTPHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
