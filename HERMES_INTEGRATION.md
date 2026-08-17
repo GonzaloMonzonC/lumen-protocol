@@ -159,6 +159,7 @@ Measured with real MCP workloads on Windows 10, Python 3.11, Node.js 22.
 |--------|------|-------|--------|
 | Test server (Python) | stdio | ✅ | Verified |
 | [cadencia-mcp](https://github.com/GonzaloMonzonC/cadencia) | stdio (TypeScript) | ✅ JSON-RPC fallback | Verified |
+| LUMEN 4-server stack (filesystem, web, thinking, pdb) | stdio JSON-RPC | ⬜ JSON-RPC | ✅ Verified — 115 tools with Hermes MCP client |
 | Any stdio MCP server | stdio | ⬜ auto-negotiate | Fallback-safe |
 
 Testing cadencia-mcp with DeepSeek V4 Pro:
@@ -232,24 +233,48 @@ All options are per-server under `mcp_servers.<name>`.
 
 ## MCP Servers
 
-LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`:
+LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`.
+**Verified end-to-end with the Hermes MCP client: 115 tools across 4 servers**
+(handshake `initialize` + `tools/list` + live tool calls):
 
 | Server | Tools | Wire Savings | Config |
 |--------|-------|-------------|--------|
-| Filesystem | 13 tools (read_file, write_file, search_files, list_directory, read_files, search_with_context, stream_read, server_stats, patch, file_info, disk_usage, search_filename, find_duplicates) | 32-70% | `transport: lumen` |
-| Web | 2 tools (web_search, web_extract unified) | 40-50% | `transport: lumen` |
-| Thinking | 15 tools (sequential, similarity, contradiction, summarize, to_plan, evaluate, bridge, assume, list_assumptions, check_assumption, model_add, model_query, model_stats, model_map, model_remove) | 60-80% | `transport: lumen` |
+| Filesystem | 13 (read_file, write_file, search_files, list_directory, read_files, search_with_context, stream_read, server_stats, patch, file_info, disk_usage, search_filename, find_duplicates) | 32-70% | plain stdio |
+| Web | 2 (web_search, web_extract unified) | 40-50% | plain stdio |
+| Thinking | 81 (kanban/niches, tasks, wiki, patterns, decisions, chains, PDB namespaces, dashboard, …) | 60-80% | plain stdio |
+| PDB | 19 (pdb_get/set/kill, namespaces, vector search, MVM apps, notifications, watches) | — | plain stdio |
+
+Verified registration (JSON-RPC stdio — **no `transport: lumen` keys required**):
 
 ```yaml
 mcp_servers:
-  lumen_filesystem:
-    command: "python"
-    args: ["path/to/lumen-protocol/implementations/mcp-servers/filesystem/server.py"]
-    transport: lumen
-    lumen_force_json_rpc: true
+  lumen-filesystem:
+    command: C:/abs/path/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/abs/path/lumen-protocol/implementations/mcp-servers/filesystem/server.py]
+    enabled: true
+  lumen-web:
+    command: C:/abs/path/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/abs/path/lumen-protocol/implementations/mcp-servers/web/server.py]
+    enabled: true
+  lumen-thinking:
+    command: C:/abs/path/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/abs/path/lumen-protocol/implementations/mcp-servers/thinking/server.py]
+    enabled: true
+  lumen-pdb:
+    command: C:/abs/path/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/abs/path/lumen-protocol/implementations/mcp-servers/pdb/server.py]
+    enabled: true
 ```
 
-26 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
+Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_hermes_mcp.bat`).
+
+> **Compatibility fix (commit `7499c3a`)**: the Hermes MCP client requires a
+> complete `initialize` (protocolVersion + serverInfo) and `tools/list`
+> response during discovery. `pdb/server.py` previously returned an empty
+> `tools/list` and no `initialize`, which made the client hang. All 4 servers
+> now pass the full handshake — verified live (115 tools, 0 errors).
+
+115 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
 
 ### Tool Selection — SOUL.md
 
