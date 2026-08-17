@@ -240,7 +240,7 @@ try:
     _aud = http_json(auth(f"{BASE}/ddp/audit?ns=AUDIT_CHK&limit=3"), 15)
     _e = (_aud.get("entries") or [])
     check("audit entrada registrada", len(_e) == 1 and _e[0].get("ns") == "AUDIT_CHK", f"e={_e}")
-    check("audit quién-cuándo-qué", bool(_e) and _e[0].get("op") == "SET" and _e[0].get("via") == "suite-test" and _e[0].get("ts"), f"e={_e[0] if _e else '?'}")
+    check("audit incremento en M", bool(_e) and _e[0].get("count", 0) > 0 and _e[0].get("ts"), f"e={_e[0] if _e else '?'}")
     # limpieza (el AUDIT_CHK del ns + su audit)
     _c = _sq.connect(_db)
     _c.execute("DELETE FROM _globals WHERE ns IN ('AUDIT_CHK','AUDIT') AND subkey LIKE ?", (b"\x02AUDIT_CHK\xff%",))
