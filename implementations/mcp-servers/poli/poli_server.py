@@ -1534,6 +1534,11 @@ if __name__ == "__main__":
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(obj, ensure_ascii=False).encode())
+        def _text(self, text):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(text.encode("utf-8"))
         def do_GET(self):
             from urllib.parse import parse_qs, urlparse
             parsed = urlparse(self.path)
@@ -1675,6 +1680,36 @@ if __name__ == "__main__":
                     except RuntimeError:
                         pass
                     return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/llm_free":
+                # LLM gratis via Tom (Workers AI): puente HMAC → /v1/process.
+                # text/plain: ok\nmodel\noutput (el $DEVICE del MVM no parsea JSON).
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = self._read_json(self.rfile, length)
+                    prompt = (body.get("prompt") or "").strip()
+                    if not prompt:
+                        return self._text("0\n\nprompt required")
+                    tier = (body.get("tier") or "FAST").upper()
+                    if tier not in ("FAST", "CHEAP", "GRANITE", "QWEN"):
+                        tier = "FAST"
+                    import hmac, hashlib, urllib.request
+                    from datetime import datetime, timezone
+                    payload = {"prompt": prompt, "tier": tier}
+                    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    key = (os.environ.get("DDP_HMAC_KEY") or "").encode()
+                    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                    sig = hmac.new(key, (ts + raw.decode("utf-8") + key.decode()).encode(), hashlib.sha256).hexdigest()
+                    req = urllib.request.Request("https://tom.WORKER_INTERNAL_URL/v1/process",
+                        data=raw, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
+                                           "X-DDP-Timestamp": ts, "X-DDP-HMAC": sig}, method="POST")
+                    with urllib.request.urlopen(req, timeout=60) as r:
+                        resp = json.loads(r.read())
+                    if resp.get("ok") and resp.get("content"):
+                        return self._text("1\n" + (resp.get("model") or tier) + "\n" + resp["content"])
+                    return self._text("0\n\n" + (resp.get("error") or "sin respuesta de Tom"))
+                except Exception as e:
+                    return self._text("0\n\nerror proxy: " + str(e))
+
             if self.path == "/v1/fixer/gen":
                 # Proxy de generación de código M → Tom /v1/mgen (Workers AI gratis).
                 # El HMAC se firma aquí (transporte puro); la lógica del fix vive en la rutina M ^FIXER.
