@@ -167,6 +167,17 @@ except Exception as e:
     check("salon read vuelta", False, "")
     check("traversal bloqueado", False, "")
 
+print("=== 9. Heartbeat del ecosistema ===")
+try:
+    hb = http_json_post(f"{POLI}/v1/exec", {"code": 'W $G(^ANGI(metrics,agents_online_mvm))', "gas_limit": 20000}, 15)
+    vivos = (hb.get("output") or "").strip()
+    check("mvm agents_online_mvm > 0", vivos.isdigit() and int(vivos) > 0, f"vivos={vivos}")
+    hb2 = http_json_post(f"{POLI}/v1/exec", {"code": 'S k="" F S k=$O(^HEARTBEAT(k)) Q:k="" W k," "', "gas_limit": 20000}, 15)
+    check("mvm heartbeats presentes", "hermes" in (hb2.get("output") or ""), "sin heartbeats")
+except Exception as e:
+    check("mvm heartbeat", False, str(e)[:80])
+    check("mvm heartbeats presentes", False, "")
+
 print(f"\n{'='*50}\nRESULTADO: {len(PASS)} ✅  |  {len(FAIL)} ❌")
 if FAIL:
     print("FALLOS:", " | ".join(FAIL))
