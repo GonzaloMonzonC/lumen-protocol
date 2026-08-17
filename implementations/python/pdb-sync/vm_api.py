@@ -15,7 +15,7 @@ Endpoints:
   GET  /web/admin/invites   → UI admin invitaciones
 """
 
-import sys, os, json, time, hashlib, hmac, threading, subprocess, tempfile
+import sys, os, json, time, hashlib, hmac, threading, subprocess, tempfile, re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qsl, unquote_plus
 from datetime import datetime, timezone
@@ -37,6 +37,7 @@ import sqlite3 as _sq3
 _LENTE_LOGS = _collections.deque(maxlen=500)
 _LENTE_AGG = {}
 _LENTE_MAX_PER_FIRMA = 300
+_LENTE_DBPATH = os.environ.get("PDB_PATH") or r"C:\Users\gonzalo\pdb-data\lumen-pdb.db"
 _sqlite_connect_original = _sq3.connect
 
 
@@ -47,7 +48,7 @@ def _lente_firma(sql):
     return s[:160]
 
 
-def _lente_log(sql, ms):
+def _lente_log(sql, ms, params=()):
     sig = _lente_firma(sql)
     _LENTE_LOGS.append((sig, ms))
     agg = _LENTE_AGG.get(sig)
@@ -56,6 +57,43 @@ def _lente_log(sql, ms):
     agg["count"] += 1
     if len(agg["durs"]) < _LENTE_MAX_PER_FIRMA:
         agg["durs"].append(ms)
+    # Los Pesos del Tiempo: registrar el acceso por namespace en ^WEIGHTS de la PDB
+    # (peso|accesos|ultimo — el cron diario aplica el decaimiento exponencial)
+    _lente_pesos(sql, params)
+
+
+def _lente_pesos(sql, params=()):
+    """Registra el acceso al namespace de la query en ^WEIGHTS(ns).
+    El subkey usa el formato binario del MVM (b'\\x02<ns>\\xff') para que
+    el M y el vm-api compartan el MISMO nodo (los subkeys en texto plano
+    crean un subárbol paralelo que el M no ve)."""
+    try:
+        ns = None
+        m = re.search(r"ns\s*=\s*\?", sql)
+        if m and params:
+            ns = str(params[0])
+        if ns is None:
+            m = re.search(r"ns\s*=\s*'([^']+)'", sql)
+            if m:
+                ns = m.group(1)
+        if ns is None or ns == "WEIGHTS":
+            return
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        subkey = b"\x02" + ns.encode() + b"\xff"  # formato M del MVM
+        conn = _sqlite_connect_original(_LENTE_DBPATH)
+        try:
+            row = conn.execute("SELECT value FROM _globals WHERE ns='WEIGHTS' AND subkey=?", (subkey,)).fetchone()
+            if row:
+                peso, accesos, _ = row[0].split("|", 2)
+                nuevo = f"{float(peso) + 1}|{int(accesos) + 1}|{now}"
+                conn.execute("UPDATE _globals SET value=? WHERE ns='WEIGHTS' AND subkey=?", (nuevo, subkey))
+            else:
+                conn.execute("INSERT INTO _globals (ns, subkey, value) VALUES ('WEIGHTS', ?, '1|1|" + now + "')", (subkey,))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass  # el peso nunca debe romper la query que lo registra
 
 
 def _lente_percentile(durs, p):
@@ -78,7 +116,7 @@ class _LenteCursor:
         try:
             return self._cur.execute(sql, params)
         finally:
-            _lente_log(sql, (time.perf_counter() - t0) * 1000)
+            _lente_log(sql, (time.perf_counter() - t0) * 1000, params)
 
     def executemany(self, sql, seq):
         t0 = time.perf_counter()
@@ -103,7 +141,7 @@ class _LenteConn:
         try:
             return self._conn.execute(sql, params)
         finally:
-            _lente_log(sql, (time.perf_counter() - t0) * 1000)
+            _lente_log(sql, (time.perf_counter() - t0) * 1000, params)
 
 
 def _lente_connect(*args, **kwargs):
