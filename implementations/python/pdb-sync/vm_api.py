@@ -17,7 +17,7 @@ Endpoints:
 
 import sys, os, json, time, hashlib, hmac, threading, subprocess, tempfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qsl
+from urllib.parse import urlparse, parse_qsl, unquote_plus
 from datetime import datetime, timezone
 
 # Add lumen_mlight to path
@@ -27,6 +27,115 @@ if os.path.isdir(_mlight_path):
 
 import _paths  # noqa: F401
 from m_routines import RoutineExecutor, register, get_routine
+
+# ── El Lente (feature 5 del libro: optimizar queries) ──
+# Instrumentación transparente de sqlite3.connect: cada query se mide y se
+# agrega por firma. Endpoints: /ddp/lente/slow (top queries) y /ddp/lente/plan (EXPLAIN).
+import collections as _collections
+import sqlite3 as _sq3
+
+_LENTE_LOGS = _collections.deque(maxlen=500)
+_LENTE_AGG = {}
+_LENTE_MAX_PER_FIRMA = 300
+_sqlite_connect_original = _sq3.connect
+
+
+def _lente_firma(sql):
+    s = sql.strip().replace("\n", " ")
+    while "  " in s:
+        s = s.replace("  ", " ")
+    return s[:160]
+
+
+def _lente_log(sql, ms):
+    sig = _lente_firma(sql)
+    _LENTE_LOGS.append((sig, ms))
+    agg = _LENTE_AGG.get(sig)
+    if agg is None:
+        agg = _LENTE_AGG[sig] = {"count": 0, "durs": []}
+    agg["count"] += 1
+    if len(agg["durs"]) < _LENTE_MAX_PER_FIRMA:
+        agg["durs"].append(ms)
+
+
+def _lente_percentile(durs, p):
+    if not durs:
+        return 0.0
+    s = sorted(durs)
+    i = min(len(s) - 1, int(len(s) * p))
+    return round(s[i], 1)
+
+
+class _LenteCursor:
+    def __init__(self, cur):
+        self._cur = cur
+
+    def __getattr__(self, name):
+        return getattr(self._cur, name)
+
+    def execute(self, sql, params=()):
+        t0 = time.perf_counter()
+        try:
+            return self._cur.execute(sql, params)
+        finally:
+            _lente_log(sql, (time.perf_counter() - t0) * 1000)
+
+    def executemany(self, sql, seq):
+        t0 = time.perf_counter()
+        try:
+            return self._cur.executemany(sql, seq)
+        finally:
+            _lente_log(sql, (time.perf_counter() - t0) * 1000)
+
+
+class _LenteConn:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def cursor(self):
+        return _LenteCursor(self._conn.cursor())
+
+    def execute(self, sql, params=()):
+        t0 = time.perf_counter()
+        try:
+            return self._conn.execute(sql, params)
+        finally:
+            _lente_log(sql, (time.perf_counter() - t0) * 1000)
+
+
+def _lente_connect(*args, **kwargs):
+    return _LenteConn(_sqlite_connect_original(*args, **kwargs))
+
+
+_sq3.connect = _lente_connect
+
+
+def _lente_slow(top=10):
+    rows = []
+    for sig, agg in _LENTE_AGG.items():
+        rows.append({
+            "signature": sig,
+            "count": agg["count"],
+            "p50_ms": _lente_percentile(agg["durs"], 0.50),
+            "p95_ms": _lente_percentile(agg["durs"], 0.95),
+            "max_ms": round(max(agg["durs"]), 1) if agg["durs"] else 0.0,
+        })
+    rows.sort(key=lambda r: r["p95_ms"], reverse=True)
+    return {"ok": True, "queries": rows[:top], "buffer": len(_LENTE_LOGS)}
+
+
+def _lente_plan(sql):
+    try:
+        conn = _sqlite_connect_original(r"C:\Users\gonzalo\pdb-data\lumen-pdb.db")
+        rows = conn.execute("EXPLAIN QUERY PLAN " + sql).fetchall()
+        conn.close()
+        plan = [{"id": r[0], "parent": r[1], "notused": r[2], "detail": r[3]} for r in rows]
+        return {"ok": True, "plan": plan}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120]}
 
 # ── DDP Auth ──
 
@@ -1014,7 +1123,7 @@ class VMHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path.rstrip("/")
-        qs = dict(p.split("=", 1) for p in urlparse(self.path).query.split("&") if "=" in p)
+        qs = dict((p.split("=", 1)[0], unquote_plus(p.split("=", 1)[1])) for p in urlparse(self.path).query.split("&") if "=" in p)
 
         if path == "/health":
             self._json({"ok": True, "agent": "m-light-vm+ddp", "version": "2.1.1", "fix": "recursive_walk+raw_endpoint"})
@@ -1048,6 +1157,20 @@ class VMHandler(BaseHTTPRequestHandler):
                     self._json({"success": False, "error": "path no válido o no existe (.md dentro de team-lab)"}, 400)
                 else:
                     self._json({"success": True, "path": rel, "content": content})
+        elif path == "/ddp/lente/slow":
+            if _dashboard_gate(self, qs):
+                try:
+                    top = int(qs.get("top", 10))
+                except ValueError:
+                    top = 10
+                self._json(_lente_slow(top))
+        elif path == "/ddp/lente/plan":
+            if _dashboard_gate(self, qs):
+                sql = qs.get("sql", "")
+                if not sql.strip():
+                    self._json({"ok": False, "error": "sql vacío"}, 400)
+                else:
+                    self._json(_lente_plan(sql))
         elif path == "/ddp/salon/write":
             if _dashboard_gate(self, qs):
                 try:
