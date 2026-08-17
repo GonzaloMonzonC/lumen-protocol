@@ -148,6 +148,29 @@ class _AuditVia(threading.local):
 
 
 _AUDIT_VIA = _AuditVia()
+_cordon_engine = None
+
+
+# ── Cordón Sanitario (La Herencia, cap 2): rate limit en M ──
+_CORDON_LIMITE = 600  # llamadas por agente/IP por minuto (generoso; el edge no llega)
+
+
+def _cordone(quien="", ventana=""):
+    """Rate limit en M: ^CORDON(quien, ventana) = $INCREMENT del M + verificación
+    con $S en el MISMO código M. Devuelve True si pasa. El registro vive en M
+    (formato binario — el MVM lo ve) y el límite es modificable en caliente."""
+    try:
+        if _cordon_engine is None:
+            return True
+        q = (quien or "anon").replace('"', "")
+        w = ventana or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
+        code = (f'S ^CORDON("{q}","{w}")=$INCREMENT(^CORDON("{q}","{w}")) '
+                f'W $S($G(^CORDON("{q}","{w}"))>{_CORDON_LIMITE}:0,1:1)')
+        r = _cordon_engine(code, sqlite_path=os.environ.get("PDB_PATH") or _LENTE_DBPATH, gas_limit=2000)
+        out = (r.get("state", {}).get("output") or "").strip()
+        return out == "1"
+    except Exception:
+        return True  # el cordón nunca debe tumbar el sistema
 
 
 def _audit_engine_write(code, sqlite_path=None, gas_limit=10000):
@@ -160,7 +183,7 @@ def _audit_engine_write(code, sqlite_path=None, gas_limit=10000):
         m = re.match(r"\s*S\s+\^([A-Z0-9_]+)\(", code)
         if m:
             ns = m.group(1)
-            if ns not in ("AUDIT", "WEIGHTS", "CHANGES"):
+            if ns not in ("AUDIT", "WEIGHTS", "CHANGES", "CORDON"):
                 now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
                 _audit_engine_original(
                     f'S ^AUDIT("{ns}","{now}")=$INCREMENT(^AUDIT("{ns}","{now}"))',
@@ -176,12 +199,13 @@ _audit_engine_original = None
 def _install_engine_audit():
     """Monkeypatch de lumen_mlight.execute_sqlite en este proceso (el camino
     del /ddp/push). El MVM de Poli (8082) se instrumenta en su propio server."""
-    global _audit_engine_original
+    global _audit_engine_original, _cordon_engine
     try:
         import lumen_mlight as _lm
         if _audit_engine_original is None:
             _audit_engine_original = _lm.execute_sqlite
             _lm.execute_sqlite = _audit_engine_write
+        _cordon_engine = _audit_engine_original
         return True
     except Exception:
         return False
@@ -1283,6 +1307,9 @@ class VMHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         _AUDIT_VIA.value = self.headers.get("X-Agent", "local") or "local"
+        if not _cordone(self.headers.get("X-Agent", "") or self.client_address[0]):
+            self._json({"error": "rate limit excedido (Cordón Sanitario)"}, 429)
+            return
         path = urlparse(self.path).path.rstrip("/")
         qs = dict((p.split("=", 1)[0], unquote_plus(p.split("=", 1)[1])) for p in urlparse(self.path).query.split("&") if "=" in p)
 
@@ -1393,6 +1420,9 @@ class VMHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         _AUDIT_VIA.value = self.headers.get("X-Agent", "local") or "local"
+        if not _cordone(self.headers.get("X-Agent", "") or self.client_address[0]):
+            self._json({"error": "rate limit excedido (Cordón Sanitario)"}, 429)
+            return
         path = urlparse(self.path).path
 
         if path == "/vm/execute":

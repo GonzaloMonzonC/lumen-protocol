@@ -248,7 +248,24 @@ try:
 except Exception as e:
     check("audit push", False, str(e)[:100])
     check("audit entrada registrada", False, "")
-    check("audit quién-cuándo-qué", False, "")
+    check("audit incremento en M", False, "")
+
+print("=== 12. Cordón Sanitario (rate limit en M) ===")
+try:
+    # una llamada con agente propio → el contador ^CORDON crece (formato M)
+    _h = http_json(auth(f"{BASE}/ddp/health"), 10)
+    check("cordon pasa (limite generoso)", _h.get("ok") is True, str(_h)[:80])
+    _c = _sq.connect(_db)
+    _n = _c.execute("SELECT COUNT(*) FROM _globals WHERE ns='CORDON'").fetchone()[0]
+    _c.close()
+    check("cordon registra en M", _n > 0, f"nodos={_n}")
+    # coherencia: el MVM ve el mismo contador
+    _cv = http_json_post(f"{POLI}/v1/exec", {"code": 'S k="" F S k=$O(^CORDON(k)) Q:k="" S s="" F S s=$O(^CORDON(k,s)) Q:s="" W k,":",s,"=",$G(^CORDON(k,s))," "', "gas_limit": 30000}, 15)
+    check("cordon visible desde el MVM", "cordon" in (_cv.get("output") or ""), (_cv.get("output") or "")[:60])
+except Exception as e:
+    check("cordon", False, str(e)[:100])
+    check("cordon registra en M", False, "")
+    check("cordon visible desde el MVM", False, "")
 
 print(f"\n{'='*50}\nRESULTADO: {len(PASS)} ✅  |  {len(FAIL)} ❌")
 if FAIL:
