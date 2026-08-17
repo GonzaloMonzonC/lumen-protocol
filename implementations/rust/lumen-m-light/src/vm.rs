@@ -1518,6 +1518,10 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let delimiter = self
                     .eval_expr(args.get(1).map_or("\"\"", String::as_str), line)?
                     .as_string();
+                if delimiter.is_empty() {
+                    // M estándar: $P con delimitador vacío no devuelve piezas
+                    return Ok(Value::String(String::new()));
+                }
                 let piece = args
                     .get(2)
                     .map(|v| {
@@ -1526,13 +1530,24 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     })
                     .transpose()?
                     .unwrap_or(1);
-                Ok(Value::String(
-                    value
-                        .split(&delimiter)
-                        .nth(piece - 1)
-                        .unwrap_or_default()
-                        .to_string(),
-                ))
+                // M estándar: $P(string, delim, from, to) → piezas from..to
+                // unidas con el delimitador. Sin `to`, devuelve una sola pieza.
+                let end = args
+                    .get(3)
+                    .map(|v| {
+                        self.eval_expr(v, line)
+                            .map(|x| x.as_number().max(piece as f64) as usize)
+                    })
+                    .transpose()?;
+                let pieces: Vec<&str> = value.split(&delimiter).collect();
+                let n = pieces.len();
+                let from = piece.min(n);
+                let to = end.map_or(from, |e| e.min(n));
+                if from == 0 || from > to {
+                    return Ok(Value::String(String::new()));
+                }
+                let joined = pieces[from - 1..to].join(&delimiter);
+                Ok(Value::String(joined))
             }
             "$E" | "$EXTRACT" => {
                 let value = self
