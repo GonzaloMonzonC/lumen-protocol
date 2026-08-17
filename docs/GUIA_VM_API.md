@@ -1,0 +1,207 @@
+# 🚀 GUÍA: MVM Web Engine + DDP Server (`vm_api.py`)
+
+> **Estado**: ✅ Vigente (2026-08-18) · Verificado en Windows 11 (git-bash), Python 3.11
+> **Rol**: servidor HTTP local del ecosistema LUMEN — ejecuta código M en el MVM Rust, sirve el DDP (sync de namespaces) y expone rutas web/quantum/agent.
+> **Puerto**: `8081` por defecto (Poli usa `8082`; vm_api no entra en conflicto).
+
+---
+
+## 1. Qué es
+
+`implementations/python/pdb-sync/vm_api.py` es el **"MVM Web Engine + DDP Server"**: un `HTTPServer` (stdlib, single-threaded) que orquesta:
+
+| Capa | Pieza | Rol |
+|------|-------|-----|
+| HTTP / orquestación | `vm_api.py` (Python) | endpoints REST, auth HMAC, audit, registro de rutinas |
+| Motor M | `lumen_mlight.dll` (Rust, crate `implementations/rust/lumen-m-light`) | compila y ejecuta M (17μs compile, 6.4× más rápido que el evaluador Python) |
+| Persistencia | SQLite PDB canónico (`_paths.DB_PATH`) | el VM escribe **directo** en SQLite vía modo `sqlite_path` |
+| Fallback | `m_routines.py` / `m_light.py` (Python) | si el DLL no está disponible, degrada a StackVM Python |
+
+El arranque registra la rutina `SALUDO^%WEB` y activa el **audit de escrituras** (`^AUDIT`): todo `S ^NS(...)=v` ejecutado por el engine queda registrado EN M (ver §7).
+
+---
+
+## 2. Requisitos previos
+
+### 2.1 venv + paquete LUMEN
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -e implementations/python     # Windows
+.venv/bin/pip install -e implementations/python         # macOS/Linux
+```
+
+### 2.2 ⚠️ La DLL del MVM Rust (crítico — no la saltes)
+
+`vm_api.py` importa `lumen_mlight` (binding ctypes a la DLL). **Si la DLL no existe, el primer arranque lanza un `cargo build --release` bloqueante de ~4 minutos** que en una terminal background parece un cuelgue (no hay output hasta que termina). Compílala explícitamente la primera vez:
+
+```bash
+cd implementations/rust/lumen-m-light
+cargo build --release --features minreq        # ~4 min la primera vez
+# resultado: target/release/lumen_mlight.dll (Windows) / .so (Linux) / .dylib (macOS)
+```
+
+- El binding Python comprueba mtimes: si `Cargo.toml`/`src/*.rs` son más nuevos que la DLL, **vuelve a compilar** en el siguiente uso. Tras tocar Rust, recompila a mano.
+- Override para apuntar a otra DLL (útil para dev): `export LUMEN_MLIGHT_LIB=/ruta/lumen_mlight.dll`
+- Sin cargo o sin la DLL, el sistema **no crashea**: `available()` devuelve `False` y vm_api degrada al StackVM Python (más lento, misma API).
+
+---
+
+## 3. Arranque
+
+```bash
+# desde la raíz del repo
+.venv/Scripts/python.exe implementations/python/pdb-sync/vm_api.py [puerto]   # Windows
+.venv/bin/python implementations/python/pdb-sync/vm_api.py [puerto]           # macOS/Linux
+```
+
+Sin argumento usa `8081`. Verificación rápida:
+
+```bash
+curl http://localhost:8081/ddp/health        # → {"ok": true, "ddp": "local", "hmac": false}
+curl http://localhost:8081/web/saludo        # → HTML del MVM Web Engine
+```
+
+Los `SyntaxWarning: invalid escape sequence '\$'` al arrancar son **preexistentes** (docstrings con `\$O`, `\$G`, `\$D`) — inofensivos.
+
+---
+
+## 4. Endpoints
+
+| Método | Ruta | Función |
+|--------|------|---------|
+| GET | `/ddp/health` | estado DDP + modo HMAC |
+| GET | `/ddp/pull?ns=X` | sync pull de un namespace |
+| POST | `/ddp/push` | sync push (escribe en BD + audit) |
+| POST | `/ddp/allocate` | alta de tarea end-to-end (Angi→KANBAN) |
+| POST | `/ddp/bitacora` | bitácora DDP |
+| POST | `/vm/execute` | **ejecutar código M** (ver §5) |
+| POST | `/vm/register` | registrar rutina M |
+| POST | `/web/register` | registrar ruta web |
+| GET | `/web/<name>` | servir rutina web registrada (`SALUDO^%WEB` de demo) |
+| POST | `/quantum/run` | runner quantum |
+| POST | `/ddp/salon/write` | escribir `.md` en el Salón (dashboard + HMAC opcional) |
+| POST | `/ddp/agent/chat` | chat A2A vía dispatcher de agentes |
+
+---
+
+## 5. Contrato `/vm/execute`
+
+**Request** (JSON):
+
+```json
+{ "script": "S ^KANBAN(\"t1\")=$1 W \"ok\"", "args": ["valor"] }
+```
+
+**Flujo interno**:
+1. `script` se intenta primero como **rutina nombrada** (`RoutineExecutor.exec` / `RustExecutor.exec`).
+2. Si el error contiene `not found` → **fallback inline** (`exec_code`): el script se ejecuta como código M directo.
+3. Backend: **Rust MVM si `available()`** (DLL), si no StackVM Python — transparente para el caller.
+4. Con backend Rust, las escrituras (`S`, `K`) van **directo a SQLite** (`sqlite_path=_paths.DB_PATH`) — persisten de verdad.
+
+**Response**:
+
+```json
+{ "ok": true, "result": "valor", "vars": {}, "error": null, "exec_ms": 39.9, "script": "..." }
+```
+
+| Campo | Significado |
+|-------|-------------|
+| `ok` | `true` si no hay error (⚠️ antes de `333268a` era `false` siempre con backend Rust — ver §9) |
+| `result` | último valor del stack del VM (p.ej. lo que deja un `S x=...` o `QUIT`) |
+| `error` | mensaje de error del engine o `null` (⚠️ no se incluía antes de `333268a` — fallos opacos) |
+| `exec_ms` | tiempo total del handler |
+
+**Args**: `args` → `$1..$n` + `$ZARGS` en el VM (tanto en rutinas como en inline; ⚠️ inline no los pasaba antes de `333268a`).
+
+**Ejemplos verificados** (Windows, git-bash — escapar comillas con `\"`):
+
+```bash
+# inline simple
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  -d '{"script": "W \"hola desde MVM!\""}'
+
+# con args
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  -d '{"script": "S ^PRUEBA(2)=$1 S ^PRUEBA(3)=$2", "args": ["tom", "smith"]}'
+
+# rutina registrada (la demo del arranque)
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  -d '{"script": "SALUDO^%WEB"}'
+
+# kill de namespace (limpia la prueba anterior)
+curl -s -X POST localhost:8081/vm/execute -H "Content-Type: application/json" \
+  -d '{"script": "K ^PRUEBA"}'
+```
+
+---
+
+## 6. Auth HMAC (opcional)
+
+- `DDP_HMAC_KEY` no configurada → **modo local**: `/ddp/health` reporta `"hmac": false` y las peticiones pasan sin firma.
+- Configurada → el server exige `X-DDP-HMAC` (SHA256 del body/query según endpoint) en push/pull/raw. Fallo → `403 {"error": "HMAC auth failed"}`.
+
+```bash
+export DDP_HMAC_KEY=mi-secreto-compartido
+```
+
+> ⚠️ El **sync diario a `pdb-edge.WORKER_INTERNAL_URL` falla con 401** mientras el secreto local no coincida con el del worker Cloudflare — ver el diario 2026-08-17.
+
+---
+
+## 7. Audit de escrituras (`^AUDIT`)
+
+En el arranque, `_install_engine_audit()` monkeypatchea `lumen_mlight.execute_sqlite` con `_audit_engine_write`, que **encadena el código M del registro**: cada `S ^NS(...)=v` (NS ∉ {AUDIT, WEIGHTS, CHANGES, CORDON}) ejecuta además
+
+```
+S ^AUDIT("<NS>","<ts-UTC>")=$INCREMENT(^AUDIT("<NS>","<ts-UTC>"))
+```
+
+en el MISMO engine. El registro vive en M, no en Python. Ver: `GET /ddp/...` de audit (`_audit_trail`) y el log `[VM] AUDIT-ERR: ...` si algo falla (no rompe el flujo).
+
+---
+
+## 8. BD canónica y `_paths.py`
+
+Toda ruta del ecosistema resuelve desde `implementations/python/pdb-sync/_paths.py` (cero hardcode):
+
+```
+PDB_PATH (env) > PDB_DB (env) > <repo>/implementations/mcp-servers/pdb/lumen-pdb.db
+```
+
+- La BD se crea sola en el primer uso; está gitignored (`*.db`).
+- `m_rust_executor` y todos los helpers usan `_paths.DB_PATH` — no tocar rutas absolutas en el código.
+- La BD "memoria" vive **dentro del repo**: un `git clean`/re-clone la pierde. Para que sobreviva, exporta `PDB_PATH` a otra ubicación (p.ej. `~/pdb-data/lumen-pdb.db`).
+
+---
+
+## 9. Troubleshooting
+
+| Síntoma | Causa | Solución |
+|---------|-------|----------|
+| Arranque "colgado" sin banner (background) | `cargo build` bloqueante porque falta la DLL | Compilar a mano (§2.2) y esperar a que termine |
+| `/vm/execute` devuelve `ok:false` con `error:null` | Bug pre-`333268a` (check de presencia de clave) | `git pull` — arreglado en `333268a` |
+| `undefined variable: $1` en inline | Bug pre-`333268a` (exec_code ignoraba args) | `git pull` — arreglado en `333268a` |
+| Escrituras `^S` no persisten | Bug pre-`333268a` (sin `sqlite_path`) | `git pull` — arreglado en `333268a` |
+| `_audit_engine_write() got an unexpected keyword argument 'source'` | Bug pre-`333268a` (firma estrecha del wrapper) | `git pull` — arreglado en `333268a` |
+| `401 HMAC auth failed` en sync edge | Falta/desajuste de `DDP_HMAC_KEY` con el worker | Configurar el secreto compartido (§6) |
+| `SyntaxWarning: invalid escape sequence '\$'` | Docstrings preexistentes | Inofensivo — no tocar |
+| `{ok:false, error:"..."}` en `/vm/execute` | Error real del engine M (gas, sintaxis, var indefinida) | Leer el campo `error` de la respuesta |
+
+---
+
+## 10. Historial de fixes relevantes
+
+| Commit | Qué arregló |
+|--------|-------------|
+| `333268a` (2026-08-18) | `/vm/execute` con backend Rust: `ok` siempre false, error oculto, args ignorados en inline, escrituras sin persistencia, wrapper de audit incompatible con `execute_sqlite(source=...)`, `variables` descartado en el modo directo de `execute_sqlite` |
+| `1d00839` (2026-08-17) | Eliminadas todas las rutas hardcodeadas `C:\Users\gonzalo\...` del ecosistema → `_paths.py` canónico |
+| `fe01d28` | Sync Angi→KANBAN muerto en silencio (`_LenteConn` rompía `row_factory`) |
+
+---
+
+## Ver también
+
+- [`EXTENSIBILIDAD-MVM.md`](EXTENSIBILIDAD-MVM.md) — device HTTP del MVM (F1) y fases F2/F3
+- [`SSOT_ARQUITECTURA.md`](SSOT_ARQUITECTURA.md) — layered architecture (Rust = MVM, Python = binding)
+- [`INDEX.md`](INDEX.md) — mapa de documentación

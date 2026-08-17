@@ -52,6 +52,7 @@
 | `../INSTALL.md` / `_ES` | Instalación | Junio 2026 |
 | `../HERMES_INTEGRATION.md` | Setup del agente Hermes | Junio 2026 |
 | [lumen_thinking_usage.md](lumen_thinking_usage.md) | Uso del thinking server | Junio 2026 |
+| [GUIA_VM_API.md](GUIA_VM_API.md) | **Arranque + contrato `/vm/execute` del MVM Web Engine (vm_api, :8081)** — incluye build de la DLL Rust y troubleshooting | ✅ Vigente (2026-08-18) |
 | `../skills/` | 20 skills (SKILL.md por directorio) | Variable |
 | `../examples/` | Demos ejecutables | Junio 2026 |
 
@@ -66,9 +67,9 @@
 
 ## Deuda documental conocida (2026-07-15)
 
-1. La suite pdb-sync (journal DDP, sync engine, consola, vm_api) solo está
+1. La suite pdb-sync (journal DDP, sync engine, consola) solo está
    documentada en commits y docstrings — el PLAN_EVOLUCION §1 es ahora el
-   resumen de referencia.
+   resumen de referencia. (vm_api ya tiene guía propia: `GUIA_VM_API.md`.)
 2. `COGNITIVE_OS.md` y `README.md` citan tool-counts de junio; verificar
    tras el cierre del contrato PDB (Fase 1b).
 3. Terminología: "WAL" del equipo = journal DDP en ^CHANGES (pdb_journal.py),
