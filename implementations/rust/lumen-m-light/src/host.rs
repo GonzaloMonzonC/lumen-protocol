@@ -111,7 +111,7 @@ impl LlmThreadPool {
             let body = if is_anthropic {
                 serde_json::json!({
                     "model": item.model,
-                    "max_tokens": 4096,
+                    "max_tokens": 8192,
                     "system": item.system,
                     "messages": [
                         {"role": "user", "content": item.prompt}
@@ -124,7 +124,7 @@ impl LlmThreadPool {
                         {"role": "system", "content": item.system},
                         {"role": "user", "content": item.prompt}
                     ],
-                    "max_tokens": 4096,
+                    "max_tokens": 8192,
                     "temperature": 0.7,
                 })
             };
@@ -134,6 +134,7 @@ impl LlmThreadPool {
             
             let mut req = minreq::post(url)
                 .with_header("Content-Type", "application/json")
+                .with_timeout(120)
                 .with_body(body_str);
             
             if is_anthropic {
@@ -160,10 +161,20 @@ impl LlmThreadPool {
                     .unwrap_or("")
                     .to_string()
             } else {
-                json["choices"][0]["message"]["content"]
+                let c = json["choices"][0]["message"]["content"]
                     .as_str()
                     .unwrap_or("")
-                    .to_string()
+                    .to_string();
+                if c.is_empty() {
+                    // Fallback: modelos reasoning (deepseek-v4-flash) agotan el presupuesto
+                    // en reasoning_content y dejan content vacío (finish=length).
+                    json["choices"][0]["message"]["reasoning_content"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
+                } else {
+                    c
+                }
             };
 
             if let Ok(mut state) = item.state.lock() {
@@ -1479,6 +1490,7 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
         
         let mut req = minreq::post(url)
             .with_header("Content-Type", "application/json")
+            .with_timeout(120)
             .with_body(body_str);
         
         if is_anthropic {
@@ -1501,10 +1513,20 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
                 .unwrap_or("")
                 .to_string()
         } else {
-            json["choices"][0]["message"]["content"]
+            let c = json["choices"][0]["message"]["content"]
                 .as_str()
                 .unwrap_or("")
-                .to_string()
+                .to_string();
+            if c.is_empty() {
+                // Fallback: modelos reasoning (deepseek-v4-flash) agotan el presupuesto
+                // en reasoning_content y dejan content vacío (finish=length).
+                json["choices"][0]["message"]["reasoning_content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                c
+            }
         };
         Ok(content)
     }
