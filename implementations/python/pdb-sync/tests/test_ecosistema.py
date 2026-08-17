@@ -178,6 +178,41 @@ except Exception as e:
     check("mvm heartbeat", False, str(e)[:80])
     check("mvm heartbeats presentes", False, "")
 
+print("=== 10. Los Pesos del Tiempo (decay + coherencia binaria) ===")
+try:
+    import sqlite3 as _sq
+    _db = os.environ.get("PDB_PATH", r"C:\Users\gonzalo\pdb-data\lumen-pdb.db")
+    # 10.1 sembrar desde el MVM (formato binario M) → el fichero lo ve en binario
+    s1 = http_json_post(f"{POLI}/v1/exec", {"code": 'S ^WEIGHTS(TESTA)="7|2|2026-08-10T00:00:00Z" S ^WEIGHTS(TESTB)="0.05|1|2026-07-01T00:00:00Z"', "gas_limit": 20000}, 15)
+    _c = _sq.connect(_db)
+    _a = _c.execute("SELECT value FROM _globals WHERE ns='WEIGHTS' AND subkey=?", (b"\x02TESTA\xff",)).fetchone()
+    _b = _c.execute("SELECT value FROM _globals WHERE ns='WEIGHTS' AND subkey=?", (b"\x02TESTB\xff",)).fetchone()
+    _c.close()
+    check("pesos siembra M→fichero binario", _a is not None and _b is not None, f"a={_a} b={_b}")
+    # 10.2 coherencia: el fichero y el MVM ven el MISMO nodo
+    _vm = http_json_post(f"{POLI}/v1/exec", {"code": 'W $G(^WEIGHTS(TESTA))', "gas_limit": 20000}, 15)
+    check("pesos coherencia fichero==MVM", _a and (_a[0] == (_vm.get("output") or "").strip()), f"f={_a[0] if _a else '?'} m={_vm.get('output','')}")
+    # 10.3 decay: PESOSDECAY(0.5, 0.1) → TESTA decae a 3.5, TESTB se purga, meta se escribe
+    _d = http_json_post(f"{POLI}/v1/exec", {"code": 'W $$PESOSDECAY^PESOSDECAY(0.5,0.1,"2026-08-17T06:00:00Z")', "gas_limit": 40000}, 15)
+    _c = _sq.connect(_db)
+    _a2 = _c.execute("SELECT value FROM _globals WHERE ns='WEIGHTS' AND subkey=?", (b"\x02TESTA\xff",)).fetchone()
+    _b2 = _c.execute("SELECT value FROM _globals WHERE ns='WEIGHTS' AND subkey=?", (b"\x02TESTB\xff",)).fetchone()
+    _m = _c.execute("SELECT value FROM _globals WHERE ns='WEIGHTSMETA'").fetchone()
+    _c.close()
+    check("pesos decay aplicado (7→3.5)", _a2 is not None and _a2[0].startswith("3.5|"), f"v={_a2[0] if _a2 else '?'}")
+    check("pesos purga obsoletos", _b2 is None, f"v={_b2[0] if _b2 else 'purgado'}")
+    check("pesos meta escrito", _m is not None and "|" in _m[0], f"meta={_m[0] if _m else '?'}")
+    # limpieza
+    _c = _sq.connect(_db)
+    _c.execute("DELETE FROM _globals WHERE ns='WEIGHTS' AND subkey IN (?,?)", (b"\x02TESTA\xff", b"\x02TESTB\xff"))
+    _c.commit(); _c.close()
+except Exception as e:
+    check("pesos", False, str(e)[:100])
+    check("pesos coherencia", False, "")
+    check("pesos decay", False, "")
+    check("pesos purga", False, "")
+    check("pesos meta", False, "")
+
 print(f"\n{'='*50}\nRESULTADO: {len(PASS)} ✅  |  {len(FAIL)} ❌")
 if FAIL:
     print("FALLOS:", " | ".join(FAIL))
