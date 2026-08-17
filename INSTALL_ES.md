@@ -1,121 +1,181 @@
 # LUMEN + Hermes Agent — Guía de Instalación
 
-> **Estado**: ✅ Producción — 29 tools en 3 servidores MCP.  
-> **PR**: [NousResearch/hermes-agent#47740](https://github.com/NousResearch/hermes-agent/pull/47740)  
-> **LUMEN binario nativo**: ✅ Funcionando en Windows, Mac, Linux
+> **Estado**: ✅ Verificado — **115 tools en 4 servidores MCP** (filesystem, web, thinking, PDB)
+> **PR**: [NousResearch/hermes-agent#47740](https://github.com/NousResearch/hermes-agent/pull/47740)
+> **Transporte**: JSON-RPC stdio (MCP estándar) — la ruta verificada con el cliente MCP de Hermes
 
 ---
 
 ## Instalación Rápida (2 minutos)
 
-### 1. Clonar el repositorio
+### Opción A — Script de setup (recomendado)
+
+```bash
+git clone https://github.com/GonzaloMonzonC/lumen-protocol.git
+cd lumen-protocol
+
+# macOS / Linux / git-bash (Windows)
+bash scripts/setup_hermes_mcp.sh
+
+# Windows (cmd/PowerShell)
+scripts\setup_hermes_mcp.bat
+```
+
+El script crea el venv, instala `lumen-mcp`, registra los 4 servidores con
+`hermes mcp add` y verifica con `hermes mcp list`.
+
+### Opción B — Manual
+
+#### 1. Clonar el repositorio
+
 ```bash
 git clone https://github.com/GonzaloMonzonC/lumen-protocol.git
 cd lumen-protocol
 ```
 
-### 2. Instalar paquete Python de LUMEN
+#### 2. Crear venv + instalar el paquete Python de LUMEN
+
 ```bash
-pip install -e implementations/python
+python -m venv .venv
+# Windows:
+.venv\Scripts\pip install -e implementations\python
+# macOS / Linux:
+.venv/bin/pip install -e implementations/python
 ```
 
-### 3. Añadir servidores MCP a la configuración de Hermes
+> Los servidores MCP deben ejecutarse con el python de este venv — importan el paquete `lumen`.
 
-Editar `~/.hermes/config.yaml` (Windows: `%APPDATA%/hermes/config.yaml`):
+#### 3. Registrar los 4 servidores MCP
+
+```bash
+hermes mcp add lumen-filesystem --command "C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe" --args "C:/ruta/abs/lumen-protocol/implementations/mcp-servers/filesystem/server.py"
+hermes mcp add lumen-web        --command "C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe" --args "C:/ruta/abs/lumen-protocol/implementations/mcp-servers/web/server.py"
+hermes mcp add lumen-thinking   --command "C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe" --args "C:/ruta/abs/lumen-protocol/implementations/mcp-servers/thinking/server.py"
+hermes mcp add lumen-pdb        --command "C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe" --args "C:/ruta/abs/lumen-protocol/implementations/mcp-servers/pdb/server.py"
+```
+
+(macOS/Linux: usa `.venv/bin/python` y `/ruta/abs/...`.)
+
+Bloque equivalente en `~/.hermes/config.yaml` (JSON-RPC stdio plano — **sin
+necesidad de claves `transport: lumen`**; el transporte binario LUMEN es opcional, ver abajo):
 
 ```yaml
-mcp_lumen:
-  enabled: true
-
 mcp_servers:
-  lumen_filesystem:
-    command: "python"
-    args:
-      - "ruta/a/lumen-protocol/implementations/mcp-servers/filesystem/server.py"
-    transport: lumen
-    lumen_force_json_rpc: true
+  lumen-filesystem:
+    command: C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/ruta/abs/lumen-protocol/implementations/mcp-servers/filesystem/server.py]
     enabled: true
-
-  lumen_web:
-    command: "python"
-    args:
-      - "ruta/a/lumen-protocol/implementations/mcp-servers/web/server.py"
-    transport: lumen
-    lumen_force_json_rpc: true
+  lumen-web:
+    command: C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/ruta/abs/lumen-protocol/implementations/mcp-servers/web/server.py]
     enabled: true
-
-  lumen_thinking:
-    command: "python"
-    args:
-      - "ruta/a/lumen-protocol/implementations/mcp-servers/thinking/server.py"
-    transport: lumen
-    lumen_force_json_rpc: true
+  lumen-thinking:
+    command: C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/ruta/abs/lumen-protocol/implementations/mcp-servers/thinking/server.py]
+    enabled: true
+  lumen-pdb:
+    command: C:/ruta/abs/lumen-protocol/.venv/Scripts/python.exe
+    args: [C:/ruta/abs/lumen-protocol/implementations/mcp-servers/pdb/server.py]
     enabled: true
 ```
 
-### 4. Reiniciar Hermes
+#### 4. Reiniciar Hermes
+
 ```
 /reset
 ```
 
-### 5. Verificar
+#### 5. Verificar
 
-Tras el reset, el agente mostrará:
+```bash
+hermes mcp list
 ```
-⚡ LUMEN tools active: filesystem (9), web (2), thinking (18) — 29 total
-```
+
+Los 4 servidores deben mostrar `✓ enabled`. Luego, en el catálogo de
+herramientas del agente, busca `mcp__lumen_*` — las 115 tools aparecerán ahí.
 
 ---
 
 ## Qué Obtienes
 
-| Servidor | Tools | Wire Savings | Funcionalidades Clave |
-|----------|-------|-------------|----------------------|
-| **Filesystem** | 9 | 32-70% | Lectura múltiple, búsqueda con contexto, streaming, métricas |
-| **Web** | 2 | 40-50% | Búsqueda + extracción en 1 llamada, sin API key |
-| **Thinking** | 18 | 60-80% | Razonamiento externo, registro de asunciones, modelo mental, preservación de contexto |
+| Servidor | Tools | Funcionalidades Clave |
+|----------|-------|-----------------------|
+| **Filesystem** | 13 | Lecturas múltiples, búsqueda con contexto, streaming, métricas de salud, sin dependencia de shell |
+| **Web** | 2 | Búsqueda + extracción en 1 llamada, sin API key |
+| **Thinking** | 81 | Razonamiento externo, kanban/nichos, wiki, patrones, decisiones, watches de PDB, dashboards |
+| **PDB** | 19 | Almacén persistente `^ns(key)=value`, búsqueda vectorial (KNN), registro de apps MVM, notificaciones |
+| **Total** | **115** | 0 API keys requeridas |
 
 ---
 
-## LUMEN Binario Nativo (50-80% wire savings)
+## Opcional: Transporte binario LUMEN nativo (50-80% menos wire)
 
-Para aún más compresión, usar el servidor binario nativo:
+Para aún más compresión, los servidores también traen un modo binario nativo
+(`server_native.py` + `transport: lumen`). Esta ruta es **experimental** con el
+cliente MCP actual de Hermes — la configuración JSON-RPC stdio de arriba es la
+verificada y recomendada:
 
 ```yaml
 mcp_servers:
   lumen_filesystem:
+    command: "python"
     args:
       - "ruta/a/lumen-protocol/implementations/mcp-servers/filesystem/server_native.py"
     transport: lumen
-    lumen_force_json_rpc: false  # Modo binario nativo
+    lumen_force_json_rpc: false  # modo binario nativo
 ```
 
 ---
 
 ## Solución de Problemas
 
-### "El servidor MCP no pudo conectarse"
-```bash
-# Revisar logs
-cat ~/AppData/Local/hermes/logs/mcp-stderr.log | tail -20
+### "El servidor MCP no pudo conectarse" / el discovery se cuelga
 
-# Probar el servidor manualmente
-python implementations/mcp-servers/filesystem/server.py
+El cliente MCP de Hermes exige un handshake `initialize` + `tools/list`
+completo. El servidor PDB tenía un bug que colgaba el discovery; **ya está
+corregido en el repo** (commit `7499c3a`, `pdb/server.py`). Si tienes un
+checkout antiguo:
+
+```bash
+git pull
+```
+
+Y prueba el servidor manualmente:
+
+```bash
+# Windows
+.venv\Scripts\python.exe implementations\mcp-servers\pdb\server.py
+# macOS / Linux
+.venv/bin/python implementations/mcp-servers/pdb/server.py
+```
+
+### `pdb_set` devuelve "unable to open database file"
+
+La base de datos por defecto ahora vive en `~/.hermes/lumen-pdb.db` (se crea
+automáticamente). Antes apuntaba a una ruta hardcodeada de la máquina del
+desarrollador. Puedes sobrescribirla con las variables de entorno `PDB_PATH`
+o `PDB_DB` (útil para benchmarks):
+
+```bash
+export PDB_PATH=/ruta/a/mi-pdb.db
 ```
 
 ### "LUMEN SDK no disponible"
+
 ```bash
-pip install -e implementations/python
+.venv\Scripts\pip install -e implementations\python   # o .venv/bin/pip en macOS/Linux
 ```
 
-### Windows: el servidor no responde
-Asegurar que `lumen_force_json_rpc: true` esté configurado si usas `server.py` (wrapper JSON-RPC).
-Usar `server_native.py` con `lumen_force_json_rpc: false` para modo binario nativo.
+### Servidor registrado pero 0 tools
+
+- Asegúrate de que `command` apunte al python **del venv** (no al python del sistema).
+- Revisa los logs de Hermes: `cat ~/AppData/Local/hermes/logs/mcp-stderr.log | tail -20`
+- Reinicia Hermes con `/reset` tras registrar.
 
 ---
 
 ## Ver También
 
 - [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) — Guía completa de integración
-- [TOOLS_GUIDE.md](implementations/mcp-servers/TOOLS_GUIDE.md) — Cuándo usar cada herramienta
+- [TOOLS_GUIDE.md](implementations/mcp-servers/docs/TOOLS_GUIDE.md) — Cuándo usar cada herramienta
 - [RETROSPECTIVE_ES.md](implementations/mcp-servers/RETROSPECTIVE_ES.md) — Comparativa antes/después

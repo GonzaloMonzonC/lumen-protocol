@@ -1,6 +1,6 @@
 # PDBM-Lumen
 
-**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics, RAG, and LUMEN MCP transport. **42 tools.**
+**Process Database MUMPS-style** — Hierarchical key-value store on SQLite, with MUMPS globals semantics, RAG, and LUMEN MCP transport. **19 tools.**
 
 ## What it is
 

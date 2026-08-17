@@ -148,6 +148,17 @@ Then re-test the server manually:
 .venv/bin/python implementations/mcp-servers/pdb/server.py
 ```
 
+### `pdb_set` returns "unable to open database file"
+
+The database now defaults to `~/.hermes/lumen-pdb.db` (created automatically).
+It previously pointed at a hardcoded path on the developer's machine. You can
+override it with the `PDB_PATH` / `PDB_DB` environment variables (useful for
+benchmarks):
+
+```bash
+export PDB_PATH=/path/to/my-pdb.db
+```
+
 ### "LUMEN SDK not available"
 
 ```bash
