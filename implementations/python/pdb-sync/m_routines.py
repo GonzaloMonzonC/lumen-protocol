@@ -56,7 +56,12 @@ def load_from_pdb(name: str) -> Optional[str]:
         lines = []
         for sk, val in rows:
             if len(sk) > len(prefix) and sk[:len(prefix)] == prefix:
-                v = val.decode('utf-8', errors='replace').strip('"') if val else ''
+                v = val.decode('utf-8', errors='replace') if val else ''
+                # Unwrap SOLO un par de comillas envolventes (convención MSM).
+                # ⚠️ strip('"') masivo corrompía líneas que terminan en comilla
+                # legítima (p.ej. S ^X="deepseek") fusionándolas con la siguiente.
+                if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+                    v = v[1:-1]
                 lines.append(v)
 
         if lines:
