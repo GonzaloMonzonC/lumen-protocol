@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
   <strong>✅ 115 tools — Level 2 SHM zero-copy transport — 4 MCP servers — RAG on PDB — works with Hermes</strong>

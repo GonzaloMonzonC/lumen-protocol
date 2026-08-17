@@ -1,5 +1,9 @@
 # LUMEN + Hermes Agent — Guía de Instalación
 
+> **¿Nuevo en LUMEN?** Empieza por **[QUICKSTART_ES.md](QUICKSTART_ES.md)** (o
+> **[QUICKSTART.md](QUICKSTART.md)**) — de cero a agentes LLM en ~10 minutos.
+> Esta guía cubre específicamente la integración MCP con Hermes Agent.
+
 > **Estado**: ✅ Verificado — **115 tools en 4 servidores MCP** (filesystem, web, thinking, PDB)
 > **PR**: [NousResearch/hermes-agent#47740](https://github.com/NousResearch/hermes-agent/pull/47740)
 > **Transporte**: JSON-RPC stdio (MCP estándar) — la ruta verificada con el cliente MCP de Hermes

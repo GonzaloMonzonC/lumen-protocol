@@ -7,6 +7,7 @@
 
 | Doc | Qué es | Estado |
 |-----|--------|--------|
+| [`../QUICKSTART_ES.md`](../QUICKSTART_ES.md) / [`../QUICKSTART.md`](../QUICKSTART.md) | **Onboarding: de cero a agentes LLM en ~10 min** (clone, DLL, key, vm_api, agentes) | ✅ Vigente (2026-08-18) |
 | [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) | **Plan canónico** PDB + M-Light + MVM, fases y ROI | ✅ Vigente (2026-07-15) |
 | [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.3) | ✅ Vigente (2026-07-15) |
 | [CASOS_USO_AGENTES.md](CASOS_USO_AGENTES.md) | Casos A2A: Namespaces compartidos, hibernación y migración entre nodos | ✅ Vigente (2026-07-15) |
