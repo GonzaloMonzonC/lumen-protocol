@@ -36,9 +36,9 @@ Example of LUMEN PDB data:
 ^personal("health","mood","2026-07-04") = 8
 ```
 
-## LUMEN PDB Tools (40+ total)
+## LUMEN PDB Tools (19 total)
 
-The LUMEN Process Database has 42 tools across 4 servers. Here are the core ones:
+The LUMEN Process Database exposes 19 MCP tools (single `lumen-pdb` server). Here are the core ones:
 
 | Tool | MUMPS Equivalent | What it does |
 |------|-----------------|--------------|
