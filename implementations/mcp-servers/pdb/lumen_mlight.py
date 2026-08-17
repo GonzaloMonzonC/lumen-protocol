@@ -302,7 +302,7 @@ def execute_sqlite(
     if sqlite_path:
         # Filter kwargs: only pass what execute() understands
         exec_kwargs = {k: v for k, v in kwargs.items()
-                       if k in ('gas_limit', 'gas_budget', 'slice_gas',
+                       if k in ('variables', 'gas_limit', 'gas_budget', 'slice_gas',
                                 'routines', 'input_', 'llm_api_keys')}
         return execute(source, sqlite_path=sqlite_path, **exec_kwargs)
     selected_namespaces = namespaces or referenced_namespaces(source)

@@ -173,12 +173,15 @@ def _cordone(quien="", ventana=""):
         return True  # el cordón nunca debe tumbar el sistema
 
 
-def _audit_engine_write(code, sqlite_path=None, gas_limit=10000):
+def _audit_engine_write(code=None, sqlite_path=None, gas_limit=10000, **kwargs):
     """El registro del audit se hace EN M: el code del push es S ^NS(...)="v".
     El wrapper encadena el código M del registro — S ^AUDIT(ns,ts)=$INCREMENT(...)
     ejecutado por el MISMO engine M (formato binario automático, el M lo ve).
-    La lógica del registro vive en el código M, no en Python."""
-    r = _audit_engine_original(code, sqlite_path=sqlite_path, gas_limit=gas_limit)
+    La lógica del registro vive en el código M, no en Python.
+    Acepta el contrato completo de execute_sqlite (source=, routines=, variables=...)."""
+    if code is None:
+        code = kwargs.pop("source", None)
+    r = _audit_engine_original(code, sqlite_path=sqlite_path, gas_limit=gas_limit, **kwargs)
     try:
         m = re.match(r"\s*S\s+\^([A-Z0-9_]+)\(", code)
         if m:
@@ -2026,9 +2029,10 @@ class VMHandler(BaseHTTPRequestHandler):
                         pass
             elapsed = (time.time() - start) * 1000
             self._json({
-                "ok": "error" not in result,
+                "ok": not result.get("error"),
                 "result": result.get("result"),
                 "vars": result.get("vars", {}),
+                "error": result.get("error"),
                 "exec_ms": round(elapsed, 2),
                 "script": script,
             })
