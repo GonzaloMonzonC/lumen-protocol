@@ -5,7 +5,7 @@
   <p align="center">
     The definitive cognitive assistant for Hermes Agent.
     <br>
-    <em>106 tools · persistent memory · kanban · wiki · patterns · dashboard · RAG</em>
+    <em>115 tools · persistent memory · kanban · wiki · patterns · dashboard · RAG</em>
   </p>
   <br>
 </p>
@@ -13,7 +13,7 @@
 <p align="center">
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 106 tools — Level 2 SHM zero-copy transport — 4 MCP servers — RAG on PDB — works with Hermes</strong>
+  <strong>✅ 115 tools — Level 2 SHM zero-copy transport — 4 MCP servers — RAG on PDB — works with Hermes</strong>
 </p>
 
 ---
@@ -51,6 +51,9 @@ cd implementations/typescript && npm install && npm run build && cd ../..
 
 # Rust
 cd implementations/rust && cargo test && cargo bench && cd ../..
+
+# Register the 4 MCP servers in Hermes Agent (115 tools):
+bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 ```
 
 ---
@@ -86,7 +89,7 @@ cd implementations/rust && cargo test && cargo bench && cd ../..
 | PDB (40 tools) | 100% | 71% | **29% smaller** |
 | Objective Loop (5 tools) | 100% | 65% | **35% smaller** |
 
-> **Benchmarked**: 106 tools across 4 servers, 0 errors. See [cognitive benchmarks](implementations/mcp-servers/pdb/bench-results/INFORME_GLOBAL.md) and [raw speed](docs/BENCHMARKS.md).
+> **Benchmarked**: 115 tools across 4 servers, 0 errors. See [cognitive benchmarks](implementations/mcp-servers/pdb/bench-results/INFORME_GLOBAL.md) and [raw speed](docs/BENCHMARKS.md).
 
 ---
 
@@ -129,7 +132,7 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 | **[Thinking](implementations/mcp-servers/thinking/)** | **46** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
 | **[Objective Loop](implementations/mcp-servers/thinking/objective_loop.py)** | **5** (create, judge, plan, status, checklist) | auto | Plugin `lumen-shm-bridge` |
 
-> **106 tools, 4 server modules, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
+> **115 tools across 4 MCP servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
 > **🧠 PDB** — 40 tools, a hierarchical KV+SQL database with MUMPS (1966) heritage. No schemas, no migrations, 15 μs per GET. Includes $LOCK, ^IDX auto-indexes, ON SET/ON KILL triggers, ^GLOBAL→file global mapping, automatic partitioning, WAL journaling (concurrent readers + writer), DBFIX, and an M REPL. It is where the agent keeps its persistent memory. [More in COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
 
@@ -157,7 +160,7 @@ LUMEN is not just a fast protocol. On top of Hermes Agent, it becomes a **person
 | **📁 Smart filesystem** | 13 tools: `read_file`, `search_files`, `disk_usage`, `find_duplicates`... | Zero-copy SHM, no shell dependency |
 | **🔐 Multi-session** | `session_init`, `session_list`, `session_search`, `work_start`, `work_log` | Cross-session work, context recovery, logs |
 
-> **106 tools. 0 API keys. 1 assistant that remembers, learns, and organizes with you.**
+> **115 tools. 0 API keys. 1 assistant that remembers, learns, and organizes with you.**
 
 [TOOLS_GUIDE.md →](implementations/mcp-servers/TOOLS_GUIDE.md) for the full reference with examples.
 
@@ -201,9 +204,9 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **106 tools** across filesystem (**13**), web (**2**), thinking (**48**), PDB (**42**) |
+| MCP servers | ✅ | **115 tools** across filesystem (**13**), web (**2**), thinking (**81**), PDB (**19**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
-| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 106 tools, transparent override of built-ins |
+| Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 61 tools (filesystem 13, web 2, thinking 46), transparent override of built-ins |
 | M-Light M evaluator | ✅ | $O, $G, $D, $P, $E, $S, $L, $F, $TR, FOR, IF, GOTO, DO, Q:cond. ~70% MSM STU |
 | D^ROUTINE web | ✅ | :8767 — D^SS (processes), D^GS (globals), HTML dashboard |
 | MSM Compatibility | ✅ | 14/18 MSM STU patterns. Hex #, +cast, \\div, #mod. KILL of locals, comma-SET |

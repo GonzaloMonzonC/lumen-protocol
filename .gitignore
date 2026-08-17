@@ -53,7 +53,10 @@ work.md
 
 # Temp / scratch files
 temp/
-scripts/
+scripts/*
+# ...except the official Hermes MCP setup scripts
+!scripts/setup_hermes_mcp.sh
+!scripts/setup_hermes_mcp.bat
 *.tgz
 *.tmp
 
