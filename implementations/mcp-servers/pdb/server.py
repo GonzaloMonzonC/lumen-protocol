@@ -34,8 +34,10 @@ while True:
             except Exception as e:
                 write_message({"jsonrpc":"2.0","id":mid,"error":{"code":-32603,"message":str(e)}})
     else:
-        # Responder a métodos desconocidos (p.ej. keepalives custom):
-        # un error JSON-RPC sigue siendo una respuesta -> el cliente
-        # considera el server vivo. Sin esto, Hermes hace timeout y
-        # entra en reconnect loop (bug endémico de la nueva instalación).
-        write_message({"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":f"Unknown method: {method}"}})
+        # Métodos desconocidos (p.ej. keepalives custom): responder -32601
+        # SOLO si es un request (tiene id) — el cliente considera el server vivo.
+        # Si es una NOTIFICACIÓN sin id (JSON-RPC), NO se responde (matiz del
+        # protocolo: las notificaciones no reciben respuesta; responder con
+        # id:null podría confundir al cliente).
+        if mid is not None:
+            write_message({"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":f"Unknown method: {method}"}})
