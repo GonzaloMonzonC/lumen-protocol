@@ -223,7 +223,20 @@ FUZZY_SEARCH_SCHEMAS = [
     }
 ]
 
+def _adapt_pos(fn):
+    """Adapta handlers con firma posicional al contrato MCP (args dict)."""
+    import inspect
+    sig = inspect.signature(fn)
+
+    def wrapper(args=None):
+        args = args or {}
+        kwargs = {k: args[k] for k in sig.parameters if k in args}
+        return fn(**kwargs)
+
+    return wrapper
+
+
 FUZZY_SEARCH_HANDLERS = {
-    "search_files_fuzzy": tool_search_files_fuzzy,
-    "search_files_content_fuzzy": tool_search_files_content_fuzzy,
+    "search_files_fuzzy": _adapt_pos(tool_search_files_fuzzy),
+    "search_files_content_fuzzy": _adapt_pos(tool_search_files_content_fuzzy),
 }
