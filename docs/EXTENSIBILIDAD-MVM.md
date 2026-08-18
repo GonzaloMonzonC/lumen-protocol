@@ -46,6 +46,19 @@ Campos: `status` (HTTP, 0 = fallo de red), `ok` (status 2xx/3xx), `body`
 
 Defaults aplicados: `User-Agent` de navegador (evita WAF 403), `Content-Type: application/json` si hay body, límite de lectura 200KB.
 
+### SSRF guard (2026-08-18)
+
+El device **bloquea antes de conectar** cualquier host local/privado:
+`localhost`, IPs literales privadas/loopback/link-local/unspecified, y
+hostnames que resuelvan (todas sus IPs) a rangos internos (protección
+contra DNS → IP interna). Error claro: `HTTP: SSRF bloqueado: ...`.
+minreq no sigue redirecciones automáticas → el guard se aplica por llamada.
+
+```
+$DEVICE("http:get","http://127.0.0.1:8082/health")  → error: HTTP: SSRF bloqueado: IP privada 127.0.0.1
+$DEVICE("http:get","https://example.com")           → OK (público)
+```
+
 ## 2. PITFALL M-LIGHT — comillas dobladas (CRÍTICO)
 
 **El lexer M NO entiende `\"`. Las comillas dentro de un string se DOBLAN:**
