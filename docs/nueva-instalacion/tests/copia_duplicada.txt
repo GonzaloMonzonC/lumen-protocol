@@ -1,0 +1,8 @@
+# Archivo de prueba LUMEN Filesystem
+
+Este archivo se usa para el benchmark de las tools del servidor
+lumen-filesystem (nueva instalacion).
+
+Contenido de prueba: lectura, patch, duplicados, busquedas.
+
+linea con palabra clave: ZORRO-ROJO-42
