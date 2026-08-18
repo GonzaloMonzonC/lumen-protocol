@@ -75,7 +75,10 @@ implementations/python/pdb-sync/launch-vm-api.bat
 implementations/python/pdb-sync/manage-vm-api.bat
 
 # Hermes skills (private, in cadenceslab-social)
-skills/
+skills/*
+!skills/README.md
+!skills/lumen-mcp/
+!skills/lumen-mcp/**
 benchmark_poli.*
 
 # Poli synapse skills (private content - not MIT)
