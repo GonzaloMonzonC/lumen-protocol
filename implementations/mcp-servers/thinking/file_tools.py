@@ -178,8 +178,22 @@ FILE_TOOL_SCHEMAS = [
     }
 ]
 
+def _adapt_pos(fn):
+    """Adapta handlers con firma posicional (path, version, ...) al contrato
+    MCP del thinking server, que SIEMPRE llama handler(args_dict)."""
+    import inspect
+    sig = inspect.signature(fn)
+
+    def wrapper(args=None):
+        args = args or {}
+        kwargs = {k: args[k] for k in sig.parameters if k in args}
+        return fn(**kwargs)
+
+    return wrapper
+
+
 FILE_TOOL_HANDLERS = {
-    "file_snapshot": tool_file_snapshot,
-    "file_diff": tool_file_diff,
-    "file_snapshots_list": tool_file_snapshots_list,
+    "file_snapshot": _adapt_pos(tool_file_snapshot),
+    "file_diff": _adapt_pos(tool_file_diff),
+    "file_snapshots_list": _adapt_pos(tool_file_snapshots_list),
 }

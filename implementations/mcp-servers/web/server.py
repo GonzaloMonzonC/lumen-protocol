@@ -364,8 +364,8 @@ HANDLERS = {
 # ═══════════════════════════════════════════════════════════════════════
 
 def send(msg: dict) -> None:
-    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    from lumen_mcp_stdio import write_message
+    write_message(msg)
 
 
 def handle_message(msg: dict) -> None:
@@ -403,13 +403,19 @@ def handle_message(msg: dict) -> None:
 
 
 def main() -> None:
+    import os as _os
+    _mcp_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    if _mcp_dir not in sys.path:
+        sys.path.insert(0, _mcp_dir)
+    from lumen_mcp_stdio import read_message
     while True:
-        line = sys.stdin.readline()
-        if not line: break
-        line = line.strip()
-        if not line: continue
         try:
-            msg = json.loads(line)
+            msg = read_message()
+        except (EOFError, TimeoutError, ValueError):
+            break
+        if msg is None:
+            break
+        try:
             handle_message(msg)
         except json.JSONDecodeError:
             pass
