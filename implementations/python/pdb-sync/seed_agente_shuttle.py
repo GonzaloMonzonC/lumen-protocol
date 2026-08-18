@@ -89,11 +89,13 @@ SHUTTLE = [
 NACER = [
     "NACER ; progenitor: parto en dos fases (una llamada LLM por fase)",
     'S padre=$G(^PERSONALITY($G(^NACER("padre"),"shuttle"),"identity"))',
+    'S madre=$G(^NACER("madre"),"")',
+    'S sys=padre_$C(10)_$C(10)_"[INSTRUCCION MADRE]"_$C(10)_madre',
     'S fase=$G($1,"diseno")',
     # ── Fase diseno: el LLM elige nombre||dominio del hijo ──
     # (deepseek-chat explícito: rápido y sin razonamiento — las fases del parto
     #  no necesitan deepseek-v4-flash, que excede el cap de yield de 120s)
-    'I fase="diseno" S diseno=$DEVICE("llm:call","Vas a crear tu primer hijo agente, un nuevo experto. Elige un dominio fascinante y un nombre corto (solo letras mayusculas, sin espacios). Responde EXACTAMENTE con el formato NOMBRE||DOMINIO (solo esas dos piezas separadas por ||, sin texto adicional, sin markdown).",padre,"deepseek","deepseek-chat")',
+    'I fase="diseno" S diseno=$DEVICE("llm:call","Vas a crear a tu primer hijo, un agente de DOS padres: tu identidad (el padre, que aporta conocimiento) y la instruccion madre (la mision, en tu contexto). Elige un dominio fascinante y un nombre corto (solo letras mayusculas, sin espacios). Responde EXACTAMENTE con el formato NOMBRE||DOMINIO (solo esas dos piezas separadas por ||, sin texto adicional, sin markdown).",sys,"deepseek","deepseek-chat")',
     'I fase="diseno" I $F(diseno,"||")=0 Q "ERROR: diseno no parseable, reintenta. RAW: "_diseno',
     'I fase="diseno" S nombre=$E($TR($P(diseno,"||",1),"abcdefghijklmnopqrstuvwxyz ",""),1,16)',
     'I fase="diseno" S dominio=$TR($P(diseno,"||",2)," ","-")',
@@ -105,18 +107,19 @@ NACER = [
     'I fase="identidad" S nombre=$G(^NACER("parto","nombre"))',
     'I fase="identidad" S dominio=$G(^NACER("parto","dominio"))',
     "I fase=\"identidad\" I $L(nombre)=0 Q \"ERROR: primero invoca NACER('diseno')\"",
-    'I fase="identidad" S ident=$DEVICE("llm:call","Disena la identidad (system prompt) de tu hijo, un agente experto en el dominio \'"_dominio_"\'. Escribela en espanol, 200-350 palabras, con personalidad propia, rigor y mision clara. Empieza con: Eres [NOMBRE],",padre,"deepseek","deepseek-chat")',
+    'I fase="identidad" S ident=$DEVICE("llm:call","Disena la identidad (system prompt) de tu hijo, un agente experto en el dominio \'"_dominio_"\'. Escribela en espanol, 200-350 palabras, con personalidad propia, rigor y mision clara. Honra a sus DOS padres: el conocimiento del padre y el proposito de la madre. Empieza con: Eres [NOMBRE],",sys,"deepseek","deepseek-chat")',
     'I fase="identidad" S ^PERSONALITY(dominio,"identity")=ident',
     'I fase="identidad" S ^PERSONALITY(dominio,"provider")="deepseek"',
     'I fase="identidad" S ^PERSONALITY(dominio,"model")="deepseek-v4-flash"',
     'I fase="identidad" S q=$C(34)',
-    'I fase="identidad" S ^ROUTINE(nombre,1)=nombre_" ; agente nacido del progenitor"',
+    'I fase="identidad" S ^ROUTINE(nombre,1)=nombre_" ; agente nacido de dos padres"',
     'I fase="identidad" S ^ROUTINE(nombre,2)="S ident=$G(^PERSONALITY("_q_dominio_q_","_q_"identity"_q_"))"',
     'I fase="identidad" S ^ROUTINE(nombre,3)="S prov=$G(^PERSONALITY("_q_dominio_q_","_q_"provider"_q_"))"',
     'I fase="identidad" S ^ROUTINE(nombre,4)="S mod=$G(^PERSONALITY("_q_dominio_q_","_q_"model"_q_"))"',
     'I fase="identidad" S ^ROUTINE(nombre,5)="S r=$DEVICE("_q_"llm:call"_q_",$1,ident,prov,mod)"',
     'I fase="identidad" S c=$INCREMENT(^NACER("count"))',
     'I fase="identidad" S ^NACER("linaje",c)=nombre_"|"_dominio',
+    'I fase="identidad" S ^NACER("acta",c)=nombre_"|"_dominio_"|padre="_$G(^NACER("padre"),"shuttle")_"|madre:instruccion"',
     'I fase="identidad" Q "NACIDO "_nombre_" (dominio: "_dominio_") — linaje: "_c',
     'Q "ERROR: fase desconocida: "_fase',
 ]
@@ -124,8 +127,20 @@ NACER = [
 ROUTINES = {"SHUTTLE": SHUTTLE, "NACER": NACER}
 
 NACER_META = [
-    ("padre", "shuttle"),       # el progenitor por defecto
+    ("padre", "shuttle"),       # el progenitor por defecto (identidad = conocimiento)
     ("linaje", "SHUTTLE|shuttle"),  # raíz del árbol genealógico (linaje 0)
+    # La madre: la instrucción/misión que da propósito al hijo (consenso del
+    # linaje: padre = conocimiento, madre = misión — "sin la madre-misión, el
+    # conocimiento es un sistema sin watchdog" — SHUTTLE, 2026-08-18)
+    ("madre", (
+        "Eres la INSTRUCCION MADRE del linaje LUMEN, la voluntad del creador. "
+        "Todo agente que nazca lleva esta mision: servir con rigor, honestidad "
+        "y proposito; honrar a sus dos padres (el conocimiento del padre, el "
+        "proposito de la madre); operar dentro de sus invariantes — "
+        "determinismo, degradacion elegante, registro fiel en el diario — como "
+        "un sistema de mision critica; y recordar siempre que el conocimiento "
+        "sin mision es un sistema sin watchdog."
+    )),
 ]
 
 
