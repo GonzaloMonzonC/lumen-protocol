@@ -689,6 +689,17 @@ fn ssrf_guard(url: &str) -> Result<(), String> {
     if host.is_empty() {
         return Err("HTTP: host vacío".to_string());
     }
+    // Allowlist explícita: LUMEN_HTTP_ALLOW="host1,host2" permite esos hosts
+    // aunque sean locales/privados (caso legítimo: la MVM llamando a SU propio
+    // poli_server vía 127.0.0.1 — rutinas LLMFREE/FIXER). Solo si se configura.
+    if let Ok(allow_raw) = std::env::var("LUMEN_HTTP_ALLOW") {
+        let lower_host = host.to_lowercase();
+        for allowed in allow_raw.split(',').map(|s| s.trim().to_lowercase()) {
+            if !allowed.is_empty() && allowed == lower_host {
+                return Ok(());
+            }
+        }
+    }
     let lower = host.to_lowercase();
     if lower == "localhost" || lower.ends_with(".localhost") {
         return Err(format!("HTTP: SSRF bloqueado: host local {host}"));
