@@ -354,11 +354,25 @@ PDB_WATCH_SCHEMAS = [
     }
 ]
 
+def _adapt_pos(fn):
+    """Adapta handlers con firma posicional (ns, pattern, ...) al contrato
+    MCP del thinking server, que SIEMPRE llama handler(args_dict)."""
+    import inspect
+    sig = inspect.signature(fn)
+
+    def wrapper(args=None):
+        args = args or {}
+        kwargs = {k: args[k] for k in sig.parameters if k in args}
+        return fn(**kwargs)
+
+    return wrapper
+
+
 PDB_WATCH_HANDLERS = {
-    "pdb_watch": tool_pdb_watch,
-    "pdb_unwatch": tool_pdb_unwatch,
-    "pdb_list_watches": tool_pdb_list_watches,
-    "pdb_check_notifications": tool_pdb_check_notifications,
-    "pdb_notifications_pending": tool_pdb_notifications_pending,
-    "pdb_clear_notifications": tool_pdb_clear_notifications,
+    "pdb_watch": _adapt_pos(tool_pdb_watch),
+    "pdb_unwatch": _adapt_pos(tool_pdb_unwatch),
+    "pdb_list_watches": _adapt_pos(tool_pdb_list_watches),
+    "pdb_check_notifications": _adapt_pos(tool_pdb_check_notifications),
+    "pdb_notifications_pending": _adapt_pos(tool_pdb_notifications_pending),
+    "pdb_clear_notifications": _adapt_pos(tool_pdb_clear_notifications),
 }

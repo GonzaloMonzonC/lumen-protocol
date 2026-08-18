@@ -3648,8 +3648,8 @@ HANDLERS = {
 
 def send(msg: dict) -> None:
     try:
-        sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+        from lumen_mcp_stdio import write_message
+        write_message(msg)
     except (OSError, BrokenPipeError, ValueError):
         # Pipe broken or stdout closed — can't send, but don't crash
         pass
@@ -3746,24 +3746,27 @@ def main() -> None:
         _start_dashboard(port)
     
     standalone = "--standalone" in sys.argv or ("--dashboard" in sys.argv and not sys.stdin.isatty())
+    # Framing MCP estándar (Content-Length + ReadFile nativo): los readline()
+    # de Windows bloquean hasta 8KB en pipes y Hermes habla Content-Length.
+    import os as _os
+    _mcp_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    if _mcp_dir not in sys.path:
+        sys.path.insert(0, _mcp_dir)
+    from lumen_mcp_stdio import read_message
     while True:
-        try:
-            line = sys.stdin.readline() if not standalone else None
-        except Exception:
-            break
-        if not line and not standalone:
-            break
         if standalone:
             try:
                 time.sleep(1)
                 continue
             except KeyboardInterrupt:
                 break
-        line = line.strip()
-        if not line:
-            continue
         try:
-            msg = json.loads(line)
+            msg = read_message()
+        except (EOFError, TimeoutError, ValueError):
+            break
+        if msg is None:
+            break
+        try:
             handle_message(msg)
         except json.JSONDecodeError:
             pass
