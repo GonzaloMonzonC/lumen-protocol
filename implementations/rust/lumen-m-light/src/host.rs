@@ -655,11 +655,76 @@ fn compare_subscripts(a: &[Subscript], b: &[Subscript]) -> std::cmp::Ordering {
 ///   get/head:        (url, [headers_json], [timeout_s])
 ///   post/put/delete: (url, body, [headers_json], [timeout_s])
 #[cfg(feature = "minreq")]
+// ── SSRF guard para el device HTTP (2026-08-18, revisión gabinete) ──
+// Bloquea hosts locales/privados ANTES de conectar: localhost, IPs literales
+// privadas/loopback/link-local/unspecified, y hostnames que resuelvan (todas
+// sus IPs) a rangos internos. minreq no sigue redirecciones automáticas, así
+// que el guard en la URL inicial cubre el caso base; un redirect manual
+// pasaría de nuevo por este guard en cada llamada.
+fn is_private_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+        }
+    }
+}
+
+fn ssrf_guard(url: &str) -> Result<(), String> {
+    // Extraer host: scheme://[userinfo@]host[:port]/path?query#frag
+    let after_scheme = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let host_port = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    let host = host_port.rsplit_once('@').map(|(_, h)| h).unwrap_or(host_port);
+    let host = host.split(':').next().unwrap_or(host);
+    let host = host.trim_matches(['[', ']']);
+    if host.is_empty() {
+        return Err("HTTP: host vacío".to_string());
+    }
+    let lower = host.to_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") {
+        return Err(format!("HTTP: SSRF bloqueado: host local {host}"));
+    }
+    // IP literal?
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if is_private_ip(&ip) {
+            return Err(format!("HTTP: SSRF bloqueado: IP privada {host}"));
+        }
+        return Ok(());
+    }
+    // Hostname: resolver y comprobar TODAS las IPs (DNS -> IP interna queda bloqueado)
+    let addrs = std::net::ToSocketAddrs::to_socket_addrs(&(host, 443))
+        .map_err(|e| format!("HTTP: resolución DNS de {host} falló: {e}"))?;
+    for addr in addrs {
+        if is_private_ip(&addr.ip()) {
+            return Err(format!(
+                "HTTP: SSRF bloqueado: {host} resuelve a IP interna {}",
+                addr.ip()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     const MAX_BODY: usize = 200 * 1024;
     let url = args.first().map(|v| v.as_string()).unwrap_or_default();
     if url.trim().is_empty() {
         return Err("HTTP: url requerida".to_string());
+    }
+    // SSRF guard (revisión gabinete 2026-08-18): bloquear hosts locales/privados
+    // ANTES de conectar. Resuelve el hostname y comprueba TODAS las IPs
+    // (protege contra DNS que resuelva a IP interna).
+    if let Err(e) = ssrf_guard(&url) {
+        return Err(e);
     }
     let has_body = matches!(action, "post" | "put" | "delete");
     let body = if has_body {
