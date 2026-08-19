@@ -555,15 +555,28 @@ def tool_poli_exec(args: dict) -> dict:
     result = {
         "ok": r.get("ok"),
         "execution": r.get("execution"),
+        "output": (r.get("state") or {}).get("output", "").strip(),
         "globals": [],
     }
+    # FIX 2026-08-19: no volcar la PDB entera (^AUDIT/^AGENTES con miles de entradas = 27MB).
+    # Solo un subconjunto pequeño de globals útiles (excluye los namespaces voluminosos),
+    # con valores truncados. El stdout del código M va en "output".
+    _BULKY_NS = {"AUDIT", "AGENTES", "ANGI", "KANBAN"}
     for g in (r.get("globals") or []):
         ns = g.get("ns", "")
+        if ns in _BULKY_NS:
+            continue
         subs = g.get("subs") or []
+        val = g.get("value")
+        if isinstance(val, str) and len(val) > 500:
+            val = val[:500] + f"...[truncated {len(val)} chars]"
         result["globals"].append({
             "name": f"^{ns}" + (f"({','.join(str(s) for s in subs)})" if subs else ""),
-            "value": g.get("value"),
+            "value": val,
         })
+        if len(result["globals"]) >= 25:
+            result["globals"].append({"name": "...", "value": "[más globals omitidos — usa poli_status para el snapshot completo]"})
+            break
     err = r.get("state", {}).get("error")
     if err:
         result["error"] = str(err.get("zerror", ""))
