@@ -574,7 +574,7 @@ def tool_poli_exec(args: dict) -> dict:
             "name": f"^{ns}" + (f"({','.join(str(s) for s in subs)})" if subs else ""),
             "value": val,
         })
-        if len(result["globals"]) >= 25:
+        if len(result["globals"]) >= 100:
             result["globals"].append({"name": "...", "value": "[más globals omitidos — usa poli_status para el snapshot completo]"})
             break
     err = r.get("state", {}).get("error")
