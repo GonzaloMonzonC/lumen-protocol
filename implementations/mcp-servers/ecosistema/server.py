@@ -21,9 +21,12 @@ import urllib.request
 VM_API = os.environ.get("VM_API_URL", "http://127.0.0.1:8081")
 TOKEN_FILE = os.path.expanduser("~/.hermes/dashboard.token")
 
-# Windows: forzar UTF-8 en stdout (el cliente MCP espera UTF-8)
+# Windows: forzar UTF-8 en stdin y stdout (el cliente MCP espera UTF-8;
+# sin esto, cp1252 rompe caracteres como Í → byte 0x8D → surrogate U+DC8D)
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = __import__("io").TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+if hasattr(sys.stdin, "buffer"):
+    sys.stdin = __import__("io").TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="strict")
 
 SERVER_INFO = {
     "protocolVersion": "2024-11-05",
