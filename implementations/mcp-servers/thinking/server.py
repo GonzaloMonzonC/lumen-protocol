@@ -424,6 +424,58 @@ def _pdb_save_all() -> None:
             pairs.extend(k_pairs)
         except Exception as ke:
             _safe_print(f"[lumen-thinking] KANBAN save FAILED: {ke}")
+        # ── SPACES + CHANGES: dual-write jerárquico por Space (hito 2, CASOS_USO_AGENTES) ──
+        # Nichos y tareas se escriben ADEMÁS en su familia por Space (ns=SPACES, subkeys
+        # MUMPS con space_id normalizado) y se alimenta el journal CHANGES por Space para
+        # que la replicación DDP consuma cambios incrementales (nunca full-deletes).
+        try:
+            s_pairs = []
+            ch_pairs = []
+            seq_read = {}
+            try:
+                from pdb_tools import decode_subkey as _decode_subkey
+            except ImportError:
+                _decode_subkey = None
+            if _decode_subkey:
+                for _sk, _val in conn.execute("SELECT subkey, value FROM _globals WHERE ns='CHANGES'"):
+                    try:
+                        _subs = _decode_subkey(_sk)
+                    except Exception:
+                        continue
+                    if len(_subs) == 2 and _subs[0] == "_meta":
+                        try:
+                            seq_read[str(_subs[1])] = int(_val)
+                        except (TypeError, ValueError):
+                            pass
+            _spaces = {}
+            for nid, niche in _niches.items():
+                sp = niche.get("space_id", "local") or "local"
+                _spaces[sp] = True
+                s_pairs.append(("SPACES", encode_subkey([sp, "niches", nid]),
+                                json.dumps(niche, ensure_ascii=False)))
+            for tid, task in _tasks.items():
+                sp = task.get("space_id", "local") or "local"
+                _spaces[sp] = True
+                s_pairs.append(("SPACES", encode_subkey([sp, "tasks", tid]),
+                                json.dumps(task, ensure_ascii=False)))
+            _now = time.time()
+            for sp in sorted(_spaces):
+                seq = seq_read.get(sp, 0)
+                for nid in sorted(_niches.keys()):
+                    if (_niches[nid].get("space_id", "local") or "local") == sp:
+                        ch_pairs.append(("CHANGES", encode_subkey([sp, seq, "niche", nid]),
+                                         json.dumps({"op": "upsert", "ref": ["niches", nid], "ts": _now})))
+                        seq += 1
+                for tid in sorted(_tasks.keys()):
+                    if (_tasks[tid].get("space_id", "local") or "local") == sp:
+                        ch_pairs.append(("CHANGES", encode_subkey([sp, seq, "task", tid]),
+                                         json.dumps({"op": "upsert", "ref": ["tasks", tid], "ts": _now})))
+                        seq += 1
+                ch_pairs.append(("CHANGES", encode_subkey(["_meta", sp]), str(seq)))
+            pairs.extend(s_pairs)
+            pairs.extend(ch_pairs)
+        except Exception as se:
+            _safe_print(f"[lumen-thinking] SPACES/CHANGES save FAILED: {se}")
         conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
         conn.commit()
         conn.close()
