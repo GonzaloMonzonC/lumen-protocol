@@ -1,21 +1,49 @@
 <p align="center">
   <br>
-  <h1 align="center">◆ LUMEN</h1>
-  <p align="center"><strong>Lightweight Universal Model Exchange Network</strong></p>
+  <h1 align="center">◆ ECOS</h1>
+  <p align="center"><strong>Edge Cognitive Operating System</strong></p>
+  <p align="center"><em>LUMEN — the open binary transport at its core</em></p>
   <p align="center">
-    The definitive cognitive assistant for Hermes Agent.
+    The rest of the world is running societies of AI agents on 2010s web architecture.
     <br>
-    <em>115 tools · persistent memory · kanban · wiki · patterns · dashboard · RAG</em>
+    ECOS runs them on <strong>binary, hierarchical, zero-copy memory at the edge</strong>.
   </p>
   <br>
 </p>
 
 <p align="center">
+  <strong>This repo is the open metal of ECOS:</strong> binary protocol, zero-copy transport, PDB/MVM cognitive state, 115 MCP tools.
+  <br>
   <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
-  <a href="https://github.com/NousResearch/hermes-agent/pull/47740">PR #47740</a> (closed — superseded by plugin) &nbsp;|&nbsp;
-  <strong>✅ 115 tools — Level 2 SHM zero-copy transport — 4 MCP servers — RAG on PDB — works with Hermes</strong>
+  <a href="docs/COGNITIVE_OS.md"><strong>🧠 Cognitive OS docs</strong></a> &nbsp;|&nbsp;
+  <strong>✅ Level 2 SHM zero-copy · 55-80% wire savings · 4 MCP servers · works with Hermes</strong>
 </p>
+
+---
+
+## 🌍 The ECOS vision — why this exists
+
+> *"The world is trying to make AI societies run on slow web architectures from the 2010s. We built an execution engine that is binary and hierarchical at the edge, where agents are not scripts connected by APIs but cognitive threads sharing the same physical memory, auditing each other in real time."*
+
+Three bets. Three walls the industry will hit:
+
+**1. The I/O collapse (the JSON-RPC problem).** While a human talks to an LLM, JSON latency is invisible. When 10 agents debate, extract data, review schemas and run retrospectives, the system becomes I/O-bound — the wire, not the model, is the bottleneck. The inevitable future of multi-agent orchestration is **binary transport and shared zero-copy memory at the edge**. LUMEN already ships it, benchmarked: **55-80% wire savings, Level 2 SHM (mmap ring buffers, zero kernel copies, sub-ms latency), 20K calls/sec in enterprise stress tests, 46% smaller LLM token streams**.
+
+**2. The end of the "RAG memory" patch.** Giving agents memory by force-injecting vector databases into stateless architectures is a patch — vectors are an index, not a memory. The real future of artificial cognition is **transactional, structured, hierarchical state that acts as native cognitive memory**: a virtual machine on disk where decisions, dictionaries and behavioral patterns live intrinsically in the infrastructure. That is **PDB + MVM**: MUMPS (1966) heritage globals, `$LOCK`, `^IDX` auto-indexes, `ON SET`/`ON KILL` triggers, WAL journaling, 15 μs/GET — and an M Virtual Machine running autonomous, persistent processes.
+
+**3. Software Factory, not a developer framework.** The mainstream is hostage to Python/TypeScript, and the human should not have to touch the metal. ECOS is the **Edge Cognitive Operating System** where the human acts as Chief Operating Officer and specialized agents execute and guarantee the behavioral quality of the system. This repo is the open layer of that OS; the orchestration and business logic live above it.
+
+**Layer map**
+
+| Layer | What it is | Open here? |
+|-------|-----------|-----------|
+| LUMEN protocol + transports | Binary wire (Hyb128), SHM zero-copy, datagram, QUIC, ChaCha20-Poly1305, macaroons | ✅ **This repo (MIT)** |
+| PDB + M-Light + MVM | Hierarchical cognitive state, M evaluator, autonomous M processes | ✅ **This repo** |
+| MCP servers (115 tools) | Filesystem, web, thinking, PDB — ready for Hermes Agent | ✅ **This repo** |
+| ECOS orchestration | Multi-agent teams, memory consolidation, voice, Lab | 🔒 Proprietary layer |
+
+**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (55-80% smaller), give your agent a persistent hierarchical brain (PDB), and run autonomous M processes at the edge (MVM) — all with zero API keys.
 
 ---
 
@@ -304,5 +332,5 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  <sub>LUMEN · <em>Your MCP wire. Just smaller. Faster. Safer.</em></sub>
+  <sub>ECOS — Edge Cognitive Operating System · LUMEN · <em>Your MCP wire. Just smaller. Faster. Safer.</em></sub>
 </p>
