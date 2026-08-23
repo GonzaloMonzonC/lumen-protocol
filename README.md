@@ -212,6 +212,8 @@ LUMEN is not a library you call: it is an operating system where the agents them
 
 **Routines are the system.** M code is stored in the PDB with bytecode caching (SHA256): edit a routine and the next execution picks it up — no rebuild, no deploy, no maintenance window. Agents write their own routines, and even modify each other's, with authorship and audit trail built in.
 
+**M is hostile to humans — and that is the point.** M looks unfriendly at first: tiny, no syntactic sugar, 1960s syntax. But it is so simple and regular that an LLM writes it with far higher reliability than Python or JavaScript — less surface, less ambiguity, fewer errors. The language was not designed for human comfort: it was designed for a machine to write programs in it.
+
 **The MVM serves web — not just API calls.** The same machine that runs agents also runs servers, all reachable from M code:
 
 | Service | How | What it does |
