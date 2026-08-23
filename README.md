@@ -227,6 +227,8 @@ Because the web layer is written in the same M language, **agents can build thei
 
 **Nodes are portable.** Routines transfer between nodes, processes persist across restarts (`^PROCESSES`), and agents can hibernate and migrate between machines — see [CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md) (shared namespaces, hibernation, node migration).
 
+**A neighbor that audits, not a system that replaces.** Because the MVM ships as a container, you can deploy it *next to* any existing system — the same pod, the same Kubernetes cluster — and its agents watch it continuously: record how it behaves, detect failures, talk to other agents or external systems (via `$DEVICE` HTTP/webhooks) to correlate problems, and leave logs with full traceability (who, when, what, in what order). One container adds constant auditing, maintenance alerts and an A2A bridge to whatever you already run — without touching a line of it.
+
 **Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · 55-80% less wire. [Benchmarks →](docs/BENCHMARKS.md)
 
 ---
