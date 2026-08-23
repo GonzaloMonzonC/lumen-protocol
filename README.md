@@ -214,6 +214,8 @@ LUMEN is not a library you call: it is an operating system where the agents them
 
 **M is hostile to humans — and that is the point.** M looks unfriendly at first: tiny, no syntactic sugar, 1960s syntax. But it is so simple and regular that an LLM writes it with far higher reliability than Python or JavaScript — less surface, less ambiguity, fewer errors. The language was not designed for human comfort: it was designed for a machine to write programs in it.
 
+**And the simplicity is not poverty.** M ships with the whole system built in: a native hierarchical database (the `^` globals), vector search, node-to-node synchronization, web servers and webhooks — no imports, no dependencies. An agent creates a web page on the fly without importing a single library: it writes M, the VM serves it, zero overhead.
+
 **The MVM serves web — not just API calls.** The same machine that runs agents also runs servers, all reachable from M code:
 
 | Service | How | What it does |
