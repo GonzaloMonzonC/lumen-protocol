@@ -206,6 +206,29 @@ LUMEN is not just a fast protocol. On top of Hermes Agent, it becomes a **person
 
 ---
 
+## 🧠 The Cognitive OS — agents that build their own system
+
+LUMEN is not a library you call: it is an operating system where the agents themselves write the programs. The M Virtual Machine runs **M routines** that live in the same persistent store as the agent memory — versioned, hot-editable and transferable between nodes.
+
+**Routines are the system.** M code is stored in the PDB with bytecode caching (SHA256): edit a routine and the next execution picks it up — no rebuild, no deploy, no maintenance window. Agents write their own routines, and even modify each other's, with authorship and audit trail built in.
+
+**The MVM serves web — not just API calls.** The same machine that runs agents also runs servers, all reachable from M code:
+
+| Service | How | What it does |
+|---------|-----|--------------|
+| HTTP client | `O 8:"GET url"` (reqwest, async) | Call any external API, non-blocking |
+| Webhook server | `O 9:":8767"` (axum) | Receive POSTs → agent mailbox |
+| Process/global dashboard | `D^ROUTINE web :8767` | Live HTML: processes (`D^SS`) + globals (`D^GS`) |
+| WebSocket dashboard | `:9877` | Real-time browser dashboard, 80% compression |
+
+Because the web layer is written in the same M language, **agents can build their own webhooks, HTML pages and SPAs** — interfaces that answer real requests, generated and maintained by the system itself, no separate frontend stack.
+
+**Nodes are portable.** Routines transfer between nodes, processes persist across restarts (`^PROCESSES`), and agents can hibernate and migrate between machines — see [CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md) (shared namespaces, hibernation, node migration).
+
+**Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · 55-80% less wire. [Benchmarks →](docs/BENCHMARKS.md)
+
+---
+
 ## Transport levels
 
 ```
