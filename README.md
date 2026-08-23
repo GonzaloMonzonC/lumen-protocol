@@ -223,6 +223,8 @@ LUMEN is not a library you call: it is an operating system where the agents them
 
 Because the web layer is written in the same M language, **agents can build their own webhooks, HTML pages and SPAs** — interfaces that answer real requests, generated and maintained by the system itself, no separate frontend stack.
 
+**Devices are open, not a closed list.** The MVM reaches the world through `$DEVICE` primitives — HTTP, webhooks, LLM calls, and more. The core is MIT and designed to be extended (trait `Host`, C ABI): new devices — databases, transports, external systems — plug in from M code without touching the VM core. The system grows with the needs of its agents, not the other way around.
+
 **Nodes are portable.** Routines transfer between nodes, processes persist across restarts (`^PROCESSES`), and agents can hibernate and migrate between machines — see [CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md) (shared namespaces, hibernation, node migration).
 
 **Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · 55-80% less wire. [Benchmarks →](docs/BENCHMARKS.md)
