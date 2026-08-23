@@ -32,7 +32,7 @@ Three bets. Three walls the industry will hit:
 
 **2. The end of the "RAG memory" patch.** Giving agents memory by force-injecting vector databases into stateless architectures is a patch — vectors are an index, not a memory. The real future of artificial cognition is **transactional, structured, hierarchical state that acts as native cognitive memory**: a virtual machine on disk where decisions, dictionaries and behavioral patterns live intrinsically in the infrastructure. That is **PDB + MVM**: MUMPS (1966) heritage globals, `$LOCK`, `^IDX` auto-indexes, `ON SET`/`ON KILL` triggers, WAL journaling, 15 μs/GET — and an M Virtual Machine running autonomous, persistent processes.
 
-**3. Software Factory, not a developer framework.** The mainstream is hostage to Python/TypeScript, and the human should not have to touch the metal. LUMEN is the **open metal** of a full cognitive OS: agents that write their own M logic, share the same memory, and execute deterministically at the edge. On top of this repo, Cadences Lab has built **ECOS** (Edge Cognitive Operating System) — the orchestration layer where specialized agents run as teams and the human acts as Chief Operating Officer. That layer is proprietary; the metal below it is MIT.
+**3. Software Factory, not a developer framework.** The mainstream is hostage to Python/TypeScript, and the human should not have to touch the metal. LUMEN is the **open metal** of a full cognitive OS: agents that write their own M logic, share the same memory, and execute deterministically at the edge. On top of this repo, Cadences Lab has built **[ECOS](https://ecos.cadenceslab.com)** (Edge Cognitive Operating System) — the orchestration layer where specialized agents run as teams and the human acts as Chief Operating Officer. That layer is proprietary; the metal below it is MIT.
 
 **Layer map**
 
@@ -42,7 +42,7 @@ Three bets. Three walls the industry will hit:
 | PDB + M-Light + MVM | Hierarchical cognitive state, M evaluator, autonomous M processes | ✅ **This repo** |
 | Poli + Smith | The open agent of LUMEN (memory, personalities, M logic) and its multi-personality orchestrator | ✅ **This repo** |
 | MCP servers (115 tools) | Filesystem, web, thinking, PDB — ready for Hermes Agent | ✅ **This repo** |
-| ECOS — Edge Cognitive Operating System | Multi-agent teams, memory consolidation, voice, Lab — built on LUMEN | 🔒 Proprietary layer |
+| [ECOS — Edge Cognitive Operating System](https://ecos.cadenceslab.com) | Multi-agent teams, memory consolidation, voice, Lab — built on LUMEN | 🔒 Proprietary layer |
 | Cadences Lab | The company running its agent ecosystem on LUMEN | 🔒 Proprietary |
 
 **What's open here (MIT):**
