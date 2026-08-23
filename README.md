@@ -1,18 +1,18 @@
 <p align="center">
   <br>
-  <h1 align="center">◆ ECOS</h1>
-  <p align="center"><strong>Edge Cognitive Operating System</strong></p>
-  <p align="center"><em>LUMEN — the open binary transport at its core</em></p>
+  <h1 align="center">◆ LUMEN Protocol</h1>
+  <p align="center"><strong>The open binary transport for AI agent societies</strong></p>
+  <p align="center"><em>Zero-copy · hierarchical · edge — MIT licensed</em></p>
   <p align="center">
     The rest of the world is running societies of AI agents on 2010s web architecture.
     <br>
-    ECOS runs them on <strong>binary, hierarchical, zero-copy memory at the edge</strong>.
+    LUMEN runs them on <strong>binary, hierarchical, zero-copy memory at the edge</strong>.
   </p>
   <br>
 </p>
 
 <p align="center">
-  <strong>This repo is the open metal of ECOS:</strong> binary protocol, zero-copy transport, PDB/MVM cognitive state, 115 MCP tools.
+  <strong>Open metal:</strong> binary protocol, zero-copy transport, PDB/MVM cognitive state, M-Light evaluator, Poli + Smith agents, 115 MCP tools.
   <br>
   <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
@@ -22,7 +22,7 @@
 
 ---
 
-## 🌍 The ECOS vision — why this exists
+## 🌍 Why LUMEN exists — the three bets
 
 > *"The world is trying to make AI societies run on slow web architectures from the 2010s. We built an execution engine that is binary and hierarchical at the edge, where agents are not scripts connected by APIs but cognitive threads sharing the same physical memory, auditing each other in real time."*
 
@@ -32,7 +32,7 @@ Three bets. Three walls the industry will hit:
 
 **2. The end of the "RAG memory" patch.** Giving agents memory by force-injecting vector databases into stateless architectures is a patch — vectors are an index, not a memory. The real future of artificial cognition is **transactional, structured, hierarchical state that acts as native cognitive memory**: a virtual machine on disk where decisions, dictionaries and behavioral patterns live intrinsically in the infrastructure. That is **PDB + MVM**: MUMPS (1966) heritage globals, `$LOCK`, `^IDX` auto-indexes, `ON SET`/`ON KILL` triggers, WAL journaling, 15 μs/GET — and an M Virtual Machine running autonomous, persistent processes.
 
-**3. Software Factory, not a developer framework.** The mainstream is hostage to Python/TypeScript, and the human should not have to touch the metal. ECOS is the **Edge Cognitive Operating System** where the human acts as Chief Operating Officer and specialized agents execute and guarantee the behavioral quality of the system. This repo is the open layer of that OS; the orchestration and business logic live above it.
+**3. Software Factory, not a developer framework.** The mainstream is hostage to Python/TypeScript, and the human should not have to touch the metal. LUMEN is the **open metal** of a full cognitive OS: agents that write their own M logic, share the same memory, and execute deterministically at the edge. On top of this repo, Cadences Lab has built **ECOS** (Edge Cognitive Operating System) — the orchestration layer where specialized agents run as teams and the human acts as Chief Operating Officer. That layer is proprietary; the metal below it is MIT.
 
 **Layer map**
 
@@ -40,10 +40,21 @@ Three bets. Three walls the industry will hit:
 |-------|-----------|-----------|
 | LUMEN protocol + transports | Binary wire (Hyb128), SHM zero-copy, datagram, QUIC, ChaCha20-Poly1305, macaroons | ✅ **This repo (MIT)** |
 | PDB + M-Light + MVM | Hierarchical cognitive state, M evaluator, autonomous M processes | ✅ **This repo** |
+| Poli + Smith | The open agent of LUMEN (memory, personalities, M logic) and its multi-personality orchestrator | ✅ **This repo** |
 | MCP servers (115 tools) | Filesystem, web, thinking, PDB — ready for Hermes Agent | ✅ **This repo** |
-| ECOS orchestration | Multi-agent teams, memory consolidation, voice, Lab | 🔒 Proprietary layer |
+| ECOS — Edge Cognitive Operating System | Multi-agent teams, memory consolidation, voice, Lab — built on LUMEN | 🔒 Proprietary layer |
+| Cadences Lab | The company running its agent ecosystem on LUMEN | 🔒 Proprietary |
 
-**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (55-80% smaller), give your agent a persistent hierarchical brain (PDB), and run autonomous M processes at the edge (MVM) — all with zero API keys.
+**What's open here (MIT):**
+- **Protocol & transports** — Hyb128 framing, static + session dictionaries, binary compression, native streaming, macaroons (zero-trust capability auth), ChaCha20-Poly1305 wire encryption, X25519, MUX channels; 4 levels: stream (stdio/TCP/WS), SHM zero-copy (mmap), datagram (UDP+multicast), QUIC (WAN).
+- **PDB — Process Database** — hierarchical KV+SQL with MUMPS heritage: `$LOCK`, `^IDX` auto-indexes, `ON SET`/`ON KILL` triggers, WAL journaling, 15 μs/GET, 40 MCP tools.
+- **M-Light + MVM — the M Virtual Machine** — MUMPS evaluator and autonomous M processes: spawn, tick, mailbox, kill, persistence across restarts. Rust reference implementation (`lumen-m-light`, `lumen-mvm`, `lumen-pdb`).
+- **Poli — the open agent** — the agent that lives inside the MVM: memory, personalities and M logic (`implementations/mcp-servers/poli/`).
+- **Smith — multi-personality orchestration** — detects domains, activates expert profiles in parallel, synthesizes a unified answer (`implementations/rust/lumen-m-light/src/smith.rs`).
+- **MCP servers (115 tools)** — filesystem (13), web (2), thinking (81), PDB (19); zero API keys.
+- **Bindings** — Rust (reference), TypeScript, Python, PHP, C#/.NET, WASM (22 KB gzipped).
+
+**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (55-80% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys.
 
 ---
 
@@ -332,5 +343,5 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  <sub>ECOS — Edge Cognitive Operating System · LUMEN · <em>Your MCP wire. Just smaller. Faster. Safer.</em></sub>
+  <sub>LUMEN Protocol — Your MCP wire. Just smaller. Faster. Safer.</sub>
 </p>
