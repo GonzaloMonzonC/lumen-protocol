@@ -218,6 +218,7 @@ impl CompilationManager {
     }
     
     /// Load a function from a .dll
+    #[cfg(feature = "dll")]
     fn load_function(&self, dll_path: &Path, fn_name: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
         // Safety: we control the .dll we generated
         unsafe {
@@ -248,7 +249,13 @@ impl CompilationManager {
             }
         }
     }
-    
+
+    /// Stub sin feature "dll": la carga JIT de rutinas no está disponible.
+    #[cfg(not(feature = "dll"))]
+    fn load_function(&self, _dll_path: &Path, _fn_name: &str) -> Option<Box<dyn Fn() -> Result<i64, String> + Send + Sync>> {
+        None
+    }
+
     /// Try to compile by routine name and source
     pub fn try_compile_routine(&self, name: &str, source: &str) -> Option<Arc<dyn Fn() -> Result<i64, String> + Send + Sync>> {
         let program = match crate::compiler::Compiler::compile(source) {

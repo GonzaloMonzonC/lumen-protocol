@@ -39,12 +39,29 @@ pub struct ExecuteRequest {
     pub slice_gas: Option<u64>,
     #[serde(default)]
     pub llm_api_keys: HashMap<String, String>,
+    #[cfg(feature = "sqlite")]
     #[serde(default)]
     pub sqlite_path: Option<String>,
     /// If set, reuses a persistent MemoryHost (LLM pool survives).
     /// New sessions are auto-created on first use.
     #[serde(default)]
     pub session_id: Option<String>,
+}
+
+impl ExecuteRequest {
+    /// Resuelve el host SQLite si hay path (feature "sqlite").
+    /// None = no hay sqlite_path o el build no tiene persistencia.
+    fn sqlite_host(db_path: Option<&String>) -> Option<Result<MemoryHost, String>> {
+        #[cfg(feature = "sqlite")]
+        {
+            db_path.map(|p| MemoryHost::from_sqlite(p))
+        }
+        #[cfg(not(feature = "sqlite"))]
+        {
+            let _ = db_path;
+            None
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -125,25 +142,27 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
         if let Some(arc) = sessions.get(sid) {
             arc.clone()
         } else {
-            let h = match request.sqlite_path {
-                Some(ref db_path) => match MemoryHost::from_sqlite(db_path) {
-                    Ok(h) => h,
-                    Err(e) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
-                },
+            #[cfg(feature = "sqlite")]
+            let h = match ExecuteRequest::sqlite_host(request.sqlite_path.as_ref()) {
+                Some(Ok(h)) => h,
+                Some(Err(e)) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
                 None => MemoryHost::from_entries(request.globals),
             };
+            #[cfg(not(feature = "sqlite"))]
+            let h = MemoryHost::from_entries(request.globals);
             let arc = Arc::new(Mutex::new(h));
             sessions.insert(sid.clone(), arc.clone());
             arc
         }
     } else {
-        let h = match request.sqlite_path {
-            Some(ref db_path) => match MemoryHost::from_sqlite(db_path) {
-                Ok(h) => h,
-                Err(e) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
-            },
+        #[cfg(feature = "sqlite")]
+        let h = match ExecuteRequest::sqlite_host(request.sqlite_path.as_ref()) {
+            Some(Ok(h)) => h,
+            Some(Err(e)) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
             None => MemoryHost::from_entries(request.globals),
         };
+        #[cfg(not(feature = "sqlite"))]
+        let h = MemoryHost::from_entries(request.globals);
         Arc::new(Mutex::new(h))
     };
     // sessions map lock is dropped here — concurrent requests to different sessions

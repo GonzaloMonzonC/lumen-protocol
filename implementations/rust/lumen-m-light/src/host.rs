@@ -513,6 +513,8 @@ pub struct MemoryHost {
     pub llm_api_keys: HashMap<String, String>,
     /// Conexión SQLite opcional. Cuando está presente, get/set/kill/data/order
     /// operan contra SQLite directamente en vez del BTreeMap en memoria.
+    /// (feature "sqlite" — no disponible en builds WASM)
+    #[cfg(feature = "sqlite")]
     sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
     /// Registry global de sesiones Smith streaming
     pub smith_registry: Arc<crate::smith::SmithRegistry>,
@@ -527,6 +529,7 @@ impl Default for MemoryHost {
             input: Vec::new(),
             locks: HashMap::new(),
             llm_api_keys: HashMap::new(),
+            #[cfg(feature = "sqlite")]
             sqlite_db: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
         }
@@ -544,6 +547,7 @@ impl MemoryHost {
 
     /// Crea un MemoryHost con backend SQLite directo.
     /// get/set/kill/data/order operan contra SQLite en vez de BTreeMap.
+    #[cfg(feature = "sqlite")]
     pub fn from_sqlite(db_path: &str) -> Result<Self, String> {
         let conn = rusqlite::Connection::open(db_path)
             .map_err(|e| format!("SQLite open({db_path}): {e}"))?;
@@ -597,7 +601,10 @@ impl MemoryHost {
     }
 
     pub fn is_sqlite(&self) -> bool {
-        self.sqlite_db.is_some()
+        #[cfg(feature = "sqlite")]
+        { self.sqlite_db.is_some() }
+        #[cfg(not(feature = "sqlite"))]
+        { false }
     }
 
     pub fn entries(&self) -> Vec<GlobalEntry> {
@@ -679,6 +686,7 @@ fn is_private_ip(ip: &std::net::IpAddr) -> bool {
     }
 }
 
+#[cfg(feature = "minreq")]
 fn ssrf_guard(url: &str) -> Result<(), String> {
     // Extraer host: scheme://[userinfo@]host[:port]/path?query#frag
     let after_scheme = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
@@ -725,6 +733,7 @@ fn ssrf_guard(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "minreq")]
 fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     const MAX_BODY: usize = 200 * 1024;
     let url = args.first().map(|v| v.as_string()).unwrap_or_default();
@@ -820,6 +829,7 @@ impl Host for MemoryHost {
         // Always update in-memory BTreeMap first
         self.values.insert((ns.to_string(), subs.to_vec()), value.clone());
         // Persist to SQLite if available
+        #[cfg(feature = "sqlite")]
         if let Some(ref db) = self.sqlite_db {
             let subkey = encode_subkey(subs);
             let val_str = value.as_string();
@@ -841,6 +851,7 @@ impl Host for MemoryHost {
         });
         let count = (before - self.values.len()) as u64;
         // Persist deletion to SQLite if available
+        #[cfg(feature = "sqlite")]
         if let Some(ref db) = self.sqlite_db {
             let subkey = encode_subkey(subs);
             let conn = db.lock().map_err(|e| format!("kill lock: {e}"))?;
@@ -1008,6 +1019,7 @@ impl Host for MemoryHost {
 
     // ── Generic device call (HTTP, future devices) ────────────
     fn entries(&self) -> Result<Vec<GlobalEntry>, String> {
+        #[cfg(feature = "sqlite")]
         if let Some(ref db) = self.sqlite_db {
             let conn = db.lock().map_err(|e| format!("entries lock: {e}"))?;
             let mut stmt = conn
@@ -1031,10 +1043,9 @@ impl Host for MemoryHost {
                 let val = if let Ok(n) = value.trim().parse::<f64>() { Value::Number(n) } else { Value::String(value) };
                 entries.push(GlobalEntry { ns, subs: subs_enum, value: val });
             }
-            Ok(entries)
-        } else {
-            Ok(MemoryHost::entries(self))
+            return Ok(entries);
         }
+        Ok(MemoryHost::entries(self))
     }
 
     fn routines_list(&self) -> Result<Vec<(String, String)>, String> {
@@ -1771,26 +1782,11 @@ fn extract_sub_at_level(subkey: &[u8], level: usize) -> Option<Subscript> {
     })
 }
 
-/// Extension trait para convertir QueryReturnedNoRows en None.
-trait OptionalExt<T> {
-    fn optional(self) -> Result<Option<T>, rusqlite::Error>;
-}
-
-impl<T> OptionalExt<T> for Result<T, rusqlite::Error> {
-    fn optional(self) -> Result<Option<T>, rusqlite::Error> {
-        match self {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-}
-
 impl std::fmt::Debug for MemoryHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemoryHost")
             .field("values", &self.values.len())
-            .field("has_sqlite", &self.sqlite_db.is_some())
+            .field("has_sqlite", &self.is_sqlite())
             .field("routines", &self.routines.len())
             .finish()
     }
@@ -1805,6 +1801,7 @@ impl Clone for MemoryHost {
             input: self.input.clone(),
             locks: self.locks.clone(),
             llm_api_keys: self.llm_api_keys.clone(),
+            #[cfg(feature = "sqlite")]
             sqlite_db: None, // SQLite connections can't be cloned
             smith_registry: self.smith_registry.clone(),
         }

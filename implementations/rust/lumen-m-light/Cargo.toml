@@ -15,12 +15,16 @@ serde_json = "1"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 ureq = { version = "3", optional = true }
 minreq = { version = "2", optional = true, features = ["json-using-serde", "https-rustls"] }
 wasm-bindgen = { version = "0.2", optional = true }
-libloading = "0.8"
+libloading = { version = "0.8", optional = true }
 
 [features]
-default = ["minreq"]
+default = ["sqlite", "minreq", "dll"]
+# Motor de persistencia SQLite (solo nativo). En WASM se compila con
+# --no-default-features --features wasm (globals en RAM, sin rusqlite).
+sqlite = ["dep:rusqlite"]
+dll = ["dep:libloading"]
 wasm = ["wasm-bindgen"]
