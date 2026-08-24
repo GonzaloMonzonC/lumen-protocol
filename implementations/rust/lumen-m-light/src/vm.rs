@@ -126,10 +126,7 @@ impl VmState {
             yield_requested: false,
             yield_future: None,
             return_value: None,
-            zh_start: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs_f64(),
+            zh_start: crate::time_now_secs(),
             fibers: vec![FiberState::default()],
             active_fiber: 0,
         }
@@ -1305,10 +1302,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 if let Some(ref cached) = self.horolog_cache {
                     return Ok(Value::String(cached.clone()));
                 }
-                let unix = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
+                let unix = crate::time_now_secs() as u64;
                 let result = format!(
                     "{},{}",
                     HOROLOG_UNIX_EPOCH_DAYS + unix / 86_400,
@@ -1318,10 +1312,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 return Ok(Value::String(result));
             }
             "$ZH" => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs_f64();
+                let now = crate::time_now_secs();
                 return Ok(Value::Number(now - self.state.zh_start));
             }
             _ => {}
