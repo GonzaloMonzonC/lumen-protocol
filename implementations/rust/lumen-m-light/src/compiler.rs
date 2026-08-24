@@ -403,6 +403,13 @@ fn next_command_boundary(value: &str) -> usize {
             b'}' if !quoted => braces -= 1,
             byte if byte.is_ascii_whitespace() && !quoted && depth == 0 && braces == 0 => {
                 let candidate = value[i..].trim_start();
+                // No cortar si el espacio está pegado a un operador binario
+                // ("t + i", "a * b"): el token siguiente sería un operando,
+                // no un comando ("i" colisiona con IF, "e" con ELSE, etc.).
+                if i > 0 && matches!(value.as_bytes()[i - 1], b'+' | b'-' | b'*' | b'/' | b'\\' | b'#' | b'=' | b'<' | b'>') {
+                    i += 1;
+                    continue;
+                }
                 let end = candidate
                     .find(char::is_whitespace)
                     .unwrap_or(candidate.len());
