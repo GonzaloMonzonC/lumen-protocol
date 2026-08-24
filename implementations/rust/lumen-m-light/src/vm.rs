@@ -1007,6 +1007,8 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             frame
         } else {
             let (specification, raw_body) = split_for_body(argument);
+            #[cfg(feature = "debug_for")]
+            eprintln!("[exec_for] argument={argument:?} → spec={specification:?} body={raw_body:?}");
             if let Some(equal) = find_top_level(specification, "=") {
                 let variable = specification[..equal].trim().to_string();
                 let range = &specification[equal + 1..];
@@ -1425,7 +1427,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let raw_first = args.first().map_or("", String::as_str).trim();
                 if raw_first.starts_with('^') {
                     let (ns, mut subs) = self.parse_global(raw_first, line)?;
-                    let current = subs.pop();
+                    // En M canónico, $O(^G("")) significa "primer subíndice" (current
+                    // vacío). Un String("") como current nunca supera a un Number en el
+                    // orden canónico (números < strings), así que devolvería siempre el
+                    // primer subíndice string y NUNCA los numéricos. Tratamos el vacío
+                    // como ausencia de current.
+                    let current = subs.pop().filter(|s| !matches!(s, crate::value::Subscript::String(v) if v.is_empty()));
                     let direction = args.get(1)
                         .map(|v| self.eval_expr(v, line).map(|x| x.as_number() as i32))
                         .transpose()?
@@ -2385,27 +2392,129 @@ fn strip_block(value: &str) -> &str {
 }
 
 fn split_for_body(value: &str) -> (&str, &str) {
+    // Corte "tras el rango del spec": primer espacio top-level DESPUÉS del
+    // primer '=' top-level con ≥1 carácter de rango ya leído.
+    //   "i=1:1:3 S y=i"      → spec="i=1:1:3",   body="S y=i"
+    //   "i = 1:1:3 S y=i"    → spec="i = 1:1:3", body="S y=i"
+    fn cut_after_range(arg: &str) -> (&str, &str) {
+        let mut depth = 0i32;
+        let mut quoted = false;
+        let mut seen_eq = false;
+        let mut seen_range = false;
+        for (index, ch) in arg.char_indices() {
+            match ch {
+                '"' => {
+                    quoted = !quoted;
+                    if seen_eq {
+                        seen_range = true;
+                    }
+                }
+                '(' if !quoted => depth += 1,
+                ')' if !quoted => depth -= 1,
+                '=' if !quoted && depth == 0 && !seen_eq => seen_eq = true,
+                ch if ch.is_whitespace() && !quoted && depth == 0 && seen_eq && seen_range => {
+                    return (arg[..index].trim(), arg[index..].trim());
+                }
+                ch if !ch.is_whitespace() && seen_eq => seen_range = true,
+                _ => {}
+            }
+        }
+        (arg, "")
+    }
+
     let trimmed = value.trim();
     if let Some(space) = trimmed.find(char::is_whitespace) {
         let first_token = &trimmed[..space];
         if is_command_name(first_token) {
+            // El argumento empieza con algo parecido a un comando. Puede ser:
+            //  (a) un FOR infinito cuyo body arranca ya ("S k=$O(^T(k)) Q:k='' …"),
+            //  (b) una variable de UNA LETRA que colisiona con un comando
+            //      ("i = 1:1:3 …" → "I" es IF). Se distingue porque en (b) el '='
+            //      pertenece al primer token (trimmed[..eq].trim() == first_token).
+            if let Some(eq) = find_top_level(trimmed, "=") {
+                if trimmed[..eq].trim() == first_token {
+                    // (b): asignación del spec con espacios alrededor de '='
+                    let rest = trimmed[eq + 1..].trim();
+                    let body_start = rest
+                        .find(char::is_whitespace)
+                        .map(|sp| {
+                            let (r, b) = (rest[..sp].trim(), rest[sp..].trim());
+                            (format!("{first_token}={r}"), b.to_string())
+                        });
+                    // Reensamblamos spec="var=rango" y body; como devolvemos
+                    // &str prestadas, construimos sobre `value` original:
+                    // buscamos el espacio post-rango directamente.
+                    let _ = body_start;
+                    let mut depth = 0i32;
+                    let mut quoted = false;
+                    let mut seen_range = false;
+                    for (index, ch) in trimmed.char_indices().skip(eq + 1) {
+                        match ch {
+                            '"' => {
+                                quoted = !quoted;
+                                seen_range = true;
+                            }
+                            '(' if !quoted => depth += 1,
+                            ')' if !quoted => depth -= 1,
+                            ch if ch.is_whitespace() && !quoted && depth == 0 && seen_range => {
+                                return (trimmed[..index].trim(), trimmed[index..].trim());
+                            }
+                            ch if !ch.is_whitespace() => seen_range = true,
+                            _ => {}
+                        }
+                    }
+                    return (trimmed, "");
+                }
+            }
             return ("", trimmed);
         }
     }
+    // Sin colisión con comando: el corte spec|body va en el primer espacio
+    // top-level DESPUÉS del '=' con al menos un carácter de rango leído.
+    //   "i=1:1:3 S y=i"   → spec="i=1:1:3", body="S y=i"
     let mut depth = 0i32;
     let mut quoted = false;
-    for (index, ch) in value.char_indices() {
+    let mut seen_eq = false;
+    let mut seen_range_char = false;
+    for (index, ch) in trimmed.char_indices() {
         match ch {
-            '"' => quoted = !quoted,
+            '"' => {
+                quoted = !quoted;
+                if seen_eq {
+                    seen_range_char = true;
+                }
+            }
             '(' if !quoted => depth += 1,
             ')' if !quoted => depth -= 1,
-            ch if ch.is_whitespace() && !quoted && depth == 0 => {
-                return (value[..index].trim(), value[index..].trim());
+            '=' if !quoted && depth == 0 && !seen_eq => seen_eq = true,
+            ch if ch.is_whitespace() && !quoted && depth == 0 && seen_eq && seen_range_char => {
+                return (trimmed[..index].trim(), trimmed[index..].trim());
             }
+            ch if !ch.is_whitespace() && seen_eq => seen_range_char = true,
             _ => {}
         }
     }
-    (value, "")
+    (trimmed, "")
+}
+
+#[cfg(test)]
+mod for_split_tests {
+    #[test]
+    fn split_for_body_cases() {
+        let cases: Vec<(&str, &str, &str)> = vec![
+            // (argumento del FOR, spec esperado, body esperado)
+            ("i=1:1:3 S t=t+i W t", "i=1:1:3", "S t=t+i W t"),
+            ("i = 1:1:3 S y=i",     "i = 1:1:3", "S y=i"),
+            ("i=1:1:3 S t = t + i W \"x\"", "i=1:1:3", "S t = t + i W \"x\""),
+            ("i=1,2,3 W i",         "i=1,2,3", "W i"),
+            ("S k=$O(^T(k)) Q:k=\"\"", "", "S k=$O(^T(k)) Q:k=\"\""),
+        ];
+        for (input, want_spec, want_body) in cases {
+            let (spec, body) = super::split_for_body(input);
+            assert_eq!(spec, want_spec, "spec para {input:?}");
+            assert_eq!(body, want_body, "body para {input:?}");
+        }
+    }
 }
 
 fn split_call_target(value: &str) -> (&str, &str) {

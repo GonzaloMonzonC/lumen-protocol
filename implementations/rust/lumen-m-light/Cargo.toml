@@ -25,6 +25,7 @@ libloading = { version = "0.8", optional = true }
 default = ["sqlite", "minreq", "dll"]
 # Motor de persistencia SQLite (solo nativo). En WASM se compila con
 # --no-default-features --features wasm (globals en RAM, sin rusqlite).
+debug_for = []
 sqlite = ["dep:rusqlite"]
 dll = ["dep:libloading"]
 wasm = ["wasm-bindgen"]
