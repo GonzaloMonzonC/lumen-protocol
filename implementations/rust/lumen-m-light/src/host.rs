@@ -492,6 +492,9 @@ pub trait Host {
     fn device_call(&mut self, _device: &str, _action: &str, _args: &[Value]) -> Result<Value, String> {
         Err("Device not supported".to_string())
     }
+    fn is_sandbox(&self) -> bool {
+        false
+    }
     fn entries(&self) -> Result<Vec<GlobalEntry>, String> { Ok(vec![]) }
     fn routines_list(&self) -> Result<Vec<(String, String)>, String> { Ok(vec![]) }
     fn fiber_bg_spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
@@ -511,8 +514,10 @@ pub struct MemoryHost {
     pub input: Vec<String>,
     locks: HashMap<(String, Vec<Subscript>), u64>,
     pub llm_api_keys: HashMap<String, String>,
-    /// Conexión SQLite opcional. Cuando está presente, get/set/kill/data/order
-    /// operan contra SQLite directamente en vez del BTreeMap en memoria.
+    /// Modo sandbox: deshabilita TODOS los devices (HTTP, LLM, DDP).
+    /// Para endpoints públicos que ejecutan M arbitrario (/vm/verify).
+    pub sandbox: bool,
+    /// Conexión SQLite opcional. Cuando está presente, get/set/kill/data/order    /// operan contra SQLite directamente en vez del BTreeMap en memoria.
     /// (feature "sqlite" — no disponible en builds WASM)
     #[cfg(feature = "sqlite")]
     sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
@@ -529,6 +534,7 @@ impl Default for MemoryHost {
             input: Vec::new(),
             locks: HashMap::new(),
             llm_api_keys: HashMap::new(),
+            sandbox: false,
             #[cfg(feature = "sqlite")]
             sqlite_db: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
@@ -595,6 +601,7 @@ impl MemoryHost {
             input: Vec::new(),
             locks: HashMap::new(),
             llm_api_keys: HashMap::new(),
+            sandbox: false,
             sqlite_db: Some(Arc::new(Mutex::new(conn))),
             smith_registry: Arc::new(global_smith_registry().clone()),
         })
@@ -1068,7 +1075,19 @@ impl Host for MemoryHost {
         Ok(self.llm_api_keys.clone())
     }
 
+    fn is_sandbox(&self) -> bool {
+        self.sandbox
+    }
+
     fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<Value, String> {
+        if self.sandbox {
+            // Modo sandbox (endpoint público /vm/verify): sin devices.
+            // Un script M arbitrario no debe poder hacer HTTP (SSRF/DoS al
+            // server ni a la red), llamar al LLM ni tocar DDP.
+            return Err(format!(
+                "Device '{device}:{action}' disabled in sandbox mode"
+            ));
+        }
         match device {
             #[cfg(feature = "minreq")]
             "http" => {
@@ -1801,6 +1820,7 @@ impl Clone for MemoryHost {
             input: self.input.clone(),
             locks: self.locks.clone(),
             llm_api_keys: self.llm_api_keys.clone(),
+            sandbox: self.sandbox,
             #[cfg(feature = "sqlite")]
             sqlite_db: None, // SQLite connections can't be cloned
             smith_registry: self.smith_registry.clone(),

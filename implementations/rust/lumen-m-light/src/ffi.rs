@@ -46,6 +46,12 @@ pub struct ExecuteRequest {
     /// New sessions are auto-created on first use.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Modo sandbox (endpoint público /vm/verify): deshabilita TODOS los
+    /// devices (HTTP, LLM, DDP) — el script solo puede tocar globals en
+    /// memoria. Fix 26-08: sin esto, un script arbitrario podía hacer
+    /// $DEVICE("http:get","http://127.0.0.1:8081/...") → SSRF/DoS al server.
+    #[serde(default)]
+    pub sandbox: bool,
 }
 
 impl ExecuteRequest {
@@ -128,8 +134,36 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
         },
     };
 
+    // ── Modo sandbox: forzar aislamiento total pase lo que pase en el request ──
+    // Gonzalo: "no me fío de pasar un parámetro de sandbox, cualquiera lo
+    // podría modificar". Defensa en profundidad: si sandbox=true, el request
+    // se normaliza AQUÍ — sqlite_path, llm_api_keys, routines e input quedan
+    // vacíos aunque el caller (o un futuro endpoint) los mande. El sandbox es
+    // de UN SOLO SENTIDO: una vez activo, el script solo ve globals en memoria.
+    let (sqlite_path, llm_api_keys, routines, input, session_id): (
+        Option<String>,
+        HashMap<String, String>,
+        BTreeMap<String, String>,
+        Vec<String>,
+        Option<String>,
+    ) = if request.sandbox {
+        (None, HashMap::new(), BTreeMap::new(), Vec::new(), None)
+    } else {
+        #[cfg(feature = "sqlite")]
+        let sp = request.sqlite_path.clone();
+        #[cfg(not(feature = "sqlite"))]
+        let sp: Option<String> = None;
+        (
+            sp,
+            request.llm_api_keys.clone(),
+            request.routines.clone(),
+            request.input.clone(),
+            request.session_id.clone(),
+        )
+    };
+
     // ── Set LLM API keys before anything touches the pool ──
-    for (provider, key) in &request.llm_api_keys {
+    for (provider, key) in &llm_api_keys {
         let var_name = format!("{}_API_KEY", provider.to_uppercase());
         std::env::set_var(&var_name, key);
     }
@@ -137,13 +171,13 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
     // ── Obtain or create host (persistent session or fresh) ──
     // Arc<Mutex<>> so the sessions map lock is dropped immediately after lookup,
     // preventing head-of-line blocking across concurrent requests.
-    let host_arc: Arc<Mutex<MemoryHost>> = if let Some(ref sid) = request.session_id {
+    let host_arc: Arc<Mutex<MemoryHost>> = if let Some(ref sid) = session_id {
         let mut sessions = SESSIONS.lock().unwrap();
         if let Some(arc) = sessions.get(sid) {
             arc.clone()
         } else {
             #[cfg(feature = "sqlite")]
-            let h = match ExecuteRequest::sqlite_host(request.sqlite_path.as_ref()) {
+            let h = match ExecuteRequest::sqlite_host(sqlite_path.as_ref()) {
                 Some(Ok(h)) => h,
                 Some(Err(e)) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
                 None => MemoryHost::from_entries(request.globals),
@@ -156,7 +190,7 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
         }
     } else {
         #[cfg(feature = "sqlite")]
-        let h = match ExecuteRequest::sqlite_host(request.sqlite_path.as_ref()) {
+        let h = match ExecuteRequest::sqlite_host(sqlite_path.as_ref()) {
             Some(Ok(h)) => h,
             Some(Err(e)) => return ExecuteResponse::error(format!("SqliteHost: {e}")),
             None => MemoryHost::from_entries(request.globals),
@@ -171,10 +205,11 @@ fn execute(request: ExecuteRequest) -> ExecuteResponse {
     // ── Setup host (routines, input) ──
     {
         let mut host = host_arc.lock().unwrap();
-        for (name, source) in request.routines {
+        host.sandbox = request.sandbox;
+        for (name, source) in routines {
             host.add_routine(name, source);
         }
-        for value in request.input {
+        for value in input {
             host.push_input(value);
         }
     }

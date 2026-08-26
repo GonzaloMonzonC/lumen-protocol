@@ -1688,6 +1688,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let (dev, act) = path.split_once(':').unwrap_or((&path, "call"));
                 match (dev, act) {
                     ("llm", "call") | ("llm", "fork") => {
+                        if self.host.is_sandbox() {
+                            return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
+                        }
                         let prompt = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
                         let system = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
                         let provider = call_args.get(2).map(|v| v.as_string()).unwrap_or_else(|| "deepseek".to_string());
@@ -1748,6 +1751,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         Ok(Value::String(results.join("|")))
                     }
                     ("llm", "chain") => {
+                        if self.host.is_sandbox() {
+                            return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
+                        }
                         let parent_id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
                         let prompt = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
                         let system = call_args.get(2).map(|v| v.as_string()).unwrap_or_default();
