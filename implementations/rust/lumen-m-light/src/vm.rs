@@ -1215,7 +1215,14 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
     }
 
     fn eval_atom(&mut self, atom: &str, line: usize) -> Result<Value, VmError> {
-        let atom = trim_outer_parens(atom.trim());
+        let raw_atom = atom.trim();
+        let atom = trim_outer_parens(raw_atom);
+        // Si el atom tenía paréntesis externos, es una SUBEXPRESIÓN agrupada:
+        // re-evaluarla completa en vez de buscarla como variable literal
+        // (fix 26-08: `S r = "x" _ (n * 2)` → MUNDEF "undefined variable: n * 2").
+        if raw_atom.starts_with('(') {
+            return self.eval_expr(atom, line);
+        }
         if atom.is_empty() {
             return Ok(Value::Null);
         }
