@@ -1331,6 +1331,9 @@ class VMHandler(BaseHTTPRequestHandler):
         elif path == "/ddp/pull":
             self._handle_ddp_pull(qs)
         elif path == "/ddp/namespaces":
+            if not _verify_ddp(self.path, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
             self._json({"success": True, "namespaces": _list_namespaces()})
         elif path == "/ddp/bitacora/verify":
             if _dashboard_gate(self, qs):
@@ -2043,6 +2046,7 @@ class VMHandler(BaseHTTPRequestHandler):
                 gas_limit=20000,
                 sqlite_path=None,
                 llm_api_keys={},
+                sandbox=True,  # endpoint público: sin devices (HTTP/LLM/DDP)
             )
             out_globals = response.get("globals", [])
             self._json({

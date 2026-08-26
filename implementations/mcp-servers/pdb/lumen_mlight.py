@@ -123,6 +123,7 @@ def execute(
     slice_gas: int | None = None,
     llm_api_keys: dict[str, str] | None = None,
     sqlite_path: str | None = None,
+    sandbox: bool = False,
 ) -> dict:
     if llm_api_keys is None:
         import os as _os
@@ -144,6 +145,7 @@ def execute(
         "gas_budget": gas_budget,
         "llm_api_keys": llm_api_keys,
         "sqlite_path": sqlite_path,
+        "sandbox": sandbox,
     }
     if slice_gas is not None:
         request["slice_gas"] = slice_gas
