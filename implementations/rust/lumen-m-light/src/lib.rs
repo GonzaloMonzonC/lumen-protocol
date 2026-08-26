@@ -47,12 +47,14 @@ pub fn time_now_secs() -> f64 {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_name = Date)]
-    fn js_date_now() -> f64;
+    // ⚠️ FIX 26-ago: js_name=Date genera `Date()` (constructor → string → NaN).
+    // js_namespace=Date + fn now() genera `Date.now()` (número real).
+    #[wasm_bindgen(js_namespace = Date)]
+    fn now() -> f64;
 }
 
 #[cfg(target_arch = "wasm32")]
 fn js_now_secs() -> f64 {
     // Date.now() devuelve milisegundos como entero
-    js_date_now() / 1000.0
+    now() / 1000.0
 }
