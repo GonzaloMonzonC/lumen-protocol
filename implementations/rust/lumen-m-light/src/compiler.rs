@@ -403,10 +403,20 @@ fn next_command_boundary(value: &str) -> usize {
             b'}' if !quoted => braces -= 1,
             byte if byte.is_ascii_whitespace() && !quoted && depth == 0 && braces == 0 => {
                 let candidate = value[i..].trim_start();
-                // No cortar si el espacio está pegado a un operador binario
-                // ("t + i", "a * b"): el token siguiente sería un operando,
-                // no un comando ("i" colisiona con IF, "e" con ELSE, etc.).
-                if i > 0 && matches!(value.as_bytes()[i - 1], b'+' | b'-' | b'*' | b'/' | b'\\' | b'#' | b'=' | b'<' | b'>') {
+                // No cortar si el espacio está pegado a un operador binario o
+                // separador M ("t + i", "a * b", "W \"x\", var", "s = a _ b"):
+                // el token siguiente sería un operando, no un comando
+                // ("i" colisiona con IF, "e" con ELSE, "n" con NEW, etc.).
+                // Lista COMPLETA de operadores/separadores M (fix 26-08-2026):
+                // aritmética (+ - * / \ # **), concat (_), comparación (= < > <= >= '= != [ ]),
+                // lógicos (& !), negación ('), separador de argumentos (,).
+                if i > 0
+                    && matches!(
+                        value.as_bytes()[i - 1],
+                        b'+' | b'-' | b'*' | b'/' | b'\\' | b'#' | b'=' | b'<' | b'>'
+                            | b'_' | b'\'' | b'&' | b',' | b'[' | b']'
+                    )
+                {
                     i += 1;
                     continue;
                 }
