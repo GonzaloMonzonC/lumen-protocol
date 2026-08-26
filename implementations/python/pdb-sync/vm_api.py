@@ -1439,7 +1439,10 @@ class VMHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
 
-        if path == "/vm/execute":
+        if path == "/vm/verify":
+            # Sandbox stateless público (sin macaroon: no toca BD ni datos reales)
+            self._handle_vm_verify()
+        elif path == "/vm/execute":
             self._with_auth("vm", "execute", self._handle_execute)
         elif path == "/vm/register":
             self._with_auth("vm", "register", self._handle_register)
@@ -1986,6 +1989,72 @@ class VMHandler(BaseHTTPRequestHandler):
 
         h.append("</body></html>")
         self._html("\n".join(h))
+
+    @staticmethod
+    def _canon_value(v):
+        """Normaliza un valor para el hash canónico — DEBE coincidir con la versión JS del playground."""
+        if v is None:
+            return ""
+        if isinstance(v, bool):
+            return "1" if v else "0"
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    def _canonical_hash(self, globals_list):
+        """SHA-256 del estado normalizado. El navegador calcula el MISMO hash con WebCrypto."""
+        entries = []
+        for g in globals_list or []:
+            entries.append({
+                "ns": str(g.get("ns", "")),
+                "subs": [self._canon_value(s) for s in (g.get("subs") or [])],
+                "value": self._canon_value(g.get("value")),
+            })
+        entries.sort(key=lambda e: e["ns"] + "\x00" + "\x00".join(e["subs"]))
+        payload = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _handle_vm_verify(self):
+        """Sandbox stateless: ejecuta M con los globals del navegador EN MEMORIA.
+
+        Sin BD (sqlite_path=None), sin LLM (llm_api_keys={}), gas acotado, sin
+        rutinas del sistema. Diseñado para el playground público: no requiere
+        macaroon porque NO toca datos reales — solo CPU efímera.
+        Devuelve el estado final + hash canónico para verificación cross-runtime.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            script = body.get("script", "")
+            globals_in = body.get("globals", [])
+            if not script:
+                self._json({"error": "script required"}, 400)
+                return
+            if len(script) > 4000:
+                self._json({"error": "script too long (max 4000)"}, 400)
+                return
+            if len(globals_in) > 1000:
+                self._json({"error": "too many globals (max 1000)"}, 400)
+                return
+            from lumen_mlight import execute
+            response = execute(
+                source=script,
+                globals_=globals_in,
+                gas_limit=20000,
+                sqlite_path=None,
+                llm_api_keys={},
+            )
+            out_globals = response.get("globals", [])
+            self._json({
+                "ok": response.get("ok", False),
+                "output": (response.get("state") or {}).get("output", ""),
+                "result": (response.get("state") or {}).get("return_value"),
+                "error": response.get("error"),
+                "globals": out_globals,
+                "hash": self._canonical_hash(out_globals),
+            })
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
 
     def _handle_execute(self):
         try:
