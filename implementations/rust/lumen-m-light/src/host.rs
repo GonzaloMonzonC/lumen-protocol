@@ -62,6 +62,46 @@ fn global_llm_pool() -> &'static LlmThreadPool {
     POOL.get_or_init(|| LlmThreadPool::new())
 }
 
+// ── LLM device en WASM: sin threads — el JS del host inyecta los resultados ──
+// (fix 2026-08-27: $DEVICE("llm:call") panica en wasm32 porque pool() usa threads)
+// NOTA: los statics deben ser DE MÓDULO (no dentro de cada fn — en Rust cada fn
+// tiene su propio static; fork escribía en uno y pending leía de otro).
+#[cfg(feature = "wasm")]
+static WASM_LLM_NEXT: OnceLock<std::sync::atomic::AtomicU64> = OnceLock::new();
+#[cfg(feature = "wasm")]
+static WASM_LLM_PENDING: OnceLock<Mutex<Vec<(u64, String, String, String, String)>>> = OnceLock::new();
+#[cfg(feature = "wasm")]
+static WASM_LLM_RESULTS: OnceLock<Mutex<std::collections::HashMap<u64, String>>> = OnceLock::new();
+
+#[cfg(feature = "wasm")]
+pub fn wasm_llm_fork(provider: &str, model: &str, prompt: &str, system: &str) -> u64 {
+    let next = WASM_LLM_NEXT.get_or_init(|| std::sync::atomic::AtomicU64::new(1));
+    let id = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
+    p.lock().unwrap().push((id, provider.to_string(), model.to_string(), prompt.to_string(), system.to_string()));
+    id
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_llm_pending() -> Vec<(u64, String, String, String)> {
+    let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
+    let mut guard = p.lock().unwrap();
+    let jobs = std::mem::take(&mut *guard);
+    jobs.into_iter().map(|(id, _p, _m, _s, _sys)| (id, _p, _m, _s)).collect()
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_llm_inject(id: u64, result: &str) {
+    let r = WASM_LLM_RESULTS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    r.lock().unwrap().insert(id, result.to_string());
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_llm_poll(id: u64) -> Option<String> {
+    let r = WASM_LLM_RESULTS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    r.lock().unwrap().get(&id).cloned()
+}
+
 impl LlmThreadPool {
     pub fn new() -> Self {
         let futures: Arc<Mutex<HashMap<u64, Arc<Mutex<LlmFutureStatus>>>>> =
@@ -1002,18 +1042,26 @@ impl Host for MemoryHost {
     }
 
     // ── LLM Device implementation ─────────────────────────────
-    fn llm_fork(&self, provider: &str, model: &str, prompt: &str, system: &str) -> Result<u64, String> {
-        Ok(self.pool().fork(provider, model, prompt, system))
+        fn llm_fork(&self, provider: &str, model: &str, prompt: &str, system: &str) -> Result<u64, String> {
+        #[cfg(feature = "wasm")]
+        { return Ok(wasm_llm_fork(provider, model, prompt, system)); }
+        #[cfg(not(feature = "wasm"))]
+        { Ok(self.pool().fork(provider, model, prompt, system)) }
     }
 
-    fn llm_poll(&self, future_id: u64) -> Result<Option<String>, String> {
-        // First check LLM futures — None = pending, Some("FUTURE_NOT_FOUND") = unknown
-        let r = self.pool().poll(future_id);
-        if r != Some("FUTURE_NOT_FOUND".to_string()) {
-            return Ok(r);
+        fn llm_poll(&self, future_id: u64) -> Result<Option<String>, String> {
+        #[cfg(feature = "wasm")]
+        { return Ok(wasm_llm_poll(future_id)); }
+        #[cfg(not(feature = "wasm"))]
+        {
+            // First check LLM futures — None = pending, Some("FUTURE_NOT_FOUND") = unknown
+            let r = self.pool().poll(future_id);
+            if r != Some("FUTURE_NOT_FOUND".to_string()) {
+                return Ok(r);
+            }
+            // Not an LLM future, check bg fibers
+            Ok(global_bg_pool().poll(future_id))
         }
-        // Not an LLM future, check bg fibers
-        Ok(global_bg_pool().poll(future_id))
     }
 
     fn llm_cancel(&self, future_id: u64) -> Result<bool, String> {
