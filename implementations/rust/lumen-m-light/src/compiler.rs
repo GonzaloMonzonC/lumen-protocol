@@ -53,14 +53,20 @@ pub struct Compiler;
 
 impl Compiler {
     pub fn compile(source: &str) -> Result<Program, String> {
-        Self::compile_with_opts(source, true)
+        Self::compile_with_opts(source, true, 0)
     }
 
     pub fn compile_inline(source: &str) -> Result<Program, String> {
-        Self::compile_with_opts(source, false)
+        Self::compile_with_opts(source, false, 0)
     }
 
-    fn compile_with_opts(source: &str, enable_block_collection: bool) -> Result<Program, String> {
+    /// Compila con un offset de línea base (para bodies inline recompilados en
+    /// runtime: los errores reportan su línea REAL en el source original, no 1).
+    pub fn compile_with_offset(source: &str, line_offset: usize) -> Result<Program, String> {
+        Self::compile_with_opts(source, true, line_offset)
+    }
+
+    fn compile_with_opts(source: &str, enable_block_collection: bool, line_offset: usize) -> Result<Program, String> {
         let mut instructions = Vec::new();
         let mut labels = BTreeMap::new();
         // Dividir por líneas RESPETANDO strings abiertos: si una línea termina
@@ -73,7 +79,7 @@ impl Compiler {
         let mut i = 0;
         while i < lines.len() {
             let raw_line = lines[i].as_str();
-            let line_number = i + 1;
+            let line_number = i + 1 + line_offset;
             let trimmed = strip_comment(raw_line).trim();
             let (dot_count, line) = split_dots(trimmed);
             if line.is_empty() { i += 1; continue; }
