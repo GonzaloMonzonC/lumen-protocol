@@ -328,8 +328,11 @@ fn transpile_expr(expr: &str) -> String {
         }
     }
     
-    // x>y, x<y, x=y, x'=y
-    let ops = [">=", "<=", "'=", ">", "<", "="];
+    // x>y, x<y, x=y, x'=y, x'>y, x'<y, x'>=y, x'<=y
+    // NOTA: los operadores negados (') deben buscarse ANTES que sus
+    // homólogos sin negar — "'>=" contiene ">=", "'<=" contiene "<=",
+    // "'>" contiene ">", "'<" contiene "<".
+    let ops = ["'>=", "'<=", ">=", "<=", "'=", "'>", "'<", ">", "<", "="];
     for op in &ops {
         if let Some(pos) = e.find(op) {
             if pos > 0 && pos + op.len() <= e.len() {
@@ -340,9 +343,13 @@ fn transpile_expr(expr: &str) -> String {
                         "=" => "==",
                         "'=" => "!=",
                         ">" => ">",
+                        "'>" => "<=",   // NOT(a>b) == a<=b
                         "<" => "<",
+                        "'<" => ">=",   // NOT(a<b) == a>=b
                         ">=" => ">=",
+                        "'>=" => "<",   // NOT(a>=b) == a<b
                         "<=" => "<=",
+                        "'<=" => ">",   // NOT(a<=b) == a>b
                         _ => "==",
                     }, transpile_expr(right));
                 return val;
@@ -499,5 +506,39 @@ mod tests {
         let rust = transpile_to_rust(&program, "test_if");
         println!("{}", rust);
         assert!(rust.contains("if"), "Should contain if");
+    }
+
+    /// Los operadores negados (') deben traducirse a su comparación inversa:
+    /// x'>y  → x<=y,  x'<y  → x>=y,  x'>=y → x<y,  x'<=y → x>y.
+    /// (fix 2026-08-27: antes solo existía '=; x'>0 daba MUNDEF)
+    #[test]
+    fn test_not_comparison_operators() {
+        let cases = [
+            ("S r=x'>0", "<="),
+            ("S r=x'<0", ">="),
+            ("S r=x'>=0", "<"),
+            ("S r=x'<=0", ">"),
+            ("S r=x'=0", "!="),
+        ];
+        for (src, expected) in cases {
+            let program = Compiler::compile(src).unwrap();
+            let rust = transpile_to_rust(&program, "test_not");
+            assert!(
+                rust.contains(expected),
+                "{} → esperaba `{}` en Rust, got: {}",
+                src,
+                expected,
+                rust
+            );
+        }
+    }
+    /// El NOT negado debe evaluar correctamente en runtime: x'>0 con x=2 → 0 (false)
+    #[test]
+    fn test_not_comparison_runtime() {
+        let program = Compiler::compile("S x=2 S r=x'>0 W r").unwrap();
+        let rust = transpile_to_rust(&program, "test_not_runtime");
+        println!("{}", rust);
+        // El transpilador debe emitir `<=` (NOT >)
+        assert!(rust.contains("<="), "x'>0 debe emitir <=, got: {}", rust);
     }
 }
