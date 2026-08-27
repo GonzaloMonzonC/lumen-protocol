@@ -1154,12 +1154,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
     }
 
     fn exec_inline_control(&mut self, source: &str, line: usize) -> Result<Control, VmError> {
-        // Join all lines into one so FOR consumes remainder across newlines
+        // Conservar las líneas (join "\n"): el Compiler::compile con block collection
+        // reconstruye los bloques DO anidados (dots . .). Antes se aplanaba con
+        // join(" ") y los dots anidados se rompían → MUNDEF en IF-DO anidado
+        // (fix 2026-08-27: "cualquier IA genera MUMPS canónico con bloques anidados").
         let flat = source.lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
+            .map(|l| l.trim_end())
+            .filter(|l| !l.trim().is_empty())
             .collect::<Vec<_>>()
-            .join(" ");
+            .join("\n");
         // Remove DO block markers before M commands (FOR DO → FOR continuation)
         let commands = ["S ", "SET ", "I ", "IF ", "F ", "FOR ", "D ", "DO ",
                         "K ", "KILL ", "Q ", "QUIT ", "N ", "NEW ",

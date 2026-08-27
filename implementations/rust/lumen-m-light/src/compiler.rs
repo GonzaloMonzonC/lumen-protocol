@@ -111,6 +111,10 @@ impl Compiler {
                         let raw = strip_comment(lines[j].as_str());
                         if raw.trim().is_empty() { j += 1; continue; }
                         let (nd, nline) = split_dots(raw);
+                        // Línea de SOLO comentario (`. ; texto`): tras quitar dots y
+                        // comentario no queda código → saltarla SIN añadir un DO vacío
+                        // al body (un DO sin argumento rompe el bloque → MUNDEF).
+                        if nline.trim().is_empty() { j += 1; continue; }
                         if nd > base_dots {
                             // Preservar todos los dots originales para que
                             // la compilación recursiva (FOR DO anidado)
