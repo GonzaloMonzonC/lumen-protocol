@@ -604,7 +604,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             if original_arg.len() > target_name.len() {
                 let after = &original_arg[target_name.len()..].trim();
                 if !after.is_empty() {
-                    return self.exec_inline_control(original_arg, line);
+                    return self.exec_inline_control_offset(original_arg, line, line);
                 }
             }
             return Ok(Control::Continue);
@@ -639,7 +639,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .collect::<Result<Vec<_>, _>>()?;
             self.bind_arguments(arguments);
             let scope_base = self.state.local_scopes.len();
-            let result = self.exec_inline_control(&source, line);
+            let result = self.exec_inline_control_offset(&source, line, 1);
             self.restore_local_scopes_to(scope_base);
             self.restore_arguments();
             let control = result?;
@@ -1154,6 +1154,19 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
     }
 
     fn exec_inline_control(&mut self, source: &str, line: usize) -> Result<Control, VmError> {
+        // Default: body que empieza en la línea siguiente al padre (IF/DO)
+        self.exec_inline_control_offset(source, line, line + 1)
+    }
+
+    /// `first_line`: número REAL en el programa de la primera línea de `source`.
+    /// Los errores dentro del body inline reportan su línea real (antes: "line 1"
+    /// siempre aunque el bug estuviese en la línea 354 del source original).
+    fn exec_inline_control_offset(
+        &mut self,
+        source: &str,
+        line: usize,
+        first_line: usize,
+    ) -> Result<Control, VmError> {
         // Conservar las líneas (join "\n"): el Compiler::compile con block collection
         // reconstruye los bloques DO anidados (dots . .). Antes se aplanaba con
         // join(" ") y los dots anidados se rompían → MUNDEF en IF-DO anidado
@@ -1175,7 +1188,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             let pattern = format!(" D {}", cmd.trim());
             flat = flat.replace(&pattern, &replacement);
         }
-        let program = Compiler::compile(&flat).map_err(|e| VmError::new("MCOMPILE", e, line))?;
+        // Numera las líneas desde first_line: 1 + (first_line-1) = first_line
+        let program = Compiler::compile_with_offset(&flat, first_line.saturating_sub(1))
+            .map_err(|e| VmError::new("MCOMPILE", e, line))?;
         self.inline_depth += 1;
         let result = (|| {
             for instruction in &program.instructions {
