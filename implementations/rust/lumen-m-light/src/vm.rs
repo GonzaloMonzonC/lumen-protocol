@@ -89,6 +89,11 @@ pub struct VmState {
     pub fibers: Vec<FiberState>,
     #[serde(default)]
     pub active_fiber: usize,
+    /// Frames de ejecución inline (IF/DO con cuerpos de puntos) pendientes de
+    /// reanudar tras un yield. Fix 2026-08-27: antes el resume re-ejecutaba el
+    /// bloque completo (efectos duplicados con $DEVICE("llm:call") dentro de DO).
+    #[serde(default)]
+    pub inline_frames: Vec<InlineFrame>,
 
 }
 
@@ -129,6 +134,7 @@ impl VmState {
             zh_start: crate::time_now_secs(),
             fibers: vec![FiberState::default()],
             active_fiber: 0,
+            inline_frames: Vec::new(),
         }
     }
 }
@@ -184,6 +190,22 @@ pub struct FiberState {
     pub yield_future: Option<u64>,
     #[serde(default)]
     pub output: String,
+    #[serde(default)]
+    pub inline_frames: Vec<InlineFrame>,
+}
+
+/// Frame de un cuerpo inline (IF/DO/FOR con bloques de puntos) pendiente de
+/// reanudar tras un yield. Fix 2026-08-27: sin esto, el resume re-ejecutaba el
+/// bloque completo → efectos duplicados (p.ej. $DEVICE("llm:call") dentro de DO
+/// resolvía la misma colisión 2 veces).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InlineFrame {
+    /// Programa compilado del cuerpo inline (source + instrucciones).
+    pub program: Program,
+    /// Siguiente instrucción del cuerpo por ejecutar.
+    pub ip: usize,
+    /// Línea real de la primera instrucción del cuerpo (reporting de errores).
+    pub first_line: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,6 +298,7 @@ impl<'a, H: Host> Vm<'a, H> {
             self.state.fibers[i].yield_requested = self.state.yield_requested;
             self.state.fibers[i].yield_future = self.state.yield_future;
             self.state.fibers[i].output = std::mem::take(&mut self.state.output);
+            self.state.fibers[i].inline_frames = std::mem::take(&mut self.state.inline_frames);
         }
     }
 
@@ -294,6 +317,7 @@ impl<'a, H: Host> Vm<'a, H> {
             self.state.yield_requested = f.yield_requested;
             self.state.yield_future = f.yield_future;
             self.state.output = f.output.clone();
+            self.state.inline_frames = f.inline_frames.clone();
         }
         self.state.active_fiber = index;
     }
@@ -1078,7 +1102,20 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 frame.body_ip += 1;
                 self.charge(line)?;
                 match self.execute_instruction(body_instruction)? {
-                    Control::Continue => {}
+                    Control::Continue => {
+                        // Fix 2026-08-27: una instrucción del body puede pedir
+                        // yield con Continue (p.ej. $DEVICE("llm:call") → SET
+                        // termina Ok pero con yield_requested=true). Si lo
+                        // ignoramos, el FOR sigue y el resume re-ejecuta el body
+                        // desde 0 (efectos duplicados). Ceder aquí, rebobinando
+                        // body_ip para reanudar en la misma instrucción.
+                        if self.state.yield_requested {
+                            frame.body_ip = frame.body_ip.saturating_sub(1);
+                            self.state.loop_frames.insert(instruction_ip, frame);
+                            self.state.ip = instruction_ip;
+                            return Ok(Control::Yield);
+                        }
+                    }
                     Control::Skip(n) => frame.body_ip += n as usize,
                     Control::Quit => return Ok(Control::Continue),
                     Control::Halt => return Ok(Control::Halt),
@@ -1126,8 +1163,23 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     self.state.output.push_str(&" ".repeat(target - current));
                 }
             } else {
-                let value = self.eval_expr(item, line)?;
-                self.state.output.push_str(&value.as_string());
+                // MUMPS: `!` al inicio de un argumento de WRITE es newline,
+                // incluso pegado a un string vacío: `W x,!"` == W x,!, ""
+                // (fix 2026-08-27: antes `!"` caía a eval_expr → MUNDEF)
+                let mut rest = item;
+                let mut newlines = 0usize;
+                while let Some(stripped) = rest.strip_prefix('!') {
+                    newlines += 1;
+                    rest = stripped;
+                }
+                if newlines > 0 {
+                    self.state.output.push_str(&"\n".repeat(newlines));
+                    rest = rest.trim_start();
+                }
+                if !rest.is_empty() {
+                    let value = self.eval_expr(rest, line)?;
+                    self.state.output.push_str(&value.as_string());
+                }
             }
         }
         Ok(())
@@ -1197,11 +1249,41 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         // Numera las líneas desde first_line: 1 + (first_line-1) = first_line
         let program = Compiler::compile_with_offset(&flat, first_line.saturating_sub(1))
             .map_err(|e| VmError::new("MCOMPILE", e, line))?;
+        // ¿Hay un frame inline pendiente para este first_line? (resume tras yield)
+        // Fix 2026-08-27: sin esto, el resume re-ejecutaba el bloque desde 0 →
+        // efectos duplicados ($DEVICE("llm:call") dentro de DO resolvía 2 veces).
+        let resume_ip = match self
+            .state
+            .inline_frames
+            .iter()
+            .position(|f| f.first_line == first_line)
+        {
+            Some(idx) => {
+                let ip = self.state.inline_frames[idx].ip;
+                self.state.inline_frames.remove(idx);
+                ip
+            }
+            None => 0,
+        };
         self.inline_depth += 1;
         let result = (|| {
-            for instruction in &program.instructions {
+            for (i, instruction) in program.instructions.iter().enumerate().skip(resume_ip) {
                 self.charge(line)?;
                 let control = self.execute_instruction(instruction)?;
+                // Si una instrucción pidió yield (p.ej. $DEVICE("llm:call")),
+                // guardar el frame para reanudar AQUÍ (no desde el inicio del
+                // bloque) y devolver Continue: run_slice hará ip-=1 y el resume
+                // re-ejecutará el IF/DO padre, que reanuda el frame (fix
+                // 2026-08-27: antes se re-ejecutaba el bloque entero → efectos
+                // duplicados).
+                if self.state.yield_requested {
+                    self.state.inline_frames.push(InlineFrame {
+                        program: program.clone(),
+                        ip: i,
+                        first_line,
+                    });
+                    return Ok(Control::Continue);
+                }
                 if !matches!(control, Control::Continue) {
                     // Skip must propagate too
                     if let Control::Skip(_) = control {}
@@ -1735,7 +1817,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             Ok(Value::Number(id as f64))
                         } else {
                             match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
-                                Some(r) => Ok(Value::String(r)),
+                                Some(r) => {
+                                    // El future se completó: limpiar el flag de
+                                    // yield pendiente (podía venir de un resume).
+                                    self.state.yield_requested = false;
+                                    Ok(Value::String(r))
+                                }
                                 None => {
                                     self.state.yield_requested = true;
                                     self.state.yield_future = Some(id);
@@ -1747,7 +1834,10 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     ("llm", "await") => {
                         let id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
                         match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
-                            Some(r) => Ok(Value::String(r)),
+                            Some(r) => {
+                                self.state.yield_requested = false;
+                                Ok(Value::String(r))
+                            }
                             None => {
                                 self.state.yield_requested = true;
                                 self.state.yield_future = Some(id);
@@ -2536,6 +2626,124 @@ fn split_for_body(value: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod for_split_tests {
+    use super::*;
+    use crate::GlobalEntry;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// Host mock que simula un LLM: fork devuelve un id, poll devuelve None
+    /// (pendiente) hasta que el test inyecta el resultado vía el Rc compartido.
+    #[derive(Default)]
+    struct FakeLlmHost {
+        inner: crate::MemoryHost,
+        results: std::rc::Rc<RefCell<HashMap<u64, String>>>,
+        next_id: std::rc::Rc<RefCell<u64>>,
+    }
+
+    impl FakeLlmHost {
+        fn new() -> Self {
+            Self {
+                inner: crate::MemoryHost::default(),
+                results: std::rc::Rc::new(RefCell::new(HashMap::new())),
+                next_id: std::rc::Rc::new(RefCell::new(0)),
+            }
+        }
+    }
+
+    impl Host for FakeLlmHost {
+        fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
+            self.inner.get(ns, subs)
+        }
+        fn set(&mut self, ns: &str, subs: &[Subscript], value: Value) -> Result<(), String> {
+            self.inner.set(ns, subs, value)
+        }
+        fn kill(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
+            self.inner.kill(ns, subs)
+        }
+        fn data(&self, ns: &str, subs: &[Subscript]) -> Result<u8, String> {
+            self.inner.data(ns, subs)
+        }
+        fn order(
+            &self,
+            ns: &str,
+            parent: &[Subscript],
+            current: Option<&Subscript>,
+            direction: i32,
+        ) -> Result<Option<Subscript>, String> {
+            self.inner.order(ns, parent, current, direction)
+        }
+        fn transaction_start(&mut self) -> Result<(), String> {
+            self.inner.transaction_start()
+        }
+        fn transaction_commit(&mut self) -> Result<(), String> {
+            self.inner.transaction_commit()
+        }
+        fn transaction_rollback(&mut self) -> Result<(), String> {
+            self.inner.transaction_rollback()
+        }
+        fn transaction_level(&self) -> usize {
+            self.inner.transaction_level()
+        }
+        fn routine(&self, name: &str) -> Result<Option<String>, String> {
+            self.inner.routine(name)
+        }
+        fn llm_fork(&self, _p: &str, _m: &str, _prompt: &str, _s: &str) -> Result<u64, String> {
+            let mut n = self.next_id.borrow_mut();
+            *n += 1;
+            Ok(*n)
+        }
+        fn llm_poll(&self, id: u64) -> Result<Option<String>, String> {
+            Ok(self.results.borrow().get(&id).cloned())
+        }        fn llm_cancel(&self, _id: u64) -> Result<bool, String> {
+            Ok(false)
+        }
+        fn is_sandbox(&self) -> bool {
+            false
+        }
+        fn entries(&self) -> Result<Vec<GlobalEntry>, String> {
+            Ok(self.inner.entries())
+        }
+        fn routines_list(&self) -> Result<Vec<(String, String)>, String> {
+            self.inner.routines_list()
+        }
+        fn llm_api_keys(&self) -> Result<HashMap<String, String>, String> {
+            Ok(HashMap::new())
+        }
+        fn device_call(&mut self, _d: &str, _a: &str, _args: &[Value]) -> Result<Value, String> {
+            Ok(Value::Null)
+        }
+        fn lock(&mut self, ns: &str, subs: &[Subscript], t: Option<f64>) -> Result<bool, String> {
+            self.inner.lock(ns, subs, t)
+        }
+        fn unlock(&mut self, ns: &str, subs: &[Subscript]) -> Result<(), String> {
+            self.inner.unlock(ns, subs)
+        }
+        fn unlock_all(&mut self) -> Result<(), String> {
+            self.inner.unlock_all()
+        }
+        fn read(&mut self) -> Result<String, String> {
+            self.inner.read()
+        }
+        fn read_would_block(&self) -> bool {
+            false
+        }
+        fn fiber_bg_spawn(
+            &self,
+            _s: &str,
+            _g: &[GlobalEntry],
+            _r: &[(String, String)],
+            _k: &HashMap<String, String>,
+        ) -> Result<u64, String> {
+            Err("no bg".into())
+        }
+        fn fiber_bg_poll(&self, _id: u64) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn fiber_bg_exists(&self, _id: u64) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
     #[test]
     fn split_for_body_cases() {
         let cases: Vec<(&str, &str, &str)> = vec![
@@ -2552,6 +2760,103 @@ mod for_split_tests {
             assert_eq!(body, want_body, "body para {input:?}");
         }
     }
+
+    // Fix 2026-08-27: operadores NOT de comparación (x'>0, x'<0, x'>=0, x'<=0)
+    // y WRITE con `!` pegado a string vacío (W x,!").
+    // Antes: MUNDEF en runtime.
+    #[test]
+    fn not_operators_and_bang_write() {
+        let cases: Vec<(&str, &str)> = vec![
+            // (código M, salida esperada)
+            ("S x=2 W x'>0 Q", "0"),   // NOT(2>0) = false
+            ("S x=0 W x'>0 Q", "1"),   // NOT(0>0) = true
+            ("S x=7 W x'<5 Q", "1"),   // NOT(7<5) = true
+            ("S x=3 W x'<5 Q", "0"),   // NOT(3<5) = false
+            ("S x=3 W x'>=3 Q", "0"),  // NOT(3>=3) = false
+            ("S x=4 W x'<=3 Q", "1"),  // NOT(4<=3) = true
+            ("S ^P(\"a\")=2 W $G(^P(\"a\"))'>0 Q", "0"), // NOT(2>0) = false
+            // `!"` = newline + string vacío (MUMPS estándar)
+            ("S x=2 W x,!\nW \"fin\" Q", "2\nfin"),
+            ("S x=2 W x,!\nQ", "2\n"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(
+                !matches!(execution, crate::Execution::Error),
+                "{code:?} no debe fallar, got: {:?}",
+                execution
+            );
+            assert_eq!(
+                vm.state.output, want,
+                "salida para {code:?}"
+            );
+        }
+    }
+
+    /// Fix 2026-08-27 (bug subyacente del yield-inline): un $DEVICE("llm:call")
+    /// dentro de un bloque IF/DO re-ejecutaba el bloque completo al resume →
+    /// efectos duplicados. Ahora se guarda un InlineFrame y el resume continúa
+    /// en la misma instrucción. Verificar que el contador se incrementa UNA vez
+    /// aunque el LLM tarde 2 polls (yield → resume).
+    #[test]
+    fn yield_inside_do_block_no_duplicate_effects() {
+        let source = "S ^CT=0\nI 1 D\n. S ^CT=^CT+1\n. S r=$DEVICE(\"llm:call\",\"hola\")\n. S ^CT=^CT+1\nW \"CT=\",^CT Q";
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut host = FakeLlmHost::new();
+        let results = host.results.clone();
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+
+        // Pasada 1: llega al $DEVICE → yield (poll = None)
+        let exec1 = vm.run();
+        assert!(matches!(exec1, crate::Execution::Yielded), "esperaba yield, got {exec1:?}");
+
+        // Inyectar el resultado del LLM (como hace m_llm_inject en el WASM)
+        let id = vm.state.yield_future.expect("yield_future debe tener id");
+        results.borrow_mut().insert(id, "respuesta".to_string());
+
+        // Pasada 2: resume → poll = Some → continúa y termina
+        let state = vm.state.clone();
+        let mut vm2 = crate::Vm::resume(program, state, &mut host).unwrap();
+        let exec2 = vm2.run();
+        assert!(matches!(exec2, crate::Execution::Completed | crate::Execution::Halted), "esperaba fin, got {exec2:?}");
+        assert_eq!(vm2.state.output, "CT=2", "el bloque DO no debe re-ejecutarse: output={:?}", vm2.state.output);
+        // Verificar el global también
+        let ct = host.inner.get("CT", &[]).unwrap();
+        assert_eq!(ct.map(|v| v.as_number()), Some(2.0), "^CT debe ser 2 (sin duplicación)");
+    }
+
+    /// Igual pero dentro de un FOR con body inline.
+    #[test]
+    fn yield_inside_for_body_no_duplicate_effects() {
+        let source = "S ^CT=0\nF i=1:1:2 D\n. S ^CT=^CT+1\n. S r=$DEVICE(\"llm:call\",\"x\")\nW \"CT=\",^CT Q";
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut host = FakeLlmHost::new();
+        let results = host.results.clone();
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+
+        let mut yields = 0;
+        loop {
+            let exec = vm.run();
+            match exec {
+                crate::Execution::Yielded => {
+                    yields += 1;
+                    let id = vm.state.yield_future.expect("yield_future");
+                    results.borrow_mut().insert(id, "ok".to_string());
+                    let state = vm.state.clone();
+                    vm = crate::Vm::resume(program.clone(), state, &mut host).unwrap();
+                }
+                crate::Execution::Completed | crate::Execution::Halted => break,
+                other => panic!("inesperado: {other:?}"),
+            }
+        }
+        assert_eq!(yields, 2, "2 iteraciones del FOR = 2 yields");
+        assert_eq!(vm.state.output, "CT=2", "cada iteración debe incrementar UNA vez, output={:?}", vm.state.output);
+        let ct = host.inner.get("CT", &[]).unwrap();
+        assert_eq!(ct.clone().map(|v| v.as_number()), Some(2.0), "^CT debe ser 2, got {ct:?}");
+    }
 }
 
 fn split_call_target(value: &str) -> (&str, &str) {
@@ -2565,7 +2870,23 @@ fn split_call_target(value: &str) -> (&str, &str) {
 
 fn find_comparison(value: &str) -> Option<(usize, &'static str)> {
     // Must check '= BEFORE bare = to avoid matching the = of '=
-    for &(pattern, op) in &[(">=", ">="), ("<=", "<="), ("'=", "'="), ("!=", "!="), ("[", "["), ("=", "="), (">", ">"), ("<", "<")] {
+    // Los operadores negados (') van ANTES que sus homólogos sin negar:
+    // "'>=" contiene ">=", "'>" contiene ">", "'<=" contiene "<=", "'<" contiene "<".
+    // (fix 2026-08-27: antes solo existía '=; x'>0 daba MUNDEF)
+    for &(pattern, op) in &[
+        ("'>=", "'>="),
+        ("'<=", "'<="),
+        ("'>", "'>"),
+        ("'<", "'<"),
+        (">=", ">="),
+        ("<=", "<="),
+        ("'=", "'="),
+        ("!=", "!="),
+        ("[", "["),
+        ("=", "="),
+        (">", ">"),
+        ("<", "<"),
+    ] {
         if let Some(index) = find_top_level(value, pattern) {
             return Some((index, op));
         }
@@ -2676,6 +2997,11 @@ fn compare_values(left: &Value, right: &Value, operator: &str) -> bool {
         "<" => ordering.is_lt(),
         ">=" => !ordering.is_lt(),
         "<=" => !ordering.is_gt(),
+        // Operadores negados (fix 2026-08-27): NOT(a>b) == a<=b, etc.
+        "'>" => !ordering.is_gt(),
+        "'<" => !ordering.is_lt(),
+        "'>=" => ordering.is_lt(),
+        "'<=" => ordering.is_gt(),
         "[" => left.as_string().contains(&right.as_string()),
         _ => false,
     }
