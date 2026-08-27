@@ -194,11 +194,14 @@ fn split_lines_respecting_strings(source: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
-    let bytes = source.as_bytes();
+    // Iterar por CHARS (no bytes): `b as char` corrompía el unicode
+    // (0xC3 0xA1 = "á" se convertía en "Ã¡" — mojibake en TODO el source
+    // con acentos, fix 2026-08-27: $L("áβ")=4 en vez de 2).
+    let chars: Vec<char> = source.chars().collect();
     let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'\n' {
+    while i < chars.len() {
+        let ch = chars[i];
+        if ch == '\n' {
             if quoted {
                 // String abierto: el newline es parte del literal
                 current.push('\n');
@@ -208,8 +211,8 @@ fn split_lines_respecting_strings(source: &str) -> Vec<String> {
             i += 1;
             continue;
         }
-        if b == b'"' {
-            if quoted && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+        if ch == '"' {
+            if quoted && i + 1 < chars.len() && chars[i + 1] == '"' {
                 // Comilla escapada ("") dentro de string — se conserva tal cual
                 current.push('"');
                 current.push('"');
@@ -218,7 +221,7 @@ fn split_lines_respecting_strings(source: &str) -> Vec<String> {
             }
             quoted = !quoted;
         }
-        current.push(b as char);
+        current.push(ch);
         i += 1;
     }
     if !current.is_empty() {

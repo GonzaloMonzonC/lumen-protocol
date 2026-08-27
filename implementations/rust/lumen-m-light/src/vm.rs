@@ -780,7 +780,8 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
             }
             self.bind_arguments(evaluated);
-            
+            let scope_base = self.state.local_scopes.len();
+
             // Local label jump
             let destination = self.label_ip(target_name, line)?;
             let saved_ip = self.state.ip;
@@ -798,7 +799,8 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
             }
             self.state.ip = saved_ip;
-            
+            self.state.call_stack.pop();
+
             // Write back .ref vars
             for (src_var, param_name) in &refs {
                 let prefix = format!("{}[", param_name);
@@ -814,6 +816,10 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     self.state.vars.insert(src_var.clone(), scalar);
                 }
             }
+            // Restaurar $1..$N y scopes locales tras el DO local (fix 2026-08-27:
+            // quedaban en vars → test do_binds_and_restores_positional_arguments)
+            self.restore_arguments();
+            self.restore_local_scopes_to(scope_base);
         }
         Ok(Control::Continue)
     }
