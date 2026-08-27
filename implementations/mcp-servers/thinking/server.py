@@ -448,6 +448,9 @@ def _pdb_save_all() -> None:
                         except (TypeError, ValueError):
                             pass
             _spaces = {}
+            # FIX task_49 (27-ago): CHANGES solo registra CAMBIOS reales. Se compara el
+            # JSON nuevo con el ya almacenado en SPACES; si es idéntico, no se genera
+            # entrada de journal (evita bloat: cada snapshot añadía ~N filas inútiles).
             for nid, niche in _niches.items():
                 sp = niche.get("space_id", "local") or "local"
                 _spaces[sp] = True
@@ -463,14 +466,28 @@ def _pdb_save_all() -> None:
                 seq = seq_read.get(sp, 0)
                 for nid in sorted(_niches.keys()):
                     if (_niches[nid].get("space_id", "local") or "local") == sp:
-                        ch_pairs.append(("CHANGES", encode_subkey([sp, seq, "niche", nid]),
-                                         json.dumps({"op": "upsert", "ref": ["niches", nid], "ts": _now})))
-                        seq += 1
+                        _prev = conn.execute(
+                            "SELECT value FROM _globals WHERE ns='SPACES' AND subkey=?",
+                            [encode_subkey([sp, "niches", nid])]
+                        ).fetchone()
+                        _prev_val = _prev["value"] if _prev else None
+                        _new_val = json.dumps(_niches[nid], ensure_ascii=False)
+                        if _prev_val != _new_val:
+                            ch_pairs.append(("CHANGES", encode_subkey([sp, seq, "niche", nid]),
+                                             json.dumps({"op": "upsert", "ref": ["niches", nid], "ts": _now})))
+                            seq += 1
                 for tid in sorted(_tasks.keys()):
                     if (_tasks[tid].get("space_id", "local") or "local") == sp:
-                        ch_pairs.append(("CHANGES", encode_subkey([sp, seq, "task", tid]),
-                                         json.dumps({"op": "upsert", "ref": ["tasks", tid], "ts": _now})))
-                        seq += 1
+                        _prev = conn.execute(
+                            "SELECT value FROM _globals WHERE ns='SPACES' AND subkey=?",
+                            [encode_subkey([sp, "tasks", tid])]
+                        ).fetchone()
+                        _prev_val = _prev["value"] if _prev else None
+                        _new_val = json.dumps(_tasks[tid], ensure_ascii=False)
+                        if _prev_val != _new_val:
+                            ch_pairs.append(("CHANGES", encode_subkey([sp, seq, "task", tid]),
+                                             json.dumps({"op": "upsert", "ref": ["tasks", tid], "ts": _now})))
+                            seq += 1
                 ch_pairs.append(("CHANGES", encode_subkey(["_meta", sp]), str(seq)))
             pairs.extend(s_pairs)
             pairs.extend(ch_pairs)
