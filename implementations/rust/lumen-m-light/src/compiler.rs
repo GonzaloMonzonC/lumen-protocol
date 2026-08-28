@@ -157,7 +157,25 @@ impl Compiler {
                             if eu.starts_with("ELSE") || eu.starts_with("E ") || eu == "E" {
                                 // Collect ELSE body
                                 let (else_body, l) = collect_body(dot_count, k + 1);
-                                false_body = else_body;
+                                // Fix 2026-08-28 (ELSE con IF anidado): si el ELSE
+                                // es `E I cond D`, el false_body DEBE conservar la
+                                // condición (`I cond D\n...`) — antes solo guardaba
+                                // el body → la rama se ejecutaba SIEMPRE sin evaluar
+                                // su condición (cadena `I a D ... E I b D ... E I c D`
+                                // → "b" y "c" se disparaban con a=false).
+                                // El eline es "E  I cond D": quitar el prefijo E/ELSE
+                                // y comprobar si el resto es un IF.
+                                let after_else = eline
+                                    .trim()
+                                    .trim_start_matches(|c: char| c == 'E' || c.is_whitespace())
+                                    .trim_start_matches("LSE")
+                                    .trim_start();
+                                let after_upper = after_else.to_uppercase();
+                                if after_upper.starts_with("I ") || after_upper.starts_with("IF ") {
+                                    false_body = format!("{}\n{}", after_else, else_body);
+                                } else {
+                                    false_body = else_body;
+                                }
                                 k = l;
                                 break;
                             }
@@ -255,10 +273,12 @@ fn split_label(line: &str) -> (Option<&str>, &str) {
     let paren = line.find('(').unwrap_or(line.len());
     let token_end = ws.min(paren);
     let first = &line[..token_end];
-    if is_identifier(first)
-        && first.chars().all(|ch| !ch.is_ascii_lowercase() && ch != '_')
-        && opcode(first).is_none()
-    {
+    // Fix 2026-08-28 (etiquetas en minúsculas): antes exigía solo MAYÚSCULAS
+    // (`!ch.is_ascii_lowercase() && ch != '_'`) → `D mover(n,lugar)` con etiqueta
+    // `mover` daba MLABEL. Los LLM generan etiquetas camelCase/snake_case;
+    // MUMPS canónico también las permite. `opcode(first)` ya filtra comandos
+    // (case-insensitive), así que un identificador que no es comando es etiqueta.
+    if is_identifier(first) && opcode(first).is_none() {
         // If label has parameters (x), consume the (...) block
         let after_label = &line[token_end..].trim_start();
         let after_params = if after_label.starts_with('(') {
@@ -469,5 +489,82 @@ mod tests {
     fn comments_respect_strings() {
         let program = Compiler::compile("W \"a;b\" ; real comment").unwrap();
         assert_eq!(program.instructions[0].argument, "\"a;b\"");
+    }
+
+    /// Fix 2026-08-28: cadena IF/ELSE con IF anidado — `I a D ... E I b D ...
+    /// E I c D`. El compilador perdía la condición de las ramas intermedias
+    /// (false_body sin "I cond D") → se ejecutaban siempre (pueblo: escasez
+    /// y rumor se disparaban con evento="").
+    #[test]
+    fn else_if_chain_keeps_conditions() {
+        let cases: Vec<(&str, &str)> = vec![
+            ("S ev=\"\"\nI ev=\"fiesta\" D\n. S ^E=\"fi\"\nE  I ev=\"escasez\" D\n. S ^E=\"es\"\nE  I ev=\"rumor\" D\n. S ^E=\"ru\"\nW $G(^E) Q", ""),
+            ("S ev=\"escasez\"\nI ev=\"fiesta\" D\n. S ^E=\"fi\"\nE  I ev=\"escasez\" D\n. S ^E=\"es\"\nE  I ev=\"rumor\" D\n. S ^E=\"ru\"\nW $G(^E) Q", "es"),
+            ("S ev=\"rumor\"\nI ev=\"fiesta\" D\n. S ^E=\"fi\"\nE  I ev=\"escasez\" D\n. S ^E=\"es\"\nE  I ev=\"rumor\" D\n. S ^E=\"ru\"\nW $G(^E) Q", "ru"),
+            ("S ev=\"fiesta\"\nI ev=\"fiesta\" D\n. S ^E=\"fi\"\nE  I ev=\"escasez\" D\n. S ^E=\"es\"\nE  I ev=\"rumor\" D\n. S ^E=\"ru\"\nW $G(^E) Q", "fi"),
+            // ELSE final simple después de cadena (E D)
+            ("S ev=\"x\"\nI ev=\"fiesta\" D\n. S ^E=\"fi\"\nE  I ev=\"escasez\" D\n. S ^E=\"es\"\nE  D\n. S ^E=\"otro\"\nW $G(^E) Q", "otro"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(!matches!(execution, crate::Execution::Error), "{code:?} got {execution:?}");
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
+    }
+
+    /// Fix 2026-08-28: operadores lógicos ! y & entre comparaciones
+    /// (`a=""!b=""` = OR). Antes find_comparison dividía mal → MUNDEF.
+    #[test]
+    fn logical_or_and() {
+        let cases: Vec<(&str, &str)> = vec![
+            ("S a=\"\" S b=\"\" W a=\"\"!b=\"\" Q", "1"),
+            ("S a=\"x\" S b=\"\" W a=\"\"!b=\"\" Q", "1"),
+            ("S a=\"x\" S b=\"y\" W a=\"\"!b=\"\" Q", "0"),
+            ("S a=\"x\" S b=\"y\" W a'=\"\"&b'=\"\" Q", "1"),
+            ("S a=\"\" S b=\"y\" W a'=\"\"&b'=\"\" Q", "0"),
+            ("S a=3 I a>1&a<5 W \"and\" Q", "and"),
+            ("S a=3 I a>5!a<4 W \"or\" Q", "or"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(!matches!(execution, crate::Execution::Error), "{code:?} got {execution:?}");
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
+    }
+
+    /// Fix 2026-08-28: operador potencia `**` (MUMPS). Los LLM lo generan
+    /// (p.ej. dist=(dx*dx+dy*dy)**0.5). Antes: MOPERATOR unknown.
+    #[test]
+    fn power_operator() {
+        let cases: Vec<(&str, &str)> = vec![
+            ("W 2**3 Q", "8"),
+            ("W 2**0.5 Q", "1.4142135623730951"),
+            ("S a=3 W a**2 Q", "9"),
+            ("W (5*5+5*5)**0.5 Q", "7.0710678118654755"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(!matches!(execution, crate::Execution::Error), "{code:?} got {execution:?}");
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
+    }
+
+    /// Fix 2026-08-28: etiquetas en minúsculas/camelCase (mover, calcTotal).
+    /// Antes split_label exigía solo MAYÚSCULAS → `D mover(x)` daba MLABEL.
+    #[test]
+    fn labels_lowercase_and_camelcase() {
+        let program = Compiler::compile("D mover(1)\nQ\nmover(a)\nS ^R=1\nQ").unwrap();
+        assert!(program.labels.contains_key("MOVER"), "labels={:?}", program.labels);
+        let program2 = Compiler::compile("D calcTotal(1)\nQ\ncalcTotal(n)\nS ^T=2\nQ").unwrap();
+        assert!(program2.labels.contains_key("CALCTOTAL"), "labels={:?}", program2.labels);
     }
 }
