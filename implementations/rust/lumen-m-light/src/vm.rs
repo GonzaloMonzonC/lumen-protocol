@@ -542,7 +542,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     }
                     return Ok(Control::Continue);
                 }
-                self.exec_inline(&instruction.argument, instruction.line)?;
+                // Fix 2026-08-28 (ELSE con body \x01): el compilador emite
+                // `E I cond D` con el cuerpo inline como \x01 embebido en el
+                // argumento (mismo formato que exec_if). exec_inline RECOMPILA
+                // el source y el \x01 crudo corrompía el parseo → MUNDEF
+                // "undefined variable: cand\x01..." al resolver la colisión
+                // (tick ECOS·SIM con respuesta "competir"). Reemplazar \x01
+                // por \n para que el compilador inline reconstruya el bloque.
+                let arg = instruction.argument.replace('\x01', "\n");
+                self.exec_inline(&arg, instruction.line)?;
             }
             Opcode::For => return self.exec_for(&instruction.argument, instruction.line),
             Opcode::Quit => {
@@ -2983,6 +2991,137 @@ mod for_split_tests {
         let exec2 = vm2.run();
         assert!(!matches!(exec2, crate::Execution::Error), "got {exec2:?}");
         assert_eq!(vm2.state.output, "0|0", "out={:?}", vm2.state.output);
+    }
+
+    /// Reproducción del bug ECOS·SIM: tick de colisión con respuesta LLM
+    /// "1^competir" → MUNDEF al pasar por la cadena IF/ELSE del $F.
+    #[test]
+    /// Regresión 2026-08-28: ELSE con body inline \x01 tras yield LLM.
+    /// `E I cond D` con cuerpo compilado con separador \x01: exec_else
+    /// recompilaba el argumento con \x01 crudo → MUNDEF "undefined variable:
+    /// cand\x01..." al resolver una colisión con respuesta "competir".
+    /// El fix reemplaza \x01 por \n antes de exec_inline.
+    #[test]
+    fn else_inline_sep_after_yield() {
+        let source = std::fs::read_to_string(
+            "C:/Users/gonzalo/Documents/GitHub/simulacion-social/experimentos/sim_visor_tick.m",
+        )
+        .unwrap();
+        let program = crate::compiler::Compiler::compile(&source).unwrap();
+        let mut host = FakeLlmHost::new();
+        let results = host.results.clone();
+
+        // Estado inicial (tick=2 para que el siguiente sea t=3 → colisión)
+        {
+            let h = &mut host.inner;
+            let h = &mut host.inner;
+            h.set(
+                "POBLACION",
+                &[Subscript::String("A".into()), Subscript::String("energia".into())],
+                Value::Number(8.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("A".into()), Subscript::String("edad".into())],
+                Value::Number(0.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("A".into()), Subscript::String("genes".into())],
+                Value::String("fuerte|cazador".into()),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("A".into()), Subscript::String("x".into())],
+                Value::Number(30.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("A".into()), Subscript::String("y".into())],
+                Value::Number(40.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("B".into()), Subscript::String("energia".into())],
+                Value::Number(20.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("B".into()), Subscript::String("edad".into())],
+                Value::Number(0.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("B".into()), Subscript::String("genes".into())],
+                Value::String("rapido|herborista".into()),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("B".into()), Subscript::String("x".into())],
+                Value::Number(70.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("B".into()), Subscript::String("y".into())],
+                Value::Number(30.0),
+            )
+            .unwrap();
+            h.set(
+                "POBLACION",
+                &[Subscript::String("__n".into())],
+                Value::Number(2.0),
+            )
+            .unwrap();
+            h.set(
+                "MUNDO",
+                &[Subscript::String("tick".into())],
+                Value::Number(2.0),
+            )
+            .unwrap();
+            h.set(
+                "MUNDO",
+                &[Subscript::String("comida".into())],
+                Value::Number(8.0),
+            )
+            .unwrap();
+            h.set(
+                "MUNDO",
+                &[Subscript::String("evento".into())],
+                Value::String("calma".into()),
+            )
+            .unwrap();
+        }
+
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+        let mut yields = 0;
+        let mut last_err = None;
+        for _ in 0..10 {
+            let exec = vm.run();
+            match exec {
+                crate::Execution::Yielded => {
+                    yields += 1;
+                    let id = vm.state.yield_future.expect("yield_future");
+                    results.borrow_mut().insert(id, "1^competir".to_string());
+                    let state = vm.state.clone();
+                    vm = crate::Vm::resume(program.clone(), state, &mut host).unwrap();
+                }
+                crate::Execution::Error => {
+                    last_err = vm.state.error.clone();
+                    break;
+                }
+                _ => break,
+            }
+        }
+        assert!(last_err.is_none(), "no debe fallar: {last_err:?}");
     }
 
     /// Fix 2026-08-28: Skip dentro de inline. `I cond D` con cuerpo IF/ELSE
