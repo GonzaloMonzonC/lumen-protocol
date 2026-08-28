@@ -104,6 +104,24 @@ pub fn m_llm_pending() -> String {
     serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
 }
 
+/// Jobs USER pendientes: $DEVICE("user:ask", pregunta) → el JS debe mostrar
+/// la pregunta al humano. JSON: [[id, pregunta], ...]
+#[wasm_bindgen]
+pub fn m_user_pending() -> String {
+    let jobs = crate::host::wasm_user_pending();
+    let arr: Vec<serde_json::Value> = jobs
+        .into_iter()
+        .map(|(id, p)| serde_json::json!([id, p]))
+        .collect();
+    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Inyecta la respuesta del humano al job user id.
+#[wasm_bindgen]
+pub fn m_user_inject(id: u64, answer: &str) {
+    crate::host::wasm_user_inject(id, answer);
+}
+
 /// Ejecuta (o REANAUDA con `state_json`) hasta yield o fin. Para el device
 /// $DEVICE("llm:call") en WASM: cuando el M pide LLM, run_slice devuelve
 /// Yielded; el JS procesa el job con el gateway e inyecta el resultado, luego

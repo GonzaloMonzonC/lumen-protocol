@@ -1948,6 +1948,28 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let call_args: Vec<Value> = args[1..].iter().map(|a| self.eval_expr(a, line)).collect::<Result<_, _>>()?;
                 let (dev, act) = path.split_once(':').unwrap_or((&path, "call"));
                 match (dev, act) {
+                    // ── USER Device: $DEVICE("user:ask", pregunta) ──
+                    // La rutina M pregunta al humano; el host (JS) abre un modal,
+                    // inyecta la respuesta y el VM continúa (async como LLM).
+                    ("user", "ask") => {
+                        let prompt = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let id = if let Some(fid) = self.state.yield_future.take() {
+                            fid
+                        } else {
+                            self.host.user_ask(&prompt).map_err(|e| VmError::new("MUSER", e, line))?
+                        };
+                        match self.host.user_poll(id).map_err(|e| VmError::new("MUSER", e, line))? {
+                            Some(r) => {
+                                self.state.yield_requested = false;
+                                Ok(Value::String(r))
+                            }
+                            None => {
+                                self.state.yield_requested = true;
+                                self.state.yield_future = Some(id);
+                                Ok(Value::Null)
+                            }
+                        }
+                    }
                     ("llm", "call") | ("llm", "fork") => {
                         if self.host.is_sandbox() {
                             return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
@@ -2855,6 +2877,17 @@ mod for_split_tests {
         }        fn llm_cancel(&self, _id: u64) -> Result<bool, String> {
             Ok(false)
         }
+        fn user_ask(&self, _prompt: &str) -> Result<u64, String> {
+            let mut n = self.next_id.borrow_mut();
+            *n += 1;
+            Ok(*n)
+        }
+        fn user_poll(&self, id: u64) -> Result<Option<String>, String> {
+            Ok(self.results.borrow().get(&id).cloned())
+        }
+        fn user_cancel(&self, _id: u64) -> Result<bool, String> {
+            Ok(false)
+        }
         fn is_sandbox(&self) -> bool {
             false
         }
@@ -3014,6 +3047,31 @@ mod for_split_tests {
         assert_eq!(vm.state.output, "CT=2", "cada iteración debe incrementar UNA vez, output={:?}", vm.state.output);
         let ct = host.inner.get("CT", &[]).unwrap();
         assert_eq!(ct.clone().map(|v| v.as_number()), Some(2.0), "^CT debe ser 2, got {ct:?}");
+    }
+
+    /// Device USER (2026-08-28): $DEVICE("user:ask", pregunta) hace yield;
+    /// el host inyecta la respuesta del humano y la rutina continúa con ella.
+    #[test]
+    fn user_ask_yields_then_continues_with_answer() {
+        let source = "S r=$DEVICE(\"user:ask\",\"¿cómo te llamas?\")\nW \"Hola \",r Q";
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut host = FakeLlmHost::new();
+        let results = host.results.clone();
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+
+        // Pasada 1: yield en el user:ask (poll = None)
+        let exec1 = vm.run();
+        assert!(matches!(exec1, crate::Execution::Yielded), "esperaba yield, got {exec1:?}");
+        let id = vm.state.yield_future.expect("yield_future debe tener id");
+        // el humano responde (como m_user_inject en el WASM)
+        results.borrow_mut().insert(id, "Ana".to_string());
+
+        // Pasada 2: resume → continúa con la respuesta
+        let state = vm.state.clone();
+        let mut vm2 = crate::Vm::resume(program, state, &mut host).unwrap();
+        let exec2 = vm2.run();
+        assert!(matches!(exec2, crate::Execution::Completed | crate::Execution::Halted), "esperaba fin, got {exec2:?}");
+        assert_eq!(vm2.state.output, "Hola Ana", "la respuesta del humano debe continuar la rutina");
     }
 
     /// Fix 2026-08-28: $RANDOM existía → MFUNCTION. Verificar rango [0, n-1]
