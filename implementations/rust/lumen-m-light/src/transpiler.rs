@@ -267,6 +267,10 @@ fn transpile_expr(expr: &str) -> String {
             let prompt = args.get(1).map(|s| s.as_str()).unwrap_or("");
             return format!("crate::Value::String(\"COMPILED_LLM({})\".to_string())", prompt);
         }
+        if args.len() >= 2 && args[0] == "user:ask" {
+            let prompt = args.get(1).map(|s| s.as_str()).unwrap_or("");
+            return format!("crate::Value::String(\"COMPILED_USER({})\".to_string())", prompt);
+        }
         if args.len() >= 2 && args[0] == "http:get" {
             let url = args.get(1).map(|s| s.as_str()).unwrap_or("");
             return format!("crate::Value::String(\"COMPILED_HTTP({})\".to_string())", url);

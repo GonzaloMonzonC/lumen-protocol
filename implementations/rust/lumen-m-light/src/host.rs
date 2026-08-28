@@ -73,6 +73,50 @@ static WASM_LLM_PENDING: OnceLock<Mutex<Vec<(u64, String, String, String, String
 #[cfg(feature = "wasm")]
 static WASM_LLM_RESULTS: OnceLock<Mutex<std::collections::HashMap<u64, String>>> = OnceLock::new();
 
+// ── USER device en WASM (2026-08-28): $DEVICE("user:ask", pregunta) ──
+// Mismo contrato que LLM: fork → pending (el JS abre un modal al humano)
+// → inject (respuesta) → poll (el VM continúa con la respuesta).
+#[cfg(feature = "wasm")]
+static WASM_USER_NEXT: OnceLock<std::sync::atomic::AtomicU64> = OnceLock::new();
+#[cfg(feature = "wasm")]
+static WASM_USER_PENDING: OnceLock<Mutex<Vec<(u64, String)>>> = OnceLock::new();
+#[cfg(feature = "wasm")]
+static WASM_USER_RESULTS: OnceLock<Mutex<std::collections::HashMap<u64, String>>> = OnceLock::new();
+
+#[cfg(feature = "wasm")]
+pub fn wasm_user_fork(prompt: &str) -> u64 {
+    let next = WASM_USER_NEXT.get_or_init(|| std::sync::atomic::AtomicU64::new(1));
+    let id = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let p = WASM_USER_PENDING.get_or_init(|| Mutex::new(Vec::new()));
+    p.lock().unwrap().push((id, prompt.to_string()));
+    id
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_user_pending() -> Vec<(u64, String)> {
+    let p = WASM_USER_PENDING.get_or_init(|| Mutex::new(Vec::new()));
+    let mut guard = p.lock().unwrap();
+    std::mem::take(&mut *guard)
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_user_inject(id: u64, answer: &str) {
+    let r = WASM_USER_RESULTS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    r.lock().unwrap().insert(id, answer.to_string());
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_user_poll(id: u64) -> Option<String> {
+    let r = WASM_USER_RESULTS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    r.lock().unwrap().get(&id).cloned()
+}
+
+#[cfg(feature = "wasm")]
+pub fn wasm_user_cancel(id: u64) -> bool {
+    let r = WASM_USER_RESULTS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    r.lock().unwrap().remove(&id).is_some()
+}
+
 #[cfg(feature = "wasm")]
 pub fn wasm_llm_fork(provider: &str, model: &str, prompt: &str, system: &str) -> u64 {
     let next = WASM_LLM_NEXT.get_or_init(|| std::sync::atomic::AtomicU64::new(1));
@@ -525,6 +569,23 @@ pub trait Host {
     /// Crea un future que depende de otro.
     fn llm_chain(&self, _parent_id: u64, _provider: &str, _model: &str, _prompt: &str, _system: &str) -> Result<u64, String> {
         Err("LLM device not implemented".to_string())
+    }
+
+    // ── User Device (pregunta al humano) ────────────────────
+    // Async como LLM: la rutina M pregunta ($DEVICE("user:ask", pregunta)),
+    // el host (JS/CLI) abre un modal/prompt, y la respuesta se inyecta.
+    fn user_ask(&self, _prompt: &str) -> Result<u64, String> {
+        Err("User device not implemented".to_string())
+    }
+
+    /// Poll: None = el humano aún no ha respondido, Some = respuesta.
+    fn user_poll(&self, _future_id: u64) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    /// Cancela una pregunta en curso.
+    fn user_cancel(&self, _future_id: u64) -> Result<bool, String> {
+        Ok(false)
     }
 
     /// Generic device call (HTTP, SQL, etc.). Sync only.
@@ -1070,6 +1131,29 @@ impl Host for MemoryHost {
 
     fn llm_chain(&self, parent_id: u64, provider: &str, model: &str, prompt: &str, system: &str) -> Result<u64, String> {
         Ok(self.pool().chain(parent_id, provider, model, prompt, system))
+    }
+
+    // ── User Device implementation ($DEVICE("user:ask")) ─────
+    // Async como LLM: fork → pending (JS abre modal) → inject → poll.
+    fn user_ask(&self, prompt: &str) -> Result<u64, String> {
+        #[cfg(feature = "wasm")]
+        { return Ok(wasm_user_fork(prompt)); }
+        #[cfg(not(feature = "wasm"))]
+        { Err("user device requiere host JS/CLI (solo wasm)".to_string()) }
+    }
+
+    fn user_poll(&self, future_id: u64) -> Result<Option<String>, String> {
+        #[cfg(feature = "wasm")]
+        { return Ok(wasm_user_poll(future_id)); }
+        #[cfg(not(feature = "wasm"))]
+        { Ok(None) }
+    }
+
+    fn user_cancel(&self, future_id: u64) -> Result<bool, String> {
+        #[cfg(feature = "wasm")]
+        { return Ok(wasm_user_cancel(future_id)); }
+        #[cfg(not(feature = "wasm"))]
+        { Ok(false) }
     }
 
     // ── Generic device call (HTTP, future devices) ────────────
