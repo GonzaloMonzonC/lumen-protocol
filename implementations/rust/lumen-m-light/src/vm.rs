@@ -94,7 +94,24 @@ pub struct VmState {
     /// bloque completo (efectos duplicados con $DEVICE("llm:call") dentro de DO).
     #[serde(default)]
     pub inline_frames: Vec<InlineFrame>,
+    /// Estado del RNG de $RANDOM (LCG). Fix 2026-08-28: $R no existía → MFUNCTION.
+    /// Se serializa para que el resume continúe la secuencia (no repetir valores).
+    #[serde(default = "default_rng_state")]
+    pub rng_state: u64,
+    /// La siguiente instrucción del contexto actual es un ELSE (cadena IF/ELSE).
+    /// Fix 2026-08-28: el ELSE con test=true solo debe Skip(1) si le sigue otro
+    /// ELSE; si no, continuar (el cuerpo del ELSE está en su argumento, no en la
+    /// instrucción siguiente). Antes saltaba el WRITE posterior → output vacío.
+    #[serde(default)]
+    pub next_is_else: bool,
 
+}
+
+/// Semilla del RNG de $RANDOM: reloj → distinta por run (LCG sin dependencias).
+fn default_rng_state() -> u64 {
+    (crate::time_now_secs() as u64)
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        .wrapping_add(0xBF58476D1CE4E5B9)
 }
 
 fn default_io() -> i64 {
@@ -135,6 +152,8 @@ impl VmState {
             fibers: vec![FiberState::default()],
             active_fiber: 0,
             inline_frames: Vec::new(),
+            rng_state: default_rng_state(),
+            next_is_else: false,
         }
     }
 }
@@ -351,6 +370,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             let instruction = self.program.instructions[self.state.ip].clone();
             self.state.ip += 1;
+            // ¿La siguiente instrucción (ip ya avanzado) es un ELSE? Lo usa el
+            // handler de Else para decidir Skip(1) (solo en cadenas E...E).
+            self.state.next_is_else = self
+                .program
+                .instructions
+                .get(self.state.ip)
+                .is_some_and(|instr| matches!(instr.opcode, Opcode::Else));
             if let Err(error) = self.charge(instruction.line) {
                 if error.zerror == "GAS_EXHAUSTED" {
                     self.rollback_open_transactions();
@@ -506,8 +532,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             Opcode::If => return self.exec_if(&instruction.argument, instruction.line),
             Opcode::Else => {
                 if self.state.test {
-                    // IF was true — skip the ELSE body (1 instruction)
-                    return Ok(Control::Skip(1));
+                    // IF was true. El cuerpo del ELSE ya está en instruction.argument
+                    // (NO es la siguiente instrucción). Solo saltamos la siguiente
+                    // instrucción si es OTRO ELSE (cadena E ... E ...). Fix
+                    // 2026-08-28: antes saltaba SIEMPRE 1 → se comía el WRITE o
+                    // la instrucción posterior al bloque (output vacío).
+                    if self.state.next_is_else {
+                        return Ok(Control::Skip(1));
+                    }
+                    return Ok(Control::Continue);
                 }
                 self.exec_inline(&instruction.argument, instruction.line)?;
             }
@@ -999,7 +1032,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             } else {
                 (rest, "")
             };
-            let truthy = self.eval_expr(condition, line)?.truthy();
+            let truthy = self.eval_if_condition(condition, line)?;
             self.state.test = truthy;
             let selected = if truthy { true_body } else { false_body };
             // Strip leading DO/D marker from inline IF body
@@ -1018,13 +1051,31 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         }
         // Legacy format: use split_if
         let (condition, true_body, false_body) = split_if(argument);
-        let truthy = self.eval_expr(condition, line)?.truthy();
+        let truthy = self.eval_if_condition(condition, line)?;
         self.state.test = truthy;
         let selected = if truthy { true_body } else { false_body };
         if !selected.is_empty() {
             return self.exec_inline_control(selected, line);
         }
         Ok(Control::Continue)
+    }
+
+    /// Evalúa la condición de un IF con soporte de coma-AND (MUMPS estándar:
+    /// `I a=1, b=2 cmd` = IF a=1 AND b=2, con short-circuit — si una condición
+    /// es falsa, no evalúa las siguientes). Fix 2026-08-28: antes la coma en la
+    /// condición rompía eval_expr → MUNDEF (p.ej. `I rcat="critico", clase'="rojo"`).
+    fn eval_if_condition(&mut self, condition: &str, line: usize) -> Result<bool, VmError> {
+        let parts = split_top_level(condition, ',');
+        for part in parts {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            if !self.eval_expr(part, line)?.truthy() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn exec_for(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
@@ -1100,6 +1151,11 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
                 let body_instruction = &body_program.instructions[frame.body_ip];
                 frame.body_ip += 1;
+                // ¿La siguiente instrucción del body es un ELSE? (cadenas E...E)
+                self.state.next_is_else = body_program
+                    .instructions
+                    .get(frame.body_ip)
+                    .is_some_and(|instr| matches!(instr.opcode, Opcode::Else));
                 self.charge(line)?;
                 match self.execute_instruction(body_instruction)? {
                     Control::Continue => {
@@ -1267,7 +1323,21 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         };
         self.inline_depth += 1;
         let result = (|| {
-            for (i, instruction) in program.instructions.iter().enumerate().skip(resume_ip) {
+            // Fix 2026-08-28 (Skip dentro de inline): el loop anterior usaba
+            // `for` + propaga Control::Skip al caller → run_slice lo aplicaba
+            // al ip del PROGRAMA PRINCIPAL, saltándose la instrucción siguiente
+            // al bloque (p.ej. `I c=1 D` + `. I ev=0 S x=1` + `. E S x=2` +
+            // `W x` → el WRITE se saltaba, output vacío). Ahora el Skip se
+            // consume DENTRO del inline (como hace exec_for con body_ip).
+            let mut i = resume_ip;
+            while i < program.instructions.len() {
+                let instruction = &program.instructions[i];
+                i += 1;
+                // ¿La siguiente instrucción del inline es un ELSE? (cadenas E...E)
+                self.state.next_is_else = program
+                    .instructions
+                    .get(i)
+                    .is_some_and(|instr| matches!(instr.opcode, Opcode::Else));
                 self.charge(line)?;
                 let control = self.execute_instruction(instruction)?;
                 // Si una instrucción pidió yield (p.ej. $DEVICE("llm:call")),
@@ -1279,15 +1349,19 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 if self.state.yield_requested {
                     self.state.inline_frames.push(InlineFrame {
                         program: program.clone(),
-                        ip: i,
+                        ip: i - 1,
                         first_line,
                     });
                     return Ok(Control::Continue);
                 }
-                if !matches!(control, Control::Continue) {
-                    // Skip must propagate too
-                    if let Control::Skip(_) = control {}
-                    return Ok(control);
+                match control {
+                    Control::Continue => {}
+                    // Skip (p.ej. ELSE con IF anterior true) se consume dentro
+                    // del inline — NUNCA debe saltar instrucciones del programa
+                    // principal (fix 2026-08-28).
+                    Control::Skip(n) => i += n as usize,
+                    // Quit/Halt sí terminan la ejecución (propagar al caller)
+                    other => return Ok(other),
                 }
             }
             Ok(Control::Continue)
@@ -1300,6 +1374,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         let expression = trim_outer_parens(expression.trim());
         if expression.is_empty() {
             return Ok(Value::Null);
+        }
+        // Fix 2026-08-28 (snake_case): `padre_genes` se parseaba como
+        // concatenación `padre _ genes` → MUNDEF en `padre`. Los LLM generan
+        // variables con _ (padre_genes, alerta_llm, ...). Si el token completo
+        // ES una variable local ya definida, priorizarla sobre la concat.
+        if is_identifier(expression) && self.state.vars.contains_key(expression) {
+            return Ok(self.state.vars.get(expression).cloned().unwrap_or(Value::Null));
         }
         if let Some((index, operator)) = find_comparison(expression) {
             let left = self.eval_arithmetic(expression[..index].trim(), line)?;
@@ -1753,6 +1834,23 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     }
                 }
                 Ok(Value::String(result))
+            }
+            "$R" | "$RANDOM" => {
+                // MUMPS estándar: $R(n) = entero aleatorio en [0, n-1].
+                // LCG sin dependencias (fix 2026-08-28: $R daba MFUNCTION).
+                // El estado se serializa en VmState → el resume continúa la secuencia.
+                let limit = self.eval_expr(args.first().map_or("0", String::as_str), line)?.as_number();
+                if limit <= 0.0 {
+                    return Ok(Value::Number(0.0));
+                }
+                // SplitMix64: avanza el estado y extrae un valor de 64 bits.
+                self.state.rng_state = self.state.rng_state.wrapping_add(0x9E3779B97F4A7C15);
+                let mut z = self.state.rng_state;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+                z ^= z >> 31;
+                let value = (z as f64) / (u64::MAX as f64);
+                Ok(Value::Number((value * limit).floor()))
             }
             "$FN" | "$FNUMBER" => {
                 let number = self
@@ -2552,7 +2650,10 @@ fn split_for_body(value: &str) -> (&str, &str) {
     let trimmed = value.trim();
     if let Some(space) = trimmed.find(char::is_whitespace) {
         let first_token = &trimmed[..space];
-        if is_command_name(first_token) {
+        // El comando puede llevar postcondición (":cond"), p.ej. "Q:j<1 D"
+        // (FOR infinito con QUIT condicional como salida — patrón M canónico).
+        let first_command = first_token.split(':').next().unwrap_or(first_token);
+        if is_command_name(first_command) {
             // El argumento empieza con algo parecido a un comando. Puede ser:
             //  (a) un FOR infinito cuyo body arranca ya ("S k=$O(^T(k)) Q:k='' …"),
             //  (b) una variable de UNA LETRA que colisiona con un comando
@@ -2856,6 +2957,154 @@ mod for_split_tests {
         assert_eq!(vm.state.output, "CT=2", "cada iteración debe incrementar UNA vez, output={:?}", vm.state.output);
         let ct = host.inner.get("CT", &[]).unwrap();
         assert_eq!(ct.clone().map(|v| v.as_number()), Some(2.0), "^CT debe ser 2, got {ct:?}");
+    }
+
+    /// Fix 2026-08-28: $RANDOM existía → MFUNCTION. Verificar rango [0, n-1]
+    /// y que devuelve valores distintos en llamadas sucesivas.
+    #[test]
+    fn random_function() {
+        let code = "S a=$R(10) S b=$R(10) S c=$R(10) W a,\"|\",b,\"|\",c Q";
+        let program = crate::compiler::Compiler::compile(code).unwrap();
+        let mut host = crate::MemoryHost::default();
+        let mut vm = crate::Vm::new(program, &mut host);
+        let execution = vm.run();
+        assert!(!matches!(execution, crate::Execution::Error), "got {execution:?}");
+        let parts: Vec<f64> = vm.state.output.split('|').filter_map(|s| s.trim().parse().ok()).collect();
+        assert_eq!(parts.len(), 3, "output={:?}", vm.state.output);
+        for v in &parts {
+            assert!(*v >= 0.0 && *v < 10.0, "fuera de rango: {v}");
+        }
+        // La probabilidad de 3 iguales es 1/100 — casi seguro distintos
+        assert!(parts[0] != parts[1] || parts[1] != parts[2], "deberían variar: {parts:?}");
+        // $R(1) siempre 0; $R(0) no rompe
+        let code2 = "W $R(1),\"|\",$R(0) Q";
+        let program2 = crate::compiler::Compiler::compile(code2).unwrap();
+        let mut vm2 = crate::Vm::new(program2, &mut host);
+        let exec2 = vm2.run();
+        assert!(!matches!(exec2, crate::Execution::Error), "got {exec2:?}");
+        assert_eq!(vm2.state.output, "0|0", "out={:?}", vm2.state.output);
+    }
+
+    /// Fix 2026-08-28: Skip dentro de inline. `I cond D` con cuerpo IF/ELSE
+    /// propagaba Control::Skip(1) del ELSE al run_slice → se saltaba la
+    /// instrucción del programa principal siguiente al bloque (output vacío).
+    #[test]
+    fn inline_skip_does_not_leak_to_main() {
+        let cases: Vec<(&str, &str)> = vec![
+            // IF true → SET ejecutado + WRITE posterior NO saltado
+            ("S ^M=\"x\" S ev=0\nI 1 D\n. I ev=0 S ^M=\"tormenta\"\n. E  S ^M=\"calma\"\nW ^M Q", "tormenta"),
+            // IF false → ELSE ejecutado
+            ("S ^M=\"x\" S ev=1\nI 1 D\n. I ev=0 S ^M=\"tormenta\"\n. E  S ^M=\"calma\"\nW ^M Q", "calma"),
+            // cadena IF/ELSE/ELSE con IF interno (patrón del juego de vida)
+            ("S ^M=\"x\" S ev=0\nI 1 D\n. I ev=0 S ^M=\"tormenta\"\n. E  I ev=1 S ^M=\"fertilidad\"\n. E  S ^M=\"calma\"\nW ^M Q", "tormenta"),
+            ("S ^M=\"x\" S ev=1\nI 1 D\n. I ev=0 S ^M=\"tormenta\"\n. E  I ev=1 S ^M=\"fertilidad\"\n. E  S ^M=\"calma\"\nW ^M Q", "fertilidad"),
+            ("S ^M=\"x\" S ev=2\nI 1 D\n. I ev=0 S ^M=\"tormenta\"\n. E  I ev=1 S ^M=\"fertilidad\"\n. E  S ^M=\"calma\"\nW ^M Q", "calma"),
+            // WRITE después de DO con ELSE (caso real del juego de vida)
+            ("S ev=0 S ^E=0\nI 1 D\n. I ev=0 S ^E=1\n. E  S ^E=2\nW \"E=\",^E Q", "E=1"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(
+                !matches!(execution, crate::Execution::Error),
+                "{code:?} no debe fallar, got: {:?}",
+                execution
+            );
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
+    }
+
+    /// Fix 2026-08-28: cadena IF/ELSE/ELSE/ELSE de N ramas — el Skip(1) del ELSE
+    /// solo debe saltar si le sigue OTRO ELSE; el WRITE posterior no debe saltarse.
+    #[test]
+    fn else_chain_does_not_eat_next_statement() {
+        let cases: Vec<(&str, &str)> = vec![
+            // mut=3 → cae al ELSE final → g=padre_genes y el W se ejecuta
+            ("S padre_genes=\"fuerte\" S mut=3\nS g=\"\"\nI mut=0 S g=\"fuerte|cazador\"\nE  I mut=1 S g=\"rapido|herborista\"\nE  I mut=2 S g=\"astuto|social\"\nE  S g=padre_genes\nW \"g=\",g Q", "g=fuerte"),
+            // mut=0 → primer IF true → Skip los 3 ELSE → el W se ejecuta
+            ("S padre_genes=\"fuerte\" S mut=0\nS g=\"\"\nI mut=0 S g=\"fuerte|cazador\"\nE  I mut=1 S g=\"rapido|herborista\"\nE  I mut=2 S g=\"astuto|social\"\nE  S g=padre_genes\nW \"g=\",g Q", "g=fuerte|cazador"),
+            // mut=1 → segundo IF true → Skip los 2 ELSE restantes → W se ejecuta
+            ("S padre_genes=\"fuerte\" S mut=1\nS g=\"\"\nI mut=0 S g=\"fuerte|cazador\"\nE  I mut=1 S g=\"rapido|herborista\"\nE  I mut=2 S g=\"astuto|social\"\nE  S g=padre_genes\nW \"g=\",g Q", "g=rapido|herborista"),
+            // mut=2 → tercer IF true → Skip el ELSE final → W se ejecuta
+            ("S padre_genes=\"fuerte\" S mut=2\nS g=\"\"\nI mut=0 S g=\"fuerte|cazador\"\nE  I mut=1 S g=\"rapido|herborista\"\nE  I mut=2 S g=\"astuto|social\"\nE  S g=padre_genes\nW \"g=\",g Q", "g=astuto|social"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            if !matches!(execution, crate::Execution::Error) {
+                assert_eq!(vm.state.output, want, "salida para {code:?}");
+            } else {
+                eprintln!("ERROR para {code:?}: {:?}", vm.state.error);
+                panic!("{code:?} no debe fallar");
+            }
+        }
+    }
+
+    /// Fix 2026-08-28: coma-AND en IF (MUMPS estándar `I a=1, b=2`).
+    /// Antes: split_if cortaba en el espacio tras la coma → condición
+    /// "a=1, b=2" → eval_expr MUNDEF.
+    #[test]
+    fn if_comma_and() {
+        let cases: Vec<(&str, &str)> = vec![
+            ("S a=1 S b=2 I a=1, b=2 W \"and ok\" Q", "and ok"),
+            // condición falsa (a=2 con a=1): NO ejecuta el body del IF
+            ("S a=1 S b=2 I a=2, b=2 W \"bad\" Q", ""),
+            // short-circuit: si la 1ª condición falla, la 2ª NO se evalúa
+            ("S a=0 I a=1, $G(^NOEXISTE) W \"bad\" Q", ""),
+            // coma-AND + cuerpo inline con SET múltiple (patrón del triaje)
+            ("S clase=\"estable\" S rcat=\"critico\" I rcat=\"critico\", clase'=\"rojo\" S alertaLLM=1, motivo=\"rev\" W alertaLLM Q", "1"),
+            // las dos condiciones true → ejecuta
+            ("S a=1 S b=2 I a=1, b=2 W \"ok\" Q", "ok"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(
+                !matches!(execution, crate::Execution::Error),
+                "{code:?} no debe fallar, got: {:?}",
+                execution
+            );
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
+    }
+
+    /// Fix 2026-08-28: FOR con QUIT condicional (MUMPS canónico).
+    /// - `F Q:cond D` (FOR infinito + QUIT de salida): split_for_body no
+    ///   reconocía el comando con postcondición ("Q:j<1") → el QUIT se iba al
+    ///   spec y el body perdía la salida → bucle infinito.
+    /// - `F c=1:1:8 I ... Q:cond` (QUIT dentro del body): ya funcionaba, se
+    ///   verifica como regresión.
+    #[test]
+    fn for_with_quit_conditional() {
+        let cases: Vec<(&str, &str)> = vec![
+            // FOR infinito + QUIT condicional + DO block (patrón del triaje)
+            ("S j=3 F  Q:j<1  D\n. W \"j=\",j,!\n. S j=j-1\nW \"fin\" Q", "j=3\nj=2\nj=1\nfin"),
+            // QUIT condicional en body de FOR con rango (asignación de cama)
+            ("S cama=\"\" F c=1:1:8 I c=3 S cama=c Q:cama'=\"\"\nW \"cama=\",cama Q", "cama=3"),
+            // FOR infinito de una línea con QUIT condicional
+            ("S j=3 F  Q:j<1  S t=j S j=j-1\nW \"t=\",t Q", "t=1"),
+            // FOR infinito + $O + QUIT condicional (patrón canónico $O)
+            ("S j=\"\" F  S j=$O(^T(j)) Q:j=\"\"  D\n. W \"j=\",j,!\nW \"fin\" Q", "fin"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            vm.state.gas_limit = 200; // acotado por si hay regresión de bucle infinito
+            let execution = vm.run();
+            assert!(
+                !matches!(execution, crate::Execution::Error),
+                "{code:?} no debe fallar, got: {:?}",
+                execution
+            );
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
     }
 }
 
