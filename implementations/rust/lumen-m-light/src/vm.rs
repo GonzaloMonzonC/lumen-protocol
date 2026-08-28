@@ -544,11 +544,16 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
                 // Fix 2026-08-28 (ELSE con body \x01): el compilador emite
                 // `E I cond D` con el cuerpo inline como \x01 embebido en el
-                // argumento (mismo formato que exec_if). exec_inline RECOMPILA
-                // el source y el \x01 crudo corrompía el parseo → MUNDEF
-                // "undefined variable: cand\x01..." al resolver la colisión
-                // (tick ECOS·SIM con respuesta "competir"). Reemplazar \x01
-                // por \n para que el compilador inline reconstruya el bloque.
+                // argumento. Si el argumento es un IF (`E I cond...`), delegar
+                // en exec_if (que separa \x01 correctamente y evalúa la
+                // condición). Si no, reemplazar \x01 por \n para que el
+                // compilador inline reconstruya el bloque (ELSE simple).
+                let arg = instruction.argument.trim_start();
+                let upper = arg.to_uppercase();
+                if upper.starts_with("I ") || upper.starts_with("IF ") {
+                    let rest = &arg[arg.find(char::is_whitespace).unwrap_or(arg.len())..].trim_start();
+                    return self.exec_if(rest, instruction.line);
+                }
                 let arg = instruction.argument.replace('\x01', "\n");
                 self.exec_inline(&arg, instruction.line)?;
             }
@@ -1390,6 +1395,22 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         if is_identifier(expression) && self.state.vars.contains_key(expression) {
             return Ok(self.state.vars.get(expression).cloned().unwrap_or(Value::Null));
         }
+        // Fix 2026-08-28 (lógica ! y &): `a=""!b=""` = (a="") OR (b="") —
+        // MUMPS: los operadores lógicos van ENTRE expresiones de comparación,
+        // no sobre operandos numéricos. Antes find_comparison dividía mal
+        // (a="" vs !b="") → MUNDEF. Dividir por ! / & top-level PRIMERO.
+        if let Some(loc) = find_top_level_logical(expression) {
+            let (op, index) = loc;
+            let left = self.eval_expr(expression[..index].trim(), line)?.truthy();
+            if op == "&" && !left {
+                return Ok(Value::Bool(false)); // short-circuit AND
+            }
+            if op == "!" && left {
+                return Ok(Value::Bool(true)); // short-circuit OR
+            }
+            let right = self.eval_expr(expression[index + op.len()..].trim(), line)?.truthy();
+            return Ok(Value::Bool(if op == "!" { left || right } else { left && right }));
+        }
         if let Some((index, operator)) = find_comparison(expression) {
             let left = self.eval_arithmetic(expression[..index].trim(), line)?;
             let right = self.eval_arithmetic(expression[index + operator.len()..].trim(), line)?;
@@ -1400,13 +1421,41 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
     }
 
     fn eval_arithmetic(&mut self, expression: &str, line: usize) -> Result<Value, VmError> {
+        // Fix 2026-08-28 (precedencia MUMPS): antes fold lineal →
+        // `5*5+5*5` = ((5*5)+5)*5 = 150 en vez de 50. Ahora shunting-yard:
+        // multiplicativos (* / \ # **) antes que aditivos (+ -); unario '-'
+        // lo maneja split_arithmetic (operador sin operando izq).
         let (operands, operators) = split_arithmetic(expression);
-        let mut value = self.eval_atom(operands.first().map_or("", String::as_str), line)?;
-        for (operator, operand) in operators.iter().zip(operands.iter().skip(1)) {
-            let right = self.eval_atom(operand, line)?;
-            value = apply_operator(value, right, *operator, line)?;
+        let prec = |op: &str| -> u8 {
+            match op {
+                "+" | "-" => 1,
+                "*" | "/" | "\\" | "#" | "**" => 2,
+                _ => 0,
+            }
+        };
+        let mut values: Vec<Value> = Vec::new();
+        let mut ops: Vec<String> = Vec::new();
+        values.push(self.eval_atom(operands.first().map_or("", String::as_str), line)?);
+        for (op, operand) in operators.iter().zip(operands.iter().skip(1)) {
+            while let Some(top) = ops.last() {
+                if prec(top) >= prec(op) {
+                    let right = values.pop().unwrap();
+                    let left = values.pop().unwrap();
+                    let o = ops.pop().unwrap();
+                    values.push(apply_operator(left, right, &o, line)?);
+                } else {
+                    break;
+                }
+            }
+            ops.push(op.clone());
+            values.push(self.eval_atom(operand, line)?);
         }
-        Ok(value)
+        while let Some(o) = ops.pop() {
+            let right = values.pop().unwrap();
+            let left = values.pop().unwrap();
+            values.push(apply_operator(left, right, &o, line)?);
+        }
+        Ok(values.pop().unwrap_or(Value::Null))
     }
 
     fn eval_atom(&mut self, atom: &str, line: usize) -> Result<Value, VmError> {
@@ -3282,7 +3331,36 @@ fn find_comparison(value: &str) -> Option<(usize, &'static str)> {
     None
 }
 
-fn split_arithmetic(value: &str) -> (Vec<String>, Vec<char>) {
+/// Busca un operador lógico top-level `!` (OR) o `&` (AND) FUERA de
+/// paréntesis y comillas. Excluye `!=` (no igual, comparación) y `'!` no existe.
+/// Fix 2026-08-28: `a=""!b=""` = (a="") OR (b="") — antes find_comparison
+/// dividía mal y daba MUNDEF.
+fn find_top_level_logical(value: &str) -> Option<(&'static str, usize)> {
+    let mut depth = 0i32;
+    let mut quoted = false;
+    let bytes = value.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => quoted = !quoted,
+            b'(' if !quoted => depth += 1,
+            b')' if !quoted => depth -= 1,
+            b'!' if !quoted && depth == 0 && bytes.get(i + 1) != Some(&b'=') => {
+                // `!` a principio o tras espacio = OR lógico (no unario NOT;
+                // unario NOT en MUMPS es '  — el ! como prefijo no se usa aquí)
+                return Some(("!", i));
+            }
+            b'&' if !quoted && depth == 0 => {
+                return Some(("&", i));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn split_arithmetic(value: &str) -> (Vec<String>, Vec<String>) {
     let mut operands = Vec::new();
     let mut operators = Vec::new();
     let mut start = 0usize;
@@ -3295,12 +3373,23 @@ fn split_arithmetic(value: &str) -> (Vec<String>, Vec<char>) {
             b'"' => quoted = !quoted,
             b'(' if !quoted => depth += 1,
             b')' if !quoted => depth -= 1,
+            // Fix 2026-08-28 (potencia **): se detecta ANTES del '*' simple.
+            // El operador es String (no char) porque ** son dos bytes.
+            b'*' if !quoted && depth == 0 && i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                let unary = i == start || value[start..i].trim().is_empty();
+                if !unary {
+                    operands.push(value[start..i].trim().to_string());
+                    operators.push("**".to_string());
+                    start = i + 2;
+                    i += 1; // saltar el segundo '*'
+                }
+            }
             op @ (b'+' | b'-' | b'*' | b'/' | b'\\' | b'#' | b'_' | b'!' | b'&') if !quoted && depth == 0 => {
                 let unary = i == start || value[start..i].trim().is_empty();
                 let hex = op == b'#' && unary;
                 if !unary && !hex {
                     operands.push(value[start..i].trim().to_string());
-                    operators.push(op as char);
+                    operators.push((op as char).to_string());
                     start = i + 1;
                 }
             }
@@ -3315,44 +3404,47 @@ fn split_arithmetic(value: &str) -> (Vec<String>, Vec<char>) {
 fn apply_operator(
     left: Value,
     right: Value,
-    operator: char,
+    operator: &str,
     line: usize,
 ) -> Result<Value, VmError> {
     // Logical operators: ! (OR), & (AND) — work on truthiness
-    if operator == '!' {
+    if operator == "!" {
         let l = left.truthy();
         let r = right.truthy();
         return Ok(Value::Bool(l || r));
     }
-    if operator == '&' {
+    if operator == "&" {
         let l = left.truthy();
         let r = right.truthy();
         return Ok(Value::Bool(l && r));
     }
-    if operator == '_' {
+    if operator == "_" {
         return Ok(Value::String(left.as_string() + &right.as_string()));
     }
     let left = left.as_number();
     let right = right.as_number();
     let value = match operator {
-        '+' => left + right,
-        '-' => left - right,
-        '*' => left * right,
-        '/' => {
+        "+" => left + right,
+        "-" => left - right,
+        "*" => left * right,
+        // Potencia (fix 2026-08-28): MUMPS `**` — los LLM lo generan a menudo
+        // (p.ej. dist=(dx*dx+dy*dy)**0.5 en el movimiento del pueblo).
+        "**" => left.powf(right),
+        "/" => {
             if right == 0.0 {
                 0.0
             } else {
                 left / right
             }
         }
-        '\\' => {
+        "\\" => {
             if right == 0.0 {
                 0.0
             } else {
                 (left / right).trunc()
             }
         }
-        '#' => {
+        "#" => {
             if right == 0.0 {
                 0.0
             } else {

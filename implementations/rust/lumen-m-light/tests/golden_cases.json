@@ -1,33 +1,72 @@
 [
   {
-    "name": "left_to_right_arithmetic",
+    "name": "mumps_precedence_arithmetic",
     "source": "S x=2+3*4,y=17\\5,z=17#5",
-    "expected_vars": {"x": 20.0, "y": 3.0, "z": 2.0},
+    "expected_vars": {
+      "x": 14.0,
+      "y": 3.0,
+      "z": 2.0
+    },
     "execution": "completed"
   },
   {
     "name": "unicode_and_string_functions",
     "source": "S length=$L(\"áβ\"),piece=$P(\"uno|dos|tres\",\"|\",2),translated=$TR(\"casa\",\"as\",\"AS\")",
-    "expected_vars": {"length": 2.0, "piece": "dos", "translated": "cASA"},
+    "expected_vars": {
+      "length": 2.0,
+      "piece": "dos",
+      "translated": "cASA"
+    },
     "execution": "completed"
   },
   {
     "name": "ordered_globals",
     "source": "S first=$O(^G(\"\")),second=$O(^G(first)),data=$D(^G(2))",
     "globals": [
-      {"ns": "G", "subs": [2.0], "value": "two"},
-      {"ns": "G", "subs": [10.0], "value": "ten"},
-      {"ns": "G", "subs": ["a"], "value": "letter"}
+      {
+        "ns": "G",
+        "subs": [
+          2.0
+        ],
+        "value": "two"
+      },
+      {
+        "ns": "G",
+        "subs": [
+          10.0
+        ],
+        "value": "ten"
+      },
+      {
+        "ns": "G",
+        "subs": [
+          "a"
+        ],
+        "value": "letter"
+      }
     ],
-    "expected_vars": {"first": 2.0, "second": 10.0, "data": 1.0},
+    "expected_vars": {
+      "first": 2.0,
+      "second": 10.0,
+      "data": 1.0
+    },
     "execution": "completed"
   },
   {
     "name": "indirect_local_and_global",
     "source": "S target=\"local\",@(target)=42,gref=\"^DYNAMIC(\"\"clave\"\")\",@gref=\"valor\",copy=@gref",
-    "expected_vars": {"local": 42.0, "copy": "valor"},
+    "expected_vars": {
+      "local": 42.0,
+      "copy": "valor"
+    },
     "expected_globals": [
-      {"ns": "DYNAMIC", "subs": ["clave"], "value": "valor"}
+      {
+        "ns": "DYNAMIC",
+        "subs": [
+          "clave"
+        ],
+        "value": "valor"
+      }
     ],
     "execution": "completed"
   },
@@ -35,14 +74,23 @@
     "name": "transaction_rollback",
     "source": "TSTART S ^TX(\"keep\")=1 TCOMMIT\nTSTART S ^TX(\"discard\")=2 TROLLBACK",
     "expected_globals": [
-      {"ns": "TX", "subs": ["keep"], "value": 1.0}
+      {
+        "ns": "TX",
+        "subs": [
+          "keep"
+        ],
+        "value": 1.0
+      }
     ],
     "execution": "completed"
   },
   {
     "name": "if_else_and_for_blocks",
     "source": "S total=0\nF i=1:1:4 { S total=total+i }\nI total=10 { S result=\"ok\" } ELSE { S result=\"bad\" }",
-    "expected_vars": {"total": 10.0, "result": "ok"},
+    "expected_vars": {
+      "total": 10.0,
+      "result": "ok"
+    },
     "execution": "completed"
   },
   {
@@ -54,7 +102,9 @@
   {
     "name": "postconditional_quit",
     "source": "S x=1 Q:x=1 S unreachable=2",
-    "expected_vars": {"x": 1.0},
+    "expected_vars": {
+      "x": 1.0
+    },
     "execution": "halted"
   }
 ]

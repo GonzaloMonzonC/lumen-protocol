@@ -30,10 +30,12 @@ fn run(source: &str) -> (Execution, lumen_mlight::VmState, Vec<GlobalEntry>) {
 }
 
 #[test]
-fn arithmetic_is_strictly_left_to_right() {
+fn arithmetic_has_mumps_precedence() {
+    // Fix 2026-08-28: MUMPS estándar — multiplicativos (* / \ # **) antes
+    // que aditivos (+ -). Antes fold lineal: 2+3*4 = 20 (INCORRECTO).
     let (execution, state, _) = run("S x=2+3*4,y=17\\5,z=17#5,n=\"12.5\",cast=+n,neg=-n");
     assert_eq!(execution, Execution::Completed);
-    assert_eq!(state.vars["x"], Value::Number(20.0));
+    assert_eq!(state.vars["x"], Value::Number(14.0));
     assert_eq!(state.vars["y"], Value::Number(3.0));
     assert_eq!(state.vars["z"], Value::Number(2.0));
     assert_eq!(state.vars["cast"], Value::Number(12.5));
