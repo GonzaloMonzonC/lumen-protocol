@@ -830,16 +830,14 @@ def _dashboard_token_ok(qs_t, headers):
         return True
     return headers.get("X-Dashboard-Token", "").strip() == tok or qs_t == tok
 
+# URLs de los workers — configuradas por env var AGENT_URLS (JSON {"nombre": "url"}).
+# El repo público NO lleva URLs internas; el operador las inyecta en el entorno.
+import json as _json
 WORKERS = [
-    ("angi", "https://angi.WORKER_INTERNAL_URL/"),
-    ("campo", "https://campo.WORKER_INTERNAL_URL/"),
-    ("gon", "https://gon.WORKER_INTERNAL_URL/"),
-    ("zalo", "https://zalo.WORKER_INTERNAL_URL/"),
-    ("lisa", "https://lisa.WORKER_INTERNAL_URL/"),
-    ("tom", "https://tom.WORKER_INTERNAL_URL/"),
-    ("eco", "https://eco.WORKER_INTERNAL_URL/"),
-    ("pdb-edge", "https://pdb-edge.WORKER_INTERNAL_URL/"),
-    ("poli-api", "https://poli-api.cadences.app/"),
+    (name, url)
+    for name, url in _json.loads(os.environ.get("AGENT_URLS", "{}")).items()
+] + [
+    ("poli-api", os.environ.get("POLI_API_URL", "")),
 ]
 
 def _dashboard_status():

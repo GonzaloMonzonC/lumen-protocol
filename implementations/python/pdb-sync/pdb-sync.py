@@ -37,7 +37,7 @@ from pathlib import Path
 PDB_PATH = _paths.DB_PATH
 
 # PDB Edge Worker (Cloudflare)
-EDGE_URL = os.environ.get("PDB_EDGE_URL", "https://pdb-edge.EDGE_INTERNAL_URL")
+EDGE_URL = os.environ.get("PDB_EDGE_URL", "")
 EDGE_API_KEY = os.environ.get("PDB_EDGE_KEY", "")
 
 # Namespaces que se replican (Fase 1)

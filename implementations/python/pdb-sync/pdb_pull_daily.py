@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-EDGE_URL = os.environ.get("PDB_EDGE_URL", "https://pdb-edge.WORKER_INTERNAL_URL")
+EDGE_URL = os.environ.get("PDB_EDGE_URL", "")
 LOCAL_URL = os.environ.get("PDB_LOCAL_URL", "http://localhost:8081")
 CHECKPOINT_FILE = Path(os.environ.get(
     "PDB_PULL_CHECKPOINT",

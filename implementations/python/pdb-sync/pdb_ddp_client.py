@@ -57,7 +57,7 @@ class DDPClient:
 
     def __init__(self, base_url: str | None = None, key: str | None = None, timeout: int = 60):
         self.base_url = (base_url or os.environ.get(
-            "PDB_EDGE_URL", "https://pdb-edge.WORKER_INTERNAL_URL")).rstrip("/")
+            "PDB_EDGE_URL", "")).rstrip("/")
         self.key = key if key is not None else _default_key()
         self.timeout = timeout
 
