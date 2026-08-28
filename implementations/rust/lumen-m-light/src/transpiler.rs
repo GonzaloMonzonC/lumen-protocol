@@ -247,6 +247,16 @@ fn transpile_expr(expr: &str) -> String {
         }
         return format!("crate::Value::Null /* $G({}) */", inner);
     }
+
+    // $R(n) / $RANDOM(n) — entero aleatorio en [0, n-1] (MUMPS estándar).
+    // Fix 2026-08-28: antes no se transpilaba → Null silencioso.
+    if e.starts_with("$R(") && e.ends_with(')') {
+        let inner = &e[3..e.len()-1];
+        return format!(
+            "{{ let __limit = {}.as_number(); if __limit <= 0.0 {{ crate::Value::Number(0.0) }} else {{ crate::Value::Number((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) as f64 % __limit).floor()) }} }}",
+            transpile_expr(inner)
+        );
+    }
     
     // $DEVICE("llm:call",...) — call device directly
     if e.starts_with("$DEVICE(") {
