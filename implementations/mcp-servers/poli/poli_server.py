@@ -1713,7 +1713,10 @@ if __name__ == "__main__":
                     key = (os.environ.get("DDP_HMAC_KEY") or "").encode()
                     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                     sig = hmac.new(key, (ts + raw.decode("utf-8") + key.decode()).encode(), hashlib.sha256).hexdigest()
-                    req = urllib.request.Request("https://tom.WORKER_INTERNAL_URL/v1/process",
+                    _tom = (os.environ.get("TOM_WORKER_URL") or "").rstrip("/")
+                    if not _tom:
+                        return self._text("0\n\nTOM_WORKER_URL no configurado")
+                    req = urllib.request.Request(_tom + "/v1/process",
                         data=raw, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
                                            "X-DDP-Timestamp": ts, "X-DDP-HMAC": sig}, method="POST")
                     with urllib.request.urlopen(req, timeout=60) as r:
@@ -1751,7 +1754,10 @@ if __name__ == "__main__":
                     key = (os.environ.get("DDP_HMAC_KEY") or "").encode()
                     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                     sig = hmac.new(key, (ts + raw.decode("utf-8") + key.decode()).encode(), hashlib.sha256).hexdigest()
-                    req = urllib.request.Request("https://tom.WORKER_INTERNAL_URL/v1/mgen",
+                    _tom = (os.environ.get("TOM_WORKER_URL") or "").rstrip("/")
+                    if not _tom:
+                        return self._text("0\n\nTOM_WORKER_URL no configurado")
+                    req = urllib.request.Request(_tom + "/v1/mgen",
                         data=raw, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0",
                                            "X-DDP-Timestamp": ts, "X-DDP-HMAC": sig}, method="POST")
                     with urllib.request.urlopen(req, timeout=60) as r:
