@@ -20,6 +20,24 @@
 use wasm_bindgen::prelude::*;
 use crate::{Compiler, MemoryHost, Vm, GlobalEntry, Program};
 
+// ── RNG global entre ejecuciones (fix 2026-08-28) ─────────────────────────
+// El WASM devuelve `state` SOLO cuando hay yield (LLM). Los ticks SIN yield
+// reciben state=null → la siguiente llamada hace Vm::new → rng_state se
+// re-sembraba por reloj (mismo nanosegundo) → $R(n) devolvía SIEMPRE el
+// mismo valor → en el pueblo siempre iniciaba el mismo habitante.
+// Este contador global mantiene la secuencia del RNG entre llamadas: cada
+// VM nuevo se siembra desde él y al terminar lo actualiza.
+static GLOBAL_RNG: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0x9E3779B97F4A7C15);
+
+fn next_rng_seed() -> u64 {
+    GLOBAL_RNG.fetch_add(0x9E3779B97F4A7C15, std::sync::atomic::Ordering::Relaxed)
+}
+
+fn store_rng_state(state: u64) {
+    GLOBAL_RNG.store(state, std::sync::atomic::Ordering::Relaxed);
+}
+
 // ── Public WASM API ────────────────────────────────────────────────────────
 
 /// Version string.
@@ -60,7 +78,9 @@ pub fn m_execute(compiled: &[u8], globals_json: &str) -> Result<String, JsValue>
     
     let mut host = MemoryHost::from_entries(globals);
     let mut vm = Vm::new(program, &mut host);
+    vm.state.rng_state = next_rng_seed();
     vm.run();
+    store_rng_state(vm.state.rng_state);
     if let Some(error) = &vm.state.error {
         return Err(JsValue::from_str(&format!(
             "M runtime error: {} at line {}", error.ecode, error.line
@@ -108,7 +128,11 @@ pub fn m_execute_resume(
 
     let mut vm = if let Some(state_json) = state_json {
         if state_json.is_empty() || state_json == "null" {
-            Vm::new(program, &mut host)
+            let mut v = Vm::new(program, &mut host);
+            // Fix 2026-08-28: sembrar desde el RNG global → cada tick SIN
+            // state obtiene una semilla distinta (antes: reloj → repetía)
+            v.state.rng_state = next_rng_seed();
+            v
         } else {
             let state: crate::VmState = serde_json::from_str(&state_json)
                 .map_err(|e| JsValue::from_str(&format!("Parse state JSON: {}", e)))?;
@@ -116,7 +140,9 @@ pub fn m_execute_resume(
                 .map_err(|e| JsValue::from_str(&format!("Resume error: {}", e.zerror)))?
         }
     } else {
-        Vm::new(program, &mut host)
+        let mut v = Vm::new(program, &mut host);
+        v.state.rng_state = next_rng_seed();
+        v
     };
 
     let execution = vm.run_slice(if vm.state.gas_limit > 0 { vm.state.gas_limit } else { 1_000_000 });
@@ -126,6 +152,9 @@ pub fn m_execute_resume(
             "M runtime error: {} at line {}", error.ecode, error.line
         )));
     }
+    // Fix 2026-08-28: persistir el RNG del VM en el global → el siguiente
+    // tick continúa la secuencia aunque no haya yield (state=null).
+    store_rng_state(vm.state.rng_state);
     let output = vm.state.output.clone();
     let state = if yielded { Some(serde_json::to_string(&vm.state).unwrap_or_default()) } else { None };
     let vars: std::collections::BTreeMap<String, String> = vm.state.vars
@@ -168,7 +197,9 @@ pub fn m_execute_raw(compiled: &[u8], globals_json: &str) -> Result<String, JsVa
     
     let mut host = MemoryHost::from_entries(globals);
     let mut vm = Vm::new(program, &mut host);
+    vm.state.rng_state = next_rng_seed();
     vm.run();
+    store_rng_state(vm.state.rng_state);
     if let Some(error) = &vm.state.error {
         return Err(JsValue::from_str(&format!(
             "M runtime error: {} at line {}", error.ecode, error.line
