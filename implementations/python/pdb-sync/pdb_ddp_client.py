@@ -29,13 +29,38 @@ import urllib.request
 from pathlib import Path
 
 
+def _load_secrets_env() -> dict:
+    """Lee ~/.hermes/secrets.env (y hermes/.env) como fallback de entorno.
+
+    Los cron jobs no_agent corren sin el entorno de Hermes cargado; este
+    archivo centraliza URL del edge + DDP_HMAC_KEY del ecosistema.
+    """
+    out = {}
+    paths = [
+        Path.home() / ".hermes" / "secrets.env",
+        Path(os.environ.get("HERMES_ENV", str(Path.home() / "AppData" / "Local" / "hermes" / ".env"))),
+    ]
+    for p in paths:
+        if p.exists():
+            try:
+                for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        out.setdefault(k.strip(), v.strip())
+            except OSError:
+                continue
+    return out
+
+
 def _default_key() -> str:
-    """DDP_HMAC_KEY: env → hermes .env → WLA .env (misma clave compartida del ecosistema)."""
+    """DDP_HMAC_KEY: env → secrets.env/hermes .env → WLA .env (misma clave compartida del ecosistema)."""
     k = os.environ.get("DDP_HMAC_KEY", "")
     if k:
         return k
     for p in [
         Path(os.environ.get("HERMES_ENV", str(Path.home() / "AppData" / "Local" / "hermes" / ".env"))),
+        Path.home() / ".hermes" / "secrets.env",
         Path(os.environ.get("WLA_ENV", str(Path.home() / "Documents" / "GitHub" / "ProjectOS" / "whatsapp-local-agent" / ".env"))),
     ]:
         if p.exists():
@@ -56,9 +81,14 @@ class DDPClient:
     """Cliente DDP-LUMEN v0.2 → pdb-edge worker (Cloud Bridge)."""
 
     def __init__(self, base_url: str | None = None, key: str | None = None, timeout: int = 60):
-        self.base_url = (base_url or os.environ.get(
-            "PDB_EDGE_URL", "")).rstrip("/")
-        self.key = key if key is not None else _default_key()
+        secrets = _load_secrets_env()
+        self.base_url = (
+            base_url
+            or os.environ.get("PDB_EDGE_URL")
+            or secrets.get("PDB_EDGE_URL")
+            or "https://pdb-edge.gonzalomonzonc.workers.dev"
+        ).rstrip("/")
+        self.key = key if key is not None else (os.environ.get("DDP_HMAC_KEY") or _default_key())
         self.timeout = timeout
 
     # ── Firmado ──────────────────────────────────────────────────────
