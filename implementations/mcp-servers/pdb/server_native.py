@@ -3,7 +3,7 @@
 PDBM-Lumen Native MCP Server — speaks LUMEN binary protocol natively.
 
 Uses the same tool logic as server.py but with native binary transport
-for 55-80% wire savings via LUMEN session dictionary compression.
+for up to 58% wire savings via LUMEN session dictionary compression.
 
 Iteration patterns (pdb_order in a loop) benefit enormously:
   - Repeated keys ("ns", "subs", namespace names) → 1 byte each

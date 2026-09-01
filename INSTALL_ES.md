@@ -112,7 +112,7 @@ herramientas del agente, busca `mcp__lumen_*` — las 120 tools aparecerán ahí
 
 ---
 
-## Opcional: Transporte binario LUMEN nativo (50-80% menos wire)
+## Opcional: Transporte binario LUMEN nativo (hasta 58% menos wire)
 
 Para aún más compresión, los servidores también traen un modo binario nativo
 (`server_native.py` + `transport: lumen`). Esta ruta es **experimental** con el

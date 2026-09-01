@@ -12,7 +12,7 @@ Architecture:
   
   LLM → Hermes → Plugin handler → SHM ring buffer → Server → SHM → Plugin → Hermes
   
-  Zero kernel copies. Zero JSON-RPC overhead. 55-80% wire compression.
+  Zero kernel copies. Zero JSON-RPC overhead. up to 58% wire compression.
 
 Usage:
   Place in ~/.hermes/plugins/ and add to config.yaml:

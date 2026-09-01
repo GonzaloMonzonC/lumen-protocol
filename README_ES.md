@@ -17,7 +17,7 @@
   <a href="QUICKSTART_ES.md"><strong>🚀 Empezar aquí</strong></a> · <a href="QUICKSTART.md">Quickstart (EN)</a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Instalar en Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="docs/COGNITIVE_OS.md"><strong>🧠 Docs del Cognitive OS</strong></a> &nbsp;|&nbsp;
-  <strong>✅ SHM zero-copy Nivel 2 · 19-58% menos tráfico · 4 servidores MCP · funciona con Hermes</strong>
+  <strong>✅ SHM zero-copy Nivel 2 · hasta 58% menos tráfico · 4 servidores MCP · funciona con Hermes</strong>
 </p>
 
 ---
@@ -28,7 +28,7 @@
 
 Tres apuestas. Tres muros con los que la industria va a chocar:
 
-**1. El colapso del I/O (el problema JSON-RPC).** Mientras un humano habla con un LLM, la latencia del JSON es invisible. Cuando 10 agentes debaten, extraen datos, revisan esquemas y hacen retrospectivas, el sistema se vuelve I/O-bound — el cable, no el modelo, es el cuello de botella. El futuro inevitable de la orquestación multi-agente es el **transporte binario y la memoria compartida zero-copy en el edge**. LUMEN ya lo trae, con datos: **19-58% menos tráfico, SHM Nivel 2 (ring buffers mmap, cero copias de kernel, latencia sub-ms), 20K llamadas/seg en stress tests empresariales, streams de tokens 46% más pequeños**.
+**1. El colapso del I/O (el problema JSON-RPC).** Mientras un humano habla con un LLM, la latencia del JSON es invisible. Cuando 10 agentes debaten, extraen datos, revisan esquemas y hacen retrospectivas, el sistema se vuelve I/O-bound — el cable, no el modelo, es el cuello de botella. El futuro inevitable de la orquestación multi-agente es el **transporte binario y la memoria compartida zero-copy en el edge**. LUMEN ya lo trae, con datos: **hasta 58% menos tráfico, SHM Nivel 2 (ring buffers mmap, cero copias de kernel, latencia sub-ms), 20K llamadas/seg en stress tests empresariales, streams de tokens 46% más pequeños**.
 
 **2. El fin del parche de la "memoria RAG".** Dar memoria a los agentes inyectando bases vectoriales a la fuerza en arquitecturas stateless es un parche — los vectores son un índice, no una memoria. El futuro real de la cognición artificial es el **estado transaccional, estructurado y jerárquico que actúa como memoria cognitiva nativa**: una máquina virtual en disco donde las decisiones, los diccionarios y los patrones de comportamiento viven intrínsecamente en la infraestructura. Eso es **PDB + MVM**: globals con herencia MUMPS (1966), `$LOCK`, auto-índices `^IDX`, triggers `ON SET`/`ON KILL`, WAL, 15 μs/GET — y una Máquina Virtual M ejecutando procesos autónomos y persistentes.
 
@@ -43,7 +43,7 @@ Tres apuestas. Tres muros con los que la industria va a chocar:
 | Servidores MCP (120 tools) | Filesystem, web, thinking, PDB — listos para Hermes Agent | ✅ **Este repo** |
 | Orquestación ECOS | Equipos multi-agente, consolidación de memoria, voz, Lab | 🔒 Capa propietaria |
 
-**Qué puedes hacer hoy aquí:** sustituir tu wire MCP JSON-RPC por uno binario (19-58% más pequeño), dar a tu agente un cerebro jerárquico persistente (PDB) y ejecutar procesos M autónomos en el edge (MVM) — todo sin claves de API.
+**Qué puedes hacer hoy aquí:** sustituir tu wire MCP JSON-RPC por uno binario (hasta 58% más pequeño), dar a tu agente un cerebro jerárquico persistente (PDB) y ejecutar procesos M autónomos en el edge (MVM) — todo sin claves de API.
 
 ---
 

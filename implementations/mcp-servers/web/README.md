@@ -11,7 +11,7 @@ Unified search + extraction in a single MCP call. Zero API keys required.
 | Search + extract in 1 call | ❌ 2 separate calls | ✅ unified |
 | API key required | ✅ (Nous subscription) | ❌ none |
 | Multi-agent cache | ❌ | ✅ shared cache |
-| Wire savings | N/A | 40-50% via LUMEN |
+| Wire savings | N/A | 27-36% via LUMEN |
 
 **LUMEN Web is for fast, free, unified search+extract.** Hermes Firecrawl is for professional extraction quality. They complement each other.
 

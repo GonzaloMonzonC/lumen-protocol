@@ -17,7 +17,7 @@
   <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="docs/COGNITIVE_OS.md"><strong>🧠 Cognitive OS docs</strong></a> &nbsp;|&nbsp;
-  <strong>✅ Level 2 SHM zero-copy · 19-58% wire savings · 4 MCP servers · works with Hermes</strong>
+  <strong>✅ Level 2 SHM zero-copy · up to 58% wire savings · 4 MCP servers · works with Hermes</strong>
 </p>
 
 ---
@@ -28,7 +28,7 @@
 
 Three bets. Three walls the industry will hit:
 
-**1. The I/O collapse (the JSON-RPC problem).** While a human talks to an LLM, JSON latency is invisible. When 10 agents debate, extract data, review schemas and run retrospectives, the system becomes I/O-bound — the wire, not the model, is the bottleneck. The inevitable future of multi-agent orchestration is **binary transport and shared zero-copy memory at the edge**. LUMEN already ships it, benchmarked: **19-58% wire savings, Level 2 SHM (mmap ring buffers, zero kernel copies, sub-ms latency), 20K calls/sec in enterprise stress tests, 46% smaller LLM token streams**.
+**1. The I/O collapse (the JSON-RPC problem).** While a human talks to an LLM, JSON latency is invisible. When 10 agents debate, extract data, review schemas and run retrospectives, the system becomes I/O-bound — the wire, not the model, is the bottleneck. The inevitable future of multi-agent orchestration is **binary transport and shared zero-copy memory at the edge**. LUMEN already ships it, benchmarked: **up to 58% wire savings, Level 2 SHM (mmap ring buffers, zero kernel copies, sub-ms latency), 20K calls/sec in enterprise stress tests, 46% smaller LLM token streams**.
 
 **2. The end of the "RAG memory" patch.** Giving agents memory by force-injecting vector databases into stateless architectures is a patch — vectors are an index, not a memory. The real future of artificial cognition is **transactional, structured, hierarchical state that acts as native cognitive memory**: a virtual machine on disk where decisions, dictionaries and behavioral patterns live intrinsically in the infrastructure. That is **PDB + MVM**: MUMPS (1966) heritage globals, `$LOCK`, `^IDX` auto-indexes, `ON SET`/`ON KILL` triggers, WAL journaling, 15 μs/GET — and an M Virtual Machine running autonomous, persistent processes.
 
@@ -54,7 +54,7 @@ Three bets. Three walls the industry will hit:
 - **MCP servers (120 tools)** — filesystem (13), web (2), thinking (84), PDB (21); zero API keys.
 - **Bindings** — Rust (reference), TypeScript, Python, PHP, C#/.NET, WASM (22 KB gzipped).
 
-**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (19-58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys.
+**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (up to 58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys.
 
 ---
 
@@ -129,7 +129,7 @@ bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 | PDB (21 tools) | 100% | 71% | **29% smaller** |
 | Objective Loop (5 tools) | 100% | 65% | **35% smaller** |
 
-> **Benchmarked**: 120 tools across 4 servers, 0 errors. See [raw speed benchmarks](docs/BENCHMARKS.md).
+> **Benchmarked**: 120 tools across 4 servers, 0 errors. **~44% avg wire compression (up to 58%)** across 21 MCP payloads — reproducible with `python tests/benchmarks/tools_benchmark.py`. See [raw speed benchmarks](docs/BENCHMARKS.md).
 
 ---
 
@@ -223,7 +223,7 @@ LUMEN is not a library you call: it is an operating system where the agents them
 | HTTP client | `O 8:"GET url"` (reqwest, async) | Call any external API, non-blocking |
 | Webhook server | `O 9:":8767"` (axum) | Receive POSTs → agent mailbox |
 | Process/global dashboard | `D^ROUTINE web :8767` | Live HTML: processes (`D^SS`) + globals (`D^GS`) |
-| WebSocket dashboard | `:9877` | Real-time browser dashboard, 80% compression |
+| WebSocket dashboard | `:9877` | Real-time browser dashboard, high compression (metric streams) |
 
 Because the web layer is written in the same M language, **agents can build their own webhooks, HTML pages and SPAs** — interfaces that answer real requests, generated and maintained by the system itself, no separate frontend stack.
 
@@ -233,14 +233,14 @@ Because the web layer is written in the same M language, **agents can build thei
 
 **A neighbor that audits, not a system that replaces.** Because the MVM ships as a container, you can deploy it *next to* any existing system — the same pod, the same Kubernetes cluster — and its agents watch it continuously: record how it behaves, detect failures, talk to other agents or external systems (via `$DEVICE` HTTP/webhooks) to correlate problems, and leave logs with full traceability (who, when, what, in what order). One container adds constant auditing, maintenance alerts and an A2A bridge to whatever you already run — without touching a line of it.
 
-**Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · 19-58% less wire. [Benchmarks →](docs/BENCHMARKS.md)
+**Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · up to 58% less wire. [Benchmarks →](docs/BENCHMARKS.md)
 
 ---
 
 ## Transport levels
 
 ```
-Level 1 — Stream           (stdio, TCP, WebSocket; Hyb128 frames, 19-58% savings)
+Level 1 — Stream           (stdio, TCP, WebSocket; Hyb128 frames, up to 58% savings)
 Level 2 — SHM/mmap 🔥      (local IPC, zero-copy ring buffers, sub-ms latency)
 Level 3 — Datagram         (UDP + multicast, service discovery, fire-and-forget)
 Level 4 — QUIC             (WAN, HTTP/3, production)
@@ -313,7 +313,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 
 | Feature | Status | Details |
 |---------|--------|---------|
-| LUMEN WebSocket dashboard | ✅ Deployed | Real-time dashboard on :9877, 80% compression |
+| LUMEN WebSocket dashboard | ✅ Deployed | Real-time dashboard on :9877, high compression |
 | Token-efficient tools | ✅ Deployed | state_snapshot, thought_compress (90% output savings) |
 | Proactive cognitive system | ✅ Deployed | Auto-evaluate, pattern suggestions, work reminders |
 | Multi-machine mesh (Phase E) | 🚧 Planned | Distributed LUMEN-over-WebSocket across Cloudflare |

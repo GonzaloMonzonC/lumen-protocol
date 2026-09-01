@@ -15,7 +15,7 @@ LUMEN wire format (magic bytes LUM\x01 + u32 length + zlib compression) is being
 
 ## Competitive Advantage
 
-- Compression: 55-80% vs JSON → lower bandwidth, lower cloud costs
+- Compression: up to 58% vs JSON → lower bandwidth, lower cloud costs
 - Binary framing: faster parse than JSON, no string conversion
 - Streaming support: TYPE_STREAM_DATA for partial updates (only changed data, not full payload)
 - Type safety: native int/float/bool types, no string conversion roundtrip
