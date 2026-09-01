@@ -3,7 +3,7 @@
 LUMEN Native Thinking MCP Server — speaks LUMEN binary protocol natively.
 
 Uses the same tool logic as server.py but with native binary transport
-for 60-80% wire savings, MUX support, and streaming.
+for ~29% avg wire savings (up to 40%), MUX support, and streaming.
 """
 
 from __future__ import annotations

@@ -113,7 +113,7 @@
 | `mux.rs` | 657 | Multiplexer: channels, flow control |
 | `handshake.rs` | 577 | Protocol handshake: version negotiation, capabilities |
 | `quic.rs` | 655 | QUIC transport (multi-node) |
-| `compress.rs` | 627 | Wire compression (55-80%) |
+| `compress.rs` | 627 | Wire compression (up to 58%) |
 | `datagram.rs` | 390 | Datagram transport |
 | `crypto.rs` | 683 | Encryption: Hyb128, key exchange |
 | `macaroon.rs` | 675 | Macaroon-based auth tokens |

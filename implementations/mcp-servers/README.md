@@ -8,9 +8,9 @@ Sandboxing, session isolation, Windows parity, and reproducible benchmarks compl
 Three transport modes per server:
 
 - **`server.py`** — Standard JSON-RPC over stdio, LUMEN wrapper at transport layer (32-60% wire savings).
-- **`server_native.py`** — LUMEN binary frames, PROBE/ACK handshake, no JSON-RPC wrapping (55-80% savings).
+- **`server_native.py`** — LUMEN binary frames, PROBE/ACK handshake, no JSON-RPC wrapping (up to 58% savings).
   ⚠️ Requires binary pipes (Hermes plugin bridge, not MCP config).
-- **`server_shm.py`** 🔥 — **Level 2 zero-copy** via mmap ring buffers. 55-80% wire savings + zero kernel copies.
+- **`server_shm.py`** 🔥 — **Level 2 zero-copy** via mmap ring buffers. up to 58% wire savings + zero kernel copies.
   **Plugin `lumen-shm-bridge` provides transparent Hermes integration.**
 
 ## Servers
@@ -129,7 +129,7 @@ Use the plugin for SHM (Level 2) or native binary transport.
 ├─────────────────────────────────────────────────────────────┤
 │  Level 1 (Binary)                                           │
 │  Hermes ←→ LUMEN frames (stdio) ←→ server_native.py        │
-│  55-80% wire savings, requires binary pipes                 │
+│  up to 58% wire savings, requires binary pipes                 │
 ├─────────────────────────────────────────────────────────────┤
 │  Level 1 (Wrapper)                                          │
 │  Hermes ←→ LUMEN-wrapped JSON-RPC ←→ server.py             │

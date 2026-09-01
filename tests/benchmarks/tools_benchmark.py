@@ -501,7 +501,7 @@ def generate_report(
     lines.append("### What this means")
     lines.append("")
     if avg_savings >= 50:
-        lines.append(f"✅ **LUMEN delivers >50% wire savings on real MCP payloads.** The claim of 40-80% savings is verified.")
+        lines.append(f"✅ **LUMEN delivers >50% wire savings on real MCP payloads.** The claim of up to 58% savings is verified.")
     elif avg_savings >= 30:
         lines.append(f"🟡 **LUMEN delivers {fmt_pct(avg_savings)} savings.** Within expected range for mixed payload corpus.")
     else:

@@ -69,4 +69,4 @@ PDB is the **database layer** of LUMEN. LUMEN is the cognitive OS (thinking, kan
 - **Deterministic $ORDER** — walk the tree in MUMPS collation order
 - **Atomic** within a transaction — consistent reads/writes
 - **40+ tools** across KV, SQL, enterprise, and M-Light servers
-- **SHM transport** — zero-copy shared memory for 55-80% wire compression
+- **SHM transport** — zero-copy shared memory for up to 58% wire compression

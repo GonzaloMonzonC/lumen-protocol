@@ -14,7 +14,7 @@ branched, clustered, and bridged across sessions.
 ### 🧠 Reasoning Chain Engine (7)
 | Tool | Description | Wire Savings |
 |------|-------------|-------------|
-| `sequential_thinking` | Record thoughts, revisions, branches. Chain persists across turns. | 60-80% |
+| `sequential_thinking` | Record thoughts, revisions, branches. Chain persists across turns. | 17-40% |
 | `thought_similarity` | Find semantically similar thoughts via TF-IDF cosine similarity. | 50-70% |
 | `thought_contradiction` | Detect thoughts that contradict earlier ones (sentiment-aware, EN+ES). | 40-60% |
 | `thought_summarize` | Cluster thoughts by theme (agglomerative clustering). | 55-75% |
@@ -172,7 +172,7 @@ LLM: I need to plan a DB migration. Let me think step by step.
 
 - **30-thought chain**: 4ms to build, 15ms to summarize
 - **TF-IDF engine**: pure Python stdlib, zero dependencies
-- **Wire savings**: 60-80% (highly structured thought metadata)
+- **Wire savings**: 17-40% (highly structured thought metadata)
 
 ## Test
 

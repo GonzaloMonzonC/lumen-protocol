@@ -112,7 +112,7 @@ for `mcp__lumen_*` — the 120 tools will be listed there.
 
 ---
 
-## Optional: Native LUMEN binary transport (50-80% wire savings)
+## Optional: Native LUMEN binary transport (up to 58% wire savings)
 
 For even more compression, the servers also ship a native binary mode
 (`server_native.py` + `transport: lumen`). This path is **experimental** with

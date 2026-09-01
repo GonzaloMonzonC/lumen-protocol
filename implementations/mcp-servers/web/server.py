@@ -4,7 +4,7 @@ LUMEN Web Search + Extract MCP Server.
 Unified search + extraction in a single call with LUMEN binary transport.
 Superior to Hermes built-in web_search + web_extract because:
   - 1 round-trip instead of 2 (search + extract combined)
-  - LUMEN compresses structured results 40-50%
+  - LUMEN compresses structured results 27-36%
   - Multi-agent cache sharing
   - Smart auto-extraction of top results
   - Content enrichment (reading time, language, word count)

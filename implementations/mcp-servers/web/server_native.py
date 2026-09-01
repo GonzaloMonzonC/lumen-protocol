@@ -3,7 +3,7 @@
 LUMEN Native Web MCP Server — speaks LUMEN binary protocol natively.
 
 Unified web_search + web_extract with native binary transport
-for 40-50% wire savings and multi-agent cache sharing.
+for 27-36% wire savings and multi-agent cache sharing.
 """
 
 from __future__ import annotations

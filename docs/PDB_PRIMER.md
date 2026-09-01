@@ -111,4 +111,4 @@ PDB is the **storage layer** of LUMEN. LUMEN is the cognitive OS; PDB is the dat
 - **$ORDER-based traversal**: Deterministic tree walking, not SQL joins
 - **Atomic**: All mutations are atomic within a transaction
 - **Sub-key encoding**: Internal MUMPS encoding (\\x02 separator, \\xff terminator)
-- **SHM transport**: Zero-copy shared memory bridge for 55-80% wire compression
+- **SHM transport**: Zero-copy shared memory bridge for up to 58% wire compression

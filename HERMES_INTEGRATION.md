@@ -56,7 +56,7 @@ The LLM sees standard tool names — zero prompt cache impact.
 | SHM Level 2 | ❌ Not supported | ✅ Zero-copy mmap ring buffers |
 | Tool names | `mcp_lumen_*` (prefixed) | Standard names (read_file, etc.) |
 | LLM context | Changed (new tool names) | **Unchanged** (override built-ins) |
-| Wire savings | 32-60% (JSON-RPC wrapper) | **55-80%** (native binary) |
+| Wire savings | 32-60% (JSON-RPC wrapper) | **up to 58%** (native binary) |
 | Setup | Edit config.yaml + restart | Install plugin + restart |
 
 ### Install
@@ -239,10 +239,10 @@ LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`.
 
 | Server | Tools | Wire Savings | Config |
 |--------|-------|-------------|--------|
-| Filesystem | 13 (read_file, write_file, search_files, list_directory, read_files, search_with_context, stream_read, server_stats, patch, file_info, disk_usage, search_filename, find_duplicates) | 32-70% | plain stdio |
-| Web | 2 (web_search, web_extract unified) | 40-50% | plain stdio |
-| Thinking | 81 (kanban/niches, tasks, wiki, patterns, decisions, chains, PDB namespaces, dashboard, …) | 60-80% | plain stdio |
-| PDB | 19 (pdb_get/set/kill, namespaces, vector search, MVM apps, notifications, watches) | — | plain stdio |
+| Filesystem | 13 (read_file, write_file, search_files, list_directory, read_files, search_with_context, stream_read, server_stats, patch, file_info, disk_usage, search_filename, find_duplicates) | 34-43% | plain stdio |
+| Web | 2 (web_search, web_extract unified) | 27-36% | plain stdio |
+| Thinking | 84 (kanban/niches, tasks, wiki, patterns, decisions, chains, PDB namespaces, dashboard, …) | 17-40% | plain stdio |
+| PDB | 21 (pdb_get/set/kill, namespaces, vector search, MVM apps, notifications, watches) | — | plain stdio |
 
 Verified registration (JSON-RPC stdio — **no `transport: lumen` keys required**):
 

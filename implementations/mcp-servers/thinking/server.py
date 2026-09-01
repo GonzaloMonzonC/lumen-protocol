@@ -13,7 +13,7 @@ Enhanced with:
   - Chain-to-plan conversion
   - Cross-chain bridging (knowledge reuse across sessions)
 
-LUMEN benefits: 60-80% wire savings (highly structured data),
+LUMEN benefits: ~29% avg wire savings (up to 40%, highly structured data),
                  multi-agent shared reasoning, streaming for long chains.
 
 Hermes config:

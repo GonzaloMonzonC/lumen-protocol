@@ -1,7 +1,7 @@
 # 🔬 LUMEN Tools Benchmark Report
 
-> Generated: 2026-06-17 22:24:18
-> Python: 3.11.15
+> Generated: 2026-09-01 23:18:41
+> Python: 3.13.2
 > LUMEN version: 0.1.0
 
 ---
@@ -55,9 +55,9 @@ payloads (> 10KB), LUMEN's binary path overtakes JSON.
 
 | Payload size | JSON mean | LUMEN mean | Winner |
 |-------------|-----------|------------|--------|
-| Small (< 500B) | 0.0129 ms | 0.0433 ms | JSON |
-| Large (18 KB) | 0.5452 ms | 3.5190 ms | JSON |
-| X-Large (10 KB string) | 0.0584 ms | 0.0114 ms | LUMEN |
+| Small (< 500B) | 0.0091 ms | 0.0342 ms | JSON |
+| Large (18 KB) | 0.4798 ms | 3.1648 ms | JSON |
+| X-Large (10 KB string) | 0.0566 ms | 0.0100 ms | LUMEN |
 
 ---
 
@@ -98,7 +98,7 @@ payloads (> 10KB), LUMEN's binary path overtakes JSON.
 🟡 **LUMEN delivers 44.2% savings.** Within expected range for mixed payload corpus.
 
 ℹ️  **For small payloads (< 500B):** JSON is faster (Python's C json module). LUMEN's value is wire compression, not CPU cycles for tiny messages.
-✅ **For large payloads (> 10KB):** LUMEN is faster (5.1× vs JSON). Binary codec overtakes JSON parser.
+✅ **For large payloads (> 10KB):** LUMEN is faster (5.7× vs JSON). Binary codec overtakes JSON parser.
 
 ✅ **All payloads verify correctly.** No data corruption in compress→decompress cycle.
 
