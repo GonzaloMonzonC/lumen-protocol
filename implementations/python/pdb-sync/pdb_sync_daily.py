@@ -127,8 +127,9 @@ def main() -> int:
     errors = []
     for ns in AGENT_NS:
         try:
-            # 1) LOCAL → EDGE: journal local pendiente
-            push = engine.push_pending(ns)
+            # 1) LOCAL → EDGE: push por DIFF real (el journal WAL nunca se alimenta
+            #    en el flujo real → push_pending devolvía applied=0 siempre)
+            push = engine.push_full_diff(ns)
             if isinstance(push, dict) and "error" in push:
                 errors.append(f"{ns} push: {push['error']}")
                 continue

@@ -83,6 +83,98 @@ class SyncEngine:
         return entry
     
     # ── Push (local → cloud) ──
+    def push_full_diff(self, ns: str, batch_size: int = 100) -> dict:
+        """Push local→edge por DIFF de subkeys — LOCAL ES CANÓNICO.
+
+        El journal (WAL) del SyncEngine nunca se alimenta en el flujo real
+        (MVM/scripts/vm_api escriben directo a _globals) → push_pending devuelve
+        applied=0 SIEMPRE y el edge queda desactualizado. Este método compara
+        el contenido REAL del PDB local contra el edge y pushea lo que falta.
+        Sin loops: el pull de vuelta se salta (timestamps embebidos / anti-bucle).
+        """
+        from pdb_tools import decode_subkey, encode_subkey
+
+        # 1) Subkeys del edge (pull completo paginado, keyset)
+        edge_keys = set()
+        cursor, last_key = None, None
+        for _ in range(200):  # safety: 200 páginas × 500 = 100k entries
+            result = self.ddp.pull(ns, since=cursor or "1970-01-01", batch_size=500, last_key=last_key)
+            if "error" in result:
+                return {"error": f"pull edge: {result['error']}"}
+            for e in result.get("entries", []):
+                raw = e.get("key", "")
+                if isinstance(raw, str) and raw and all(c in "0123456789abcdefABCDEF" for c in raw):
+                    kb = bytes.fromhex(raw)
+                else:
+                    kb = str(raw).encode()
+                try:
+                    edge_keys.add(kb.decode())
+                except UnicodeDecodeError:
+                    try:
+                        edge_keys.add("\x00".join(decode_subkey(kb)))
+                    except Exception:
+                        continue
+            if not result.get("more"):
+                break
+            cursor = result.get("since", cursor)
+            last_key = result.get("last_key")
+            if not last_key:
+                break
+
+        # 2) Subkeys locales (SQL directo — misma máquina, instantáneo).
+        #    Read-only + busy_timeout: el vm_api escribe constantemente y un
+        #    SELECT largo puede chocar con el lock de escritura.
+        import sqlite3
+        from pathlib import Path as _Path
+        db_path = os.environ.get(
+            "PDB_PATH", str(_Path.home() / "pdb-data" / "lumen-pdb.db")
+        )
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
+        con.execute("PRAGMA busy_timeout = 15000")
+        rows = con.execute("SELECT subkey, value FROM _globals WHERE ns = ?", (ns,)).fetchall()
+        con.close()
+
+        local_map = {}
+        for sk_blob, value in rows:
+            sk = bytes(sk_blob) if isinstance(sk_blob, (bytes, bytearray)) else str(sk_blob).encode()
+            try:
+                subs = decode_subkey(sk)
+            except Exception:
+                try:
+                    subs = [sk.decode()]
+                except Exception:
+                    continue
+            # Normalizar: subíndices numéricos (MUMPS) y values binarios
+            subs = [str(s) for s in subs]
+            if isinstance(value, (bytes, bytearray)):
+                value = value.decode("utf-8", errors="replace")
+            if subs:
+                local_map["\x00".join(subs)] = (subs, value)
+
+        # 3) Diff: lo que el edge NO tiene
+        missing = sorted(set(local_map) - edge_keys)
+        if not missing:
+            return {"status": "ok", "applied": 0, "diff": 0, "edge": len(edge_keys), "local": len(local_map)}
+
+        # 4) Push en lotes (el edge resuelve conflictos por timestamp)
+        pushed = 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for i in range(0, len(missing), batch_size):
+            entries = []
+            for norm in missing[i:i + batch_size]:
+                subs, value = local_map[norm]
+                entries.append({
+                    "key": encode_subkey(subs).hex(),
+                    "value": value,
+                    "updated_at": now_iso,
+                })
+            result = self.ddp.push(ns, entries)
+            if "error" in result:
+                return {"error": f"push: {result['error']}", "applied": pushed}
+            pushed += len(entries)
+        return {"status": "ok", "applied": pushed, "diff": len(missing), "edge": len(edge_keys), "local": len(local_map)}
+
+    # ── Push (local → cloud, journal) ──
     def push_pending(self, ns: str) -> dict:
         """Enviar entries locales pendientes al cloud.
 
