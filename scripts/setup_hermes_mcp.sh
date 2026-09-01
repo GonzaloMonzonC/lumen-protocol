@@ -60,4 +60,4 @@ echo "◆ Verificación:"
 hermes mcp list
 echo
 echo "✓ Listo. Reinicia Hermes (/reset o sesión nueva) para cargar las"
-echo "  115 tools (búscalas como mcp__lumen_*)."
+echo "  120 tools (búscalas como mcp__lumen_*)."

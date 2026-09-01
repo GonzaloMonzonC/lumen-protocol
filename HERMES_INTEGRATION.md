@@ -159,7 +159,7 @@ Measured with real MCP workloads on Windows 10, Python 3.11, Node.js 22.
 |--------|------|-------|--------|
 | Test server (Python) | stdio | ✅ | Verified |
 | [cadencia-mcp](https://github.com/GonzaloMonzonC/cadencia) | stdio (TypeScript) | ✅ JSON-RPC fallback | Verified |
-| LUMEN 4-server stack (filesystem, web, thinking, pdb) | stdio JSON-RPC | ⬜ JSON-RPC | ✅ Verified — 115 tools with Hermes MCP client |
+| LUMEN 4-server stack (filesystem, web, thinking, pdb) | stdio JSON-RPC | ⬜ JSON-RPC | ✅ Verified — 120 tools with Hermes MCP client |
 | Any stdio MCP server | stdio | ⬜ auto-negotiate | Fallback-safe |
 
 Testing cadencia-mcp with DeepSeek V4 Pro:
@@ -234,7 +234,7 @@ All options are per-server under `mcp_servers.<name>`.
 ## MCP Servers
 
 LUMEN ships with production-ready MCP servers in `implementations/mcp-servers/`.
-**Verified end-to-end with the Hermes MCP client: 115 tools across 4 servers**
+**Verified end-to-end with the Hermes MCP client: 120 tools across 4 servers**
 (handshake `initialize` + `tools/list` + live tool calls):
 
 | Server | Tools | Wire Savings | Config |
@@ -272,7 +272,7 @@ Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_herm
 > complete `initialize` (protocolVersion + serverInfo) and `tools/list`
 > response during discovery. `pdb/server.py` previously returned an empty
 > `tools/list` and no `initialize`, which made the client hang. All 4 servers
-> now pass the full handshake — verified live (115 tools, 0 errors).
+> now pass the full handshake — verified live (120 tools, 0 errors).
 >
 > **Data path fix**: `pdb_tools.py` (and several pdb-sync scripts) previously
 > hardcoded the SQLite DB path to `C:\Users\gonzalo\pdb-data\lumen-pdb.db`
@@ -281,7 +281,7 @@ Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_herm
 > `implementations/mcp-servers/pdb/lumen-pdb.db` (repo-relative), overridable
 > via `PDB_PATH` / `PDB_DB`.
 
-115 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
+120 tools, zero API keys required. See [implementations/mcp-servers/](implementations/mcp-servers/).
 
 ### Tool Selection — SOUL.md
 
@@ -312,7 +312,7 @@ tools:
 
 ## Roadmap
 
-- [x] Hermes Agent integration — [PR #47740](https://github.com/NousResearch/hermes-agent/pull/47740)
+- [x] Hermes Agent integration — [lumen-shm-bridge plugin](implementations/hermes-plugins/lumen-shm-bridge/)
 - [x] Windows compatibility fixes
 - [x] MCP servers: filesystem (9 tools), web (2 tools), thinking (7 tools)
 - [ ] Package `lumen-mcp` on PyPI

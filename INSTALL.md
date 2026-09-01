@@ -4,8 +4,8 @@
 > **[QUICKSTART_ES.md](QUICKSTART_ES.md)**) — zero to LLM agents in ~10 minutes.
 > This guide covers the Hermes Agent MCP integration specifically.
 
-> **Status**: ✅ Verified — **115 tools across 4 MCP servers** (filesystem, web, thinking, PDB)
-> **PR**: [NousResearch/hermes-agent#47740](https://github.com/NousResearch/hermes-agent/pull/47740)
+> **Status**: ✅ Verified — **120 tools across 4 MCP servers** (filesystem, web, thinking, PDB)
+> **Integración**: [lumen-shm-bridge plugin](implementations/hermes-plugins/lumen-shm-bridge/) (sin cambios al core de Hermes)
 > **Transport**: JSON-RPC stdio (plain MCP) — the path verified with the Hermes MCP client
 
 ---
@@ -96,7 +96,7 @@ hermes mcp list
 ```
 
 All 4 servers must show `✓ enabled`. Then, in the agent's tool catalog, search
-for `mcp__lumen_*` — the 115 tools will be listed there.
+for `mcp__lumen_*` — the 120 tools will be listed there.
 
 ---
 
