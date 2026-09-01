@@ -28,7 +28,7 @@
 
 Three bets. Three walls the industry will hit:
 
-**1. The I/O collapse (the JSON-RPC problem).** While a human talks to an LLM, JSON latency is invisible. When 10 agents debate, extract data, review schemas and run retrospectives, the system becomes I/O-bound — the wire, not the model, is the bottleneck. The inevitable future of multi-agent orchestration is **binary transport and shared zero-copy memory at the edge**. LUMEN already ships it, benchmarked: **up to 58% wire savings, Level 2 SHM (mmap ring buffers, zero kernel copies, sub-ms latency), 20K calls/sec in enterprise stress tests, 46% smaller LLM token streams**.
+**1. The I/O collapse (the JSON-RPC problem).** While a human talks to an LLM, JSON latency is invisible. When 10 agents debate, extract data, review schemas and run retrospectives, the system becomes I/O-bound — the wire, not the model, is the bottleneck. The inevitable future of multi-agent orchestration is **binary transport and shared zero-copy memory at the edge**. LUMEN already ships it, benchmarked: **up to 58% wire savings, Level 2 SHM (mmap ring buffers, zero kernel copies, sub-ms latency), up to 20K calls/sec (state_snapshot) in enterprise stress tests, 46% smaller LLM token streams**.
 
 **2. The end of the "RAG memory" patch.** Giving agents memory by force-injecting vector databases into stateless architectures is a patch — vectors are an index, not a memory. The real future of artificial cognition is **transactional, structured, hierarchical state that acts as native cognitive memory**: a virtual machine on disk where decisions, dictionaries and behavioral patterns live intrinsically in the infrastructure. That is **PDB + MVM**: MUMPS (1966) heritage globals, `$LOCK`, `^IDX` auto-indexes, `ON SET`/`ON KILL` triggers, WAL journaling, 15 μs/GET — and an M Virtual Machine running autonomous, persistent processes.
 
@@ -121,13 +121,14 @@ bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 
 **It's not just theory.** Benchmark on real MCP tool responses:
 
-| Server | JSON-RPC | LUMEN | Savings |
-|--------|----------|-------|---------|
-| Filesystem (13 tools) | 100% | 81% | **19% smaller** |
-| Thinking (84 tools) | 100% | 67% | **33% smaller** |
-| Web (2 tools) | 100% | 73% | **27% smaller** |
-| PDB (21 tools) | 100% | 71% | **29% smaller** |
-| Objective Loop (5 tools) | 100% | 65% | **35% smaller** |
+| Category | JSON-RPC | LUMEN | Savings |
+|----------|----------|-------|---------|
+| Filesystem (13 tools) | 1.6 KB | 967 B | **40%** |
+| Web (2 tools) | 459 B | 315 B | **31%** |
+| Thinking (84 tools) | 1.8 KB | 1.3 KB | **29%** |
+| Large response (tools/list) | 17.7 KB | 9.5 KB | **46%** |
+| Heartbeat (control) | 50 B | 21 B | **58%** |
+| **Aggregate (21 payloads)** | 21.6 KB | 12.0 KB | **44%** |
 
 > **Benchmarked**: 120 tools across 4 servers, 0 errors. **~44% avg wire compression (up to 58%)** across 21 MCP payloads — reproducible with `python tests/benchmarks/tools_benchmark.py`. See [raw speed benchmarks](docs/BENCHMARKS.md).
 
@@ -138,11 +139,10 @@ bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 | Benchmark | JSON-RPC | LUMEN | Reduction |
 |-----------|----------|-------|-----------|
 | Small RPC (heartbeat) | 50 B | 21 B | **58%** |
-| Tool list (106 tools) | 39.7 KB | 24.8 KB | **37%** |
-| LLM token stream (10K) | 1009 KB | 543 KB | **46%** |
-| Agent loop (30 turns) | 6.4 KB | 3.3 KB | **48%** |
-| tools/list (4 tools) | 1128 B | 581 B | **48%** |
-| tool call (echo) | 118 B | 61 B | **48%** |
+| Tool list (100 tools) | 39.7 KB | 24.8 KB | **37%** |
+| LLM token stream (10K) | 1009.6 KB | 543.7 KB | **46%** |
+| Multi-agent (10×100 reqs) | 193.8 KB | 111.1 KB | **43%** |
+| File context (50×100 KB) | 5.07 MB | 4.89 MB | **4%** |
 
 > Run it yourself: `python examples/cost-calculator/cost_calculator.py`
 
