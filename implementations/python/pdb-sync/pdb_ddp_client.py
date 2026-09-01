@@ -54,13 +54,12 @@ def _load_secrets_env() -> dict:
 
 
 def _default_key() -> str:
-    """DDP_HMAC_KEY: env → secrets.env/hermes .env → WLA .env (misma clave compartida del ecosistema)."""
-    k = os.environ.get("DDP_HMAC_KEY", "")
-    if k:
-        return k
+    """DDP_HMAC_KEY: secrets.env/hermes .env → WLA .env → env (la env del proceso
+    puede estar OBSOLETA: el gateway/scheduler hereda la key de cuando se lanzó,
+    p.ej. tras una rotación — los ficheros son la fuente canónica compartida)."""
     for p in [
-        Path(os.environ.get("HERMES_ENV", str(Path.home() / "AppData" / "Local" / "hermes" / ".env"))),
         Path.home() / ".hermes" / "secrets.env",
+        Path(os.environ.get("HERMES_ENV", str(Path.home() / "AppData" / "Local" / "hermes" / ".env"))),
         Path(os.environ.get("WLA_ENV", str(Path.home() / "Documents" / "GitHub" / "ProjectOS" / "whatsapp-local-agent" / ".env"))),
     ]:
         if p.exists():
@@ -70,7 +69,7 @@ def _default_key() -> str:
                         return line.strip().split("=", 1)[1]
             except OSError:
                 continue
-    return ""
+    return os.environ.get("DDP_HMAC_KEY", "")
 
 
 class DDPError(RuntimeError):
@@ -88,7 +87,7 @@ class DDPClient:
             or secrets.get("PDB_EDGE_URL")
             or "https://pdb-edge.gonzalomonzonc.workers.dev"
         ).rstrip("/")
-        self.key = key if key is not None else (os.environ.get("DDP_HMAC_KEY") or _default_key())
+        self.key = key if key is not None else _default_key()
         self.timeout = timeout
 
     # ── Firmado ──────────────────────────────────────────────────────
