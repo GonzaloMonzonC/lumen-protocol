@@ -156,11 +156,10 @@ pitfalls): **[docs/GUIA_VM_API.md §11](docs/GUIA_VM_API.md)**.
 
 ## 8. Optional: agent registry + dispatcher
 
-Seed the local agent registry (17 agents: Cloudflare workers + Poli personality
-modes) and chat through the dispatcher:
+Seed the SHUTTLE + NACER demo agents and chat through the dispatcher:
 
 ```bash
-.venv/Scripts/python.exe implementations/python/pdb-sync/seed_agentes.py   # or .venv/bin/python
+.venv/Scripts/python.exe implementations/python/pdb-sync/seed_agente_shuttle.py   # or .venv/bin/python
 
 curl -s -X POST http://localhost:8081/ddp/agent/chat -H "Content-Type: application/json" \
   -d '{"agente": "tom", "mensaje": "hello"}'
@@ -220,4 +219,3 @@ Follow **[INSTALL.md](INSTALL.md)** (or `INSTALL_ES.md`).
 | **[docs/GUIA_VM_API.md](docs/GUIA_VM_API.md)** | vm_api deep dive: endpoints, `/vm/execute` contract, HMAC, audit, **LLM agents (§11)** |
 | **[docs/EXTENSIBILIDAD-MVM.md](docs/EXTENSIBILIDAD-MVM.md)** | MVM device HTTP + roadmap F2/F3 |
 | **[docs/INDEX.md](docs/INDEX.md)** | Full documentation map |
-| **[docs/diario/](docs/diario/)** | Daily operation logs (Spanish) |

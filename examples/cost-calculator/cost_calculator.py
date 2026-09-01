@@ -341,8 +341,8 @@ def fmt_pct(pct: float) -> str:
 def print_header() -> None:
     print()
     print("  " + "\u2550" * 78)
-    print("  \u2551" + f"{"LUMEN COST CALCULATOR  -  v1.0":^76}" + "\u2551")
-    print("  \u2551" + f"{"How much is JSON-RPC costing your infrastructure?":^76}" + "\u2551")
+    print("  \u2551" + "{:^76}".format("LUMEN COST CALCULATOR  -  v1.0") + "\u2551")
+    print("  \u2551" + "{:^76}".format("How much is JSON-RPC costing your infrastructure?") + "\u2551")
     print("  " + "\u2550" * 78)
     print()
 
@@ -350,9 +350,9 @@ def print_header() -> None:
 def print_scenario_table(results: list[ScenarioResult]) -> None:
     print()
     print("  " + "\u2550" * 82)
-    print(f"  \u2551 {"LUMEN Protocol  -  Wire Size Comparison":^78} \u2551")
+    print("  \u2551 {:^78} \u2551".format("LUMEN Protocol  -  Wire Size Comparison"))
     print("  " + "\u2550" * 82)
-    print(f"  \u2551 {"MCP Scenario":<38} {"JSON-RPC":>12} {"LUMEN":>12} {"Savings":>12} \u2551")
+    print("  \u2551 {:<38} {:>12} {:>12} {:>12} \u2551".format("MCP Scenario", "JSON-RPC", "LUMEN", "Savings"))
     print("  \u2551 " + "-" * 76 + " \u2551")
     total_json = 0
     total_lumen = 0
@@ -365,7 +365,7 @@ def print_scenario_table(results: list[ScenarioResult]) -> None:
         total_lumen += r.lumen_wire_bytes
     print("  \u2551 " + "-" * 76 + " \u2551")
     avg_savings = ((total_json - total_lumen) / total_json * 100) if total_json > 0 else 0
-    print(f"  \u2551 {"AGGREGATE":<38} {fmt_bytes(total_json):>12} {fmt_bytes(total_lumen):>12} {fmt_pct(avg_savings):>12} \u2551")
+    print("  \u2551 {:<38} {:>12} {:>12} {:>12} \u2551".format("AGGREGATE", fmt_bytes(total_json), fmt_bytes(total_lumen), fmt_pct(avg_savings)))
     print("  " + "\u2550" * 82)
     print()
     return avg_savings
@@ -380,9 +380,9 @@ def print_cost_projection(avg_savings_pct: float, monthly_calls: int,
     monthly_lumen_cost = monthly_lumen_gb * avg_egress_per_gb
 
     print("\n  " + "\u2550" * 78)
-    print(f"  \u2551 {"LUMEN Cost Projection  -  Annual Savings":^76} \u2551")
+    print("  \u2551 {:^76} \u2551".format("LUMEN Cost Projection  -  Annual Savings"))
     print("  " + "\u2550" * 78)
-    print(f"  \u2551 {"Assumptions:":<76} \u2551")
+    print("  \u2551 {:<76} \u2551".format("Assumptions:"))
     print(f"  \u2551   Monthly MCP calls:      {monthly_calls:>12,}                          \u2551")
     print(f"  \u2551   Average JSON payload:   {avg_json_bytes / 1024:.1f} KB                            \u2551")
     print(f"  \u2551   Average wire savings:   {avg_savings_pct:.1f}%                            \u2551")
