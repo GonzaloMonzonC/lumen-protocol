@@ -266,8 +266,8 @@ def fmt_bytes(b: int) -> str:
 def print_header() -> None:
     print()
     print("  " + "\u2550" * 74)
-    print("  \u2551" + f"{"LUMEN AGENT LOOP  -  Session Dictionary Demo":^72}" + "\u2551")
-    print("  \u2551" + f"{"\"It gets better the more you use it.\"":^72}" + "\u2551")
+    print("  \u2551" + "{:^72}".format("LUMEN AGENT LOOP  -  Session Dictionary Demo") + "\u2551")
+    print("  \u2551" + "{:^72}".format("\"It gets better the more you use it.\"") + "\u2551")
     print("  " + "\u2550" * 74)
     print()
 
@@ -302,7 +302,7 @@ def print_turn_table(turns: list[TurnResult]) -> float:
     """Print table of results and return aggregate savings."""
     print()
     print("  " + "\u2550" * 74)
-    print(f"  \u2551 {"Turn":<6} {"JSON-RPC":>10} {"LUMEN Cold":>11} {"LUMEN Warm":>11} {"Savings":>11} {"Dict":>7} \u2551")
+    print("  \u2551 {:<6} {:>10} {:>11} {:>11} {:>11} {:>7} \u2551".format("Turn", "JSON-RPC", "LUMEN Cold", "LUMEN Warm", "Savings", "Dict"))
     print("  \u2551 " + "-" * 68 + " \u2551")
 
     # Calculate running dict size
@@ -346,9 +346,12 @@ def print_turn_table(turns: list[TurnResult]) -> float:
     ) if cumulative_json > 0 else 0
 
     print(
-        f"  \u2551 {"TOTAL":<6} {fmt_bytes(cumulative_json):>10} "
-        f"{fmt_bytes(cumulative_lumen_cold):>11} {fmt_bytes(cumulative_lumen_warm):>11} "
-        f"{total_warm_savings:.1f}%{" >>>" if total_warm_savings >= 80 else "":>4} {"":>6} \u2551"
+        "  \u2551 {:<6} {:>10} {:>11} {:>11} {:.1f}%{:>4} {:>6} \u2551".format(
+            "TOTAL", fmt_bytes(cumulative_json),
+            fmt_bytes(cumulative_lumen_cold), fmt_bytes(cumulative_lumen_warm),
+            total_warm_savings,
+            " >>>" if total_warm_savings >= 80 else "", ""
+        )
     )
     print("  " + "\u2550" * 74)
 
@@ -365,7 +368,7 @@ def print_ascii_graph(turns: list[TurnResult]) -> None:
     """Draw an ASCII graph of savings over time."""
     print()
     print("  " + "\u2550" * 74)
-    print(f"  \u2551 {"Savings Progression Over Time":^72} \u2551")
+    print("  \u2551 {:^72} \u2551".format("Savings Progression Over Time"))
     print("  " + "\u2550" * 74)
     print()
 
