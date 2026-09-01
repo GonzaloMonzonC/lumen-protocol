@@ -522,6 +522,6 @@ class LumenWebSocketTransport(Transport):
                 self.onclose()
 
 # ── Backward compatibility ──────────────────────────────────
-# Hermes Agent PR #47740 references MCPLumenTransport.
+# Hermes Agent integrates via the lumen-shm-bridge plugin (MCPLumenTransport).
 # Keep this alias until Hermes updates its import.
 MCPLumenTransport = LumenStdioTransport

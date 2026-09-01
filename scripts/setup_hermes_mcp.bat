@@ -58,5 +58,5 @@ echo Verificacion:
 hermes mcp list
 echo.
 echo Listo. Reinicia Hermes (/reset o sesion nueva) para cargar las
-echo 115 tools (buscalas como mcp__lumen_*).
+echo 120 tools (buscalas como mcp__lumen_*).
 endlocal

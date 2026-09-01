@@ -73,7 +73,7 @@ Los índices se actualizan automáticamente:
 | `pdb_lock(ns, subs, timeout?)` | `LOCK ^ns(subs)` | Acquire a resource lock. Blocks other sessions. |
 | `pdb_unlock(ns, subs?)` / `pdb_unlock(all=true)` | `LOCK` (no args) | Release specific lock or all held locks. |
 
-**40 tools total** via the PDB server.
+**21 tools total** via the PDB server.
 
 ## Quick start
 
