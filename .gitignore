@@ -90,3 +90,10 @@ implementations/mcp-servers/poli/routines/*.mac
 implementations/mcp-servers/pdb/checkin_*.py
 implementations/mcp-servers/pdb/checkin_*.md
 .venv/
+
+# Compiled binaries (not tracked)
+*.dll
+
+# Benchmark JSON output (regenerate locally)
+benchmark_*.json
+bench_*.json
