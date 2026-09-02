@@ -118,7 +118,7 @@ curl http://localhost:8081/ddp/health
 ```bash
 curl -s -X POST http://localhost:8081/vm/execute -H "Content-Type: application/json" \
   -d '{"script": "S ^MI_PRIMER_NS(1)=\"hola\" W \"escrito!\""}'
-# → {"ok": true, "result": "hola", ...}
+# → {"ok": true, "result": null, ...}   ("hola" lives in ^MI_PRIMER_NS(1) — pulled below)
 
 curl -s "http://localhost:8081/ddp/pull?ns=MI_PRIMER_NS"
 # → {"success": true, "entries": [...], ...}
@@ -156,11 +156,16 @@ pitfalls): **[docs/GUIA_VM_API.md §11](docs/GUIA_VM_API.md)**.
 
 ## 8. Optional: agent registry + dispatcher
 
-Seed the SHUTTLE + NACER demo agents and chat through the dispatcher:
+Seed the SHUTTLE + NACER demo agents (local MVM agents with `^PERSONALITY` +
+`^ROUTINE`; call them from M with `$DEVICE("llm:call",...)`):
 
 ```bash
 .venv/Scripts/python.exe implementations/python/pdb-sync/seed_agente_shuttle.py   # or .venv/bin/python
+```
 
+To chat with remote Cloudflare workers (tom, angi, …) through the dispatcher:
+
+```bash
 curl -s -X POST http://localhost:8081/ddp/agent/chat -H "Content-Type: application/json" \
   -d '{"agente": "tom", "mensaje": "hello"}'
 ```
