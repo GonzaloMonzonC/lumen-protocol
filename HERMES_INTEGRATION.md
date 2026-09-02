@@ -182,7 +182,7 @@ all in `implementations/python/src/lumen/transport.py`:
 | `{**sys.executable, ...}` | Would crash at runtime | `{**os.environ, ...}` |
 | `stdout.read(N)` | Blocks forever on Windows pipes | `readline()` |
 
-See [WINDOWS_FIXES.md](../implementations/python/WINDOWS_FIXES.md) for details.
+See [WINDOWS_FIXES.md](implementations/python/WINDOWS_FIXES.md) for details.
 
 ---
 

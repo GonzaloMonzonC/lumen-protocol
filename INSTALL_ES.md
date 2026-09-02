@@ -214,4 +214,3 @@ export PDB_PATH=/ruta/a/mi-pdb.db
 
 - [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) — Guía completa de integración
 - [TOOLS_GUIDE.md](implementations/mcp-servers/docs/TOOLS_GUIDE.md) — Cuándo usar cada herramienta
-- [RETROSPECTIVE_ES.md](implementations/mcp-servers/RETROSPECTIVE_ES.md) — Comparativa antes/después

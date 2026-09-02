@@ -60,9 +60,9 @@ The 7B model with LUMEN outperforms the 70B model alone in **every dimension exc
 
 | Benchmark | Value | Source |
 |-----------|-------|--------|
-| Thinking throughput | 3,407 calls/sec | `docs/BENCHMARKS.md` |
-| Thinking latency avg | 0.29ms | `docs/BENCHMARKS.md` |
-| FS vs Hermes (terminal) | 9× faster | `docs/BENCHMARKS.md` |
+| Thinking throughput | 3,407 calls/sec | `../../../docs/BENCHMARKS.md` |
+| Thinking latency avg | 0.29ms | `../../../docs/BENCHMARKS.md` |
+| FS vs Hermes (terminal) | 9× faster | `../../../docs/BENCHMARKS.md` |
 | Pattern match precision | 18-38% Jaccard | Empirical, 250 calls |
 | Cross-session recall | 100% (messages persist) | Empirical, Phase B |
 | Session isolation | Zero bleed (100 agent test planned) | Empirical, 5 sessions |
@@ -224,8 +224,8 @@ The model itself is irrelevant. What matters is the exoskeleton.
 
 ## 📚 References
 
-- [LUMEN Cognitive OS Architecture](COGNITIVE_OS.md)
-- [Benchmarks](BENCHMARKS.md)
-- [RFC LUMEN](../RFC_LUMEN.md)
-- [Thinking Server README](../implementations/mcp-servers/thinking/README.md)
-- [Hermes Integration](../HERMES_INTEGRATION.md)
+- [LUMEN Cognitive OS Architecture](../../../docs/COGNITIVE_OS.md)
+- [Benchmarks](../../../docs/BENCHMARKS.md)
+- [RFC LUMEN](../../../RFC_LUMEN.md)
+- [Thinking Server README](../thinking/README.md)
+- [Hermes Integration](../../../HERMES_INTEGRATION.md)

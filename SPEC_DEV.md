@@ -535,7 +535,7 @@ Beyond the protocol transport layer, LUMEN now includes a full cognitive agent r
 | Device 9 | `lumen-mvm` | Webhook server: `O 9:":8767"` → axum |
 | Agent Loop | `lumen-mvm` | Persistent M agents: CHECK_MAILBOX → THINK → YIELD |
 
-See [ARCHITECTURE.md](../ARCHITECTURE.md) and [AGENT_GUIDE.md](../AGENT_GUIDE.md) for details.
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [AGENT_GUIDE.md](AGENT_GUIDE.md) for details.
 
 ---
 

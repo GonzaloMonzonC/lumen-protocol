@@ -223,4 +223,3 @@ Sigue **[INSTALL_ES.md](INSTALL_ES.md)** (o `INSTALL.md`).
 | **[docs/GUIA_VM_API.md](docs/GUIA_VM_API.md)** | vm_api a fondo: endpoints, contrato `/vm/execute`, HMAC, audit, **agentes LLM (§11)** |
 | **[docs/EXTENSIBILIDAD-MVM.md](docs/EXTENSIBILIDAD-MVM.md)** | device HTTP del MVM + roadmap F2/F3 |
 | **[docs/INDEX.md](docs/INDEX.md)** | Mapa completo de documentación |
-| **[docs/diario/](docs/diario/)** | Diarios de operación diaria |
