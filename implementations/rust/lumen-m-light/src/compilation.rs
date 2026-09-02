@@ -287,16 +287,8 @@ pub extern "C" fn compiled_routine(input: i64) -> i64 {
 "#.to_string()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_workspace_exists() {
-        let manager = CompilationManager::new(
-            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("compiled_workspace")
-        );
-        assert!(manager.workspace_dir.exists(), "Workspace should exist");
-        assert!(manager.workspace_dir.join("Cargo.toml").exists(), "Cargo.toml should exist");
-    }
-}
+
+// NOTA: el workspace de compilación (compiled_workspace/) ya no se trackea.
+// El JIT M->Rust->.dll está marcado como experimental (firma/nombre/feature sin
+// alinear). El CompilationManager deberá crear el workspace dinámicamente
+// cuando se reactive la feature.
