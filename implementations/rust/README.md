@@ -7,7 +7,7 @@
 ```bash
 cd implementations/rust/lumen-mvm
 cargo build --release    # compile
-cargo test               # 15 tests
+cargo test               # 25 tests
 cargo check              # fast lint
 ```
 
@@ -41,7 +41,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the full layer diagram, data fl
 ## Tests
 
 ```bash
-# All tests (15 pass)
+# All tests (25 pass)
 cargo test -- --nocapture
 
 # Specific test
