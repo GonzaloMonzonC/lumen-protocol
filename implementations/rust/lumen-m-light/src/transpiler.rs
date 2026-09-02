@@ -176,7 +176,7 @@ fn transpile_set(arg: &str, locals: &[String]) -> String {
             } else {
                 // Local SET: x=value
                 let val_expr = transpile_expr(value);
-                result.push_str(&format!("    {} = {};\n", target, val_expr));
+                result.push_str(&format!("    {} = {};\n", normalize_var_name(target), val_expr));
             }
         }
     }
@@ -200,6 +200,14 @@ fn transpile_kill(arg: &str) -> String {
     }
 }
 
+/// Normaliza un nombre de variable M (posiblemente con subíndices) a un
+/// identificador Rust válido: result("type") -> result__type_
+fn normalize_var_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
+
 /// Extrae variables locales de un Program
 fn collect_locals(program: &Program) -> Vec<String> {
     let mut locals = Vec::new();
@@ -210,9 +218,12 @@ fn collect_locals(program: &Program) -> Vec<String> {
             for piece in instr.argument.split(',') {
                 if let Some(eq_pos) = piece.find('=') {
                     let target = piece[..eq_pos].trim();
-                    if !target.starts_with('^') && !target.starts_with('$') && !seen.contains(target) {
-                        seen.insert(target.to_string());
-                        locals.push(target.to_string());
+                    if !target.starts_with('^') && !target.starts_with('$') {
+                        let norm = normalize_var_name(target);
+                        if !seen.contains(&norm) {
+                            seen.insert(norm.clone());
+                            locals.push(norm);
+                        }
                     }
                 }
             }
@@ -395,6 +406,16 @@ fn transpile_expr(expr: &str) -> String {
     if e.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !e.starts_with(|c: char| c.is_ascii_digit()) {
         return format!("{}.clone()", e);
     }
+
+    // Variable local con subíndice: result("type") -> result__type_
+    if let Some(open) = e.find('(') {
+        if e.ends_with(')') {
+            let head = &e[..open];
+            if head.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !head.starts_with(|c: char| c.is_ascii_digit()) {
+                return format!("{}.clone()", normalize_var_name(e));
+            }
+        }
+    }
     
     // $DEVICE("llm:fork",...) — async
     if e.starts_with("$DEVICE(\"llm:fork\"") {
@@ -554,5 +575,17 @@ mod tests {
         println!("{}", rust);
         // El transpilador debe emitir `<=` (NOT >)
         assert!(rust.contains("<="), "x'>0 debe emitir <=, got: {}", rust);
+    }
+
+    /// Variables locales con subíndices (result("type")) deben normalizarse a
+    /// identificadores Rust válidos, no emitir comillas/paréntesis inválidos.
+    #[test]
+    fn test_subscript_variables_normalized() {
+        let program = Compiler::compile("S result(\"type\")=\"deductive\" S x=result(\"type\") S ^R=x").unwrap();
+        let rust = transpile_to_rust(&program, "test_subscript");
+        println!("{}", rust);
+        assert!(!rust.contains("let mut \""), "identificador con comillas: {}", rust);
+        assert!(!rust.contains("let mut result("), "identificador con paréntesis: {}", rust);
+        assert!(rust.contains("result__"), "debe normalizar a result__*, got: {}", rust);
     }
 }
