@@ -277,7 +277,7 @@ PDB es el único que junta los cuatro: sin esquemas + jerárquico + ACID + SQL.
 
 > *SQLite's B-tree es el mismo concepto que los globals de MUMPS — solo que 60 años más barato, más rápido, y con SQL.*
 
-Ver también: [`implementations/mcp-servers/pdb/`](../implementations/mcp-servers/pdb/README.md) | [TOOLS_GUIDE → PDB section](../implementations/mcp-servers/TOOLS_GUIDE.md#pdb-database)
+Ver también: [`implementations/mcp-servers/pdb/`](../implementations/mcp-servers/pdb/README.md) | [TOOLS_GUIDE → PDB section](../implementations/mcp-servers/docs/TOOLS_GUIDE.md#pdb-database)
 
 ---
 
@@ -353,7 +353,6 @@ Ver [ARCHITECTURE.md](../ARCHITECTURE.md) para el detalle completo de capas, mó
 
 - [Thinking Server README](../implementations/mcp-servers/thinking/README.md)
 - [MCP Servers README](../implementations/mcp-servers/README.md)
-- [TOOLS_GUIDE](../implementations/mcp-servers/TOOLS_GUIDE.md)
-- [Benchmarks](../docs/benchmarks/internal/)
+- [TOOLS_GUIDE](../implementations/mcp-servers/docs/TOOLS_GUIDE.md)
 - [RFC LUMEN](../RFC_LUMEN.md)
 - [Hermes Integration](../HERMES_INTEGRATION.md)

@@ -187,12 +187,12 @@ Ready-to-use composition patterns and integration guides for these tools:
 
 | Skill | Description |
 |-------|-------------|
-| **[Lumen Control](../skills/lumen-control/SKILL.md)** | Dashboard, benchmarks, troubleshooting |
-| **[Cognitive Workflows](../skills/lumen-cognitive-workflows/SKILL.md)** | 5 proven workflows (Problem→Plan→Execute, Decision→Validation→Learning, Scientific Debugging, Structured Learning, Multi-Session Task) |
-| **[Hermes Integration](../skills/lumen-thinking-hermes-integration/SKILL.md)** | Auto-context hooks, plan bridge plugin, subagent usage |
-| **[Cognitive Safety](../skills/lumen-cognitive-safety/SKILL.md)** | SAFE vs UNSAFE taxonomy, audit checklist, implementation rule |
-| **[Native Server Dev](../skills/lumen-thinking-server-dev/SKILL.md)** | STREAM_DATA streaming, MUX channels, Windows-safe frame I/O |
-| **[Cognitive State Sync](../skills/lumen-cognitive-state-sync/SKILL.md)** | Multi-agent shared mental models via MUX 🚀 |
-| **[MCP Server](../skills/lumen-mcp-server/SKILL.md)** | Templates, architecture, benchmarking |
-| **[MCP Server Pattern](../skills/lumen-mcp-server-pattern/SKILL.md)** | Proven patterns, shared_tools, security |
-| **[Server Development](../skills/lumen-server-development/SKILL.md)** | Canonical guide, PROBE handshake, pitfalls |
+| **Lumen Control** | Dashboard, benchmarks, troubleshooting |
+| **Cognitive Workflows** | 5 proven workflows (Problem→Plan→Execute, Decision→Validation→Learning, Scientific Debugging, Structured Learning, Multi-Session Task) |
+| **Hermes Integration** | Auto-context hooks, plan bridge plugin, subagent usage |
+| **Cognitive Safety** | SAFE vs UNSAFE taxonomy, audit checklist, implementation rule |
+| **Native Server Dev** | STREAM_DATA streaming, MUX channels, Windows-safe frame I/O |
+| **Cognitive State Sync** | Multi-agent shared mental models via MUX 🚀 |
+| **MCP Server** | Templates, architecture, benchmarking |
+| **MCP Server Pattern** | Proven patterns, shared_tools, security |
+| **Server Development** | Canonical guide, PROBE handshake, pitfalls |
