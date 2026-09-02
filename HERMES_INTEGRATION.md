@@ -56,7 +56,7 @@ The LLM sees standard tool names — zero prompt cache impact.
 | SHM Level 2 | ❌ Not supported | ✅ Zero-copy mmap ring buffers |
 | Tool names | `mcp_lumen_*` (prefixed) | Standard names (read_file, etc.) |
 | LLM context | Changed (new tool names) | **Unchanged** (override built-ins) |
-| Wire savings | 32-60% (JSON-RPC wrapper) | **up to 58%** (native binary) |
+| Wire savings | ~44% avg (JSON-RPC wrapper) | **up to 58%** (native binary) |
 | Setup | Edit config.yaml + restart | Install plugin + restart |
 
 ### Install
@@ -69,9 +69,9 @@ hermes config set plugins.enabled "[lumen-shm-bridge]"
 ### What You Get
 
 - **Filesystem**: read_file, write_file, search_files, patch, read_files, stream_read, etc. (13 tools)
-- **Thinking**: sequential_thinking, thought_contradiction, model_add, agent_message, collision_check, etc. (46 tools)
+- **Thinking**: sequential_thinking, thought_contradiction, model_add, agent_message, collision_check, etc. (35 tools)
 - **Web**: web_search, web_extract (2 tools)
-- **Total**: 61 tools over Level 2 SHM zero-copy transport
+- **Total**: 50 tools over Level 2 SHM zero-copy transport
 
 ### Benchmarks
 
@@ -268,7 +268,7 @@ mcp_servers:
 
 Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_hermes_mcp.bat`).
 
-> **Compatibility fix (commit `7499c3a`)**: the Hermes MCP client requires a
+> **Compatibility fix**: the Hermes MCP client requires a
 > complete `initialize` (protocolVersion + serverInfo) and `tools/list`
 > response during discovery. `pdb/server.py` previously returned an empty
 > `tools/list` and no `initialize`, which made the client hang. All 4 servers
@@ -277,7 +277,7 @@ Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_herm
 > **Data path fix**: `pdb_tools.py` (and several pdb-sync scripts) previously
 > hardcoded the SQLite DB path to `C:\Users\gonzalo\pdb-data\lumen-pdb.db`
 > (the developer's machine), so `pdb_set` failed with "unable to open database
-> file" anywhere else. Everything now resolves through `_paths.py` to
+> file" anywhere else. Everything now resolves through `pdb_tools.py` to
 > `implementations/mcp-servers/pdb/lumen-pdb.db` (repo-relative), overridable
 > via `PDB_PATH` / `PDB_DB`.
 
@@ -314,7 +314,7 @@ tools:
 
 - [x] Hermes Agent integration — [lumen-shm-bridge plugin](implementations/hermes-plugins/lumen-shm-bridge/)
 - [x] Windows compatibility fixes
-- [x] MCP servers: filesystem (9 tools), web (2 tools), thinking (7 tools)
+- [x] MCP servers: filesystem (13), web (2), thinking (84), PDB (21) — 120 tools
 - [ ] Package `lumen-mcp` on PyPI
 - [ ] LUMEN transport between **cadencia-mcp** and **cadences-gateway** — a native LUMEN link in production, end-to-end
 - [ ] LUMEN support in Hermes's HTTP/StreamableHTTP transport path
