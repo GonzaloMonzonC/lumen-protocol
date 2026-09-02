@@ -12,8 +12,8 @@
 | [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.3) | ✅ Vigente (2026-07-15) |
 | [CASOS_USO_AGENTES.md](CASOS_USO_AGENTES.md) | Casos A2A: Namespaces compartidos, hibernación y migración entre nodos | ✅ Vigente (2026-07-15) |
 | [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-07-15) |
-| `../ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
-| `../alternativas.md` / `../alternativa2.md` | Análisis de motores de almacenamiento (redb, LMDB, fjall...) | ✅ Vigente (2026-07-14) |
+| `ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
+
 | [COGNITIVE_OS.md](COGNITIVE_OS.md) | Arquitectura del OS cognitivo, referencia de tools | Revisar tool-counts |
 | [BENCHMARKS.md](BENCHMARKS.md) | Benchmarks consolidados | ✅ Vigente (2026-07-14) |
 
@@ -33,7 +33,7 @@
 |-----|--------|--------|
 | `../RFC_LUMEN.md` | RFC formal del protocolo | Vigente (2026-07-02) |
 | `../SPEC_DEV.md` / `../SPEC_DEV_ES.md` | Spec para desarrolladores | Vigente (2026-07-02) |
-| `../work.md` | **Backlog abierto del protocolo** (bindings, conformance, CI) — ámbito distinto al PLAN_EVOLUCION | Vigente (2026-07-02) |
+
 | `../DICTIONARY.md` / `_ES` | Diccionario del protocolo | Junio 2026 |
 | [lumen-universal-protocol-strategy.md](lumen-universal-protocol-strategy.md) | Protocolo como infraestructura | Junio 2026 |
 | [lumen-ws-dashboard.md](lumen-ws-dashboard.md) | Dashboard WebSocket con frames LUMEN | Junio 2026 |
@@ -64,7 +64,7 @@
 | [doc-map-2026-06-20.md](doc-map-2026-06-20.md) | Mapa de docs de junio — superseded por este INDEX |
 | [enterprise-stress-testing-2026-06-20.md](enterprise-stress-testing-2026-06-20.md) + ref | Stress test "War Room" de junio |
 | [token-efficient-tools-2026-06-20.md](token-efficient-tools-2026-06-20.md) | 5 tools token-efficient (junio) |
-| `../revisions/` | Actas de revisión y auditorías |
+
 
 ## Deuda documental conocida (2026-07-15)
 
