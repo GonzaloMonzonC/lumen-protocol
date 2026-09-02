@@ -16,7 +16,7 @@ computación persistente y agéntica:
 | **MVM** | Una máquina virtual en Rust que ejecuta código **M** (un lenguaje pequeño y terso: `S ^KANBAN("t1")="x"`) — con **llamadas LLM nativas** (`$DEVICE("llm:call",...)`) y orquestación multi-agente (Smith) |
 | **PDB** | Almacén persistente sobre SQLite: `^namespace(clave)=valor` con encoding binario, búsqueda vectorial (KNN), trail de auditoría |
 | **vm_api** | El motor HTTP local (`:8081`): ejecutar M, sync DDP, dispatcher de agentes, rutas web |
-| **MCP servers** | 4 servidores (120 tools) que conectan LUMEN con [Hermes Agent](https://hermes-agent.nousresearch.com) — ver `INSTALL_ES.md` |
+| **MCP servers** | 4 servidores (115 tools) que conectan LUMEN con [Hermes Agent](https://hermes-agent.nousresearch.com) — ver `INSTALL_ES.md` |
 | **Workers (opcional)** | Agentes Cloudflare Worker (tom, angi, …) alcanzables vía el dispatcher |
 
 Todo corre **localmente** (excepto los workers opcionales). Tus datos viven en
@@ -178,7 +178,7 @@ paso 7 no necesitan **nada** de eso — corren 100% local.
 
 ## 9. Opcional: conectar con Hermes Agent (MCP)
 
-LUMEN trae 4 servidores MCP (120 tools: filesystem, web, thinking, PDB).
+LUMEN trae 4 servidores MCP (115 tools: filesystem, web, thinking, PDB).
 Sigue **[INSTALL_ES.md](INSTALL_ES.md)** (o `INSTALL.md`).
 
 ---

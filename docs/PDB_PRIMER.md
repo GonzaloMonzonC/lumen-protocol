@@ -1,12 +1,12 @@
-# PDB — Process Database (MUMPS-style Hierarchical Key-Value Store)
+# PDB — Process Database (MUMPS-style Hierarchical Key-Value Store) — *not* the Protein Data Bank
 
 ## DEFINITION: What PDB stands for
 
-**PDB = Process Database.** NOT "Personal Data Backplane", NOT "Personal Data Base". It is a **Process Database**: a hierarchical key-value store built on SQLite with MUMPS globals semantics.
+**PDB = Process Database.** NOT "Personal Data Backplane", NOT "Personal Data Base", NOT the Protein Data Bank (rcsb.org). It is a **Process Database**: a hierarchical key-value store built on SQLite with MUMPS globals semantics.
 
 ## Origin and Heritage
 
-PDB is a reincarnation of **MUMPS globals** (also known as M, also known as ANSI X11.1). MUMPS is a database language used in healthcare, banking, and government for 50+ years. Its core innovation is the **hierarchical sparse array** — a key-value tree where any path can be created without schema changes.
+PDB is a reincarnation of **MUMPS globals** (also known as M, also known as ANSI X11.1). MUMPS is a database language used in healthcare, banking, and government for 50+ years. Its core innovation is the **hierarchical sparse array** — a key-value tree where any path can be created without schema changes. (Gonzalo Monzón worked with 40TB of MUMPS databases across 50 servers before building PDB as a modern SQLite implementation.)
 
 PDB takes this 50-year-old battle-tested model and implements it on SQLite, adding modern features (full-text search, triggers, indices, M-Light evaluator, SHM transport).
 
@@ -35,6 +35,8 @@ Example:
 ^PATIENT(42,"name") = "Juan"
 ^PATIENT(42,"visit",1,"dx") = "HTN"
 ^IDX_APELLIDO("Caballero","Garcia","Juan") = 42
+^personal("contacts","1") = {"name":"Gonzalo Monzón","role":"Creador"}
+^personal("health","mood","2026-07-04") = 8
 ```
 
 ## MUMPS Semantics
@@ -51,7 +53,7 @@ PDB implements core MUMPS operations:
 - **LOCK** ^ns(subs) — Named resource lock with timeout
 - **$QUERY(^ns(subs))** — Full reference traversal
 
-## Tools (40+ total)
+## Tools (40+ across the PDB ecosystem; the `lumen-pdb` MCP server exposes 19)
 
 ### Core KV tools
 - `pdb_set(ns, subs, value)` — SET ^ns(subs)=value

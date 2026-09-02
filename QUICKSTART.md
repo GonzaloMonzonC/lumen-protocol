@@ -16,7 +16,7 @@ persistent, agentic computation:
 | **MVM** | A Rust virtual machine that executes **M** code (a small, terse language: `S ^KANBAN("t1")="x"`) — with **native LLM calls** (`$DEVICE("llm:call",...)`) and multi-agent orchestration (Smith) |
 | **PDB** | A SQLite-backed persistent store: `^namespace(key)=value` with binary encoding, vector search (KNN), audit trail |
 | **vm_api** | The local HTTP engine (`:8081`): execute M, DDP sync, agent dispatcher, web routes |
-| **MCP servers** | 4 servers (120 tools) that plug LUMEN into [Hermes Agent](https://hermes-agent.nousresearch.com) — see `INSTALL.md` |
+| **MCP servers** | 4 servers (115 tools) that plug LUMEN into [Hermes Agent](https://hermes-agent.nousresearch.com) — see `INSTALL.md` |
 | **Workers (optional)** | Cloudflare Worker agents (tom, angi, …) reachable through the dispatcher |
 
 Everything runs **locally** (except the optional Cloudflare workers). Your data
@@ -180,7 +180,7 @@ need **none** of that — they run entirely local.
 
 ## 9. Optional: connect to Hermes Agent (MCP)
 
-LUMEN ships 4 MCP servers (120 tools: filesystem, web, thinking, PDB).
+LUMEN ships 4 MCP servers (115 tools: filesystem, web, thinking, PDB).
 Follow **[INSTALL.md](INSTALL.md)** (or `INSTALL_ES.md`).
 
 ---

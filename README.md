@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>Open metal:</strong> binary protocol, zero-copy transport, PDB/MVM cognitive state, M-Light evaluator, Poli + Smith agents, 120 MCP tools.
+  <strong>Open metal:</strong> binary protocol, zero-copy transport, PDB/MVM cognitive state, M-Light evaluator, Poli + Smith agents, 115 MCP tools.
   <br>
   <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
@@ -41,7 +41,7 @@ Three bets. Three walls the industry will hit:
 | LUMEN protocol + transports | Binary wire (Hyb128), SHM zero-copy, datagram, QUIC, ChaCha20-Poly1305, macaroons | ✅ **This repo (MIT)** |
 | PDB + M-Light + MVM | Hierarchical cognitive state, M evaluator, autonomous M processes | ✅ **This repo** |
 | Poli + Smith | The open agent of LUMEN (memory, personalities, M logic) and its multi-personality orchestrator | ✅ **This repo** |
-| MCP servers (120 tools) | Filesystem, web, thinking, PDB — ready for Hermes Agent | ✅ **This repo** |
+| MCP servers (115 tools) | Filesystem, web, thinking, PDB — ready for Hermes Agent | ✅ **This repo** |
 | [ECOS — Edge Cognitive Operating System](https://ecos.cadenceslab.com) | Multi-agent teams, memory consolidation, voice, Lab — built on LUMEN | 🔒 Proprietary layer |
 | Cadences Lab | The company running its agent ecosystem on LUMEN | 🔒 Proprietary |
 
@@ -51,7 +51,7 @@ Three bets. Three walls the industry will hit:
 - **M-Light + MVM — the M Virtual Machine** — MUMPS evaluator and autonomous M processes: spawn, tick, mailbox, kill, persistence across restarts. Rust reference implementation (`lumen-m-light`, `lumen-mvm`, `lumen-pdb`).
 - **Poli — the open agent** — the agent that lives inside the MVM: memory, personalities and M logic (`implementations/mcp-servers/poli/`).
 - **Smith — multi-personality orchestration** — detects domains, activates expert profiles in parallel, synthesizes a unified answer (`implementations/rust/lumen-m-light/src/smith.rs`).
-- **MCP servers (120 tools)** — filesystem (13), web (2), thinking (84), PDB (21); zero API keys.
+- **MCP servers (115 tools)** — filesystem (13), web (2), thinking (81), PDB (19); zero API keys.
 - **Bindings** — Rust (reference), TypeScript, Python, PHP, C#/.NET, WASM (22 KB gzipped).
 
 **What you can do here today:** replace your JSON-RPC MCP wire with a binary one (up to 58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys.
@@ -92,7 +92,7 @@ cd implementations/typescript && npm install && npm run build && cd ../..
 # Rust
 cd implementations/rust && cargo test && cargo bench && cd ../..
 
-# Register the 4 MCP servers in Hermes Agent (120 tools):
+# Register the 4 MCP servers in Hermes Agent (115 tools):
 bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 ```
 
@@ -125,12 +125,12 @@ bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 |----------|----------|-------|---------|
 | Filesystem (13 tools) | 1.6 KB | 967 B | **40%** |
 | Web (2 tools) | 459 B | 315 B | **31%** |
-| Thinking (84 tools) | 1.8 KB | 1.3 KB | **29%** |
+| Thinking (81 tools) | 1.8 KB | 1.3 KB | **29%** |
 | Large response (tools/list) | 17.7 KB | 9.5 KB | **46%** |
 | Heartbeat (control) | 50 B | 21 B | **58%** |
 | **Aggregate (21 payloads)** | 21.6 KB | 12.0 KB | **44%** |
 
-> **Benchmarked**: 120 tools across 4 servers, 0 errors. **~44% avg wire compression (up to 58%)** across 21 MCP payloads — reproducible with `python tests/benchmarks/tools_benchmark.py`. See [raw speed benchmarks](docs/BENCHMARKS.md).
+> **Benchmarked**: 115 tools across 4 servers, 0 errors. **~44% avg wire compression (up to 58%)** across 21 MCP payloads — reproducible with `python tests/benchmarks/tools_benchmark.py`. See [raw speed benchmarks](docs/BENCHMARKS.md).
 
 ---
 
@@ -169,12 +169,12 @@ Production-ready MCP servers built with LUMEN. Ready to use with Hermes Agent.
 |--------|-------|-------------|---------------|
 | **[Filesystem](implementations/mcp-servers/filesystem/)** | **13** 🔥 (read, write, search, stream, stats, info, du, dedup...) | 10-38% | Plugin `lumen-shm-bridge` |
 | **[Web](implementations/mcp-servers/web/)** | **2** (search + extract unified) | 18-36% | Plugin `lumen-shm-bridge` |
-| **[Thinking](implementations/mcp-servers/thinking/)** | **84** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
-| **[PDB](implementations/mcp-servers/pdb/)** | **21** (hierarchical KV+SQL, $LOCK, ^IDX, ON SET/KILL triggers, WAL, M REPL) | — | Plugin `lumen-shm-bridge` |
+| **[Thinking](implementations/mcp-servers/thinking/)** | **81** 🔥 (chains, kanban, wiki, Q&A, patterns, decisions, model, objectives, cognitive tools...) | 11-59% | Plugin `lumen-shm-bridge` |
+| **[PDB](implementations/mcp-servers/pdb/)** | **19** (hierarchical KV+SQL, $LOCK, ^IDX, ON SET/KILL triggers, WAL, M REPL) | — | Plugin `lumen-shm-bridge` |
 
-> **120 tools across 4 MCP servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
+> **115 tools across 4 MCP servers, 0 API keys required. 9× faster than Hermes built-ins on filesystem ops.**
 
-> **🧠 PDB** — 21 tools, a hierarchical KV+SQL database with MUMPS (1966) heritage. No schemas, no migrations, 15 μs per GET. Includes $LOCK, ^IDX auto-indexes, ON SET/ON KILL triggers, ^GLOBAL→file global mapping, automatic partitioning, WAL journaling (concurrent readers + writer), DBFIX, and an M REPL. It is where the agent keeps its persistent memory. [More in COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
+> **🧠 PDB** — 19 tools, a hierarchical KV+SQL database with MUMPS (1966) heritage. No schemas, no migrations, 15 μs per GET. Includes $LOCK, ^IDX auto-indexes, ON SET/ON KILL triggers, ^GLOBAL→file global mapping, automatic partitioning, WAL journaling (concurrent readers + writer), DBFIX, and an M REPL. It is where the agent keeps its persistent memory. [More in COGNITIVE_OS.md →](docs/COGNITIVE_OS.md#-pdb-process-database--la-memoria-del-agente)
 
 ---
 
@@ -194,13 +194,13 @@ LUMEN is not just a fast protocol. On top of Hermes Agent, it becomes a **person
 | **🎯 Agent Loop** | `objective_create`, `objective_judge`, `objective_plan`, `objective_status` | Autonomous BUILD→TEST cycle with acceptance criteria |
 | **🩺 Self-diagnosis** | `cognitive_integrity`, `cognitive_pulse`, `state_snapshot`, `unified_search` | Detects orphaned tasks, stalled patterns, unanswered Q&A |
 | **📊 Real-time dashboard** | `:9876` — metrics, kanban, chains, works, M Console | Monitor your session like a pilot monitors the cockpit |
-| **💾 PDB — persistent memory** | 21 tools: `pdb_set`, `pdb_get`, `pdb_order`, `pdb_query`, `pdb_m_eval`... | Hierarchical, ACID, schema-less, 15 μs/GET |
+| **💾 PDB — persistent memory** | 19 tools: `pdb_set`, `pdb_get`, `pdb_order`, `pdb_query`, `pdb_m_eval`... | Hierarchical, ACID, schema-less, 15 μs/GET |
 | **🔍 Semantic search (RAG)** | `mcp_eb_embed`, `mcp_eb_embed_search` | Local embeddings (fastembed), 0 tokens, 100 ms/query |
 | **🌐 Web + research** | `web_search`, `web_extract`, `web_snapshot` | Searches, extracts, saves snapshots for reference |
 | **📁 Smart filesystem** | 13 tools: `read_file`, `search_files`, `disk_usage`, `find_duplicates`... | Zero-copy SHM, no shell dependency |
 | **🔐 Multi-session** | `session_init`, `session_list`, `session_search`, `work_start`, `work_log` | Cross-session work, context recovery, logs |
 
-> **120 tools. 0 API keys. 1 assistant that remembers, learns, and organizes with you.**
+> **115 tools. 0 API keys. 1 assistant that remembers, learns, and organizes with you.**
 
 [TOOLS_GUIDE.md →](implementations/mcp-servers/docs/TOOLS_GUIDE.md) for the full reference with examples.
 
@@ -275,7 +275,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | Static dictionary | ✅ | 128 keys, matches LUMEN spec |
 | Session dictionary (LRU) | ✅ | Rust: per-transport. TS/Python: global singleton (per-session coming) |
 | Binary compression | ✅ | TAG_NULL/FLOAT/INT/STR_DICT/STR_RAW/ARRAY/OBJECT |
-| MCP servers | ✅ | **120 tools** across filesystem (**13**), web (**2**), thinking (**84**), PDB (**21**) |
+| MCP servers | ✅ | **115 tools** across filesystem (**13**), web (**2**), thinking (**81**), PDB (**19**) |
 | SHM zero-copy transport | ✅ | Level 2 mmap ring buffers, 8 MiB, MAX_SPIN=10M, sub-ms latency |
 | Plugin bridge (Hermes) | ✅ | `lumen-shm-bridge` — 61 tools (filesystem 13, web 2, thinking 46), transparent override of built-ins |
 | M-Light M evaluator | ✅ | $O, $G, $D, $P, $E, $S, $L, $F, $TR, FOR, IF, GOTO, DO, Q:cond. ~70% MSM STU |

@@ -4,7 +4,7 @@
 > **[QUICKSTART_ES.md](QUICKSTART_ES.md)**) — zero to LLM agents in ~10 minutes.
 > This guide covers the Hermes Agent MCP integration specifically.
 
-> **Status**: ✅ Verified — **120 tools across 4 MCP servers** (filesystem, web, thinking, PDB)
+> **Status**: ✅ Verified — **115 tools across 4 MCP servers** (filesystem, web, thinking, PDB)
 > **Integración**: [lumen-shm-bridge plugin](implementations/hermes-plugins/lumen-shm-bridge/) (sin cambios al core de Hermes)
 > **Transport**: JSON-RPC stdio (plain MCP) — the path verified with the Hermes MCP client
 
@@ -96,7 +96,7 @@ hermes mcp list
 ```
 
 All 4 servers must show `✓ enabled`. Then, in the agent's tool catalog, search
-for `mcp__lumen_*` — the 120 tools will be listed there.
+for `mcp__lumen_*` — the 115 tools will be listed there.
 
 ---
 
@@ -106,8 +106,8 @@ for `mcp__lumen_*` — the 120 tools will be listed there.
 |--------|-------|--------------|
 | **Filesystem** | 13 | Bulk reads, context search, streaming, health metrics, zero shell dependency |
 | **Web** | 2 | Search + extract in 1 call, no API key |
-| **Thinking** | 84 | External reasoning, kanban/niches, wiki, patterns, decisions, PDB watches, dashboards |
-| **PDB** | 21 | Persistent `^ns(key)=value` store, vector search (KNN), MVM app registry, notifications |
+| **Thinking** | 81 | External reasoning, kanban/niches, wiki, patterns, decisions, PDB watches, dashboards |
+| **PDB** | 19 | Persistent `^ns(key)=value` store, vector search (KNN), MVM app registry, notifications |
 | **Total** | **120** | 0 API keys required |
 
 ---
