@@ -22,7 +22,6 @@
 | Doc | Qué es | Estado |
 |-----|--------|--------|
 | [PDB_PRIMER.md](PDB_PRIMER.md) | Introducción a PDB | Vigente (2026-07-14) |
-| [LUMEN_PDB_PRIMER.md](LUMEN_PDB_PRIMER.md) | LUMEN + PDB juntos | Vigente (2026-07-14) |
 | [pdb-first-architecture.md](pdb-first-architecture.md) | Arquitectura PDB-first | Junio 2026 |
 | `../implementations/python/pdb-sync/SYSTEM_SCHEMA.md` | Schema del namespace ^System (pulse, decisions, identidad, gobernanza) | ✅ Vigente |
 | `../implementations/mcp-servers/pdb/references/zfuncs-runtime-dispatch.md` | Traceo Ghidra del bytecode executor MSM | ✅ Vigente (2026-07-14) |

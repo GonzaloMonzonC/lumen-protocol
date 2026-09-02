@@ -2,7 +2,7 @@
 
 > **Versión**: 3.0 | **Fecha**: 2026-06-19
 > **Transport**: LUMEN Level 2 — Shared Memory (mmap ring buffers, zero-copy)
-> **Tools (MCP, verificado)**: 84 thinking + 13 filesystem + 2 web + 21 PDB = **120 tools total**
+> **Tools (MCP, verificado)**: 81 thinking + 13 filesystem + 2 web + 19 PDB = **115 tools total**
 > **Plugin**: `lumen-shm-bridge` (Hermes Agent) — subconjunto vía SHM (35 thinking + 13 filesystem + 2 web = 50)
 
 ---
