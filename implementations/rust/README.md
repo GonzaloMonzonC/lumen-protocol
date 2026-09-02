@@ -27,8 +27,8 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the full layer diagram, data fl
 
 | Module | Lines | What it does |
 |--------|------:|--------------|
-| `lib.rs` | 1,102 | TokioMvm: scheduler, JobActor, spawn/kill/tick, WAITING/BLOCKED states |
-| `host.rs` | 255 | LiveHost: Python bridge + HTTP/webhook device buffers |
+| `lib.rs` | 1,330 | TokioMvm: scheduler, JobActor, spawn/kill/tick, WAITING/BLOCKED states |
+| `host.rs` | 277 | LiveHost: Python bridge + HTTP/webhook device buffers |
 | `llm_engine.rs` | 103 | LlmEngine trait + HttpLlmEngine (OpenAI API) |
 | `prompt_builder.rs` | 240 | Builds LLM prompt from ^GLOBALS ($ORDER limits) |
 | `response_parser.rs` | 205 | Parses LLM output → M code / tool calls / messages |
