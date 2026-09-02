@@ -107,12 +107,12 @@ Los `SyntaxWarning: invalid escape sequence '\$'` al arrancar son **preexistente
 
 | Campo | Significado |
 |-------|-------------|
-| `ok` | `true` si no hay error (⚠️ antes de `333268a` era `false` siempre con backend Rust — ver §9) |
+| `ok` | `true` si no hay error (⚠️ antes del fix era `false` siempre con backend Rust — ver §9) |
 | `result` | último valor del stack del VM (p.ej. lo que deja un `S x=...` o `QUIT`) |
-| `error` | mensaje de error del engine o `null` (⚠️ no se incluía antes de `333268a` — fallos opacos) |
+| `error` | mensaje de error del engine o `null` (⚠️ no se incluía antes del fix — fallos opacos) |
 | `exec_ms` | tiempo total del handler |
 
-**Args**: `args` → `$1..$n` + `$ZARGS` en el VM (tanto en rutinas como en inline; ⚠️ inline no los pasaba antes de `333268a`).
+**Args**: `args` → `$1..$n` + `$ZARGS` en el VM (tanto en rutinas como en inline; ⚠️ inline no los pasaba antes del fix).
 
 **Ejemplos verificados** (Windows, git-bash — escapar comillas con `\"`):
 
@@ -180,10 +180,10 @@ PDB_PATH (env) > PDB_DB (env) > <repo>/implementations/mcp-servers/pdb/lumen-pdb
 | Síntoma | Causa | Solución |
 |---------|-------|----------|
 | Arranque "colgado" sin banner (background) | `cargo build` bloqueante porque falta la DLL | Compilar a mano (§2.2) y esperar a que termine |
-| `/vm/execute` devuelve `ok:false` con `error:null` | Bug pre-`333268a` (check de presencia de clave) | `git pull` — arreglado en `333268a` |
-| `undefined variable: $1` en inline | Bug pre-`333268a` (exec_code ignoraba args) | `git pull` — arreglado en `333268a` |
-| Escrituras `^S` no persisten | Bug pre-`333268a` (sin `sqlite_path`) | `git pull` — arreglado en `333268a` |
-| `_audit_engine_write() got an unexpected keyword argument 'source'` | Bug pre-`333268a` (firma estrecha del wrapper) | `git pull` — arreglado en `333268a` |
+| `/vm/execute` devuelve `ok:false` con `error:null` | Bug previo al fix (check de presencia de clave) | `git pull` — arreglado en el repo |
+| `undefined variable: $1` en inline | Bug previo al fix (exec_code ignoraba args) | `git pull` — arreglado en el repo |
+| Escrituras `^S` no persisten | Bug previo al fix (sin `sqlite_path`) | `git pull` — arreglado en el repo |
+| `_audit_engine_write() got an unexpected keyword argument 'source'` | Bug previo al fix (firma estrecha del wrapper) | `git pull` — arreglado en el repo |
 | `401 HMAC auth failed` en sync edge | Falta/desajuste de `DDP_HMAC_KEY` con el worker | Configurar el secreto compartido (§6) |
 | `SyntaxWarning: invalid escape sequence '\$'` | Docstrings preexistentes | Inofensivo — no tocar |
 | `{ok:false, error:"..."}` en `/vm/execute` | Error real del engine M (gas, sintaxis, var indefinida) | Leer el campo `error` de la respuesta |
@@ -194,9 +194,9 @@ PDB_PATH (env) > PDB_DB (env) > <repo>/implementations/mcp-servers/pdb/lumen-pdb
 
 | Commit | Qué arregló |
 |--------|-------------|
-| `333268a` (2026-08-18) | `/vm/execute` con backend Rust: `ok` siempre false, error oculto, args ignorados en inline, escrituras sin persistencia, wrapper de audit incompatible con `execute_sqlite(source=...)`, `variables` descartado en el modo directo de `execute_sqlite` |
-| `1d00839` (2026-08-17) | Eliminadas todas las rutas hardcodeadas `C:\Users\gonzalo\...` del ecosistema → `_paths.py` canónico |
-| `fe01d28` | Sync Angi→KANBAN muerto en silencio (`_LenteConn` rompía `row_factory`) |
+| (2026-08-18) | `/vm/execute` con backend Rust: `ok` siempre false, error oculto, args ignorados en inline, escrituras sin persistencia, wrapper de audit incompatible con `execute_sqlite(source=...)`, `variables` descartado en el modo directo de `execute_sqlite` |
+| (2026-08-17) | Eliminadas todas las rutas hardcodeadas `C:\Users\gonzalo\...` del ecosistema → `_paths.py` canónico |
+|  | Sync Angi→KANBAN muerto en silencio (`_LenteConn` rompía `row_factory`) |
 
 ---
 

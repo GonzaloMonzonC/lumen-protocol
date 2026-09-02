@@ -1,6 +1,6 @@
 # EXTENSIBILIDAD — MVM (Lumen M-Light) — Acceso a Internet (F1)
 
-> Estado: **CERRADA** — verificada E2E 2026-08-17. Commit: `c4a6fd6`.
+> Estado: **CERRADA** — verificada E2E 2026-08-17. Verificada E2E.
 > Ver también: `docs/PDB-SYNC.md`, skill `lumen-mvm-development`.
 
 ## 1. Device HTTP completo (host.rs)
