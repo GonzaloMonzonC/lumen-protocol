@@ -75,3 +75,8 @@
    tras el cierre del contrato PDB (Fase 1b).
 3. Terminología: "WAL" del equipo = journal DDP en ^CHANGES (pdb_journal.py),
    no el `journal_mode=WAL` de SQLite. Docs nuevos deben desambiguar.
+4. Purga de historial (filter-repo, para eliminar binarios) reescribió todos
+   los commits → los hashes citados en docs históricos (doc-map,
+   nueva-instalacion, PENDIENTES) ya no son resolubles. Los docs vigentes
+   (GUIA_VM_API, EXTENSIBILIDAD-MVM) se limpiaron; los históricos se dejan
+   como registro.
