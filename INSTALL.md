@@ -106,9 +106,9 @@ for `mcp__lumen_*` — the 120 tools will be listed there.
 |--------|-------|--------------|
 | **Filesystem** | 13 | Bulk reads, context search, streaming, health metrics, zero shell dependency |
 | **Web** | 2 | Search + extract in 1 call, no API key |
-| **Thinking** | 81 | External reasoning, kanban/niches, wiki, patterns, decisions, PDB watches, dashboards |
-| **PDB** | 19 | Persistent `^ns(key)=value` store, vector search (KNN), MVM app registry, notifications |
-| **Total** | **115** | 0 API keys required |
+| **Thinking** | 84 | External reasoning, kanban/niches, wiki, patterns, decisions, PDB watches, dashboards |
+| **PDB** | 21 | Persistent `^ns(key)=value` store, vector search (KNN), MVM app registry, notifications |
+| **Total** | **120** | 0 API keys required |
 
 ---
 
@@ -169,7 +169,7 @@ troubleshooting: **[docs/GUIA_VM_API.md](docs/GUIA_VM_API.md)**.
 
 Hermes's MCP client requires a full `initialize` + `tools/list` handshake.
 The PDB server had a bug that made discovery hang; **it is fixed in the repo**
-(commit `7499c3a`, `pdb/server.py`). If you're on an old checkout:
+(`pdb/server.py`). If you're on an old checkout:
 
 ```bash
 git pull
@@ -187,7 +187,7 @@ Then re-test the server manually:
 ### `pdb_set` returns "unable to open database file"
 
 The database now lives at `implementations/mcp-servers/pdb/lumen-pdb.db` (inside
-the repo, auto-created — see `_paths.py`). It previously pointed at a hardcoded
+the repo, auto-created — see `pdb_tools.py`). It previously pointed at a hardcoded
 path on the developer's machine. Override with the `PDB_PATH` / `PDB_DB`
 environment variables (useful for benchmarks):
 

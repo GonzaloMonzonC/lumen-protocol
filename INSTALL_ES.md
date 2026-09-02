@@ -106,9 +106,9 @@ herramientas del agente, busca `mcp__lumen_*` — las 120 tools aparecerán ahí
 |----------|-------|-----------------------|
 | **Filesystem** | 13 | Lecturas múltiples, búsqueda con contexto, streaming, métricas de salud, sin dependencia de shell |
 | **Web** | 2 | Búsqueda + extracción en 1 llamada, sin API key |
-| **Thinking** | 81 | Razonamiento externo, kanban/nichos, wiki, patrones, decisiones, watches de PDB, dashboards |
-| **PDB** | 19 | Almacén persistente `^ns(key)=value`, búsqueda vectorial (KNN), registro de apps MVM, notificaciones |
-| **Total** | **115** | 0 API keys requeridas |
+| **Thinking** | 84 | Razonamiento externo, kanban/nichos, wiki, patrones, decisiones, watches de PDB, dashboards |
+| **PDB** | 21 | Almacén persistente `^ns(key)=value`, búsqueda vectorial (KNN), registro de apps MVM, notificaciones |
+| **Total** | **120** | 0 API keys requeridas |
 
 ---
 
@@ -169,7 +169,7 @@ solución de problemas: **[docs/GUIA_VM_API.md](docs/GUIA_VM_API.md)**.
 
 El cliente MCP de Hermes exige un handshake `initialize` + `tools/list`
 completo. El servidor PDB tenía un bug que colgaba el discovery; **ya está
-corregido en el repo** (commit `7499c3a`, `pdb/server.py`). Si tienes un
+corregido en el repo** (`pdb/server.py`). Si tienes un
 checkout antiguo:
 
 ```bash
@@ -188,7 +188,7 @@ Y prueba el servidor manualmente:
 ### `pdb_set` devuelve "unable to open database file"
 
 La base de datos ahora vive en `implementations/mcp-servers/pdb/lumen-pdb.db`
-(dentro del repo, se crea automáticamente — ver `_paths.py`). Antes apuntaba a
+(dentro del repo, se crea automáticamente — ver `pdb_tools.py`). Antes apuntaba a
 una ruta hardcodeada de la máquina del desarrollador. Puedes sobrescribirla con
 las variables de entorno `PDB_PATH` o `PDB_DB` (útil para benchmarks):
 
