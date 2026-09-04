@@ -270,16 +270,22 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
         # Parse result blocks
         links = _re.findall(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_body, _re.DOTALL)
         snippets = _re.findall(r'class="result__snippet"[^>]*>(.*?)</(?:a|td)>', html_body, _re.DOTALL)
-        for i, (url, title_html) in enumerate(links[:limit]):
+        for i, (url, title_html) in enumerate(links):
             title = _re.sub(r'<[^>]+>', '', title_html).strip()
             if not title:
+                continue
+            real_url = _unwrap_ddg_url(url)
+            # Filtro anuncios de DDG (y.js/ad_domain — Bing ads)
+            if _re.search(r'y\.js|ad_domain|ad_provider', real_url, _re.I):
                 continue
             snippet = _re.sub(r'<[^>]+>', '', snippets[i] if i < len(snippets) else "").strip()
             results.append({
                 "title": title,
-                "url": _unwrap_ddg_url(url),
+                "url": real_url,
                 "description": snippet or "(no description)"
             })
+            if len(results) >= limit:
+                break
         return results
 
     results = _parse(html)
