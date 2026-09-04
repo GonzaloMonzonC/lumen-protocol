@@ -842,6 +842,98 @@ fn ssrf_guard(url: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "minreq")]
+// ── SEARCH device (2026-09-04): $DEVICE("search:web", query, [n], [include_answer]) ──
+// Búsqueda web vía endpoint estilo Tavily (POST + Authorization: Bearer).
+// Config por env del proceso (NUNCA en el repo): LUMEN_SEARCH_API_KEY (obligatoria),
+// LUMEN_SEARCH_URL (default: https://api.tavily.com/search) → permite conectar
+// cualquier fuente compatible (Tom /v1/search, otra API, etc.) cambiando la URL.
+// Devuelve SIEMPRE JSON string con el MISMO contrato que Tom /v1/search:
+//   {"ok":true,"count":N,"results":[{"title","url","content","score"}],"answer":?}
+//   {"ok":false,"error":"..."}
+fn search_web(args: &[Value]) -> Result<Value, String> {
+    let query = args.first().map(|v| v.as_string()).unwrap_or_default().trim().to_string();
+    if query.is_empty() {
+        return Err("SEARCH: query requerida".to_string());
+    }
+    let n = args
+        .get(1)
+        .map(|v| v.as_string().parse::<usize>().unwrap_or(5))
+        .unwrap_or(5)
+        .clamp(1, 10);
+    let include_answer = args
+        .get(2)
+        .map(|v| {
+            let s = v.as_string();
+            s == "1" || s.eq_ignore_ascii_case("true")
+        })
+        .unwrap_or(false);
+    let key = std::env::var("LUMEN_SEARCH_API_KEY").unwrap_or_default();
+    if key.is_empty() {
+        return Err("SEARCH: LUMEN_SEARCH_API_KEY no configurada (env del proceso)".to_string());
+    }
+    let url = std::env::var("LUMEN_SEARCH_URL")
+        .unwrap_or_else(|_| "https://api.tavily.com/search".to_string());
+    let body_obj = serde_json::json!({
+        "query": query,
+        "max_results": n,
+        "search_depth": "basic",
+        "topic": "general",
+        "include_answer": include_answer,
+        "include_raw_content": false,
+    });
+    let headers = serde_json::json!({
+        "Authorization": format!("Bearer {}", key),
+        "Content-Type": "application/json",
+    });
+    let call_args = vec![
+        Value::String(url),
+        Value::String(body_obj.to_string()),
+        Value::String(headers.to_string()),
+        Value::String("20".to_string()),
+    ];
+    let resp = http_full_request("post", &call_args)?;
+    let parsed: serde_json::Value = serde_json::from_str(&resp.as_string())
+        .map_err(|e| format!("SEARCH: respuesta device inválida: {e}"))?;
+    let status = parsed.get("status").and_then(|v| v.as_i64()).unwrap_or(0);
+    let body_str = parsed.get("body").and_then(|v| v.as_str()).unwrap_or("");
+    if status != 200 {
+        let err = if body_str.is_empty() {
+            format!("HTTP {status}")
+        } else {
+            let short: String = body_str.chars().take(300).collect();
+            format!("HTTP {status}: {short}")
+        };
+        return Ok(Value::String(serde_json::json!({"ok": false, "error": err}).to_string()));
+    }
+    let tav: serde_json::Value = serde_json::from_str(body_str)
+        .map_err(|e| format!("SEARCH: body del endpoint inválido: {e}"))?;
+    let results: Vec<serde_json::Value> = tav
+        .get("results")
+        .and_then(|r| r.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "title": r.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                        "url": r.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                        "content": r.get("content").and_then(|v| v.as_str()).unwrap_or("").chars().take(2000).collect::<String>(),
+                        "score": r.get("score").and_then(|v| v.as_f64()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(Value::String(
+        serde_json::json!({
+            "ok": true,
+            "count": results.len(),
+            "results": results,
+            "answer": tav.get("answer").and_then(|v| v.as_str()),
+        })
+        .to_string(),
+    ))
+}
+
 fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     const MAX_BODY: usize = 200 * 1024;
     let url = args.first().map(|v| v.as_string()).unwrap_or_default();
@@ -1235,6 +1327,15 @@ impl Host for MemoryHost {
                         http_full_request(action, &args)
                     }
                     _ => Err(format!("Unknown HTTP action: {action}")),
+                }
+            }
+            #[cfg(feature = "minreq")]
+            "search" => {
+                // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
+                // (endpoint estilo Tavily configurable por env, ver search_web).
+                match action {
+                    "web" | "call" => search_web(&args),
+                    _ => Err(format!("Unknown SEARCH action: {action}")),
                 }
             }
             "ddp" => {
