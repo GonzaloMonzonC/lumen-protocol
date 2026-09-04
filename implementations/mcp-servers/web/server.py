@@ -174,6 +174,43 @@ def _unwrap_ddg_url(url: str) -> str:
     return url
 
 
+def _tavily_search(query: str, limit: int = 5, include_answer: bool = False) -> list[dict]:
+    """Fallback de pago: Tavily (cadena DDG→Tavily). Key por env
+    TAVILY_API_KEY (Hermes/.env) o LUMEN_SEARCH_API_KEY (Poli/secrets.env).
+    Devuelve el MISMO shape que _search_duckduckgo (title/url/description/score)."""
+    key = os.environ.get("TAVILY_API_KEY") or os.environ.get("LUMEN_SEARCH_API_KEY") or ""
+    if not key:
+        return []
+    try:
+        payload = json.dumps({
+            "query": query,
+            "max_results": max(1, min(limit, 10)),
+            "search_depth": "basic",
+            "topic": "general",
+            "include_answer": include_answer,
+            "include_raw_content": False,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.tavily.com/search",
+            data=payload,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        return [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "description": (r.get("content") or "")[:2000],
+                "score": r.get("score"),
+            }
+            for r in data.get("results", [])[:limit]
+        ]
+    except Exception:
+        return []
+
+
 def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
     """Search DuckDuckGo (tries Instant Answer API first, falls back to HTML)."""
     import urllib.parse
@@ -359,12 +396,20 @@ def tool_web_search(args: dict) -> dict:
     # Search (cached)
     results = _cached(f"search:{query}:{limit}", lambda: _search_duckduckgo(query, limit))
 
-    # Quitar items-error internos; si no queda nada útil, exponer el error limpio
+    # Quitar items-error internos
     errors = [r.get("error") for r in results if isinstance(r, dict) and "error" in r]
     results = [r for r in results if isinstance(r, dict) and "error" not in r]
 
+    # Cadena DDG (gratis) → Tavily (pago): solo si DDG no trajo nada y hay key
+    engine = "ddg"
+    if not results:
+        fallback = _tavily_search(query, limit)
+        if fallback:
+            results = fallback
+            engine = "tavily"
+
     # Auto-extract top results if requested
-    output = {"results": results}
+    output = {"engine": engine, "results": results}
     if errors and not results:
         output["error"] = errors[0]
     if extract_top > 0:
