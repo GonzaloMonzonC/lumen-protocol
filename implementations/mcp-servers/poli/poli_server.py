@@ -160,20 +160,53 @@ def _sanitize_globals(globals_list: list) -> list:
 
 def _decode_subkey(data: bytes) -> list:
     """Decodifica subkey MUMPS → lista de subscripts.
-    Formato: \\x02<str>\\xff\\x02<str>\\xff...
-    """
+    Formato: \x02<str>\xff (string) y \x01<float64 BE> (numérico).
+    (Fix 2026-09-04: soporte numérico — ^QUANTUM("colapso",<idx>) era invisible
+    porque los subíndices numéricos se perdían al decodificar.)"""
+    import struct
     subs = []
     remaining = data
     while remaining:
-        if remaining[0:1] != b'\x02':
-            break
-        remaining = remaining[1:]
-        idx = remaining.find(b'\xff')
-        if idx < 0:
-            break
-        subs.append(remaining[:idx].decode("utf-8", errors="replace"))
-        remaining = remaining[idx+1:]
+        tag = remaining[0:1]
+        if tag == b'\x02':
+            remaining = remaining[1:]
+            idx = remaining.find(b'\xff')
+            if idx < 0:
+                subs.append(remaining.decode("utf-8", errors="replace"))
+                break
+            subs.append(remaining[:idx].decode("utf-8", errors="replace"))
+            remaining = remaining[idx + 1:]
+        elif tag == b'\x01':
+            if len(remaining) >= 9:
+                subs.append(struct.unpack(">d", remaining[1:9])[0])
+                remaining = remaining[9:]
+            else:
+                remaining = remaining[1:]
+        else:
+            remaining = remaining[1:]  # terminador \xff u otro: avanzar
     return subs
+
+
+def _sync_ns_from_pdb(ns_name: str, globals_list: list) -> list:
+    """Refresca en la lista de globals las entradas de un namespace desde
+    lumen-pdb.db. (Fix 2026-09-04: el MVM solo veía el snapshot del seed; los
+    datos escritos en runtime por otros procesos —p.ej. ^QUANTUM vía qpdb o el
+    bridge QBI— eran invisibles hasta reiniciar poli.)"""
+    try:
+        import sqlite3
+        db = sqlite3.connect(PDB_SQLITE)
+        rows = db.execute(
+            "SELECT ns, subkey, value FROM _globals WHERE ns=?", (ns_name,)
+        ).fetchall()
+        db.close()
+        fresh = []
+        for _ns, subkey_b, value in rows:
+            subs = _decode_subkey(subkey_b) if isinstance(subkey_b, bytes) else []
+            fresh.append({"ns": ns_name, "subs": subs, "value": value})
+        kept = [g for g in globals_list if g.get("ns") != ns_name]
+        return kept + fresh
+    except Exception:
+        return globals_list
 
 def _extract_routines_from_globals(globals_list: list) -> dict[str, str]:
     """Extrae rutinas de ^ROUTINE global en la PDB.
@@ -346,6 +379,9 @@ class PoliState:
         # momento. Re-extraemos ^ROUTINE del estado actual ANTES de ejecutar,
         # para que cualquier SET de una ejecución previa ya esté disponible.
         _ROUTINES.update(_extract_routines_from_globals(self.globals))
+        # ^QUANTUM fresco desde la PDB (qpdb / bridge QBI escriben en runtime —
+        # fix 2026-09-04: antes solo se veía el snapshot del seed)
+        self.globals = _sync_ns_from_pdb("QUANTUM", self.globals)
         r = ml_execute(
             source=source,
             routines=_ROUTINES,
