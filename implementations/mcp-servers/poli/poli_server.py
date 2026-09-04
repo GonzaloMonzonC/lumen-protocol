@@ -15,6 +15,82 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
+# ── F3 fix 2026-09-01: cargar secrets.env con setdefault ─────────────────────
+# El guard SSRF del MVM (host.rs) requiere LUMEN_HTTP_ALLOW para que rutinas M
+# (LLMFREE/FIXER) llamen a su propio poli_server vía 127.0.0.1. Los procesos
+# relanzados por el supervisor (processes.json / MCP stdio) se lanzaban sin
+# entorno completo → SSRF bloqueado → ROUTER gratis / LLMFREE caídos.
+# Cargar secrets.env aquí garantiza entorno completo en CUALQUIER instancia.
+def _bootstrap_secrets():
+    try:
+        p = Path.home() / ".hermes" / "secrets.env"
+        if not p.exists():
+            return
+        for raw in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip().strip("export").strip()
+            if not key or not key.replace("_", "").isalnum():
+                continue
+            val = val.strip()
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+                val = val[1:-1]
+            os.environ.setdefault(key, val)
+    except Exception:
+        pass
+
+_bootstrap_secrets()
+os.environ.setdefault("LUMEN_HTTP_ALLOW", "127.0.0.1,localhost")
+
+# ── Cadena de búsqueda web DDG→Tavily (2026-09-04) ────────────────────────────
+# Ruta POST /v1/search: habla el MISMO wire que $DEVICE("search:web") del MVM
+# (payload estilo Tavily, respuesta estilo Tavily → {results:[{title,url,content,score}]}).
+# DDG gratis primero; si no trae resultados → Tavily con la key del entorno.
+_SEARCH_ENGINE = None
+
+
+def _get_search_engine():
+    """Carga lazy del motor web LUMEN (../web/server.py) — mismo código DDG/Tavily
+    que sirve al plugin de Hermes. Import aislado (nombre único) para no chocar
+    con pdb/server.py que ya está en sys.path."""
+    global _SEARCH_ENGINE
+    if _SEARCH_ENGINE is None:
+        import importlib.util as _ilu
+        _p = Path(__file__).resolve().parent.parent / "web" / "server.py"
+        _spec = _ilu.spec_from_file_location("_lumen_web_engine", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        _SEARCH_ENGINE = _m
+    return _SEARCH_ENGINE
+
+
+def _search_web_chain(query: str, n: int = 5, include_answer: bool = False) -> dict:
+    """DDG primero (gratis); si no trae resultados → Tavily (key del entorno).
+    Devuelve shape estilo Tavily para el device del MVM."""
+    engine = _get_search_engine()
+    raw = engine._search_duckduckgo(query, n)
+    results = [r for r in raw if isinstance(r, dict) and "error" not in r]
+    used = "ddg"
+    if not results:
+        results = engine._tavily_search(query, n, include_answer)
+        used = "tavily"
+    return {
+        "ok": True,
+        "engine": used,
+        "count": len(results),
+        "results": [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": (r.get("content") or r.get("description") or "")[:2000],
+                "score": r.get("score"),
+            }
+            for r in results
+        ],
+    }
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pdb"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lumen_mlight import execute as ml_execute
@@ -1645,6 +1721,25 @@ if __name__ == "__main__":
                     r = _STATE.exec(f'D CHAT^PERSONALITY("{msg_esc}")', gas=200000)
                     response = (r.get("state") or {}).get("output", "").strip() or "Poli no respondio"
                     return self._json(200, {"ok": True, "mode": active, "response": response, "session_id": sid})
+                except Exception as e:
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/search":
+                # Cadena DDG→Tavily (2026-09-04). Acepta payload estilo Tavily
+                # {query, max_results, include_answer} (device MVM) o {q, n}.
+                # Respuesta estilo Tavily: {ok, engine, count, results[{title,url,content,score}]}
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = self._read_json(self.rfile, length)
+                    query = (body.get("query") or body.get("q") or "").strip()
+                    if not query:
+                        return self._json(400, {"ok": False, "error": "query/q requerida"})
+                    n = body.get("max_results") or body.get("n") or 5
+                    try:
+                        n = max(1, min(int(n), 10))
+                    except Exception:
+                        n = 5
+                    include_answer = bool(body.get("include_answer"))
+                    return self._json(200, _search_web_chain(query, n, include_answer))
                 except Exception as e:
                     return self._json(500, {"ok": False, "error": str(e)})
             if self.path == "/v1/exec":
