@@ -2002,14 +2002,16 @@ fn hmac_sha256(key: &str, data: &str) -> String {
 
 // ── SQLite helper functions ────────────────────────────────────
 
-/// Codificar un Subscript a formato MUMPS binario.
+/// Codificar un Subscript al formato MUMPS CANÓNICO del ecosistema
+/// (qpdb.py / poli_server): String → \x02 <utf8> \xff ; Number → \x01 <f64 BE 8B> ;
+/// terminator final \xff. (Fix 2026-09-04: antes los números se codificaban como
+/// \x01 + texto ASCII → incompatible con qpdb/Python en ambas direcciones.)
 fn encode_one_sub(sub: &Subscript) -> Vec<u8> {
     let mut out = Vec::new();
     match sub {
         Subscript::Number(v) => {
             out.push(0x01);
-            out.extend_from_slice(v.to_string().as_bytes());
-            out.push(0xFF);
+            out.extend_from_slice(&v.to_be_bytes());
         }
         Subscript::String(s) => {
             out.push(0x02);
@@ -2029,19 +2031,54 @@ fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
     out
 }
 
-/// Decodificar subkey binaria a vector de strings MUMPS.
+/// Decodificar subkey binaria canónica a vector de strings MUMPS.
+/// Formato: \x02 <str> \xff (string) · \x01 <f64 BE 8B> (número → texto canónico,
+/// p.ej. "13" o "1.5") · \xff suelto = terminador. Bytes desconocidos se leen
+/// como string hasta \xff (tolerancia con filas legacy). (Fix 2026-09-04: los
+/// números \x01+float64 de qpdb se leían como string basura → claves invisibles.)
 fn decode_subkey(subkey: &[u8]) -> Vec<String> {
     let mut result = Vec::new();
     let mut i = 0;
-    while i + 1 < subkey.len() {
-        let _typ = subkey[i];
-        i += 1;
-        let end = subkey[i..].iter().position(|&b| b == 0xFF)
-            .map(|p| i + p)
-            .unwrap_or(subkey.len());
-        let raw = &subkey[i..end];
-        result.push(String::from_utf8_lossy(raw).to_string());
-        i = end + 1;
+    while i < subkey.len() {
+        match subkey[i] {
+            0x01 => {
+                if i + 9 <= subkey.len() {
+                    let mut bytes = [0u8; 8];
+                    bytes.copy_from_slice(&subkey[i + 1..i + 9]);
+                    let v = f64::from_be_bytes(bytes);
+                    let txt = if v.fract() == 0.0 && v.abs() < 9.0e15 {
+                        format!("{}", v as i64)
+                    } else {
+                        format!("{}", v)
+                    };
+                    result.push(txt);
+                    i += 9;
+                } else {
+                    i += 1;
+                }
+            }
+            0x02 | 0x00 => {
+                i += 1;
+                let end = subkey[i..]
+                    .iter()
+                    .position(|&b| b == 0xFF)
+                    .map(|p| i + p)
+                    .unwrap_or(subkey.len());
+                result.push(String::from_utf8_lossy(&subkey[i..end]).to_string());
+                i = end + 1;
+            }
+            0xFF => i += 1, // terminador
+            _ => {
+                // legacy/desconocido: chunk como string hasta \xff (comportamiento previo)
+                let end = subkey[i..]
+                    .iter()
+                    .position(|&b| b == 0xFF)
+                    .map(|p| i + p)
+                    .unwrap_or(subkey.len());
+                result.push(String::from_utf8_lossy(&subkey[i..end]).to_string());
+                i = end + 1;
+            }
+        }
     }
     result
 }

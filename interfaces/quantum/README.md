@@ -89,3 +89,28 @@ devuelve vacío). La caché compartida se accede POR LA INTERFAZ (`/random`,
 
 La spec NO exige un proveedor concreto: un emulador local de 2 qubits que
 implemente estos 6 endpoints ES un backend QBI.
+
+## Anexo: formato canónico de subkeys PDB (MUMPS binario)
+
+Cualquier escritor/lector de `_globals` (tabla del PDB: `ns`, `subkey BLOB`, `value`)
+DEBE usar este formato para que M (Rust MVM), qpdb (Python), el bridge QBI y DDP
+lean lo mismo:
+
+```
+String  → \x02 <utf8 sin \xff> \xff
+Number  → \x01 <float64 big-endian, 8 bytes>      (SIN \xff después)
+Final   → \xff                                    (terminador del subkey)
+```
+
+Ejemplos:
+- `^QUANTUM("stats")`        → `02 73 74 61 74 73 ff ff`
+- `^QUANTUM("colapso",13)`   → `02 63 6f 6c 61 70 73 6f ff 01 40 2a 00 00 00 00 00 00 ff`
+
+Implementaciones de referencia: `qpdb.py::_encode_subkey/_decode_subkey` (Python),
+`poli_server.py::_encode_subkey/_decode_subkey` (Python host), y
+`lumen-m-light/src/host.rs::encode_one_sub/decode_subkey` (Rust MVM, fix 2026-09-04:
+antes los números se codificaban como `\x01`+texto ASCII y el decode añadía strings
+vacías por los `\xff` dobles → claves corruptas e invisibles entre capas).
+
+⚠️ Legado: filas escritas con el formato viejo de lumen-m-light (números ASCII)
+pueden no leerse; si aparecen, re-escribirlas con el formato canónico.
