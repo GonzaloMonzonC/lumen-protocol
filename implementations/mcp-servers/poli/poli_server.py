@@ -187,6 +187,81 @@ def _decode_subkey(data: bytes) -> list:
     return subs
 
 
+def _encode_subkey(parts) -> bytes:
+    """Codifica lista de subscripts al formato MUMPS del PDB (inverso de
+    _decode_subkey): \x02<str>\xff y \x01<float64 BE>, terminador \xff."""
+    import struct
+    out = b""
+    for p in parts:
+        if isinstance(p, (int, float)):
+            out += b"\x01" + struct.pack(">d", float(p))
+        else:
+            out += b"\x02" + str(p).encode("utf-8") + b"\xff"
+    return out + b"\xff"
+
+
+def _quantum_rows() -> list:
+    """Lee las filas actuales de ns QUANTUM desde lumen-pdb.db."""
+    try:
+        import sqlite3
+        db = sqlite3.connect(PDB_SQLITE)
+        rows = db.execute(
+            "SELECT subkey, value FROM _globals WHERE ns='QUANTUM'"
+        ).fetchall()
+        db.close()
+        out = []
+        for subkey_b, value in rows:
+            subs = _decode_subkey(subkey_b) if isinstance(subkey_b, bytes) else []
+            out.append((subs, value))
+        return out
+    except Exception:
+        return []
+
+
+def _quantum_preamble() -> str:
+    """Genera código M que materializa ^QUANTUM en el host del MVM (patrón del
+    cargador de ^CONFIG): el host persistente ignora globals_ de Python, pero los
+    SETs ejecutados en el preámbulo sí entran. (Fix 2026-09-04.)"""
+    parts = []
+    for subs, value in _quantum_rows():
+        if not subs:
+            continue
+        subs_s = ",".join(
+            f'"{s.replace(chr(34), chr(34) * 2)}"' if isinstance(s, str)
+            else (str(int(s)) if float(s).is_integer() else repr(s))
+            for s in subs
+        )
+        v = (value or "").replace('"', '""')
+        parts.append(f'S ^QUANTUM({subs_s})="{v}"')
+    return " ".join(parts)
+
+
+def _persist_quantum(globals_list: list) -> None:
+    """Write-back: reemplaza ns QUANTUM en lumen-pdb.db con el estado actual del
+    MVM (los SET/KILL de M a ^QUANTUM persisten). (Fix 2026-09-04.)"""
+    try:
+        entries = [g for g in globals_list if g.get("ns") == "QUANTUM"]
+        if not entries:
+            return
+        import sqlite3
+        db = sqlite3.connect(PDB_SQLITE)
+        cur = db.cursor()
+        cur.execute("DELETE FROM _globals WHERE ns='QUANTUM'")
+        for g in entries:
+            subs = g.get("subs") or []
+            val = g.get("value")
+            if val is None:
+                continue
+            cur.execute(
+                "INSERT INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                ("QUANTUM", _encode_subkey(subs), str(val)),
+            )
+        db.commit()
+        db.close()
+    except Exception:
+        pass
+
+
 def _sync_ns_from_pdb(ns_name: str, globals_list: list) -> list:
     """Refresca en la lista de globals las entradas de un namespace desde
     lumen-pdb.db. (Fix 2026-09-04: el MVM solo veía el snapshot del seed; los
@@ -379,9 +454,10 @@ class PoliState:
         # momento. Re-extraemos ^ROUTINE del estado actual ANTES de ejecutar,
         # para que cualquier SET de una ejecución previa ya esté disponible.
         _ROUTINES.update(_extract_routines_from_globals(self.globals))
-        # ^QUANTUM fresco desde la PDB (qpdb / bridge QBI escriben en runtime —
-        # fix 2026-09-04: antes solo se veía el snapshot del seed)
-        self.globals = _sync_ns_from_pdb("QUANTUM", self.globals)
+        # ^QUANTUM fresco: preámbulo M que materializa el ns en el host persistente
+        # (el host con sqlite ignora globals_ de Python; los SETs del preámbulo no)
+        pre = _quantum_preamble()
+        source = (pre + " " + source) if pre else source
         r = ml_execute(
             source=source,
             routines=_ROUTINES,
@@ -394,6 +470,8 @@ class PoliState:
             self.globals = r.get("globals") or self.globals
             # Sanitizar: convertir cualquier bytes a string
             self.globals = _sanitize_globals(self.globals)
+            # Write-back: los SET/KILL de M a ^QUANTUM persisten en lumen-pdb.db
+            _persist_quantum(self.globals)
             # Rutinas EN CALIENTE: recoger los SET a ^ROUTINE de ESTA ejecución
             _ROUTINES.update(_extract_routines_from_globals(self.globals))
         return r
