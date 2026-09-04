@@ -847,10 +847,11 @@ fn ssrf_guard(url: &str) -> Result<(), String> {
 // Config por env del proceso (NUNCA en el repo): LUMEN_SEARCH_API_KEY (obligatoria),
 // LUMEN_SEARCH_URL (default: https://api.tavily.com/search) → permite conectar
 // cualquier fuente compatible (Tom /v1/search, otra API, etc.) cambiando la URL.
-// Devuelve SIEMPRE JSON string con el MISMO contrato que Tom /v1/search:
-//   {"ok":true,"count":N,"results":[{"title","url","content","score"}],"answer":?}
-//   {"ok":false,"error":"..."}
-fn search_web(args: &[Value]) -> Result<Value, String> {
+// Contrato (idéntico a Tom /v1/search):
+//   $DEVICE("search:web", ...)   → {"ok":true,"count":N,"results":[{"title","url","content","score"}],"answer":?}
+//   $DEVICE("search:text", ...)  → texto legible listo para personalidades:
+//                                    "1. Titulo\n   URL\n   snippet..." ("ERROR: ..." si falla)
+fn search_web_common(args: &[Value], as_text: bool) -> Result<Value, String> {
     let query = args.first().map(|v| v.as_string()).unwrap_or_default().trim().to_string();
     if query.is_empty() {
         return Err("SEARCH: query requerida".to_string());
@@ -903,7 +904,12 @@ fn search_web(args: &[Value]) -> Result<Value, String> {
             let short: String = body_str.chars().take(300).collect();
             format!("HTTP {status}: {short}")
         };
-        return Ok(Value::String(serde_json::json!({"ok": false, "error": err}).to_string()));
+        let json_err = serde_json::json!({"ok": false, "error": err}).to_string();
+        return Ok(Value::String(if as_text {
+            format!("ERROR: SEARCH {err}")
+        } else {
+            json_err
+        }));
     }
     let tav: serde_json::Value = serde_json::from_str(body_str)
         .map_err(|e| format!("SEARCH: body del endpoint inválido: {e}"))?;
@@ -923,6 +929,25 @@ fn search_web(args: &[Value]) -> Result<Value, String> {
                 .collect()
         })
         .unwrap_or_default();
+    if as_text {
+        let mut out = String::new();
+        for (i, r) in results.iter().enumerate() {
+            let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            let content: String = r
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .chars()
+                .take(300)
+                .collect();
+            out.push_str(&format!("{}. {}\n   {}\n   {}\n", i + 1, title, url, content.trim()));
+        }
+        if out.is_empty() {
+            out = "Sin resultados para la búsqueda.".to_string();
+        }
+        return Ok(Value::String(out));
+    }
     Ok(Value::String(
         serde_json::json!({
             "ok": true,
@@ -932,6 +957,16 @@ fn search_web(args: &[Value]) -> Result<Value, String> {
         })
         .to_string(),
     ))
+}
+
+#[cfg(feature = "minreq")]
+fn search_web(args: &[Value]) -> Result<Value, String> {
+    search_web_common(args, false)
+}
+
+#[cfg(feature = "minreq")]
+fn search_web_text(args: &[Value]) -> Result<Value, String> {
+    search_web_common(args, true)
 }
 
 fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
@@ -1335,6 +1370,7 @@ impl Host for MemoryHost {
                 // (endpoint estilo Tavily configurable por env, ver search_web).
                 match action {
                     "web" | "call" => search_web(&args),
+                    "text" => search_web_text(&args),
                     _ => Err(format!("Unknown SEARCH action: {action}")),
                 }
             }
