@@ -470,8 +470,10 @@ class PoliState:
             self.globals = r.get("globals") or self.globals
             # Sanitizar: convertir cualquier bytes a string
             self.globals = _sanitize_globals(self.globals)
-            # Write-back: los SET/KILL de M a ^QUANTUM persisten en lumen-pdb.db
-            _persist_quantum(self.globals)
+            # OJO (2026-09-05): NO write-back global de ^QUANTUM. El host del MVM
+            # se cachea por proceso; volcar self.globals (snapshot stale) borra lo
+            # que qpdb/bridge escribieron entre medias. Los SET/KILL de M persisten
+            # nativamente (host creado con sqlite) y el preámbulo refresca lecturas.
             # Rutinas EN CALIENTE: recoger los SET a ^ROUTINE de ESTA ejecución
             _ROUTINES.update(_extract_routines_from_globals(self.globals))
         return r
