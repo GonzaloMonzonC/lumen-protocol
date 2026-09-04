@@ -2601,23 +2601,23 @@ def tool_embed(args: dict) -> dict:
     if isinstance(texts, str):
         texts = [texts]
     import hashlib, time
+    global _EMBED_MATRIX, _EMBED_HASHES
     model = _get_embedder()
     results = []
+    cache_stale = _EMBED_MATRIX is not None  # only invalidate if matrix already loaded
     for text, emb in zip(texts, list(model.embed(texts))):
         h = hashlib.sha256(text.encode()).hexdigest()[:16]
+        if cache_stale and (_EMBED_HASHES is None or h not in _EMBED_HASHES):
+            # New content while the numpy matrix is cached → force rebuild on next search
+            _EMBED_MATRIX = None
+            _EMBED_HASHES = None
+            cache_stale = False
         items = [{"ns": "EMBED", "subs": [h, dim], "value": str(round(float(v), 6))} for dim, v in enumerate(emb)]
         items += [{"ns": "EMBED_META", "subs": [h, "text"], "value": text},
                   {"ns": "EMBED_META", "subs": [h, "source"], "value": source or ""},
                   {"ns": "EMBED_META", "subs": [h, "created"], "value": str(time.time())}]
-        # Compute IVF (24 groups of 16 dims)
-        ivf_items = []
-        for g in range(24):
-            start = g * 16
-            avg = sum(emb[start:start+16]) / 16.0
-            ivf_items.append({"ns": "EMBED_IVF", "subs": [h, g], "value": str(round(float(avg), 6))})
-        # Store as single JSON array for fast numpy loading
-        ivf_items.append({"ns": "EMBED_VEC", "subs": [h], "value": [round(float(v), 6) for v in emb]})
-        items += ivf_items
+        # Full vector as single JSON array for fast numpy loading (search matrix)
+        items.append({"ns": "EMBED_VEC", "subs": [h], "value": [round(float(v), 6) for v in emb]})
         tool_batch_set({"items": items})
         # Also store in sqlite-vec for KNN search
         try:
@@ -2698,21 +2698,26 @@ def tool_embed_search(args: dict) -> dict:
     for idx in top_idx:
         h = _EMBED_HASHES[idx]
         score = float(scores[idx])
-        cur2 = c.execute("SELECT value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [h.encode() if isinstance(h, str) else h])
-        text = ""
-        src = ""
-        for row in cur2.fetchall():
-            val = row[0]
-            if val is None: continue
-            raw = val.decode('utf-8') if isinstance(val, bytes) else str(val)
+        # Read metadata by exact subkey labels (text/source/created) — no heuristics
+        hb = h.encode("utf-8") if isinstance(h, str) else h
+        cur2 = c.execute("SELECT subkey, value FROM _globals WHERE ns='EMBED_META' AND substr(subkey, 2, 16)=?", [hb])
+        meta = {}
+        for sk2, val in cur2.fetchall():
+            if val is None:
+                continue
+            raw = val.decode("utf-8") if isinstance(val, bytes) else str(val)
             try:
-                decoded = _j.loads(raw)
-            except:
-                decoded = raw
-            if not isinstance(decoded, str): continue
-            if decoded == 'petmap': src = decoded
-            elif len(decoded) > 20: text = decoded
-        scored.append({"hash": h, "text": text, "score": round(score, 4), "source": src})
+                parts = decode_subkey(sk2)
+            except Exception:
+                continue
+            if len(parts) >= 2:
+                # Values are stored JSON-encoded via _encode_value (json.dumps)
+                try:
+                    decoded = _j.loads(raw)
+                except Exception:
+                    decoded = raw
+                meta[str(parts[1])] = decoded if isinstance(decoded, str) else raw
+        scored.append({"hash": h, "text": meta.get("text", ""), "source": meta.get("source", ""), "score": round(score, 4)})
     scored.sort(key=lambda x: -x["score"])
     return {"success": True, "results": scored[:limit], "count": len(scored[:limit])}
 

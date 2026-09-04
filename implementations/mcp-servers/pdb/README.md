@@ -136,10 +136,27 @@ pdb_query("SELECT ns, count(*) as nodes FROM _globals GROUP BY ns ORDER BY nodes
 
 ### Embedding / RAG tools (semantic search)
 
+Semantic search over PDB: index any text, then search "by meaning" with cosine similarity. Runs 100% local on CPU via fastembed — zero API keys, zero token cost.
+
 | Tool | Description |
 |------|-------------|
-| `pdb_embed(texts, source?)` | Generate embeddings via fastembed (all-MiniLM-L6-v2, 384 dims). Stores in ^EMBED/^EMBED_META. First call downloads model (~80MB). |
-| `pdb_embed_search(query, limit?)` | Semantic search by cosine similarity. Scans all indexed vectors. ~100ms/query with numpy cache. |
+| `pdb_embed(texts, source?)` | Generate embeddings via fastembed (all-MiniLM-L6-v2, 384 dims) and store in PDB. First call downloads the model (~80MB). Deduplicates identical texts by content hash. |
+| `pdb_embed_search(query, limit?)` | Semantic search by cosine similarity (vectorized numpy). Returns top-N with exact text, source and score. ~100ms/query with cached matrix (~1.7K vectors). |
+
+**Storage layout** (MUMPS-style namespaces):
+
+```
+^EMBED(hash, dim)           — one row per dimension (float value)
+^EMBED_VEC(hash)            — full vector as single JSON array (source of the search matrix)
+^EMBED_META(hash, "text")   — original text
+^EMBED_META(hash, "source") — source label
+^EMBED_META(hash, "created")— epoch timestamp
+```
+
+- `hash` = first 16 hex chars of sha256(text) → re-embedding the same text upserts, no duplicates.
+- All values are stored JSON-encoded (standard `_encode_value`), like every PDB value.
+- **Search cache**: the numpy `(N×384)` matrix is built on the first query (~3s for 1.7K vectors) and cached in memory. `pdb_embed` **invalidates the cache automatically** whenever new hashes are stored, so searches always see fresh data — no manual reset needed.
+- The sqlite-vec mirror tables (`_vec_embeddings`, `_vec_hierarchical`) feed `pdb_vec_search` (KNN with optional `path` partition); their failure never breaks primary PDB storage (best-effort).
 
 Usage:
 ```python
@@ -151,13 +168,19 @@ pdb_embed_search(query="busqueda semantica", limit=5)
 # → [{"text": "...", "score": 0.86, "source": "wiki"}, ...]
 ```
 
-Requires: `pip install fastembed`
+Requires: `pip install fastembed numpy`
+
+**Limitations:**
+- `all-MiniLM-L6-v2` is English-optimized; Spanish queries work but a multilingual model would improve precision.
+- `pdb_embed_search` does a linear scan over the full matrix — numpy-optimal up to ~50K vectors; beyond that a pre-filter is needed.
+- No source/path filter in `pdb_embed_search`; use `pdb_vec_search(path=...)` for partitioned KNN.
+
+**Tests:** `test_eb_regression.py` (runs against a temp DB via `PDB_PATH` — safe anywhere).
 
 ## Benchmarks
 
-See `bench-results/` for model comparison benchmarks:
-- `BENCH_FUERZA_BRUTA.md` / `BENCH_RAW_SPEED.md` — raw PDB speed (8 models)
-- `INFORME_GLOBAL.md` — full cognitive benchmark report (v1, v2, v3)
+- `bench_full.py` / `bench_exec.py` / `bench_compare.py` (este directorio) — benchmarks de velocidad cruda de PDB.
+- RAG medido: 1.729 vectores indexados → primera query ~3s (build de matriz), queries cacheadas ~100ms.
 
 ## Changelog (2026-06-27)
 
