@@ -2043,16 +2043,29 @@ fn decode_subkey(subkey: &[u8]) -> Vec<String> {
         match subkey[i] {
             0x01 => {
                 if i + 9 <= subkey.len() {
-                    let mut bytes = [0u8; 8];
-                    bytes.copy_from_slice(&subkey[i + 1..i + 9]);
-                    let v = f64::from_be_bytes(bytes);
-                    let txt = if v.fract() == 0.0 && v.abs() < 9.0e15 {
-                        format!("{}", v as i64)
+                    let eight = &subkey[i + 1..i + 9];
+                    if eight.contains(&0xFF) {
+                        // Legacy lumen-m-light: \x01 + texto ASCII + \xff (los f64
+                        // canonicos de enteros/indices nunca contienen 0xFF).
+                        let end = subkey[i + 1..]
+                            .iter()
+                            .position(|&b| b == 0xFF)
+                            .map(|p| i + 1 + p)
+                            .unwrap_or(subkey.len());
+                        result.push(String::from_utf8_lossy(&subkey[i + 1..end]).to_string());
+                        i = end + 1;
                     } else {
-                        format!("{}", v)
-                    };
-                    result.push(txt);
-                    i += 9;
+                        let mut bytes = [0u8; 8];
+                        bytes.copy_from_slice(eight);
+                        let v = f64::from_be_bytes(bytes);
+                        let txt = if v.fract() == 0.0 && v.abs() < 9.0e15 {
+                            format!("{}", v as i64)
+                        } else {
+                            format!("{}", v)
+                        };
+                        result.push(txt);
+                        i += 9;
+                    }
                 } else {
                     i += 1;
                 }
