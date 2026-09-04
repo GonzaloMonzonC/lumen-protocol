@@ -390,9 +390,18 @@ fn compile_line(
             Opcode::Halt | Opcode::TStart | Opcode::TCommit | Opcode::TRollback
         );
         // For Quit: if next token after postcondition is a command opcode, it has no explicit argument
+        // Fix 2026-09-04 (bug Q <var>): variables de 1 letra que colisionan con opcodes
+        // (r=R/READ, s=S/SET, q=Q/QUIT, w=W/WRITE...) se interpretaban como comando →
+        // `S r=... Q r` compilaba como QUIT sin argumento + READ → función devolvía "".
+        // Los comandos M del ecosistema van en MAYÚSCULAS y las variables en minúsculas:
+        // solo tratar como no-arg si el token está en mayúsculas (Q W "fin") — un token
+        // en minúsculas tras Q es SIEMPRE la variable a devolver (Q r, Q s, Q q).
         let is_quit_no_arg = matches!(command, Opcode::Quit)
             && after_token.trim_start().split_whitespace().next()
-                .map_or(false, |tok| opcode(tok.split(':').next().unwrap_or(tok)).is_some());
+                .map_or(false, |tok| {
+                    let t = tok.split(':').next().unwrap_or(tok);
+                    t == t.to_ascii_uppercase() && opcode(t).is_some()
+                });
         let boundary = if has_no_argument || is_quit_no_arg {
             0
         } else if matches!(command, Opcode::For) || consumes_remainder {
