@@ -1710,9 +1710,24 @@ def handle(msg):
         })
 
 if __name__ == "__main__":
+    # ── Modo de arranque (2026-09-05): desacoplar HTTP del MCP.
+    #    Antes TODA instancia MCP (una por sesión Hermes) montaba :8082 con
+    #    SO_REUSEADDR → N procesos multi-bindeando el mismo puerto (duplicados,
+    #    dueño arbitrario del servicio HTTP, riesgo de código viejo sirviendo).
+    #    Ahora: --http-only = SOLO HTTP (instancia única supervisada por
+    #    watchdog_infra); --no-http o POLI_HTTP_PORT=0 = SOLO MCP (sesiones).
+    _argv = sys.argv[1:]
+    _HTTP_ONLY = "--http-only" in _argv
+    _NO_HTTP = "--no-http" in _argv
+    _POLI_PORT_ARG = None
+    if "--port" in _argv:
+        try:
+            _POLI_PORT_ARG = int(_argv[_argv.index("--port") + 1])
+        except Exception:
+            pass
     # ── HTTP server (poli-api.cadences.app) ─────────────────────────────────
     import http.server, threading, urllib.parse
-    POLI_HTTP_PORT = int(os.environ.get("POLI_HTTP_PORT", "8082"))
+    POLI_HTTP_PORT = _POLI_PORT_ARG if _POLI_PORT_ARG else int(os.environ.get("POLI_HTTP_PORT", "8082"))
 
     # ── Blindaje exec (2026-08-17): un exec mal formado (p.ej. F var="" en
     # M-Light) puede colgar el engine M. Con lock serializador + timeout,
@@ -2023,13 +2038,25 @@ if __name__ == "__main__":
                     return self._json(500, {"ok": False, "error": str(e)})
             self._json(404, {"error": "not found"})
     
-    try:
-        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", POLI_HTTP_PORT), PoliHTTPHandler)
-        t = threading.Thread(target=httpd.serve_forever, daemon=True)
-        t.start()
-    except OSError:
-        pass
-    
+    if not _NO_HTTP and POLI_HTTP_PORT > 0:
+        try:
+            httpd = http.server.ThreadingHTTPServer(("127.0.0.1", POLI_HTTP_PORT), PoliHTTPHandler)
+        except OSError as e:
+            sys.stderr.write(f"[poli_server] HTTP :{POLI_HTTP_PORT} no disponible: {e}\n")
+            sys.stderr.flush()
+            httpd = None
+        if httpd is not None:
+            if _HTTP_ONLY:
+                # Modo dedicado (watchdog_infra): bloquea sirviendo HTTP.
+                httpd.serve_forever()
+                sys.exit(0)
+            t = threading.Thread(target=httpd.serve_forever, daemon=True)
+            t.start()
+    if _HTTP_ONLY:
+        # Sin MCP: si llegamos aquí el server no pudo arrancar → salir (el
+        # watchdog reintentará en su próximo ciclo).
+        sys.exit(0)
+
     # ── MCP stdio loop
     # ────────────────────────────────────────────────────────────────────────────
     for line in sys.stdin:
