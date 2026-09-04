@@ -2028,6 +2028,11 @@ fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
     for sub in subs {
         out.extend(encode_one_sub(sub));
     }
+    // Terminador final OBLIGATORIO del formato canónico (qpdb/poli lo escriben
+    // con él). Fix 2026-09-05: sin él, las escrituras del MVM creaban subkeys
+    // distintas a las de qpdb (misma clave lógica, bytes sin \xff final) →
+    // duplicados en _globals por cada SET del preámbulo.
+    out.push(0xFF);
     out
 }
 
