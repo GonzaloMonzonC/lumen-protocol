@@ -159,6 +159,21 @@ TOOLS = [
 # Web Search implementation (DuckDuckGo HTML scraping — no API key needed)
 # ═══════════════════════════════════════════════════════════════════════
 
+def _unwrap_ddg_url(url: str) -> str:
+    """DDG HTML sirve redirects `//duckduckgo.com/l/?uddg=<target>&rut=...` —
+    resuelve a https y extrae el destino real."""
+    import urllib.parse as _up
+    if not url:
+        return url
+    if url.startswith("//"):
+        url = "https:" + url
+    if "/l/?uddg=" in url or "/l/?uddg%3D" in url:
+        q = _up.parse_qs(_up.urlparse(url).query)
+        if q.get("uddg"):
+            return q["uddg"][0]
+    return url
+
+
 def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
     """Search DuckDuckGo (tries Instant Answer API first, falls back to HTML)."""
     import urllib.parse
@@ -170,8 +185,8 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
         data = json.loads(_safe_fetch(api_url, max_bytes=512 * 1024).decode("utf-8", errors="replace"))
         
         results = []
-        # Abstract (main result)
-        if data.get("AbstractText"):
+        # Abstract (main result) — solo si tiene URL real (a menudo llega vacía)
+        if data.get("AbstractText") and data.get("AbstractURL"):
             results.append({
                 "title": data.get("Heading", query),
                 "url": data.get("AbstractURL", ""),
@@ -210,24 +225,37 @@ def _search_duckduckgo(query: str, limit: int = 5) -> list[dict]:
         html = _safe_fetch(url, max_bytes=2 * 1024 * 1024).decode("utf-8", errors="replace")
     except Exception:
         return [{"error": "Search request failed — check network"}]
-    
+
     import re as _re
-    results = []
-    # Parse result blocks
-    links = _re.findall(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html, _re.DOTALL)
-    snippets = _re.findall(r'class="result__snippet"[^>]*>(.*?)</(?:a|td)>', html, _re.DOTALL)
-    
-    for i, (url, title_html) in enumerate(links[:limit]):
-        title = _re.sub(r'<[^>]+>', '', title_html).strip()
-        if not title:
-            continue
-        snippet = _re.sub(r'<[^>]+>', '', snippets[i] if i < len(snippets) else "").strip()
-        results.append({
-            "title": title,
-            "url": url,
-            "description": snippet or "(no description)"
-        })
-    
+
+    def _parse(html_body: str) -> list[dict]:
+        results = []
+        # Parse result blocks
+        links = _re.findall(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_body, _re.DOTALL)
+        snippets = _re.findall(r'class="result__snippet"[^>]*>(.*?)</(?:a|td)>', html_body, _re.DOTALL)
+        for i, (url, title_html) in enumerate(links[:limit]):
+            title = _re.sub(r'<[^>]+>', '', title_html).strip()
+            if not title:
+                continue
+            snippet = _re.sub(r'<[^>]+>', '', snippets[i] if i < len(snippets) else "").strip()
+            results.append({
+                "title": title,
+                "url": _unwrap_ddg_url(url),
+                "description": snippet or "(no description)"
+            })
+        return results
+
+    results = _parse(html)
+    if not results:
+        # Página anomaly (anti-bot) o throttle: esperar y reintentar una vez
+        import time as _time
+        _time.sleep(1.5)
+        try:
+            html = _safe_fetch(url, max_bytes=2 * 1024 * 1024).decode("utf-8", errors="replace")
+            results = _parse(html)
+        except Exception:
+            pass
+
     return results if results else [{"error": f"No results for: {query}"}]
 
 
@@ -237,7 +265,11 @@ def _safe_fetch(url: str, max_bytes: int = _MAX_RESPONSE_BYTES, timeout: int = 2
     for _ in range(_MAX_REDIRECTS + 1):
         _is_safe_url(current_url)
         req = urllib.request.Request(current_url, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; LUMEN-Web/1.0)"
+            # Browser UA: DDG y muchos sitios sirven página "anomaly" (sin resultados)
+            # a UAs de bot/crawler (verificado 2026-09-04: LUMEN-Web/1.0 → 14KB anomaly,
+            # Chrome 125 → 33KB con resultados reales).
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
         })
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -326,9 +358,15 @@ def tool_web_search(args: dict) -> dict:
     
     # Search (cached)
     results = _cached(f"search:{query}:{limit}", lambda: _search_duckduckgo(query, limit))
-    
+
+    # Quitar items-error internos; si no queda nada útil, exponer el error limpio
+    errors = [r.get("error") for r in results if isinstance(r, dict) and "error" in r]
+    results = [r for r in results if isinstance(r, dict) and "error" not in r]
+
     # Auto-extract top results if requested
     output = {"results": results}
+    if errors and not results:
+        output["error"] = errors[0]
     if extract_top > 0:
         extracts = []
         for r in results[:extract_top]:
