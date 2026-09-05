@@ -94,6 +94,69 @@ def _search_web_chain(query: str, n: int = 5, include_answer: bool = False) -> d
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pdb"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# ── HMAC entrante (poli-api público) — 2026-09-05 ────────────────────────────
+# Tarea [SEGURIDAD] de Gonzalo: el tunnel poli-api.cadences.app expone :8082 a
+# internet → las rutas de EJECUCIÓN/ESCRITURA exigen firma HMAC del ecosistema
+# (X-DDP-Timestamp + X-DDP-HMAC [+ X-DDP-Nonce]), mismas reglas que los workers
+# CF (ver skill hmac-m2m-auth). Rutas protegidas: /v1/exec (ejecución M remota),
+# /v1/smith (orquestación/coste LLM), /v1/embed (escritura en PDB).
+# NO protegidas (las consumen rutinas M internas del propio MVM vía 127.0.0.1 y
+# no pueden firmar): /v1/chat, /v1/llm_free, /v1/fixer/gen, /fs/read (allowlist
+# de directorios como mitigación) — riesgo residual documentado; la solución
+# definitiva es doble puerto (interno sin HMAC + tunnel con HMAC).
+_HMAC_PROTECTED = ("/v1/exec", "/v1/smith", "/v1/embed")
+_HMAC_MAX_AGE = 120  # segundos de tolerancia anti-replay
+_HMAC_SEEN_NONCES = set()
+_HMAC_NONCE_CLEANUP = [0.0]
+
+
+def _hmac_secret() -> str:
+    """DDP_HMAC_KEY del entorno; fallback poli_config.json (patrón del ecosistema)."""
+    key = (os.environ.get("DDP_HMAC_KEY") or "").strip()
+    if key:
+        return key
+    try:
+        _p = Path.home() / "AppData/Local/hermes/poli_config.json"
+        if _p.exists():
+            cfg = json.loads(_p.read_text(encoding="utf-8"))
+            return (cfg.get("ddp_hmac_key") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _verify_hmac_request(headers, raw_body: str) -> bool:
+    """Verifica firma HMAC entrante (estándar ecosistema, skill hmac-m2m-auth).
+    Soporta X-DDP-Nonce (anti-replay, estándar actual) y legacy ts+body.
+    Sin clave configurada → bypass (modo local/dev, patrón de la referencia)."""
+    secret = _hmac_secret()
+    if not secret:
+        return True
+    ts_str = headers.get("X-DDP-Timestamp") or headers.get("x-ddp-timestamp") or ""
+    sig_header = headers.get("X-DDP-HMAC") or headers.get("x-ddp-hmac") or ""
+    nonce = headers.get("X-DDP-Nonce") or headers.get("x-ddp-nonce") or ""
+    if not ts_str or not sig_header:
+        return False
+    try:
+        ts = int(ts_str)
+    except (TypeError, ValueError):
+        return False
+    if abs(_time.time() - ts) > _HMAC_MAX_AGE:
+        return False
+    if _time.time() - _HMAC_NONCE_CLEANUP[0] > 300:
+        _HMAC_SEEN_NONCES.clear()
+        _HMAC_NONCE_CLEANUP[0] = _time.time()
+    if nonce:
+        if nonce in _HMAC_SEEN_NONCES:
+            return False
+        _HMAC_SEEN_NONCES.add(nonce)
+        msg = ts_str + nonce + raw_body + secret
+    else:
+        msg = ts_str + raw_body + secret  # legacy: mcp_bridge.py y scripts locales
+    expected = hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig_header)
+
+
 # ── Jina Reader (r.jina.ai) — 2026-09-05 ─────────────────────────────────────
 # Extracción de URLs a markdown limpio SIN API key (rate limit por IP ~20 RPM).
 # s.jina.ai (search) SÍ requiere key → solo se usa si JINA_API_KEY está presente.
@@ -1864,11 +1927,14 @@ if __name__ == "__main__":
     
     class PoliHTTPHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
-        @staticmethod
-        def _read_json(rfile, length):
+        def _read_json(self, length):
             """Lee el body JSON tolerando encodings rotos (Windows/MSYS curl manda
-            cp1252 en vez de UTF-8: ¿ → 0xBF suelto). Nunca debe reventar el server."""
-            raw = rfile.read(length) if length else b""
+            cp1252 en vez de UTF-8: ¿ → 0xBF suelto). Nunca debe reventar el server.
+            Usa _raw_cache si el check HMAC ya leyó el body (una sola lectura)."""
+            raw = getattr(self, "_raw_cache", None)
+            if raw is None:
+                raw = self.rfile.read(length) if length else b""
+                self._raw_cache = raw
             if not raw:
                 return {}
             for enc in ("utf-8", "cp1252", "latin-1"):
@@ -1922,10 +1988,21 @@ if __name__ == "__main__":
                 return self._json(200, _jina_extract(url, max_chars))
             self._json(404, {"error": "not found"})
         def do_POST(self):
+            # ── HMAC gate (2026-09-05): rutas de ejecución/escritura exigen firma
+            # del ecosistema cuando poli-api está expuesto por tunnel. El body se
+            # lee UNA vez y se cachea para que las rutas lo reutilicen.
+            if self.path in _HMAC_PROTECTED:
+                _length = int(self.headers.get("Content-Length", 0))
+                _raw = getattr(self, "_raw_cache", None)
+                if _raw is None:
+                    _raw = self.rfile.read(_length) if _length else b""
+                    self._raw_cache = _raw
+                if not _verify_hmac_request(self.headers, _raw.decode("utf-8", "replace")):
+                    return self._json(401, {"ok": False, "error": "HMAC_INVALID: firma X-DDP-HMAC requerida o incorrecta"})
             if self.path == "/v1/chat":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     msg = body.get("mensaje") or body.get("message") or ""
                     if not msg:
                         return self._json(400, {"ok": False, "error": "mensaje required"})
@@ -2000,7 +2077,7 @@ if __name__ == "__main__":
                 # Respuesta estilo Tavily: {ok, engine, count, results[{title,url,content,score}]}
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     query = (body.get("query") or body.get("q") or "").strip()
                     if not query:
                         return self._json(400, {"ok": False, "error": "query/q requerida"})
@@ -2022,7 +2099,7 @@ if __name__ == "__main__":
                 # Indexar texto(s) en el EB: {texts: [...], source: "etiqueta"} | {text, source}
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     eb = _get_eb_tools()
                     texts = body.get("texts")
                     if texts is None and body.get("text"):
@@ -2040,7 +2117,7 @@ if __name__ == "__main__":
                 # llaman a poli → reparto de URLs sin re-extraer (2026-09-05).
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     url = (body.get("url") or "").strip()
                     if not url:
                         return self._json(400, {"ok": False, "error": "url requerida"})
@@ -2056,7 +2133,7 @@ if __name__ == "__main__":
             if self.path == "/v1/exec":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     code = body.get("code") or body.get("source") or ""
                     if not code:
                         return self._json(400, {"ok": False, "error": "code required"})
@@ -2105,7 +2182,7 @@ if __name__ == "__main__":
                 # text/plain: ok\nmodel\noutput (el $DEVICE del MVM no parsea JSON).
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     prompt = (body.get("prompt") or "").strip()
                     if not prompt:
                         return self._text("0\n\nprompt required")
@@ -2147,7 +2224,7 @@ if __name__ == "__main__":
                     import hmac, hashlib, urllib.request
                     from datetime import datetime, timezone
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     task = (body.get("task") or "").strip()
                     if not task:
                         return _text("0\n\ntask required")
@@ -2176,7 +2253,7 @@ if __name__ == "__main__":
             if self.path == "/v1/smith":
                 try:
                     length = int(self.headers.get("Content-Length", 0))
-                    body = self._read_json(self.rfile, length)
+                    body = self._read_json(length)
                     msg = body.get("mensaje") or body.get("message") or ""
                     if not msg:
                         return self._json(400, {"ok": False, "error": "mensaje required"})
