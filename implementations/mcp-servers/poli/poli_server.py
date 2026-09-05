@@ -8,7 +8,7 @@ estado de sesión persistente entre invocaciones.
 from __future__ import annotations
 import hashlib
 import hmac
-import json, logging, os, sys
+import json, logging, os, sys, re
 import threading
 import time as _time
 from pathlib import Path
@@ -93,6 +93,133 @@ def _search_web_chain(query: str, n: int = 5, include_answer: bool = False) -> d
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pdb"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# ── Jina Reader (r.jina.ai) — 2026-09-05 ─────────────────────────────────────
+# Extracción de URLs a markdown limpio SIN API key (rate limit por IP ~20 RPM).
+# s.jina.ai (search) SÍ requiere key → solo se usa si JINA_API_KEY está presente.
+# Caché en memoria (TTL 15 min): cualquier agente que llame a poli comparte la
+# misma caché → reparto de URLs entre workers sin re-extraer lo ya leído.
+_JINA_CACHE = {}
+_JINA_TTL = int(os.environ.get("JINA_CACHE_TTL", "900"))
+
+
+def _jina_extract(url: str, max_chars: int = 20000, fresh: bool = False) -> dict:
+    """r.jina.ai reader: URL → {title, url, links[], content(markdown)}.
+
+    El markdown trae TODOS los enlaces de la página inline → permite sacar URLs
+    de una página índice y repartirlas entre workers (búsqueda paralela).
+    """
+    if not url.startswith(("http://", "https://")):
+        return {"ok": False, "error": "url debe ser http(s)"}
+    key = hashlib.md5(url.encode()).hexdigest()[:16]
+    if not fresh and key in _JINA_CACHE:
+        hit = _JINA_CACHE[key]
+        if _time.time() - hit["_t"] < _JINA_TTL:
+            resp = dict(hit)
+            resp.pop("_t", None)
+            resp["cached"] = True
+            return resp
+    try:
+        req = Request("https://r.jina.ai/" + url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) cadences-poli/1.0",
+            "X-Return-Format": "markdown",
+        })
+        with urlopen(req, timeout=45) as r:
+            raw = r.read().decode("utf-8", "replace")
+        title = ""
+        m = re.search(r"^Title: (.+)$", raw, re.M)
+        if m:
+            title = m.group(1).strip()
+        src = ""
+        m = re.search(r"^URL Source: (.+)$", raw, re.M)
+        if m:
+            src = m.group(1).strip()
+        m = re.search(r"^Markdown Content:\s*(.*)$", raw, re.S | re.M)
+        content = m.group(1).strip() if m else raw.strip()
+        links = []
+        for lm in re.finditer(r"\]\((https?://[^)\s]+)\)", content):
+            u = lm.group(1)
+            if u not in links:
+                links.append(u)
+        total = len(content)
+        if max_chars and len(content) > max_chars:
+            content = content[:max_chars] + f"\n…[truncado {total - max_chars} chars; total {total}]"
+        out = {
+            "ok": True,
+            "engine": "jina-reader",
+            "cached": False,
+            "title": title or url,
+            "url": src or url,
+            "links_total": len(links),
+            "links": links[:50],
+            "content": content,
+        }
+        _JINA_CACHE[key] = dict(out, _t=_time.time())
+        return out
+    except Exception as e:
+        return {"ok": False, "engine": "jina-reader", "error": f"jina reader falló: {e}"}
+
+
+def _jina_search(query: str, n: int = 5) -> dict:
+    """s.jina.ai search — SOLO si JINA_API_KEY está en el entorno (sin key → 401)."""
+    key = os.environ.get("JINA_API_KEY", "").strip()
+    if not key:
+        return {"ok": False, "engine": "jina-search", "error": "JINA_API_KEY no configurada; usa /v1/search (DDG→Tavily) o /v1/extract (reader)"}
+    try:
+        req = Request(f"https://s.jina.ai/?q={urllib.parse.quote(query)}", headers={"Authorization": f"Bearer {key}"})
+        with urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode())
+        results = []
+        for it in (data.get("data") or [])[:n]:
+            results.append({
+                "title": it.get("title", ""),
+                "url": it.get("url", ""),
+                "content": (it.get("description") or it.get("content") or "")[:2000],
+            })
+        return {"ok": True, "engine": "jina-search", "count": len(results), "results": results}
+    except Exception as e:
+        return {"ok": False, "engine": "jina-search", "error": str(e)}
+
+
+# ── EB semántico (embedding sobre PDB local) — 2026-09-05 ────────────────────
+# Motor compartido con el server MCP eb (mismo pdb_tools, misma DB via PDB_PATH).
+_EB_TOOLS = None
+
+
+def _get_eb_tools():
+    """Carga lazy de pdb_tools (herramientas embed/embed_search). Import aislado
+    con nombre único para no chocar con otros módulos del dir pdb/."""
+    global _EB_TOOLS
+    if _EB_TOOLS is None:
+        import importlib.util as _ilu
+        _p = Path(__file__).resolve().parent.parent / "pdb" / "pdb_tools.py"
+        _spec = _ilu.spec_from_file_location("_pdb_eb_tools", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        _EB_TOOLS = _m
+    return _EB_TOOLS
+
+
+def _search_semantic(query: str, n: int = 5) -> dict:
+    """Búsqueda por significado sobre el índice EB (MEETINGS/DECISIONS/WIKI/KNOW).
+    Respuesta estilo Tavily para que el wire del MVM/workers no cambie:
+    results[{title(=source), url(pdb://source), content(=text), score, source, hash}]."""
+    eb = _get_eb_tools()
+    raw = eb.tool_embed_search({"query": query, "limit": n})
+    results = []
+    for h in (raw.get("results") or [])[:n]:
+        src = h.get("source") or "pdb"
+        results.append({
+            "title": src,
+            "url": "pdb://" + src,
+            "content": (h.get("text") or "")[:2000],
+            "score": h.get("score"),
+            "source": src,
+            "hash": h.get("hash"),
+        })
+    return {"ok": True, "engine": "semantic", "count": len(results), "results": results}
+
+
 from lumen_mlight import execute as ml_execute
 from poli_gateway import llm_call, MODELS
 
@@ -1781,6 +1908,18 @@ if __name__ == "__main__":
                 except (TypeError, ValueError):
                     pass
                 return self._json(200, tool_poli_read_file(args))
+            if parsed.path == "/v1/extract":
+                # Jina Reader: navegación rápida ?url=...&max_chars=... (GET).
+                # También disponible en POST /v1/extract con body JSON.
+                q = parse_qs(parsed.query)
+                url = (q.get("url") or [""])[0]
+                if not url:
+                    return self._json(400, {"ok": False, "error": "url requerida (?url=https://...)"})
+                try:
+                    max_chars = int((q.get("max_chars") or ["20000"])[0])
+                except (TypeError, ValueError):
+                    max_chars = 20000
+                return self._json(200, _jina_extract(url, max_chars))
             self._json(404, {"error": "not found"})
         def do_POST(self):
             if self.path == "/v1/chat":
@@ -1857,6 +1996,7 @@ if __name__ == "__main__":
             if self.path == "/v1/search":
                 # Cadena DDG→Tavily (2026-09-04). Acepta payload estilo Tavily
                 # {query, max_results, include_answer} (device MVM) o {q, n}.
+                # engine: "web" (default, cadena DDG→Tavily) | "semantic" (EB sobre PDB).
                 # Respuesta estilo Tavily: {ok, engine, count, results[{title,url,content,score}]}
                 try:
                     length = int(self.headers.get("Content-Length", 0))
@@ -1869,8 +2009,48 @@ if __name__ == "__main__":
                         n = max(1, min(int(n), 10))
                     except Exception:
                         n = 5
+                    if (body.get("engine") or "web") == "semantic":
+                        return self._json(200, _search_semantic(query, n))
+                    if body.get("engine") == "jina":
+                        # s.jina.ai — requiere JINA_API_KEY en el entorno (sin key responde ok:False claro)
+                        return self._json(200, _jina_search(query, n))
                     include_answer = bool(body.get("include_answer"))
                     return self._json(200, _search_web_chain(query, n, include_answer))
+                except Exception as e:
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/embed":
+                # Indexar texto(s) en el EB: {texts: [...], source: "etiqueta"} | {text, source}
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = self._read_json(self.rfile, length)
+                    eb = _get_eb_tools()
+                    texts = body.get("texts")
+                    if texts is None and body.get("text"):
+                        texts = [body["text"]]
+                    if not isinstance(texts, list) or not texts:
+                        return self._json(400, {"ok": False, "error": "texts[] (o text) requerido"})
+                    source = (body.get("source") or "api").strip()[:60]
+                    res = eb.tool_embed({"texts": [str(t)[:3500] for t in texts], "source": source})
+                    return self._json(200, {"ok": True, "engine": "semantic", "indexed": len(texts), "result": res})
+                except Exception as e:
+                    return self._json(500, {"ok": False, "error": str(e)})
+            if self.path == "/v1/extract":
+                # Jina Reader (r.jina.ai): {url, max_chars?, fresh?} → markdown + links.
+                # Caché en memoria 15 min compartida por todos los agentes que
+                # llaman a poli → reparto de URLs sin re-extraer (2026-09-05).
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = self._read_json(self.rfile, length)
+                    url = (body.get("url") or "").strip()
+                    if not url:
+                        return self._json(400, {"ok": False, "error": "url requerida"})
+                    max_chars = body.get("max_chars") or 20000
+                    try:
+                        max_chars = max(500, min(int(max_chars), 100000))
+                    except Exception:
+                        max_chars = 20000
+                    fresh = bool(body.get("fresh"))
+                    return self._json(200, _jina_extract(url, max_chars, fresh))
                 except Exception as e:
                     return self._json(500, {"ok": False, "error": str(e)})
             if self.path == "/v1/exec":
