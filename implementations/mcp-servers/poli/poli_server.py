@@ -166,15 +166,35 @@ _JINA_CACHE = {}
 _JINA_TTL = int(os.environ.get("JINA_CACHE_TTL", "900"))
 
 
-def _jina_extract(url: str, max_chars: int = 20000, fresh: bool = False) -> dict:
+def _jina_extract(url: str, max_chars: int = 20000, fresh: bool = False,
+                  engine: str = None, respond_with: str = None,
+                  target_selector: str = None, remove_selector: str = None) -> dict:
     """r.jina.ai reader: URL → {title, url, links[], content(markdown)}.
 
     El markdown trae TODOS los enlaces de la página inline → permite sacar URLs
     de una página índice y repartirlas entre workers (búsqueda paralela).
+
+    Parámetros avanzados (API Reader oficial, ver docs jina.ai):
+    - fresh=True        → cabecera X-No-Cache: true (evita snapshots truncados)
+    - engine            → X-Engine: direct | default | cf-browser-rendering
+                          (direct = HTTP simple rápido; default = renderiza JS en
+                          navegador headless; cf-browser-rendering = renderizador
+                          experimental de Cloudflare)
+    - respond_with      → X-Respond-With: html | markdown | text | screenshot |
+                          pageshot (formato de respuesta; sin él → markdown)
+    - target_selector   → X-Target-Selector: CSS (solo ese selector)
+    - remove_selector   → X-Remove-Selector: CSS (elimina ese selector; útil para
+                          quitar navegación/headers que el reader no quita solo)
     """
     if not url.startswith(("http://", "https://")):
         return {"ok": False, "error": "url debe ser http(s)"}
-    key = hashlib.md5(url.encode()).hexdigest()[:16]
+    engines = ("direct", "default", "cf-browser-rendering")
+    if engine and engine not in engines:
+        return {"ok": False, "engine": "jina-reader",
+                "error": f"engine inválido '{engine}'; usa: {', '.join(engines)}"}
+    # La clave de caché incluye los modificadores (distintos motores/selectores
+    # producen resultados distintos para la misma URL).
+    key = hashlib.md5(f"{url}|{engine}|{respond_with}|{target_selector}|{remove_selector}".encode()).hexdigest()[:16]
     if not fresh and key in _JINA_CACHE:
         hit = _JINA_CACHE[key]
         if _time.time() - hit["_t"] < _JINA_TTL:
@@ -183,27 +203,59 @@ def _jina_extract(url: str, max_chars: int = 20000, fresh: bool = False) -> dict
             resp["cached"] = True
             return resp
     try:
-        req = Request("https://r.jina.ai/" + url, headers={
+        hdrs = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) cadences-poli/1.0",
-            "X-Return-Format": "markdown",
-        })
-        with urlopen(req, timeout=45) as r:
+        }
+        if fresh:
+            hdrs["X-No-Cache"] = "true"
+        if engine:
+            hdrs["X-Engine"] = engine
+        if respond_with:
+            hdrs["X-Respond-With"] = respond_with
+        elif not engine:
+            # markdown es el default del reader; X-Return-Format legacy de respaldo
+            hdrs["X-Return-Format"] = "markdown"
+        if target_selector:
+            hdrs["X-Target-Selector"] = target_selector
+        if remove_selector:
+            hdrs["X-Remove-Selector"] = remove_selector
+        req = Request("https://r.jina.ai/" + url, headers=hdrs)
+        with urlopen(req, timeout=60) as r:
             raw = r.read().decode("utf-8", "replace")
-        title = ""
-        m = re.search(r"^Title: (.+)$", raw, re.M)
-        if m:
-            title = m.group(1).strip()
-        src = ""
-        m = re.search(r"^URL Source: (.+)$", raw, re.M)
-        if m:
-            src = m.group(1).strip()
-        m = re.search(r"^Markdown Content:\s*(.*)$", raw, re.S | re.M)
-        content = m.group(1).strip() if m else raw.strip()
-        links = []
-        for lm in re.finditer(r"\]\((https?://[^)\s]+)\)", content):
-            u = lm.group(1)
-            if u not in links:
-                links.append(u)
+        fmt = (respond_with or "markdown").lower()
+        if fmt == "markdown":
+            title = ""
+            m = re.search(r"^Title: (.+)$", raw, re.M)
+            if m:
+                title = m.group(1).strip()
+            src = ""
+            m = re.search(r"^URL Source: (.+)$", raw, re.M)
+            if m:
+                src = m.group(1).strip()
+            m = re.search(r"^Markdown Content:\s*(.*)$", raw, re.S | re.M)
+            content = m.group(1).strip() if m else raw.strip()
+            links = []
+            for lm in re.finditer(r"\]\((https?://[^)\s]+)\)", content):
+                u = lm.group(1)
+                if u not in links:
+                    links.append(u)
+        elif fmt in ("html", "text"):
+            # Respuesta cruda en otro formato: sin parsear cabeceras de jina.
+            title = url
+            src = url
+            content = raw.strip()
+            links = []
+            if fmt == "html":
+                for lm in re.finditer(r'''href=["'](https?://[^"'#\s]+)["']''', content):
+                    u = lm.group(1)
+                    if u not in links:
+                        links.append(u)
+        else:
+            # screenshot/pageshot: sin contenido de texto (se devuelve la URL)
+            title = url
+            src = url
+            content = f"[{fmt} no es texto; consulta la URL original]"
+            links = []
         total = len(content)
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + f"\n…[truncado {total - max_chars} chars; total {total}]"
@@ -211,6 +263,8 @@ def _jina_extract(url: str, max_chars: int = 20000, fresh: bool = False) -> dict
             "ok": True,
             "engine": "jina-reader",
             "cached": False,
+            "format": fmt,
+            "fetch_engine": engine or "default",
             "title": title or url,
             "url": src or url,
             "links_total": len(links),
@@ -1975,7 +2029,9 @@ if __name__ == "__main__":
                     pass
                 return self._json(200, tool_poli_read_file(args))
             if parsed.path == "/v1/extract":
-                # Jina Reader: navegación rápida ?url=...&max_chars=... (GET).
+                # Jina Reader: navegación rápida (GET) — ?url=...&max_chars=...&
+                # fresh=1&engine=direct&respond_with=markdown&
+                # target_selector=...&remove_selector=...
                 # También disponible en POST /v1/extract con body JSON.
                 q = parse_qs(parsed.query)
                 url = (q.get("url") or [""])[0]
@@ -1985,7 +2041,13 @@ if __name__ == "__main__":
                     max_chars = int((q.get("max_chars") or ["20000"])[0])
                 except (TypeError, ValueError):
                     max_chars = 20000
-                return self._json(200, _jina_extract(url, max_chars))
+                fresh = (q.get("fresh") or ["0"])[0] in ("1", "true", "yes")
+                engine = (q.get("engine") or [None])[0]
+                respond_with = (q.get("respond_with") or [None])[0]
+                target_selector = (q.get("target_selector") or [None])[0]
+                remove_selector = (q.get("remove_selector") or [None])[0]
+                return self._json(200, _jina_extract(url, max_chars, fresh, engine,
+                                                     respond_with, target_selector, remove_selector))
             self._json(404, {"error": "not found"})
         def do_POST(self):
             # ── HMAC gate (2026-09-05): rutas de ejecución/escritura exigen firma
@@ -2112,7 +2174,10 @@ if __name__ == "__main__":
                 except Exception as e:
                     return self._json(500, {"ok": False, "error": str(e)})
             if self.path == "/v1/extract":
-                # Jina Reader (r.jina.ai): {url, max_chars?, fresh?} → markdown + links.
+                # Jina Reader (r.jina.ai): {url, max_chars?, fresh?, engine?,
+                # respond_with?, target_selector?, remove_selector?} → markdown.
+                # fresh=true → X-No-Cache: true (evita snapshots truncados de jina).
+                # engine: direct | default | cf-browser-rendering (X-Engine).
                 # Caché en memoria 15 min compartida por todos los agentes que
                 # llaman a poli → reparto de URLs sin re-extraer (2026-09-05).
                 try:
@@ -2127,7 +2192,12 @@ if __name__ == "__main__":
                     except Exception:
                         max_chars = 20000
                     fresh = bool(body.get("fresh"))
-                    return self._json(200, _jina_extract(url, max_chars, fresh))
+                    engine = (body.get("engine") or "").strip() or None
+                    respond_with = (body.get("respond_with") or "").strip() or None
+                    target_selector = (body.get("target_selector") or "").strip() or None
+                    remove_selector = (body.get("remove_selector") or "").strip() or None
+                    return self._json(200, _jina_extract(url, max_chars, fresh, engine,
+                                                         respond_with, target_selector, remove_selector))
                 except Exception as e:
                     return self._json(500, {"ok": False, "error": str(e)})
             if self.path == "/v1/exec":
