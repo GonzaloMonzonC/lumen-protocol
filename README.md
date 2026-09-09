@@ -18,6 +18,9 @@
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="docs/COGNITIVE_OS.md"><strong>🧠 Cognitive OS docs</strong></a> &nbsp;|&nbsp;
   <strong>✅ Level 2 SHM zero-copy · up to 58% wire savings · 4 MCP servers · works with Hermes</strong>
+  <br>
+  <a href="https://colab.research.google.com/github/GonzaloMonzonC/lumen-protocol/blob/main/examples/colab/lumen_demo.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
+  <strong>Try the full stack (MVM + PDB + M-Light + Astrid) in your browser — GPU optional</strong>
 </p>
 
 ---
