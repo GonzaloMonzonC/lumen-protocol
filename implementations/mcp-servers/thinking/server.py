@@ -598,6 +598,16 @@ def _pdb_load_all() -> bool:
         _next_session_num = meta.get("next_session_num", 1)
         _next_niche_id = meta.get("next_niche_id", 1)
         _next_task_id = meta.get("next_task_id", 1)
+        # FIX bug kanban (3 incidentes): al restaurar el estado, recalcular el
+        # contador desde las tareas existentes — nunca por debajo del max id.
+        for _t_restored in _tasks:
+            if _t_restored.startswith("task_"):
+                try:
+                    _t_num = int(_t_restored.split("_", 1)[1])
+                    if _t_num >= _next_task_id:
+                        _next_task_id = _t_num + 1
+                except (ValueError, IndexError):
+                    pass
         _global_tool_calls = meta.get("global_tool_calls", 0)
         _safe_print(f"[lumen-thinking] PDB restored: {len(_sessions)} sessions, "
                      f"{sum(len(s.chains) for s in _sessions.values())} chains")
@@ -4344,6 +4354,10 @@ def _start_dashboard(port: int = 9876) -> None:
                             self.wfile.write(_j.dumps({"error":"Niche not found"}).encode()); return
                         global _next_task_id
                         new_id = "task_" + str(_next_task_id)
+                        # FIX bug kanban (3 incidentes): nunca pisar ids existentes
+                        while new_id in _tasks:
+                            _next_task_id += 1
+                            new_id = "task_" + str(_next_task_id)
                         _next_task_id += 1
                         _tasks[new_id] = {
                             "id": new_id, "niche_id": niche_id, "title": title,

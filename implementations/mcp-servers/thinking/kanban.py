@@ -88,6 +88,12 @@ def kanban_tool_task_create(args: dict) -> dict:
         if nid not in server._niches:
             return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
         tid = f"task_{server._next_task_id}"
+        # FIX bug kanban (3 incidentes 2026-09-09): el contador en memoria puede
+        # quedar desincronizado del estado persistido y PISAR ids existentes.
+        # Nunca asignar un id ya ocupado: saltar hasta el primer hueco libre.
+        while tid in server._tasks:
+            server._next_task_id += 1
+            tid = f"task_{server._next_task_id}"
         server._next_task_id += 1
         server._tasks[tid] = {
             "id": tid, "niche_id": nid, "title": title,
