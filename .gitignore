@@ -97,3 +97,9 @@ implementations/mcp-servers/pdb/checkin_*.md
 # Benchmark JSON output (regenerate locally)
 benchmark_*.json
 bench_*.json
+
+# Build caches locales (wrapper MCP)
+implementations/rust/lumen-m-light/target-mcp/
+
+# Artefactos de builds fallidos (DLL renombrada en uso)
+*.pre-fix.locked
