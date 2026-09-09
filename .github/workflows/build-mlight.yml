@@ -1,0 +1,47 @@
+name: Build M-Light shared library
+
+# Compiles the Rust MVM (lumen-m-light) as a shared library for Linux and
+# Windows and uploads the artifacts — the Linux .so is what the Colab demo
+# (examples/colab/lumen_demo.ipynb) downloads instead of building from source.
+#
+# Trigger: manual (workflow_dispatch) or on any push touching the Rust crate.
+# Tag mlight-v* to also draft a GitHub Release with the binaries.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'implementations/rust/lumen-m-light/**'
+      - '.github/workflows/build-mlight.yml'
+  push:
+    tags:
+      - 'mlight-v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: liblumen_mlight.so
+          - os: windows-latest
+            artifact: lumen_mlight.dll
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: implementations/rust/lumen-m-light
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'ubuntu-latest' && 'x86_64-unknown-linux-gnu' || 'x86_64-pc-windows-msvc' }}
+      - name: Build release cdylib
+        run: cargo build --release --features minreq
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: implementations/rust/lumen-m-light/target/release/${{ matrix.artifact }}
+          if-no-files-found: error
