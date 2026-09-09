@@ -750,6 +750,38 @@ _LLM_KEYS = _load_llm_keys()
 
 # ── Handlers de herramientas ──────────────────────────────────────────────────
 
+def _evidence_block(mode) -> str:
+    """Evidence hook para personalidades 'de datos' (p.ej. astrid).
+
+    Si ^PERSONALITY(mode,'evidence_routine') define una rutina M (p.ej.
+    'EVIDENCE^ASTRID'), la ejecuta en el MVM real y devuelve su stdout como
+    bloque de EVIDENCIA REGISTRADA para anteponer al system prompt del LLM.
+    Así el agente responde sobre datos verificados, no lore inventado.
+    Devuelve '' si la personalidad no tiene evidence_routine o no produce
+    salida. (2026-09-09: hallazgo prod — Astrid inventaba $D(^ANGI)=0 y
+    namespaces %SYS/M67 al chat sin evidencia real.)
+    """
+    if not mode:
+        return ""
+    r = _STATE.exec(f'S ^EV=$G(^PERSONALITY("{mode}","evidence_routine"))', gas=15000)
+    er = ""
+    for g in (r.get("globals") or []):
+        if g.get("ns") == "EV":
+            er = str(g.get("value", "")).strip()
+    if not er or er in ("None", "0"):
+        return ""
+    r2 = _STATE.exec(f"W $${er}()", gas=80000)
+    out = (r2.get("state") or {}).get("output", "").strip()
+    if not out:
+        return ""
+    return (
+        "EVIDENCIA REGISTRADA (generada por la rutina " + er +
+        " en el MVM real — es la UNICA fuente de datos: nunca inventes cifras, "
+        "globales, codigos de error M ni lore de sistema fuera de ella):\n"
+        + out + "\n---\n"
+    )
+
+
 def tool_poli_chat(args: dict) -> dict:
     """Procesa un mensaje conversacional hacia Poli.
     
@@ -958,7 +990,8 @@ def tool_poli_chat(args: dict) -> dict:
 
         if provider and provider not in ("symbolic", "", "None", "0"):
             esc_msg = mensaje.replace('"', '""')
-            esc_sys = identity.replace('"', '""')
+            evidence = _evidence_block(active) if active else ""
+            esc_sys = (evidence + identity).replace('"', '""')
             if not model or model in ("", "None", "0"):
                 model = "deepseek-v4-flash"
             src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}")'
@@ -973,6 +1006,7 @@ def tool_poli_chat(args: dict) -> dict:
                 "response": result,
                 "active_mode": active,
                 "personality_used": active,
+                "evidence": bool(evidence),
             }
         else:
             return {
@@ -2113,7 +2147,8 @@ if __name__ == "__main__":
                         elif ns == "D":
                             model = str(g.get("value", ""))
                     if provider and provider not in ("symbolic", "", "None", "0"):
-                        esc_sys = identity.replace('"', '""')
+                        evidence = _evidence_block(active) if active else ""
+                        esc_sys = (evidence + identity).replace('"', '""')
                         if not model or model in ("", "None", "0"):
                             model = "deepseek-v4-flash"
                         rl = _STATE.exec(
