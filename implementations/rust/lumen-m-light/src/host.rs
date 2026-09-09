@@ -1054,6 +1054,46 @@ fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(out.to_string()))
 }
 
+/// MCP JSON-RPC 2.0 request (transporte HTTP, estilo streamable POST).
+/// Devuelve SIEMPRE {"ok":true,"result":...} | {"ok":false,"error":"..."}.
+/// Sin ssrf_guard a proposito: los servidores MCP viven registrados en
+/// ^SYS("MCP",<server>,url) de la PDB — vecindario de confianza del ambito
+/// (mismo principio que el device agent), no URLs arbitrarias del M.
+#[cfg(feature = "minreq")]
+fn mcp_http_request(url: &str, method: &str, params: &serde_json::Value) -> Result<Value, String> {
+    const MAX_BODY: usize = 300 * 1024;
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params,
+        "id": 1,
+    }).to_string();
+    let resp = minreq::post(url)
+        .with_timeout(20)
+        .with_header("Content-Type", "application/json")
+        .with_header("Accept", "application/json, text/event-stream")
+        .with_body(body)
+        .send()
+        .map_err(|e| format!("MCP {method} error: {e}"))?;
+    let status = resp.status_code;
+    let bytes = resp.as_bytes();
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_BODY)]).to_string();
+    let parsed: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => {
+            return Ok(Value::String(serde_json::json!({
+                "ok": status >= 200 && status < 300,
+                "error": format!("respuesta no JSON-RPC (status {status})"),
+                "raw": text,
+            }).to_string()));
+        }
+    };
+    if let Some(err) = parsed.get("error") {
+        return Ok(Value::String(serde_json::json!({"ok": false, "error": err}).to_string()));
+    }
+    Ok(Value::String(serde_json::json!({"ok": true, "result": parsed.get("result")}).to_string()))
+}
+
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
         // Read from in-memory BTreeMap
@@ -1886,6 +1926,91 @@ impl Host for MemoryHost {
                     _ => Err(format!("Unknown Smith action: {action}")),
                 }
             }
+            "mcp" => {
+                // Device MCP NATIVO — first-class en el MVM (2026-09-09).
+                // Las rutinas M hablan con servidores MCP (JSON-RPC 2.0)
+                // registrados en la PDB: ^SYS("MCP",<server>,url[|type|headers]).
+                //   $DEVICE("mcp:list")                          → servers registrados
+                //   $DEVICE("mcp:ping", server)                  → initialize
+                //   $DEVICE("mcp:tools", server)                 → tools/list
+                //   $DEVICE("mcp:call", server, tool, json_args) → tools/call
+                if action == "list" {
+                    let mut servers: Vec<String> = Vec::new();
+                    let mut cursor: Option<Subscript> = None;
+                    loop {
+                        match self.order("SYS", &[Subscript::String("MCP".into())], cursor.as_ref(), 1) {
+                            Ok(Some(sub)) => {
+                                if let Subscript::String(name) = &sub {
+                                    let url = match self.get("SYS", &[
+                                        Subscript::String("MCP".into()),
+                                        Subscript::String(name.clone()),
+                                        Subscript::String("url".into()),
+                                    ]) {
+                                        Ok(Some(Value::String(u))) => u.clone(),
+                                        _ => String::new(),
+                                    };
+                                    let tipo = match self.get("SYS", &[
+                                        Subscript::String("MCP".into()),
+                                        Subscript::String(name.clone()),
+                                        Subscript::String("type".into()),
+                                    ]) {
+                                        Ok(Some(Value::String(t))) => t.clone(),
+                                        _ => "http".to_string(),
+                                    };
+                                    servers.push(serde_json::json!({
+                                        "server": name, "url": url, "type": tipo
+                                    }).to_string());
+                                }
+                                cursor = Some(sub);
+                            }
+                            Ok(None) => break,
+                            Err(_) => break,
+                        }
+                    }
+                    return Ok(Value::String(
+                        serde_json::json!({"ok": true, "servers": servers}).to_string()
+                    ));
+                }
+                let server = args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                if server.trim().is_empty() {
+                    return Err("MCP: server requerido (registro ^SYS(\"MCP\",server,url))".to_string());
+                }
+                let url = match self.get("SYS", &[
+                    Subscript::String("MCP".into()),
+                    Subscript::String(server.clone()),
+                    Subscript::String("url".into()),
+                ]) {
+                    Ok(Some(Value::String(u))) if !u.trim().is_empty() => u.clone(),
+                    _ => return Err(format!("MCP: server '{server}' no registrado en ^SYS(\"MCP\")")),
+                };
+                match action {
+                    "call" => {
+                        let tool = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        if tool.trim().is_empty() {
+                            return Err("MCP call: tool requerida".to_string());
+                        }
+                        let args_json = args.get(2).map(|v| v.as_string()).unwrap_or_default();
+                        let parsed: serde_json::Value = if args_json.trim().is_empty() {
+                            serde_json::Value::Object(Default::default())
+                        } else {
+                            serde_json::from_str(&args_json)
+                                .map_err(|e| format!("MCP call: args_json invalido: {e}"))?
+                        };
+                        mcp_http_request(&url, "tools/call", &serde_json::json!({
+                            "name": tool,
+                            "arguments": parsed,
+                        }))
+                    }
+                    "tools" => mcp_http_request(&url, "tools/list", &serde_json::json!({})),
+                    "ping" => mcp_http_request(&url, "initialize", &serde_json::json!({
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "lumen-m-light", "version": "0.1.0"},
+                    })),
+                    _ => Err(format!("Unknown MCP action: {action} (list|ping|tools|call)")),
+                }
+            }
+
             _ => Err(format!("Device '{device}:{action}' not supported")),
         }
     }

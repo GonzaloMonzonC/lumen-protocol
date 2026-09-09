@@ -321,9 +321,22 @@ fn transpile_expr(expr: &str) -> String {
             code.push_str("}");
             return code;
         }
-        // Generic $DEVICE calls at runtime (lumen, etc.)
+        // Generic $DEVICE calls at runtime (lumen, mcp, agent, smith, etc.)
+        // Contrato: $DEVICE("device:action", arg1, ...). El VM (vm.rs:2007)
+        // parte device:action en el bytecode; aqui (expresiones dinamicas)
+        // hay que partir igual, o device_call recibe "dev:action" entero y
+        // el match nunca casa -> vacio silencioso (fix 2026-09-09: device mcp).
         if args.len() >= 2 {
             let dev = &args[0];
+            if dev.contains(':') {
+                let (device_name, action_name) = dev.split_once(':').unwrap_or((dev.as_str(), "call"));
+                let rest = args[1..].iter().map(|s| format!("crate::Value::String(\"{}\".to_string())", s)).collect::<Vec<_>>().join(",");
+                return format!(
+                    "{{ let mut __args = vec![{}]; self.host.device_call(\"{}\", \"{}\", &__args).unwrap_or(crate::Value::String(\"\".to_string())) }}",
+                    rest, device_name, action_name
+                );
+            }
+            // Legacy sin ':' en args[0]: device + action como args[1]
             let act = args.get(1).map(|s| s.as_str()).unwrap_or("call");
             let rest = args[2..].iter().map(|s| format!("crate::Value::String(\"{}\".to_string())", s)).collect::<Vec<_>>().join(",");
             return format!(
