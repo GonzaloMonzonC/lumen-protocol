@@ -82,7 +82,7 @@ M (MVM local) ──$DEVICE("http:post")──▶ Tom /v1/fetch (Worker CF, free
                                          └──▶ {status, title, text|summary, truncated}
 ```
 
-- **Tom `/v1/fetch`** — desplegado (worker `tom.*.workers.dev`, 2026-08-17).
+- **Tom `/v1/fetch`** — desplegado en Cloudflare Workers (2026-08-17); la URL del worker es interna del ecosistema, no se publica.
   Body: `{url, mode: 'text'|'resume'|'raw', max_chars}`. Auth: `X-DDP-HMAC`
   o `x-tom-key` (middleware global).
 - **Coste: 0 €** (plan free Workers + Workers AI).
