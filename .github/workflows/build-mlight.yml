@@ -14,7 +14,6 @@ on:
     paths:
       - 'implementations/rust/lumen-m-light/**'
       - '.github/workflows/build-mlight.yml'
-  push:
     tags:
       - 'mlight-v*'
 
