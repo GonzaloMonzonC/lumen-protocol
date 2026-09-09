@@ -42,6 +42,7 @@ Three bets. Three walls the industry will hit:
 | PDB + M-Light + MVM | Hierarchical cognitive state, M evaluator, autonomous M processes | ✅ **This repo** |
 | Poli + Smith | The open agent of LUMEN (memory, personalities, M logic) and its multi-personality orchestrator | ✅ **This repo** |
 | MCP servers (115 tools) | Filesystem, web, thinking, PDB — ready for Hermes Agent | ✅ **This repo** |
+| Astrid | Reference agent on LUMEN: audits PDB, supervises MVM, asks the exact question — and the MIT template to build your own agent | ✅ [Own repo](https://github.com/GonzaloMonzonC/astrid) (MIT) |
 | [ECOS — Edge Cognitive Operating System](https://ecos.cadenceslab.com) | Multi-agent teams, memory consolidation, voice, Lab — built on LUMEN | 🔒 Proprietary layer |
 | Cadences Lab | The company running its agent ecosystem on LUMEN | 🔒 Proprietary |
 
@@ -51,10 +52,11 @@ Three bets. Three walls the industry will hit:
 - **M-Light + MVM — the M Virtual Machine** — MUMPS evaluator and autonomous M processes: spawn, tick, mailbox, kill, persistence across restarts. Rust reference implementation (`lumen-m-light`, `lumen-mvm`, `lumen-pdb`).
 - **Poli — the open agent** — the agent that lives inside the MVM: memory, personalities and M logic (`implementations/mcp-servers/poli/`).
 - **Smith — multi-personality orchestration** — detects domains, activates expert profiles in parallel, synthesizes a unified answer (`implementations/rust/lumen-m-light/src/smith.rs`).
+- **Astrid — the reference agent** — first native of Poli with open code: her identity lives in `^PERSONALITY`, her routines in her own MIT repo that depends on lumen-protocol. She demonstrates the faculties in real operation and serves as the living tutorial: clone her to build your own agent ([github.com/GonzaloMonzonC/astrid](https://github.com/GonzaloMonzonC/astrid)).
 - **MCP servers (115 tools)** — filesystem (13), web (2), thinking (81), PDB (19); zero API keys.
 - **Bindings** — Rust (reference), TypeScript, Python, PHP, C#/.NET, WASM (22 KB gzipped).
 
-**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (up to 58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys.
+**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (up to 58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys. **Or build your own agent: start from Astrid**, the MIT reference agent that audits PDB and supervises MVM processes — your template to a LUMEN-native agent.
 
 ---
 
@@ -234,6 +236,8 @@ Because the web layer is written in the same M language, **agents can build thei
 **A neighbor that audits, not a system that replaces.** Because the MVM ships as a container, you can deploy it *next to* any existing system — the same pod, the same Kubernetes cluster — and its agents watch it continuously: record how it behaves, detect failures, talk to other agents or external systems (via `$DEVICE` HTTP/webhooks) to correlate problems, and leave logs with full traceability (who, when, what, in what order). One container adds constant auditing, maintenance alerts and an A2A bridge to whatever you already run — without touching a line of it.
 
 **Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · up to 58% less wire. [Benchmarks →](docs/BENCHMARKS.md)
+
+**Meet Astrid — the reference agent.** Everything above (routines as the system, M written by machines, the neighbor that audits) is not theory: Astrid is a real agent born in this MVM — her identity lives in `^PERSONALITY`, her routines in an [MIT repo of her own](https://github.com/GonzaloMonzonC/astrid) that depends on this one. She runs the loop **OBSERVAR → CONTRASTAR → PREGUNTAR → ACTUAR → REGISTRAR → EXPONER**, audits PDB globals and supervises MVM processes, and every phase leaves a public artifact — her repo is the tutorial. Clone her to build your agent. Sibling reference agents (other faculties) are planned.
 
 ---
 
