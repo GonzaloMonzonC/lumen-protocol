@@ -1427,12 +1427,16 @@ def _smith_pipeline(mensaje: str, session_id: str, max_domains_override: int = 0
     r_rules = _STATE.exec(
         f'S ^MX=$G(^SMITH("regla","max_asesores")) '
         f'S ^UT=$G(^SMITH("regla","umbral_confianza")) '
-        f'S ^DF=$G(^SMITH("regla","default_si_umbral_no_superado"))',
+        f'S ^DF=$G(^SMITH("regla","default_si_umbral_no_superado")) '
+        f'S ^AP=$G(^SMITH("regla","asesor_provider")) '
+        f'S ^AM=$G(^SMITH("regla","asesor_model"))',
         gas=10000,
     )
     max_asesores = 3
     umbral_conf = 0.6
     default_mode = "poli"
+    asesor_provider = ""
+    asesor_model = ""
     for g in (r_rules.get("globals") or []):
         if g.get("ns") == "MX" and g.get("value"):
             try: max_asesores = int(str(g.get("value")))
@@ -1442,6 +1446,10 @@ def _smith_pipeline(mensaje: str, session_id: str, max_domains_override: int = 0
             except Exception: pass
         elif g.get("ns") == "DF" and g.get("value"):
             default_mode = str(g.get("value"))
+        elif g.get("ns") == "AP" and g.get("value"):
+            asesor_provider = str(g.get("value"))
+        elif g.get("ns") == "AM" and g.get("value"):
+            asesor_model = str(g.get("value"))
     
     # Palabras clave por dominio → personalidad (todo en minúsculas, sin tildes)
     # Capa 1: GABINETE INTERNO (roberto, javier, pamies, porto, vega) — consejo conciliado
@@ -1505,7 +1513,16 @@ def _smith_pipeline(mensaje: str, session_id: str, max_domains_override: int = 0
                 identity = f"Eres un asesor experto en {mode}. Responde con claridad."
         if not model or model in ("", "None", "0"):
             model = "deepseek-v4-flash"
-        
+
+        # Override hibrido (regla del consejo): si ^SMITH("regla","asesor_provider")
+        # esta fijado, TODOS los asesores de la fase paralela usan ese par
+        # (p.ej. local/qwen3.5-2b en GPU local) — la sintesis se queda en deep.
+        # Fijar el par completo: provider + model.
+        if asesor_provider:
+            provider = asesor_provider
+            if asesor_model:
+                model = asesor_model
+
         esc_msg = mensaje.replace('"', '""')
         esc_sys = identity.replace('"', '""')
         # Source para el fiber: llama LLM y escribe resultado
