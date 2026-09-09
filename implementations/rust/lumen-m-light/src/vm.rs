@@ -508,6 +508,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         match instruction.opcode {
             Opcode::Set => self.exec_set(&instruction.argument, instruction.line)?,
             Opcode::Kill => self.exec_kill(&instruction.argument, instruction.line)?,
+            Opcode::Xecute => {
+                // X / XECUTE: evalúa el string y lo ejecuta como código M en el
+                // scope actual (misma máquina: vars y globals compartidos).
+                let code = self.eval_expr(&instruction.argument, instruction.line)?.as_string();
+                return self.exec_inline_control(&code, instruction.line);
+            }
             Opcode::New => {
                 let mut variables = BTreeMap::new();
                 let all = instruction.argument.trim().is_empty();
@@ -1005,15 +1011,36 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
     fn resolve_target(&mut self, target: &str, line: usize) -> Result<String, VmError> {
         let target = target.trim();
         if let Some(indirect) = target.strip_prefix('@') {
-            let expression = indirect
-                .strip_prefix('(')
-                .and_then(|v| v.strip_suffix(')'))
-                .unwrap_or(indirect);
-            let resolved = self.eval_expr(expression, line)?.as_string();
-            if resolved.is_empty() {
-                Err(VmError::new("MINDIRECT", "empty indirect target", line))
+            if indirect.starts_with('(') {
+                // Whole-reference: @(expr) → expr evalúa a "^G(k)" (o var local)
+                let expression = indirect
+                    .strip_prefix('(')
+                    .and_then(|v| v.strip_suffix(')'))
+                    .unwrap_or(indirect);
+                let resolved = self.eval_expr(expression, line)?.as_string();
+                if resolved.is_empty() {
+                    Err(VmError::new("MINDIRECT", "empty indirect target", line))
+                } else {
+                    Ok(resolved)
+                }
+            } else if let Some(open) = indirect.find('(') {
+                // Name indirection (MSM single-@ form): @ns(k) con ns="^ANGI" → "^ANGI(k)"
+                let resolved = self.eval_expr(&indirect[..open], line)?.as_string();
+                if !resolved.starts_with('^') {
+                    return Err(VmError::new(
+                        "MINDIRECT",
+                        format!("indirect name must resolve to a ^global, got '{resolved}'"),
+                        line,
+                    ));
+                }
+                Ok(format!("{}{}", resolved, &indirect[open..]))
             } else {
-                Ok(resolved)
+                let resolved = self.eval_expr(indirect, line)?.as_string();
+                if resolved.is_empty() {
+                    Err(VmError::new("MINDIRECT", "empty indirect target", line))
+                } else {
+                    Ok(resolved)
+                }
             }
         } else {
             Ok(target.to_string())
@@ -1481,18 +1508,49 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             return Ok(Value::Bool(v.as_number() == 0.0));
         }
         if let Some(value) = atom.strip_prefix('@') {
-            let inner = value
-                .strip_prefix('(')
-                .and_then(|v| v.strip_suffix(')'))
-                .unwrap_or(value);
-            let resolved = self.eval_expr(inner, line)?.as_string();
+            // Whole-reference value indirection: @("^G(1)") o @gref (gref="^G(1)")
+            if let Some(inner) = value.strip_prefix('(').and_then(|v| v.strip_suffix(')')) {
+                let resolved = self.eval_expr(inner, line)?.as_string();
+                if resolved.starts_with('^') {
+                    let (ns, subs) = self.parse_global(&resolved, line)?;
+                    return self
+                        .host
+                        .get(&ns, &subs)
+                        .map_err(|e| VmError::new("MINDIRECT", e, line))
+                        .map(|v| v.unwrap_or(Value::Null));
+                }
+                return Ok(self
+                    .state
+                    .vars
+                    .get(&resolved)
+                    .cloned()
+                    .unwrap_or(Value::Null));
+            }
+            // Name indirection (MSM single-@ form): @ns(k) con ns="^ANGI" ≡ ^ANGI(k)
+            let open = value.find('(');
+            let (name_expr, subs_tail) = match open {
+                Some(p) => (&value[..p], Some(&value[p..])),
+                None => (value, None),
+            };
+            let resolved = self.eval_expr(name_expr, line)?.as_string();
             if resolved.starts_with('^') {
-                let (ns, subs) = self.parse_global(&resolved, line)?;
+                let full = match subs_tail {
+                    Some(tail) => format!("{}{}", resolved, tail),
+                    None => resolved,
+                };
+                let (ns, subs) = self.parse_global(&full, line)?;
                 return self
                     .host
                     .get(&ns, &subs)
                     .map_err(|e| VmError::new("MINDIRECT", e, line))
                     .map(|v| v.unwrap_or(Value::Null));
+            }
+            if subs_tail.is_some() {
+                return Err(VmError::new(
+                    "MINDIRECT",
+                    format!("indirect name must resolve to a ^global, got '{resolved}'"),
+                    line,
+                ));
             }
             return Ok(self
                 .state
@@ -1604,7 +1662,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     return Err(VmError::new("MINCR", "empty argument", line));
                 }
                 // Read current value (existing or 0)
-                let current = if var_ref.starts_with('^') {
+                let current = if var_ref.starts_with('^') || var_ref.starts_with('@') {
                     let (ns, subs) = self.parse_global(&var_ref, line)?;
                     self.host
                         .get(&ns, &subs)
@@ -1648,7 +1706,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             "$D" | "$DATA" => {
                 let first_arg = args.first().map_or("", String::as_str).trim();
-                if first_arg.starts_with('^') {
+                if first_arg.starts_with('^') || first_arg.starts_with('@') {
                     let (ns, subs) = self.parse_global(first_arg, line)?;
                     self.host.data(&ns, &subs)
                         .map(|v| Value::Number(v as f64))
@@ -1676,7 +1734,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             "$O" | "$ORDER" => {
                 let raw_first = args.first().map_or("", String::as_str).trim();
-                if raw_first.starts_with('^') {
+                if raw_first.starts_with('^') || raw_first.starts_with('@') {
                     let (ns, mut subs) = self.parse_global(raw_first, line)?;
                     // En M canónico, $O(^G("")) significa "primer subíndice" (current
                     // vacío). Un String("") como current nunca supera a un Number en el
@@ -2298,6 +2356,49 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         line: usize,
     ) -> Result<(String, Vec<Subscript>), VmError> {
         let reference = reference.trim();
+        // Name indirection (MSM single-@ form): @name(subs...) where the
+        // expression `name` evaluates to a global ref string ("^ANGI").
+        // Combined with appended subscripts: @ns(k) with ns="^ANGI" ≡ ^ANGI(k).
+        if let Some(rest) = reference.strip_prefix('@') {
+            let open = rest
+                .find('(')
+                .ok_or_else(|| VmError::new("MINDIRECT", "indirect global needs (subs)", line))?;
+            let resolved_name = self.eval_expr(&rest[..open], line)?.as_string();
+            if !resolved_name.starts_with('^') {
+                return Err(VmError::new(
+                    "MINDIRECT",
+                    format!("indirect name must resolve to a ^global, got '{resolved_name}'"),
+                    line,
+                ));
+            }
+            // Base name may carry fixed subscripts ("^NS(a)"); tolerate by
+            // recursing, then append the textual subs from @name(...).
+            let (ns, mut subs) = if resolved_name.contains('(') {
+                self.parse_global(&resolved_name, line)?
+            } else {
+                (resolved_name[1..].to_string(), Vec::new())
+            };
+            let close = rest
+                .rfind(')')
+                .ok_or_else(|| VmError::new("MGLOBAL", "missing )", line))?;
+            for argument in split_top_level(&rest[open + 1..close], ',') {
+                let value = if argument.trim().starts_with('"')
+                    || argument.trim().parse::<f64>().is_ok()
+                    || self.state.vars.contains_key(argument.trim())
+                    || flatten_local_sub(argument.trim()).as_ref().map_or(false, |k| self.state.vars.contains_key(k))
+                    || argument.trim().starts_with('$')
+                    || argument.trim().starts_with('@')
+                    || argument.trim().starts_with('+')
+                    || argument.trim().starts_with('-')
+                {
+                    self.eval_expr(&argument, line)?
+                } else {
+                    Value::String(argument.trim().to_string())
+                };
+                subs.push(Subscript::from_value(value));
+            }
+            return Ok((ns, subs));
+        }
         let raw = reference
             .strip_prefix('^')
             .ok_or_else(|| VmError::new("MGLOBAL", "global must start with ^", line))?;
@@ -3542,5 +3643,69 @@ fn compare_values(left: &Value, right: &Value, operator: &str) -> bool {
         "'<=" => ordering.is_gt(),
         "[" => left.as_string().contains(&right.as_string()),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod indirection_tests {
+    use super::*;
+
+    fn run_m(source: &str) -> String {
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut host = crate::MemoryHost::default();
+        let mut vm = crate::Vm::new(program, &mut host);
+        let execution = vm.run();
+        assert!(
+            !matches!(execution, crate::Execution::Error),
+            "error ejecutando: {source:?}"
+        );
+        vm.state.output.clone()
+    }
+
+    // Indireccion de nombre UNA arroba (MSM): @ns("") y @ns(k) con ns="^ANGI"
+    #[test]
+    fn order_name_indirection_single_at() {
+        let out = run_m(
+            "S ^ANGI(\"metrics\",\"a\")=\"1\"\nS ^ANGI(\"otro\",\"b\")=\"2\"\n\
+             S ns=\"^ANGI\"\nS k=$O(@ns(\"\")) S n=0\nF  Q:k=\"\"  D\n. S n=n+1\n. S k=$O(@ns(k))\nW n Q",
+        );
+        assert_eq!(out.trim(), "2");
+    }
+
+    // SET + GET de valor via @ns(k)
+    #[test]
+    fn set_get_name_indirection_single_at() {
+        let out = run_m(
+            "S ns=\"^T\"\nS @ns(\"probe\")=42\nW @ns(\"probe\") Q",
+        );
+        assert_eq!(out.trim(), "42");
+    }
+
+    // $D y KILL via @ns(k)
+    #[test]
+    fn data_kill_name_indirection_single_at() {
+        let out = run_m(
+            "S ns=\"^T\"\nS @ns(\"m1\",\"x\")=1\nW $D(@ns(\"m1\")),\"|\"\nK @ns(\"m1\")\nW $D(@ns(\"m1\")) Q",
+        );
+        assert_eq!(out.trim(), "10|0");
+    }
+
+    // XECUTE: comando X con string literal y con concatenacion
+    #[test]
+    fn xecute_command_basic() {
+        let out = run_m("S ^T10=0\nXECUTE \"S ^T10=10\"\nW ^T10 Q");
+        assert_eq!(out.trim(), "10");
+        let out2 = run_m(
+            "S ^ANGI(\"metrics\",\"a\")=\"1\"\nS ^ANGI(\"otro\",\"b\")=\"2\"\n\
+             S ns=\"^ANGI\" S k=\"\"\nX \"S k=$O(\"_ns_\"(k))\"\nW k Q",
+        );
+        assert_eq!(out2.trim(), "metrics");
+    }
+
+    // XECUTE comparte vars locales con el scope actual
+    #[test]
+    fn xecute_shares_locals() {
+        let out = run_m("S k=1\nX \"S k=k+1\"\nW k Q");
+        assert_eq!(out.trim(), "2");
     }
 }

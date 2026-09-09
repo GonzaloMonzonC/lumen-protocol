@@ -25,6 +25,7 @@ pub enum Opcode {
     TRollback,
     Lock,
     Unlock,
+    Xecute,
     Expr,
     Label,
 }
@@ -344,6 +345,7 @@ fn opcode(token: &str) -> Option<Opcode> {
         "TR" | "TROLLBACK" => Some(Opcode::TRollback),
         "L" | "LOCK" => Some(Opcode::Lock),
         "UNLOCK" => Some(Opcode::Unlock),
+        "X" | "XECUTE" => Some(Opcode::Xecute),
         _ => None,
     }
 }
