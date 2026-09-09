@@ -1060,7 +1060,14 @@ fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
 /// ^SYS("MCP",<server>,url) de la PDB — vecindario de confianza del ambito
 /// (mismo principio que el device agent), no URLs arbitrarias del M.
 #[cfg(feature = "minreq")]
-fn mcp_http_request(url: &str, method: &str, params: &serde_json::Value) -> Result<Value, String> {
+fn mcp_http_request(
+    url: &str,
+    method: &str,
+    params: &serde_json::Value,
+    hmac_key: &str,
+    auth: &str,
+    extra: &[(String, String)],
+) -> Result<Value, String> {
     const MAX_BODY: usize = 300 * 1024;
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1068,13 +1075,30 @@ fn mcp_http_request(url: &str, method: &str, params: &serde_json::Value) -> Resu
         "params": params,
         "id": 1,
     }).to_string();
-    let resp = minreq::post(url)
+    let mut req = minreq::post(url)
         .with_timeout(20)
         .with_header("Content-Type", "application/json")
         .with_header("Accept", "application/json, text/event-stream")
-        .with_body(body)
-        .send()
-        .map_err(|e| format!("MCP {method} error: {e}"))?;
+        .with_body(body.clone());
+    for (k, v) in extra {
+        req = req.with_header(k.as_str(), v.as_str());
+    }
+    if !auth.is_empty() {
+        req = req.with_header("Authorization", auth);
+    }
+    if !hmac_key.is_empty() {
+        // Firma del ecosistema: HMAC-SHA256(ts + body + secret) en hex
+        // (mismo esquema que el device agent edge y mcp_bridge.py).
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string();
+        let sig = hmac_sha256(hmac_key, &format!("{ts}{body}{hmac_key}"));
+        req = req.with_header("X-DDP-HMAC", &sig);
+        req = req.with_header("X-DDP-Timestamp", &ts);
+    }
+    let resp = req.send().map_err(|e| format!("MCP {method} error: {e}"))?;
     let status = resp.status_code;
     let bytes = resp.as_bytes();
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_BODY)]).to_string();
@@ -1957,8 +1981,25 @@ impl Host for MemoryHost {
                                         Ok(Some(Value::String(t))) => t.clone(),
                                         _ => "http".to_string(),
                                     };
+                                    let has_hmac = match self.get("SYS", &[
+                                        Subscript::String("MCP".into()),
+                                        Subscript::String(name.clone()),
+                                        Subscript::String("hmac_key".into()),
+                                    ]) {
+                                        Ok(Some(Value::String(k))) => !k.is_empty(),
+                                        _ => false,
+                                    };
+                                    let has_auth = match self.get("SYS", &[
+                                        Subscript::String("MCP".into()),
+                                        Subscript::String(name.clone()),
+                                        Subscript::String("auth".into()),
+                                    ]) {
+                                        Ok(Some(Value::String(a))) => !a.is_empty(),
+                                        _ => false,
+                                    };
                                     servers.push(serde_json::json!({
-                                        "server": name, "url": url, "type": tipo
+                                        "server": name, "url": url, "type": tipo,
+                                        "hmac": has_hmac, "auth": has_auth
                                     }).to_string());
                                 }
                                 cursor = Some(sub);
@@ -1983,6 +2024,36 @@ impl Host for MemoryHost {
                     Ok(Some(Value::String(u))) if !u.trim().is_empty() => u.clone(),
                     _ => return Err(format!("MCP: server '{server}' no registrado en ^SYS(\"MCP\")")),
                 };
+                let hmac_key = match self.get("SYS", &[
+                    Subscript::String("MCP".into()),
+                    Subscript::String(server.clone()),
+                    Subscript::String("hmac_key".into()),
+                ]) {
+                    Ok(Some(Value::String(k))) => k.clone(),
+                    _ => String::new(),
+                };
+                let auth = match self.get("SYS", &[
+                    Subscript::String("MCP".into()),
+                    Subscript::String(server.clone()),
+                    Subscript::String("auth".into()),
+                ]) {
+                    Ok(Some(Value::String(a))) => a.clone(),
+                    _ => String::new(),
+                };
+                let extra: Vec<(String, String)> = match self.get("SYS", &[
+                    Subscript::String("MCP".into()),
+                    Subscript::String(server.clone()),
+                    Subscript::String("headers".into()),
+                ]) {
+                    Ok(Some(Value::String(h))) => serde_json::from_str::<serde_json::Value>(&h)
+                        .ok()
+                        .and_then(|v| v.as_object().cloned())
+                        .map(|obj| obj.into_iter().filter_map(|(k, v)| {
+                            v.as_str().map(|sv| (k, sv.to_string()))
+                        }).collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
                 match action {
                     "call" => {
                         let tool = args.get(1).map(|v| v.as_string()).unwrap_or_default();
@@ -1996,17 +2067,18 @@ impl Host for MemoryHost {
                             serde_json::from_str(&args_json)
                                 .map_err(|e| format!("MCP call: args_json invalido: {e}"))?
                         };
-                        mcp_http_request(&url, "tools/call", &serde_json::json!({
-                            "name": tool,
-                            "arguments": parsed,
-                        }))
+                        mcp_http_request(
+                            &url, "tools/call",
+                            &serde_json::json!({"name": tool, "arguments": parsed}),
+                            &hmac_key, &auth, &extra,
+                        )
                     }
-                    "tools" => mcp_http_request(&url, "tools/list", &serde_json::json!({})),
+                    "tools" => mcp_http_request(&url, "tools/list", &serde_json::json!({}), &hmac_key, &auth, &extra),
                     "ping" => mcp_http_request(&url, "initialize", &serde_json::json!({
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
                         "clientInfo": {"name": "lumen-m-light", "version": "0.1.0"},
-                    })),
+                    }), &hmac_key, &auth, &extra),
                     _ => Err(format!("Unknown MCP action: {action} (list|ping|tools|call)")),
                 }
             }
