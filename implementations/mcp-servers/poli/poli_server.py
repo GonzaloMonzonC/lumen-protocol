@@ -750,6 +750,44 @@ _LLM_KEYS = _load_llm_keys()
 
 # ── Handlers de herramientas ──────────────────────────────────────────────────
 
+def _anchor_digest(er: str, out: str) -> None:
+    """Ancla el digest en el ledger ^EVIDENCE (contrato de notaria, §3).
+
+    cid = sha256(digest); firma = _hmac_sign(cid, key de ^CONFIG("ddp_hmac_key"))
+    (esquema HMAC estandar del ecosistema); ledger append-only con dedup por
+    cid: ^EVIDENCE(cid)="sig|ts|rutina" y el digest linea a linea en
+    ^EVIDENCE(cid,"digest",n) (M-nativo, sin newlines incrustados).
+    Nunca rompe el chat: cualquier fallo es silencioso.
+    """
+    try:
+        cid = hashlib.sha256(out.encode("utf-8")).hexdigest()
+        chk = _STATE.exec(f'S ^D=$D(^EVIDENCE("{cid}"))', gas=5000)
+        for g in (chk.get("globals") or []):
+            if g.get("ns") != "D":
+                continue
+            try:
+                if float(g.get("value") or 0) > 0:
+                    return  # mismo estado -> mismo cid -> ya anclado
+            except (TypeError, ValueError):
+                pass
+        key = ""
+        r = _STATE.exec('S ^K=$G(^CONFIG("ddp_hmac_key"))', gas=5000)
+        for g in (r.get("globals") or []):
+            if g.get("ns") == "K" and g.get("value"):
+                key = str(g.get("value"))
+        if not key:
+            return
+        sig, ts = _hmac_sign(cid, key)
+        sets = [f'S ^EVIDENCE("{cid}")="{sig}|{ts}|{er}"']
+        for i, ln in enumerate(out.split("\n"), start=1):
+            if ln:
+                esc = ln.replace(chr(34), chr(34) * 2)
+                sets.append(f'S ^EVIDENCE("{cid}","digest",{i})="{esc}"')
+        _STATE.exec("\n".join(sets), gas=200000)
+    except Exception:
+        pass
+
+
 def _evidence_block(mode) -> str:
     """Evidence hook para personalidades 'de datos' (p.ej. astrid).
 
@@ -774,6 +812,7 @@ def _evidence_block(mode) -> str:
     out = (r2.get("state") or {}).get("output", "").strip()
     if not out:
         return ""
+    _anchor_digest(er, out)  # notaria: cid + firma + ledger ^EVIDENCE (silencioso)
     return (
         "EVIDENCIA REGISTRADA (generada por la rutina " + er +
         " en el MVM real — es la UNICA fuente de datos: nunca inventes cifras, "
