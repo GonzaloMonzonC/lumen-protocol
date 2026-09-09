@@ -185,6 +185,7 @@ impl LlmThreadPool {
             "deepseek" => "https://api.deepseek.com/v1/chat/completions",
             "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
             "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
+            "local" => "http://127.0.0.1:58099/v1/chat/completions",
             _ => return Err(format!("unknown provider: {}", item.provider)),
         };
 
@@ -200,6 +201,19 @@ impl LlmThreadPool {
                     "messages": [
                         {"role": "user", "content": item.prompt}
                     ],
+                })
+            } else if item.provider.to_lowercase() == "local" {
+                // llama-server: los modelos de razonamiento (qwen3.5+) mandan
+                // todo a reasoning_content si no se desactiva el thinking.
+                serde_json::json!({
+                    "model": item.model,
+                    "messages": [
+                        {"role": "system", "content": item.system},
+                        {"role": "user", "content": item.prompt}
+                    ],
+                    "max_tokens": 8192,
+                    "temperature": 0.7,
+                    "chat_template_kwargs": {"enable_thinking": false},
                 })
             } else {
                 serde_json::json!({
@@ -224,7 +238,7 @@ impl LlmThreadPool {
             if is_anthropic {
                 req = req.with_header("x-api-key", &item.api_key)
                          .with_header("anthropic-version", "2023-06-01");
-            } else {
+            } else if !item.api_key.is_empty() {
                 req = req.with_header("Authorization", &format!("Bearer {}", item.api_key));
             }
             
