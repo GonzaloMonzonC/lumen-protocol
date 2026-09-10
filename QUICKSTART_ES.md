@@ -68,6 +68,11 @@ cd ../../..
 > Windows, **para el server antes de recompilar** o cargo falla con "Acceso
 > denegado" (la DLL está bloqueada).
 
+> **El motor pesa ~4 MB**: esa librería es un artefacto nativo único (Rust a
+> código máquina), **sin intérprete ni runtime que instalar** — cabe en una
+> función edge, un contenedor mínimo o un portátil viejo. El mismo motor
+> compila a **22 KB gzip** para el navegador (WASM).
+
 ---
 
 ## 4. Poner tu API key (¡nunca la commitees!)
