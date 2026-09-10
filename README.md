@@ -60,7 +60,7 @@ Three bets. Three walls the industry will hit:
 - **MCP servers (115 tools)** — filesystem (13), web (2), thinking (81), PDB (19); zero API keys.
 - **Bindings** — Rust (reference), TypeScript, Python, PHP, C#/.NET, WASM (22 KB gzipped).
 
-**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (up to 58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys. **Or build your own agent: start from Astrid**, the MIT reference agent that audits PDB and supervises MVM processes — your template to a LUMEN-native agent. Her sisters **[Iris](https://github.com/GonzaloMonzonC/iris)** and **[Elena](https://github.com/GonzaloMonzonC/elena)** complete the tríada: three open doors into the same protocol.
+**What you can do here today:** replace your JSON-RPC MCP wire with a binary one (up to 58% smaller), give your agent a persistent hierarchical brain (PDB), run autonomous M processes at the edge (MVM), and even run the open agent Poli with its multi-personality orchestrator Smith — all with zero API keys. **Or build your own agent: start from Astrid**, the MIT reference agent that audits PDB and supervises MVM processes — your template to a LUMEN-native agent. Her sisters **[Iris](https://github.com/GonzaloMonzonC/iris)** and **[Elena](https://github.com/GonzaloMonzonC/elena)** complete the tríada: three open doors into the same protocol. **The engine under all of it: a single ~4 MB native artifact.**
 
 ---
 
@@ -151,6 +151,13 @@ bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 | File context (50×100 KB) | 5.07 MB | 4.89 MB | **4%** |
 
 > Run it yourself: `python examples/cost-calculator/cost_calculator.py`
+
+---
+
+**Footprint — one native artifact (~4 MB).** The reference MVM (`lumen_mlight`) compiles to a
+single **~4 MB native shared library** — Rust to machine code, no interpreter to boot, no runtime
+to install. It fits where a full Python stack does not: an edge function, a minimal container, an
+old laptop or a phone. The same engine compiles to **22 KB gzipped** for the browser (WASM).
 
 ---
 
