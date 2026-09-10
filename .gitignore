@@ -103,3 +103,10 @@ implementations/rust/lumen-m-light/target-mcp/
 
 # Artefactos de builds fallidos (DLL renombrada en uso)
 *.pre-fix.locked
+
+# Binarios del MVM (build local) — nunca al repo
+*.dll
+*.dll.pre-*
+*.so
+*.so.pre-*
+*.dylib
