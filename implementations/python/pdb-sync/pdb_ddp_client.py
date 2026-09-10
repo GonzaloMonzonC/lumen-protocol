@@ -85,8 +85,13 @@ class DDPClient:
             base_url
             or os.environ.get("PDB_EDGE_URL")
             or secrets.get("PDB_EDGE_URL")
-            or "https://pdb-edge.gonzalomonzonc.workers.dev"
+            or ""
         ).rstrip("/")
+        if not self.base_url:
+            raise DDPError(
+                "PDB_EDGE_URL no configurada: define la variable de entorno PDB_EDGE_URL, "
+                "un fichero de secretos local (~/.hermes/secrets.env) o pasa base_url."
+            )
         self.key = key if key is not None else _default_key()
         self.timeout = timeout
 

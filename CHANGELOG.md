@@ -6,6 +6,11 @@ lives in `git log` and the GitHub Releases.
 
 ## [2026-09] — 2026-09-10
 
+### Security
+- **Removed a hardcoded internal URL** from `implementations/python/pdb-sync/pdb_ddp_client.py`:
+  the client now requires `PDB_EDGE_URL` (env var or local secrets file) or an explicit
+  `base_url` — no private infrastructure endpoints live in this repository.
+
 ### Added
 - **`examples/colab/lumen_demo.ipynb` — the demo, v3** (self-contained, zero
   keys): runs the **A·I·E tríada** (the real MIT routines from
