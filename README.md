@@ -14,7 +14,7 @@
 <p align="center">
   <strong>Open metal:</strong> binary protocol, zero-copy transport, PDB/MVM cognitive state, M-Light evaluator, Poli + Smith agents, 115 MCP tools.
   <br>
-  <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> &nbsp;|&nbsp;
+  <a href="QUICKSTART.md"><strong>🚀 Quickstart</strong></a> · <a href="QUICKSTART_ES.md"><strong>Empezar aquí</strong></a> · <a href="https://lumen.cadences.app"><strong>🌐 Website</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Install in Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="docs/COGNITIVE_OS.md"><strong>🧠 Cognitive OS docs</strong></a> &nbsp;|&nbsp;
   <strong>✅ Level 2 SHM zero-copy · up to 58% wire savings · 4 MCP servers · works with Hermes</strong>
