@@ -695,14 +695,7 @@ impl MemoryHost {
             }) {
                 for row in rows {
                     if let Ok((ns, subkey_bytes, value_str)) = row {
-                        let parts = decode_subkey(&subkey_bytes);
-                        let subs: Vec<Subscript> = parts.into_iter()
-                            .map(|s| if let Ok(n) = s.parse::<f64>() {
-                                Subscript::Number(n)
-                            } else {
-                                Subscript::String(s)
-                            })
-                            .collect();
+                        let subs = decode_subkey(&subkey_bytes);
                         values.insert((ns, subs), Value::String(value_str));
                     }
                 }
@@ -1172,16 +1165,19 @@ impl Host for MemoryHost {
                 conn.execute("DELETE FROM _globals WHERE ns=?1", rusqlite::params![ns])
                     .map_err(|e| format!("kill ns: {e}"))?;
             } else {
-                let _ = conn
-                    .execute("DELETE FROM _globals WHERE ns=?1 AND subkey=?2",
-                        rusqlite::params![ns, subkey]);
-                let _ = conn
-                    .execute("DELETE FROM _globals WHERE ns=?1 AND subkey>?2 AND subkey LIKE ?3",
-                        rusqlite::params![ns, subkey, {
-                            let mut p = subkey.clone();
-                            p.push(b'%');
-                            p
-                        }]);
+                conn.execute("DELETE FROM _globals WHERE ns=?1 AND subkey=?2",
+                        rusqlite::params![ns, subkey])
+                    .map_err(|e| format!("kill node: {e}"))?;
+                // Fix 2026-09-10 (bug kill-subarbol vs SQLite): los subkey son BLOB
+                // (02+ascii+ff) y LIKE no matchea sobre BLOB — los descendientes
+                // quedaban huerfanos tras un K de subarbol. Prefijo binario exacto
+                // via substr. OJO: encode_subkey añade el terminador \xff final;
+                // para matchear descendientes el prefijo va SIN ese terminador.
+                let prefix: Vec<u8> = subs.iter().flat_map(|s| encode_one_sub(s)).collect();
+                let prefix_len = prefix.len() as i64;
+                conn.execute("DELETE FROM _globals WHERE ns=?1 AND subkey>?2 AND substr(subkey,1,?3)=?2",
+                        rusqlite::params![ns, prefix, prefix_len])
+                    .map_err(|e| format!("kill subtree: {e}"))?;
             }
         }
         Ok(count)
@@ -1381,11 +1377,8 @@ impl Host for MemoryHost {
             for row in rows {
                 let (ns, subkey, value) = row.map_err(|e| format!("entries row: {e}"))?;
                 let subs = decode_subkey(&subkey);
-                let subs_enum: Vec<Subscript> = subs.into_iter()
-                    .map(|s| if let Ok(n) = s.parse::<f64>() { Subscript::Number(n) } else { Subscript::String(s) })
-                    .collect();
                 let val = if let Ok(n) = value.trim().parse::<f64>() { Value::Number(n) } else { Value::String(value) };
-                entries.push(GlobalEntry { ns, subs: subs_enum, value: val });
+                entries.push(GlobalEntry { ns, subs, value: val });
             }
             return Ok(entries);
         }
@@ -2247,12 +2240,16 @@ fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
     out
 }
 
-/// Decodificar subkey binaria canónica a vector de strings MUMPS.
-/// Formato: \x02 <str> \xff (string) · \x01 <f64 BE 8B> (número → texto canónico,
-/// p.ej. "13" o "1.5") · \xff suelto = terminador. Bytes desconocidos se leen
-/// como string hasta \xff (tolerancia con filas legacy). (Fix 2026-09-04: los
-/// números \x01+float64 de qpdb se leían como string basura → claves invisibles.)
-fn decode_subkey(subkey: &[u8]) -> Vec<String> {
+/// Decodificar subkey binaria canónica a Subscripts TIPADOS.
+/// Formato: \x02 <str> \xff (string → Subscript::String, SIEMPRE string) ·
+/// \x01 <f64 BE 8B> (número → Subscript::Number) · \xff suelto = terminador.
+/// Legacy: \x01 + texto ASCII + \xff → Number si parsea como número, String si no.
+/// Bytes desconocidos se leen como string hasta \xff (tolerancia con filas legacy).
+/// Fix 2026-09-10 (bug tipos string/número): antes la salida era Vec<String> y
+/// TODOS los subscripts string-numéricos se re-normalizaban con parse::<f64> al
+/// insertarse → las filas escritas con subscript string "1" quedaban invisibles
+/// para ^G("1") tras un reload (y colisionaban con ^G(1)).
+fn decode_subkey(subkey: &[u8]) -> Vec<Subscript> {
     let mut result = Vec::new();
     let mut i = 0;
     while i < subkey.len() {
@@ -2268,18 +2265,17 @@ fn decode_subkey(subkey: &[u8]) -> Vec<String> {
                             .position(|&b| b == 0xFF)
                             .map(|p| i + 1 + p)
                             .unwrap_or(subkey.len());
-                        result.push(String::from_utf8_lossy(&subkey[i + 1..end]).to_string());
+                        let txt = String::from_utf8_lossy(&subkey[i + 1..end]).to_string();
+                        result.push(if let Ok(n) = txt.parse::<f64>() {
+                            Subscript::Number(n)
+                        } else {
+                            Subscript::String(txt)
+                        });
                         i = end + 1;
                     } else {
                         let mut bytes = [0u8; 8];
                         bytes.copy_from_slice(eight);
-                        let v = f64::from_be_bytes(bytes);
-                        let txt = if v.fract() == 0.0 && v.abs() < 9.0e15 {
-                            format!("{}", v as i64)
-                        } else {
-                            format!("{}", v)
-                        };
-                        result.push(txt);
+                        result.push(Subscript::Number(f64::from_be_bytes(bytes)));
                         i += 9;
                     }
                 } else {
@@ -2293,7 +2289,9 @@ fn decode_subkey(subkey: &[u8]) -> Vec<String> {
                     .position(|&b| b == 0xFF)
                     .map(|p| i + p)
                     .unwrap_or(subkey.len());
-                result.push(String::from_utf8_lossy(&subkey[i..end]).to_string());
+                result.push(Subscript::String(
+                    String::from_utf8_lossy(&subkey[i..end]).to_string(),
+                ));
                 i = end + 1;
             }
             0xFF => i += 1, // terminador
@@ -2304,7 +2302,9 @@ fn decode_subkey(subkey: &[u8]) -> Vec<String> {
                     .position(|&b| b == 0xFF)
                     .map(|p| i + p)
                     .unwrap_or(subkey.len());
-                result.push(String::from_utf8_lossy(&subkey[i..end]).to_string());
+                result.push(Subscript::String(
+                    String::from_utf8_lossy(&subkey[i..end]).to_string(),
+                ));
                 i = end + 1;
             }
         }
@@ -2314,26 +2314,12 @@ fn decode_subkey(subkey: &[u8]) -> Vec<String> {
 
 /// Extraer el primer subscript de una subkey binaria.
 fn decode_first_sub(subkey: &[u8]) -> Option<Subscript> {
-    let parts = decode_subkey(subkey);
-    parts.into_iter().next().map(|s| {
-        if let Ok(n) = s.parse::<f64>() {
-            Subscript::Number(n)
-        } else {
-            Subscript::String(s)
-        }
-    })
+    decode_subkey(subkey).into_iter().next()
 }
 
 /// Extraer el subscript en un nivel especifico de una subkey.
 fn extract_sub_at_level(subkey: &[u8], level: usize) -> Option<Subscript> {
-    let parts = decode_subkey(subkey);
-    parts.get(level).map(|s| {
-        if let Ok(n) = s.parse::<f64>() {
-            Subscript::Number(n)
-        } else {
-            Subscript::String(s.clone())
-        }
-    })
+    decode_subkey(subkey).get(level).cloned()
 }
 
 impl std::fmt::Debug for MemoryHost {
@@ -2360,5 +2346,67 @@ impl Clone for MemoryHost {
             sqlite_db: None, // SQLite connections can't be cloned
             smith_registry: self.smith_registry.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod subkey_codec_tests {
+    use super::*;
+
+    /// Fix 2026-09-10: string "1" y número 1 son subscripts DISTINTOS — el decode
+    /// no debe normalizar string→number (bug: filas con subscript string quedaban
+    /// invisibles tras un reload del host SQLite).
+    #[test]
+    fn roundtrip_preserva_tipo_string_vs_number() {
+        let subs = vec![
+            Subscript::String("a".into()),
+            Subscript::String("1".into()),
+            Subscript::Number(1.0),
+            Subscript::String("x".into()),
+        ];
+        let blob = encode_subkey(&subs);
+        let decoded = decode_subkey(&blob);
+        assert_eq!(decoded.len(), 4);
+        assert!(matches!(&decoded[0], Subscript::String(s) if s == "a"));
+        assert!(
+            matches!(&decoded[1], Subscript::String(s) if s == "1"),
+            "string 1 debe seguir siendo String, no re-normalizarse a Number"
+        );
+        assert!(
+            matches!(&decoded[2], Subscript::Number(n) if (*n - 1.0).abs() < 1e-9),
+            "número 1 debe seguir siendo Number"
+        );
+        assert!(matches!(&decoded[3], Subscript::String(s) if s == "x"));
+    }
+
+    #[test]
+    fn string_numerico_y_numero_codifican_distinto() {
+        let s_blob = encode_subkey(&[Subscript::String("1".into())]);
+        let n_blob = encode_subkey(&[Subscript::Number(1.0)]);
+        assert_ne!(s_blob, n_blob, "string y número deben codificar distinto");
+        let s_dec = decode_subkey(&s_blob);
+        let n_dec = decode_subkey(&n_blob);
+        assert!(matches!(s_dec[0], Subscript::String(_)));
+        assert!(matches!(n_dec[0], Subscript::Number(_)));
+    }
+
+    /// El prefijo de descendientes va SIN el terminador \xff final — base del
+    /// fix del KILL de subárbol (substr prefix match sobre BLOB).
+    #[test]
+    fn prefijo_descendientes_sin_terminador_final() {
+        let full = encode_subkey(&[Subscript::String("a".into()), Subscript::String("1".into())]);
+        let prefix: Vec<u8> = [Subscript::String("a".into()), Subscript::String("1".into())]
+            .iter()
+            .flat_map(|s| encode_one_sub(s))
+            .collect();
+        // El subkey completo = prefijo + terminador
+        assert_eq!(full[..full.len() - 1], prefix[..]);
+        // Un descendiente empieza por el prefijo
+        let child = encode_subkey(&[
+            Subscript::String("a".into()),
+            Subscript::String("1".into()),
+            Subscript::String("x".into()),
+        ]);
+        assert_eq!(&child[..prefix.len()], &prefix[..]);
     }
 }
