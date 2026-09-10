@@ -67,6 +67,11 @@ cd ../../..
 > `[UNKNOWN $DEVICE]` in agent calls). On Windows, **stop the running server
 > before rebuilding** or cargo fails with "Access denied" (the DLL is locked).
 
+> **The engine weighs ~4 MB**: that library is a single native artifact (Rust
+> to machine code), **no interpreter, no runtime to install** — it fits an
+> edge function, a minimal container or an old laptop. The same engine
+> compiles to **22 KB gzipped** for the browser (WASM).
+
 ---
 
 ## 4. Set your API key (never commit it!)
