@@ -41,9 +41,10 @@ Tres apuestas. Tres muros con los que la industria va a chocar:
 | Protocolo LUMEN + transportes | Wire binario (Hyb128), SHM zero-copy, datagram, QUIC, ChaCha20-Poly1305, macaroons | ✅ **Este repo (MIT)** |
 | PDB + M-Light + MVM | Estado cognitivo jerárquico, evaluador M, procesos M autónomos | ✅ **Este repo** |
 | Servidores MCP (115 tools) | Filesystem, web, thinking, PDB — listos para Hermes Agent | ✅ **Este repo** |
+| **La tríada A·I·E** — [Astrid](https://github.com/GonzaloMonzonC/astrid) · [Iris](https://github.com/GonzaloMonzonC/iris) · [Elena](https://github.com/GonzaloMonzonC/elena) | Tres agentes MIT, un protocolo: Astrid audita y ancla (*¿es verdad?*) · Iris propone hipótesis falsables (*¿y si…?*) · Elena firma decision cards (*¿y ahora qué?*). Clona los tres: una sociedad de investigación funcionando | ✅ Repos propios (MIT) |
 | Orquestación ECOS | Equipos multi-agente, consolidación de memoria, voz, Lab | 🔒 Capa propietaria |
 
-**Qué puedes hacer hoy aquí:** sustituir tu wire MCP JSON-RPC por uno binario (hasta 58% más pequeño), dar a tu agente un cerebro jerárquico persistente (PDB) y ejecutar procesos M autónomos en el edge (MVM) — todo sin claves de API.
+**Qué puedes hacer hoy aquí:** sustituir tu wire MCP JSON-RPC por uno binario (hasta 58% más pequeño), dar a tu agente un cerebro jerárquico persistente (PDB) y ejecutar procesos M autónomos en el edge (MVM) — todo sin claves de API. **O monta tu propia sociedad: la tríada MIT [Astrid](https://github.com/GonzaloMonzonC/astrid) · [Iris](https://github.com/GonzaloMonzonC/iris) · [Elena](https://github.com/GonzaloMonzonC/elena) corre el ciclo completo — evidencia, hipótesis y decisiones, todo en acta.**
 
 ---
 
