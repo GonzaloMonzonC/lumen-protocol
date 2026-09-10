@@ -19,7 +19,7 @@ W $DEVICE("http:get","https://example.com")
 W $DEVICE("http:get","https://api.example.com/x","{""User-Agent"":""Mozilla/5.0""}","30")
 
 ; POST con body JSON + headers + timeout
-W $DEVICE("http:post","https://tom.xxx.workers.dev/v1/fetch","{""url"":""https://example.com""}","{""x-tom-key"":""KEY""}","60")
+W $DEVICE("http:post","https://<tu-worker>.workers.dev/v1/fetch","{""url"":""https://example.com""}","{""x-api-key"":""KEY""}","60")
 
 ; HEAD / PUT / DELETE — misma firma
 ```

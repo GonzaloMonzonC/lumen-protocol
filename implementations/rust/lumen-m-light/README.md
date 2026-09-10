@@ -10,6 +10,14 @@ cargo build --release
 python3 benchmark.py
 ```
 
+## Binario precompilado (release)
+
+Linux x86-64: descarga `liblumen_mlight.so` de la release
+[`mlight-v0.1.0`](https://github.com/GonzaloMonzonC/lumen-protocol/releases/tag/mlight-v0.1.0)
+y apunta `LUMEN_MLIGHT_LIB` a él — es el mismo `.so` que usa el notebook de Colab.
+Para Windows, compila localmente (`cargo build --release`) y apunta
+`LUMEN_MLIGHT_LIB` al `lumen_mlight.dll` resultante.
+
 La ABI exporta `lm_compile_json`, `lm_execute_json` y `lm_string_free`. El
 wrapper Python está en `implementations/mcp-servers/pdb/lumen_mlight.py`:
 

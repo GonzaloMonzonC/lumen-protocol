@@ -37,6 +37,18 @@ otro proceso y funciona. → La duplicación vuelve a acumularse; el cleanup del
 **Solución deseada**: 1 instancia de Poli. Cuando llega una sesión nueva, hablar con el
 Poli activo (mismo proceso), no crear uno nuevo.
 
+**RESUELTO 2026-09-10 (causa raíz confirmada en Windows)**: al recargar/relanzar el
+gateway (o `/reload-mcp`) los procesos MCP viejos NO mueren — quedan **gemelos vivos con
+estado en memoria divergente** del almacén compartido. Casos reales del día: 3 conexiones
+del thinking server (kanban con lecturas y escrituras a memorias distintas → tareas
+"fantasma" y pisadas) y poli gemelo con doble bind en :8082 repartiendo requests (→ 401
+intermitente cuando las keys difieren). Diagnóstico: `wmic process get
+processid,parentprocessid,creationdate,commandline` → conservar solo la conexión nueva
+(created más reciente) y matar los pares viejos. Verificación: 1 proceso por puerto +
+coherencia crear→leer→borrar. Patrón registrado: `mcp-server-gemelo-tras-reload-windows`.
+El 'pendiente opcional' de los 2 procesos venv+uv queda resuelto: es wrapper+hijo de UNA
+misma conexión lógica; el problema real son las conexiones viejas que sobreviven.
+
 **Referencia**: `config.yaml` → `mcp_servers.poli` ; `poli_server.py` → `_STATE`
 
 ---
@@ -77,6 +89,10 @@ bien (~30-60s). La primera prueba multi-asesor (vega+pamies) dio TimeoutError de
 - Cambio acotado al adaptador MCP de Poli, sin tocar el núcleo de Smith ni el gateway.
 
 **Pendiente**: decidir streaming vs async puro tras medir coste de habilitar streaming.
+
+**RESUELTO 2026-08-11**: opción elegida = **async puro con partials progresivos**
+(`poli_smith_start`/`poli_smith_status`, guardia 240s — commit `2113a10`); streaming
+descartado de momento.
 
 **Estado 2026-08-05 (noche)**: P3 (síntesis rota) RESUELTO — los partials se escriben en
 globals M por trozos (^SYNTH(n)) y se referencian con $G() en vez de incrustar el prompt
@@ -170,3 +186,19 @@ tomamos como métrica oficial.
   partials progresivos + guardia 240s en poli_smith. 8 zombies poli_server eliminados.
 - **Decisión**: plan de mejora del equipo → selección propia (6 items adoptados, resto
   rechazado por generalista). Ver sección "Plan de Mejora LUMEN — Selección propia".
+
+### 2026-09-10 (fixes MVM + Iris + saneado de instancias)
+
+- **2 bugs reales del MVM corregidos** (commit `3528f30`, 77 tests verdes): (1) el KILL
+  de subárbol contra SQLite no borraba los descendientes (LIKE no matchea sobre BLOB;
+  el prefijo llevaba además el terminador `ff` de más) → pérdida silenciosa de datos;
+  (2) `decode_subkey` normalizaba subscripts string→number → filas con subscript string
+  ("1") invisibles tras un reload y colisión con el número. Release `mlight-v0.1.0`
+  regenerada con el `.so` corregido.
+- **Iris desplegada**: repo MIT público (github.com/GonzaloMonzonC/iris) y agente viva
+  en el ecosistema (`mode=iris`); el desarrollo de su contrato cazó los 2 bugs MVM.
+- **Saneado de instancias duplicadas** (ver P1): 3 conexiones gemelas del thinking
+  server + poli duplicado en :8082 eliminados → 1 instancia por server; kanban reparado
+  (4 tasks pisadas por el bug de ids recreadas; fix `08d40c9` activo y verificado).
+- **DLL nueva desplegada** en las 3 ubicaciones (fixes kill/tipos) + poli relanzado con
+  `unset DDP_HMAC_KEY` (un env heredado pisaba la key del fichero → 401 intermitente).
