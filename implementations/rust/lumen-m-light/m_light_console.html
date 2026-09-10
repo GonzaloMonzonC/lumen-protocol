@@ -29,8 +29,13 @@ await wasm.default();
 // Precompiled routines
 const SYS = {};
 function def(n, code) { try { SYS[n] = wasm.m_compile(code); } catch(e) {} }
-def("^%SS", `%SS W "Engine: WASM v0.1",! Q`);
-def("^%GL", `%GL N ns,s S ns="" S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 W "  ^",ns," = ",$G(^GLOBAL_SIZES(ns)),! S ns=$O(^GLOBAL_SIZES(ns)) G:ns="" G2 G2 Q`);
+def("^%SS", `%SS W "Engine: WASM v0.1",!
+Q`);
+def("^%GL", `%GL N ns S ns=""
+G1 S ns=$O(^GLOBAL_SIZES(ns))
+I ns="" Q
+W "  ^",ns," = ",$G(^GLOBAL_SIZES(ns)),!
+G G1`);
 
 // State
 let _sessionGlobals = [];
@@ -63,7 +68,11 @@ function mergeGlobals() {
         const idx = m.findIndex(e => e.ns === sg.ns && JSON.stringify(e.subs) === JSON.stringify(sg.subs));
         if (idx >= 0) m[idx] = sg; else m.push(sg);
     }
-    return JSON.stringify(m);
+    // ^GLOBAL_SIZES recalculado en cada merge (para "D ^%GL" / "ZW ^GLOBAL_SIZES")
+    const sizes = {};
+    for (const e of m) if (e.ns !== "GLOBAL_SIZES") sizes[e.ns] = (sizes[e.ns] || 0) + 1;
+    const sizesExtra = Object.keys(sizes).sort().map(ns => ({ns: "GLOBAL_SIZES", subs: [ns], value: sizes[ns]}));
+    return JSON.stringify(m.filter(e => e.ns !== "GLOBAL_SIZES").concat(sizesExtra));
 }
 
 function flatSubs(w) {
@@ -119,7 +128,17 @@ document.getElementById("btnRun").onclick = async function() {
     const zwMatch = cmd.match(/^zw\s+\^?(\w+)/i);
     if (zwMatch) {
         const ns = zwMatch[1].toUpperCase();
-        cmd = "N k W \"=== ^" + ns + " ===\",! S k=\"\" Z1 S k=$O(^" + ns + "(k)) G:k=\"\" Z2 W \"  \",k,\" = \",$G(^" + ns + "(k)) G Z1 Z2 W ! Q";
+        cmd = "N k,j W \"=== ^" + ns + " ===\",!" +
+              "\nS k=\"\"" +
+              "\nZ1 S k=$O(^" + ns + "(k))" +
+              "\nI k=\"\" G Z9" +
+              "\nW \"  \",k" +
+              "\nS j=\"\"" +
+              "\nZ2 S j=$O(^" + ns + "(k,j))" +
+              "\nI j=\"\" G Z1" +
+              "\nW \"    \",j,\" = \",$G(^" + ns + "(k,j)),!" +
+              "\nG Z2" +
+              "\nZ9 Q";
     }
 
     try {
@@ -130,8 +149,8 @@ document.getElementById("btnRun").onclick = async function() {
         const raw = JSON.parse(wasm.m_execute_ddp(compiled, globals, "*"));
         const ms = (performance.now() - t0).toFixed(1);
 
+        if (raw.output) log(raw.output, "ok");
         if (raw.error) log("<" + raw.error + ">", "err");
-        else if (raw.output) log(raw.output, "ok");
 
         if (raw.writes) {
             for (const w of raw.writes) {
