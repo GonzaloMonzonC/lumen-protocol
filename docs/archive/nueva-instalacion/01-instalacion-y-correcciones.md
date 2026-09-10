@@ -27,7 +27,7 @@ en repo.
 ## 17/08/2026 — Fix 2: `1d00839` — rutas canónicas (cero hardcode)
 
 El ecosistema ya tenía su solución canónica (`_paths.py`) pero muchísimos
-archivos arrastraban rutas hardcodeadas a `C:\Users\gonzalo\...` (usuario de
+archivos arrastraban rutas hardcodeadas a `C:\Users\<usuario>\...` (usuario de
 otra máquina). **15 archivos** corregidos:
 
 | Componente | Archivo | Fix |
@@ -99,7 +99,7 @@ es el intérprete real del mismo server. Verificado por árbol de procesos
 
 Los procesos de `thinking/filesystem/web` llevaban vivos desde el 17/08 23:01
 — **cargaron el código anterior al fix `1d00839`** y resolvían la BD a
-`C:\Users\gonzalo\pdb-data\lumen-pdb.db` (no existe en esta máquina) →
+`C:\Users\<usuario>\pdb-data\lumen-pdb.db` (no existe en esta máquina) →
 `PDB exists: False` → `PDB save FAILED: unable to open database file` →
 todas las tools que tocan la BD fallaban (p.ej. `checklist`), mientras las de
 memoria (`work_start`, `state_feeling`...) funcionaban.

@@ -195,7 +195,7 @@ PDB_PATH (env) > PDB_DB (env) > <repo>/implementations/mcp-servers/pdb/lumen-pdb
 | Commit | Qué arregló |
 |--------|-------------|
 | (2026-08-18) | `/vm/execute` con backend Rust: `ok` siempre false, error oculto, args ignorados en inline, escrituras sin persistencia, wrapper de audit incompatible con `execute_sqlite(source=...)`, `variables` descartado en el modo directo de `execute_sqlite` |
-| (2026-08-17) | Eliminadas todas las rutas hardcodeadas `C:\Users\gonzalo\...` del ecosistema → `_paths.py` canónico |
+| (2026-08-17) | Eliminadas todas las rutas hardcodeadas `C:\Users\<usuario>\...` del ecosistema → `_paths.py` canónico |
 |  | Sync Angi→KANBAN muerto en silencio (`_LenteConn` rompía `row_factory`) |
 
 ---

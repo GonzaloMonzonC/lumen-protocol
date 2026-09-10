@@ -275,7 +275,7 @@ Or one command: `bash scripts/setup_hermes_mcp.sh` (Windows: `scripts\setup_herm
 > now pass the full handshake — verified live (115 tools, 0 errors).
 >
 > **Data path fix**: `pdb_tools.py` (and several pdb-sync scripts) previously
-> hardcoded the SQLite DB path to `C:\Users\gonzalo\pdb-data\lumen-pdb.db`
+> hardcoded the SQLite DB path to `C:\Users\<user>\pdb-data\lumen-pdb.db`
 > (the developer's machine), so `pdb_set` failed with "unable to open database
 > file" anywhere else. Everything now resolves through `pdb_tools.py` to
 > `implementations/mcp-servers/pdb/lumen-pdb.db` (repo-relative), overridable
