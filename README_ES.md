@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <strong>Este repo es el metal abierto de LUMEN:</strong> protocolo binario, transporte zero-copy, estado cognitivo PDB/MVM, 120 herramientas MCP.
+  <strong>Este repo es el metal abierto de LUMEN:</strong> protocolo binario, transporte zero-copy, estado cognitivo PDB/MVM, 115 herramientas MCP.
   <br>
-  <a href="QUICKSTART_ES.md"><strong>🚀 Empezar aquí</strong></a> · <a href="QUICKSTART.md">Quickstart (EN)</a> &nbsp;|&nbsp;
+  <a href="QUICKSTART_ES.md"><strong>🚀 Empezar aquí</strong></a> · <a href="QUICKSTART.md">Quickstart (EN)</a> · <a href="https://lumen.cadences.app"><strong>🌐 Web</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Instalar en Hermes Agent</strong></a> &nbsp;|&nbsp;
   <a href="docs/COGNITIVE_OS.md"><strong>🧠 Docs del Cognitive OS</strong></a> &nbsp;|&nbsp;
   <strong>✅ SHM zero-copy Nivel 2 · hasta 58% menos tráfico · 4 servidores MCP · funciona con Hermes</strong>

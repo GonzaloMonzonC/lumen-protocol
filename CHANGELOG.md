@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/). History predating this file
 lives in `git log` and the GitHub Releases.
 
+## [2026-09] — 2026-09-11
+
+### Added
+- 🌐 **Website — [lumen.cadences.app](https://lumen.cadences.app)**: the door to the metal —
+  live numbers generated from this repo (`scripts/extract_data.py` in the private site repo),
+  benchmarks, the 8 areas, MCP tools, implementations, Colab CTA; EN/ES with theme toggle.
+  Repo homepage points to it.
+
+### Docs
+- README: 🌐 Website link in the nav row. README_ES: same + tool-count consistency —
+  **115 tools** registered across 4 MCP servers (matching the published benchmark).
+
 ## [2026-09] — 2026-09-10
 
 ### Security
