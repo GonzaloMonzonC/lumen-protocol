@@ -404,9 +404,12 @@ def _sanitize_globals(globals_list: list) -> list:
 
 def _decode_subkey(data: bytes) -> list:
     """Decodifica subkey MUMPS → lista de subscripts.
-    Formato: \x02<str>\xff (string) y \x01<float64 BE> (numérico).
+    Formatos: \x02<str>\xff (string) · \x01<float64 BE> (numérico Rust nativo) ·
+    \x01<dígitos ascii>\xff (numérico heredado; p.ej. ^ROUTINE("LQ",1)).
     (Fix 2026-09-04: soporte numérico — ^QUANTUM("colapso",<idx>) era invisible
-    porque los subíndices numéricos se perdían al decodificar.)"""
+    porque los subíndices numéricos se perdían al decodificar.)
+    (Fix 2026-09-11: variante ascii — los subs de ^ROUTINE perdían el número de
+    línea → extras ["LQ"] sin línea → "unknown routine LQ" con la rutina presente.)"""
     import struct
     subs = []
     remaining = data
@@ -421,6 +424,17 @@ def _decode_subkey(data: bytes) -> list:
             subs.append(remaining[:idx].decode("utf-8", errors="replace"))
             remaining = remaining[idx + 1:]
         elif tag == b'\x01':
+            # Variante ascii: \x01<dígitos>\xff (primer byte tras \x01 = dígito o '-')
+            if len(remaining) >= 2 and (remaining[1:2].isdigit() or remaining[1:2] == b'-'):
+                end = remaining.find(b'\xff', 1)
+                chunk = remaining[1:end] if end > 0 else remaining[1:]
+                if re.fullmatch(rb'-?\d+(?:\.\d+)?', chunk):
+                    try:
+                        subs.append(float(chunk) if b'.' in chunk else int(chunk))
+                        remaining = remaining[end + 1:] if end > 0 else b''
+                        continue
+                    except ValueError:
+                        pass
             if len(remaining) >= 9:
                 subs.append(struct.unpack(">d", remaining[1:9])[0])
                 remaining = remaining[9:]
