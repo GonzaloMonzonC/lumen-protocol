@@ -11,6 +11,28 @@ import time
 import re as _re
 from typing import Any
 
+
+def _col_of(t: dict) -> str:
+    """Columna canonica de una tarea (lowercase). `column` manda; `status` es su espejo."""
+    return str(t.get("column") or t.get("status") or "").lower()
+
+
+def _normalize_task_columns(tasks) -> int:
+    """Self-heal (2026-09-11): `status` y `column` son el MISMO dato en dos campos.
+
+    `task_move` solo actualizaba `column`, asi que `status` se quedaba en "backlog"
+    para siempre y todo consumidor que leyera `status` (dashboard /kanban/stats, filtro
+    de task_list/task_search) veia las 100+ tareas en backlog y 0 en Done.
+    Devuelve cuantas tareas ha reparado.
+    """
+    n = 0
+    for t in tasks.values():
+        col = _col_of(t)
+        if col and t.get("status") != col:
+            t["status"] = col
+            n += 1
+    return n
+
 # ── Late imports (avoid circular dep with server.py) ──
 # Handlers use "import server" and access module-level vars via server._next_niche_id,
 # server._next_task_id, etc. This ensures integer increments persist to the module.
@@ -98,7 +120,7 @@ def kanban_tool_task_create(args: dict) -> dict:
         server._tasks[tid] = {
             "id": tid, "niche_id": nid, "title": title,
             "desc": args.get("desc", ""), "priority": args.get("priority", "medium"),
-            "status": "backlog", "column": server._niches[nid]["columns"][0],
+            "status": str(server._niches[nid]["columns"][0]).lower(), "column": server._niches[nid]["columns"][0],
             "tags": args.get("tags", []), "assignee": args.get("assignee", ""),
             "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
             "urls": [], "created_at": time.time(), "updated_at": time.time(),
@@ -120,6 +142,7 @@ def kanban_tool_task_move(args: dict) -> dict:
         niche = _niches.get(t.get("niche_id", ""))
         if niche and col in niche.get("columns", []):
             t["column"] = col
+            t["status"] = str(col).lower()   # mismo dato: no dejar `status` atras
     for k in ("title", "desc", "priority", "tags", "assignee"):
         if k in args and args[k] is not None:
             t[k] = args[k]
@@ -139,7 +162,8 @@ def kanban_tool_task_list(args: dict) -> dict:
     if nid:
         items = [t for t in items if t.get("niche_id") == nid]
     if status:
-        items = [t for t in items if t.get("status") == status]
+        _want = str(status).lower()
+        items = [t for t in items if _col_of(t) == _want]
     if tag:
         items = [t for t in items if tag in t.get("tags", [])]
     if search:
@@ -183,7 +207,9 @@ def kanban_tool_task_search(args: dict) -> dict:
     limit = args.get("limit", 20)
     items = _tasks.values()
     if nid: items = [t for t in items if t.get("niche_id") == nid]
-    if status: items = [t for t in items if t.get("status") == status]
+    if status:
+        _want = str(status).lower()
+        items = [t for t in items if _col_of(t) == _want]
     if priority: items = [t for t in items if t.get("priority") == priority]
     if tag: items = [t for t in items if tag in t.get("tags", [])]
     if query: items = [t for t in items if
