@@ -1275,7 +1275,16 @@ def _quantum_submit(cqasm_code, backend, shots):
     m = re.search(r"job_id\s+(\d+)", out)
     if m:
         return True, m.group(1)
-    return False, (err or out or "sin job_id")[:300]
+    # Fix 2026-09-11: el stderr del CLI arrastra un UserWarning de pydantic_settings
+    # y el error REAL (p.ej. 429 cola llena del backend) quedaba enterrado.
+    e = err or ""
+    if "ApiException" in e:
+        return False, e[e.index("ApiException"):][:300]
+    e_clean = "\n".join(
+        ln for ln in e.splitlines()
+        if "UserWarning" not in ln and "_settings_warn_unused_config_keys" not in ln
+    ).strip()
+    return False, (e_clean or out or "sin job_id")[:300]
 
 def _quantum_result(job_id):
     """Consulta el resultado de un job vía el SDK (JSON puro)."""
