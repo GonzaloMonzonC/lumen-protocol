@@ -627,6 +627,14 @@ def _load_state() -> bool:
     if _pdb_load_all():
         _loaded_from_disk = True
         _safe_print("[lumen-thinking] State restored from PDB")
+        # Self-heal kanban (2026-09-11): `status` debe espejar `column`
+        try:
+            import kanban as _kb
+            _fixed = _kb._normalize_task_columns(_tasks)
+            if _fixed:
+                _safe_print(f"[lumen-thinking] Kanban self-heal: {_fixed} tareas con status sincronizado desde column")
+        except Exception as _he:
+            _safe_print(f"[lumen-thinking] Kanban self-heal omitido: {_he}")
         return True
 
     _safe_print("[lumen-thinking] No saved state found — starting fresh.")
@@ -4114,6 +4122,11 @@ def _start_dashboard(port: int = 9876) -> None:
                         _g['_next_niche_id'] = _st.get("next_niche_id", 1)
                         _g['_next_task_id'] = _st.get("next_task_id", 1)
                         _g['_last_state_mtime'] = _fm
+                        try:
+                            import kanban as _kb
+                            _kb._normalize_task_columns(_g['_tasks'])
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 from urllib.parse import urlparse, parse_qs
@@ -4260,6 +4273,11 @@ def _start_dashboard(port: int = 9876) -> None:
                 qs = parse_qs(urlparse(self.path).query)
                 niche_id = qs.get("niche_id", [None])[0]
                 niches_to_show = [niche_id] if niche_id and niche_id in _niches else list(_niches.keys())
+                try:
+                    import kanban as _kb
+                    _kb._normalize_task_columns(_tasks)
+                except Exception:
+                    pass
                 stats_data = {}
                 for nid in niches_to_show:
                     niche = _niches.get(nid, {})
@@ -4267,7 +4285,8 @@ def _start_dashboard(port: int = 9876) -> None:
                     col_counts = {}
                     prio_counts = {}
                     for t in niche_tasks:
-                        col_counts[t["status"]] = col_counts.get(t["status"], 0) + 1
+                        _c = str(t.get("column") or t.get("status") or "?").lower()
+                        col_counts[_c] = col_counts.get(_c, 0) + 1
                         prio_counts[t["priority"]] = prio_counts.get(t["priority"], 0) + 1
                     links_count = sum(
                         len(t.get("references", {}).get("chains", [])) +
