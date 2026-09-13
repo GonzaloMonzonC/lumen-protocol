@@ -250,6 +250,8 @@ pub struct Vm<'a, H: Host> {
     return_value: Option<Value>,
     /// Cache de $H para el nudo lógico actual (Intersystems-style)
     horolog_cache: Option<String>,
+    /// Profundidad actual de `eval_expr` (protección anti-desbordamiento de pila).
+    expr_depth: usize,
 }
 
 // Global Compilation Manager for M→Rust JIT
@@ -261,6 +263,11 @@ fn get_compiler() -> &'static CompilationManager {
         CompilationManager::new(&ws)
     })
 }
+
+/// Límite de profundidad de `eval_expr` (paréntesis/recursión de evaluación).
+/// Sin guarda, `W ((((` recursaba sobre la MISMA cadena → desbordamiento de
+/// pila ("has overflowed its stack" en Windows; SIGSEGV en static musl/Linux).
+const MAX_EXPR_DEPTH: usize = 256;
 
 impl<'a, H: Host> Vm<'a, H> {
     pub fn new(program: Program, host: &'a mut H) -> Self {
@@ -274,6 +281,7 @@ impl<'a, H: Host> Vm<'a, H> {
             inline_depth: 0,
             return_value: None,
             horolog_cache: None,
+            expr_depth: 0,
         }
     }
 
@@ -293,6 +301,7 @@ impl<'a, H: Host> Vm<'a, H> {
             inline_depth: 0,
             return_value: None,
             horolog_cache: None,
+            expr_depth: 0,
         })
     }
 
@@ -1411,6 +1420,24 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
     }
 
     pub fn eval_expr(&mut self, expression: &str, line: usize) -> Result<Value, VmError> {
+        self.expr_depth += 1;
+        if self.expr_depth > MAX_EXPR_DEPTH {
+            self.expr_depth -= 1;
+            return Err(VmError::new(
+                "MEXPR",
+                format!(
+                    "expresión demasiado anidada (>{} niveles): ¿paréntesis desbalanceados?",
+                    MAX_EXPR_DEPTH
+                ),
+                line,
+            ));
+        }
+        let result = self.eval_expr_inner(expression, line);
+        self.expr_depth -= 1;
+        result
+    }
+
+    fn eval_expr_inner(&mut self, expression: &str, line: usize) -> Result<Value, VmError> {
         let expression = trim_outer_parens(expression.trim());
         if expression.is_empty() {
             return Ok(Value::Null);
@@ -1492,6 +1519,16 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         // re-evaluarla completa en vez de buscarla como variable literal
         // (fix 26-08: `S r = "x" _ (n * 2)` → MUNDEF "undefined variable: n * 2").
         if raw_atom.starts_with('(') {
+            // Si trim_outer_parens no logró extraer un grupo balanceado, el
+            // paréntesis de apertura está desbalanceado → error limpio.
+            // (Antes: recursión sobre la MISMA cadena → stack overflow/SIGSEGV.)
+            if atom == raw_atom {
+                return Err(VmError::new(
+                    "MPAREN",
+                    format!("paréntesis desbalanceados en la expresión: '{raw_atom}'"),
+                    line,
+                ));
+            }
             return self.eval_expr(atom, line);
         }
         if atom.is_empty() {
