@@ -228,7 +228,7 @@ def _prune_sessions() -> None:
 
 def _save_state() -> None:
     """Persist all state to disk atomically."""
-    global _save_counter, _json_snap_counter
+    global _save_counter, _json_snap_counter, _next_task_id, _next_niche_id
     _save_counter = 0
     _json_snap_counter += 1
     if _JSON_SNAPSHOT_INTERVAL > 0 and _json_snap_counter >= _JSON_SNAPSHOT_INTERVAL:
@@ -363,6 +363,42 @@ def _pdb_save_all() -> None:
             pairs.append(("STATE", "global:objective_meta".encode(), json.dumps({"next_id": _next_objective_id}).encode()))
         except ImportError:
             pass
+        # ── CONTADORES MONOTONOS (fix bug kanban 13-09-2026) ────────────────
+        # Varias instancias del server comparten la MISMA PDB. Si una instancia
+        # con el contador OBSOLETO llamaba a _save_state(), escribia su valor
+        # viejo encima del bueno -> al arrancar otra instancia el guard
+        # "while tid in _tasks" no veia la tarea ya creada por la otra y
+        # REUTILIZABA el id, PISANDOLA (incidente real: la tarea task_126 del
+        # navegador web se perdio porque task_126 se asigno dos veces).
+        # Regla: nunca persistir un contador MENOR que el que ya hay en disco.
+        try:
+            _prev_row = conn.execute(
+                "SELECT value FROM _globals WHERE ns='STATE' AND subkey=?",
+                [b"global:meta"],
+            ).fetchone()
+            if _prev_row and _prev_row[0]:
+                _raw_prev = _prev_row[0]
+                if isinstance(_raw_prev, (bytes, bytearray)):
+                    _raw_prev = _raw_prev.decode("utf-8", "replace")
+                _prev_meta = json.loads(_raw_prev) or {}
+                _pt = int(_prev_meta.get("next_task_id", 0) or 0)
+                if _pt > _next_task_id:
+                    _next_task_id = _pt
+                _pn = int(_prev_meta.get("next_niche_id", 0) or 0)
+                if _pn > _next_niche_id:
+                    _next_niche_id = _pn
+        except Exception as _e_mono:
+            _safe_print(f"[lumen-thinking] contador monotonico: aviso {_e_mono}")
+        # Segunda red: el contador nunca por debajo del max id que estamos guardando.
+        for _tid_chk in _tasks:
+            if _tid_chk.startswith("task_"):
+                try:
+                    _n_chk = int(_tid_chk.split("_", 1)[1])
+                    if _n_chk >= _next_task_id:
+                        _next_task_id = _n_chk + 1
+                except (ValueError, IndexError):
+                    pass
+
         meta = {"next_session_num": _next_session_num, "next_niche_id": _next_niche_id,
                 "next_task_id": _next_task_id, "global_tool_calls": _global_tool_calls, "saved_at": time.time()}
         pairs.append(("STATE", "global:meta".encode(), json.dumps(meta).encode()))
