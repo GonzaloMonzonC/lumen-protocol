@@ -20,6 +20,10 @@ pub struct CompilationManager {
     workspace_dir: PathBuf,
     /// Cache directory for compiled .dlls (persists across restarts)
     cache_dir: PathBuf,
+    /// Gate global (env MVM_NO_JIT=1): nodos sin toolchain no lo intentan
+    enabled: std::sync::atomic::AtomicBool,
+    /// Rutinas cuyo intento de compilación falló — no reintentar en cada llamada
+    disabled: Mutex<std::collections::HashSet<String>>,
     /// Compiled functions by name (Arc for cloneability)
     fn_cache: Mutex<HashMap<String, Arc<dyn Fn() -> Result<i64, String> + Send + Sync>>>,
     /// Call counters for hot-path detection: routine_name → call_count
@@ -45,9 +49,15 @@ impl CompilationManager {
             .map(|p| p.join("compiled_cache"))
             .unwrap_or_else(|| PathBuf::from("compiled_cache"));
         let _ = fs::create_dir_all(&cache_dir); // Ignore if exists
+        let enabled = !matches!(
+            std::env::var("MVM_NO_JIT").ok().as_deref(),
+            Some("1") | Some("true") | Some("on") | Some("yes")
+        );
         Self {
             workspace_dir: workspace_dir.to_path_buf(),
             cache_dir,
+            enabled: std::sync::atomic::AtomicBool::new(enabled),
+            disabled: Mutex::new(std::collections::HashSet::new()),
             fn_cache: Mutex::new(HashMap::new()),
             call_counts: Mutex::new(HashMap::new()),
             hot_threshold: 3,
@@ -84,27 +94,36 @@ impl CompilationManager {
     /// Track a call to a routine and trigger compilation if hot.
     /// Returns true if a compiled version is available and should be used.
     pub fn track_call(&self, name: &str, source: &str) -> bool {
+        // Gate global (env MVM_NO_JIT=1): los nodos sin toolchain no intentan nada.
+        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
         // Check if already compiled
         if self.get_compiled_fn(name).is_some() {
             return true;
         }
-        
+        // Intento fallido previo -> no reintentar en cada llamada
+        if self.disabled.lock().unwrap().contains(name) {
+            return false;
+        }
+
         // Increment call count
         let mut counts = self.call_counts.lock().unwrap();
         let count = counts.get(name).copied().unwrap_or(0) + 1;
         counts.insert(name.to_string(), count);
-        
+
         if count >= self.hot_threshold {
             eprintln!("JIT: hot routine '{}' ({} calls), compiling...", name, count);
             drop(counts); // release lock before compile
-            
+
             if let Some(compiled_fn) = self.try_compile_routine(name, source) {
                 eprintln!("JIT: compiled '{}' successfully!", name);
                 return true;
             }
-            eprintln!("JIT: compile '{}' failed, will keep interpreting", name);
+            self.disabled.lock().unwrap().insert(name.to_string());
+            eprintln!("JIT: compile '{}' failed - interpretando (no se reintenta)", name);
         }
-        
+
         false
     }
     
@@ -123,6 +142,11 @@ impl CompilationManager {
     /// Set the hot threshold (minimum calls before compilation)
     pub fn set_hot_threshold(&mut self, n: u32) {
         self.hot_threshold = n;
+    }
+
+    /// Activar/desactivar el JIT (p.ej. desde CLIs de nodos: mvm-nas --no-jit).
+    pub fn set_enabled(&self, on: bool) {
+        self.enabled.store(on, std::sync::atomic::Ordering::Relaxed);
     }
     
     /// Get a compiled function by routine name
@@ -158,12 +182,26 @@ impl CompilationManager {
         }
         
         eprintln!("JIT: compiling '{}' (cache miss, cargo build ~12s)", name);
-        
-        // Transpile M → Rust
+
+        // El workspace es un proyecto Cargo externo; si no existe (p.ej. binario
+        // desplegado: CARGO_MANIFEST_DIR apunta a la maquina de build), saltar
+        // con aviso claro en vez de fallar por ENOENT al escribir lib.rs.
+        if !self.workspace_dir.join("Cargo.toml").exists() {
+            eprintln!(
+                "JIT: sin workspace de compilacion en {:?} - salto (experimental)",
+                self.workspace_dir
+            );
+            self.stats.lock().unwrap().failed_compilations += 1;
+            return None;
+        }
+
+        // Transpile M -> Rust
         let rust_code = transpile_to_rust(program, name);
-        
-        // Write to workspace
-        let lib_rs = self.workspace_dir.join("src").join("lib.rs");
+
+        // Write to workspace (crear src/ si falta)
+        let src_dir = self.workspace_dir.join("src");
+        let _ = fs::create_dir_all(&src_dir);
+        let lib_rs = src_dir.join("lib.rs");
         if let Err(e) = std::fs::write(&lib_rs, &rust_code) {
             eprintln!("CompilationManager: failed to write lib.rs: {}", e);
             self.stats.lock().unwrap().failed_compilations += 1;
