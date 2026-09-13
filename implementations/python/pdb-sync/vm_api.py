@@ -16,7 +16,8 @@ Endpoints:
 """
 
 import sys, os, json, time, hashlib, hmac, threading, subprocess, tempfile, re
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qsl, unquote_plus
 from datetime import datetime, timezone
 
@@ -150,25 +151,52 @@ class _AuditVia(threading.local):
 _AUDIT_VIA = _AuditVia()
 _cordon_engine = None
 
+# Lock global para secciones read-modify-write (14-sep-2026): con
+# ThreadingHTTPServer ya no hay serialización implícita del server; el
+# contador KANBAN (/ddp/allocate), el cordón y el audit se protegen aquí.
+_WRITE_LOCK = threading.Lock()
+
 
 # ── Cordón Sanitario (La Herencia, cap 2): rate limit en M ──
 _CORDON_LIMITE = 600  # llamadas por agente/IP por minuto (generoso; el edge no llega)
 
 
 def _cordone(quien="", ventana=""):
-    """Rate limit en M: ^CORDON(quien, ventana) = $INCREMENT del M + verificación
-    con $S en el MISMO código M. Devuelve True si pasa. El registro vive en M
-    (formato binario — el MVM lo ve) y el límite es modificable en caliente."""
+    """Rate limit ^CORDON(quien, ventana) — SQL DIRECTO (14-sep-2026: antes
+    ejecutaba M vía engine → el MVM cargaba TODA la PDB en RAM en CADA
+    request ≈1,6 s). Mismo formato de datos (el registro sigue en ^CORDON,
+    visible al MVM); lectura+escritura atómicas con _WRITE_LOCK."""
     try:
         if _cordon_engine is None:
             return True
+        import sqlite3 as _sq
+        from pdb_tools import encode_subkey as _esk
         q = (quien or "anon").replace('"', "")
         w = ventana or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
-        code = (f'S ^CORDON("{q}","{w}")=$INCREMENT(^CORDON("{q}","{w}")) '
-                f'W $S($G(^CORDON("{q}","{w}"))>{_CORDON_LIMITE}:0,1:1)')
-        r = _cordon_engine(code, sqlite_path=os.environ.get("PDB_PATH") or _LENTE_DBPATH, gas_limit=2000)
-        out = (r.get("state", {}).get("output") or "").strip()
-        return out == "1"
+        db = os.environ.get("PDB_PATH") or _LENTE_DBPATH or _get_db()
+        if not db:
+            return True
+        key = _esk([q, w])
+        with _WRITE_LOCK:
+            conn = _sq.connect(db)
+            try:
+                row = conn.execute(
+                    "SELECT value FROM _globals WHERE ns='CORDON' AND subkey=?",
+                    (key,)).fetchone()
+                cur = 0
+                if row and row[0] is not None:
+                    try:
+                        cur = int(float(row[0]))
+                    except Exception:
+                        cur = 0
+                new = cur + 1
+                conn.execute(
+                    "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES ('CORDON',?,?)",
+                    (key, str(new)))
+                conn.commit()
+            finally:
+                conn.close()
+        return new <= _CORDON_LIMITE
     except Exception:
         return True  # el cordón nunca debe tumbar el sistema
 
@@ -505,6 +533,18 @@ def _ddp_pull(ns, prefix=None, limit=500, offset=0, depth=0):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+def _fmt_sub(x):
+    """Formatea un subscript decodificado a string canónico M ('1' no '1.0')."""
+    if x is None:
+        return ""
+    if isinstance(x, bool):
+        return "1" if x else "0"
+    if isinstance(x, float) and x.is_integer():
+        return str(int(x))
+    if isinstance(x, bytes):
+        return x.decode('utf-8', errors='replace')
+    return str(x)
+
 def _sanitize_subs(subs):
     """Convert binary MSM subscripts to readable hex + visible chars.
     Also flattens nested lists from PDB."""
@@ -554,67 +594,158 @@ def _collect(ns, entries, prefix=None, depth=0, _cur_depth=0):
 
     # Build M code that outputs all subkeys and values
     if base:
-        # For sub-levels, need $O from the parent context
-        base_m = ",".join(f'"{s}"' for s in base)
-        code = (
-            f'S k="" F  S k=$O(^{ns}({base_m},k)) Q:k=""  W k,!,$G(^{ns}({base_m},k)),!'
-        )
-        r = _ex(code, sqlite_path=db, gas_limit=100000)
-        output = r.get('state', {}).get('output', '')
-        if output:
-            lines = output.strip().split('\n')
-            for i in range(0, len(lines), 2):
-                k = lines[i].strip()
-                v = lines[i+1] if i+1 < len(lines) else ''
-                has_kids = False  # depth-limited for now
-                entries.append({"ns": ns, "subs": base + [k], "value": v,
-                                "has_children": has_kids})
-    else:
-        # Root level: list top-level subscriptions via SQL (no M $O needed)
-        if _cur_depth == 0:
-            val = _m_get(ns, [])
-            # Get all distinct first-level subscripts via SQL
-            import os as _os2, sqlite3 as _sq3
-            _dbp = _get_db()
-            _kids = []
+        # 14-sep-2026: SQL directo + decode (antes: 1 ejecución MVM $O por chunk).
+        # Menos coste por chunk y has_children REAL (sin segunda llamada).
+        import sqlite3 as _sq3b
+        from pdb_tools import decode_subkey as _dsk_b
+        _rows_b = []
+        try:
+            _conn_b = _sq3b.connect(_get_db())
+            _conn_b.text_factory = lambda x: x
+            _rows_b = _conn_b.execute(
+                "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
+                (ns,)).fetchall()
+            _conn_b.close()
+        except Exception:
+            _rows_b = []
+        _blen = len(base)
+        _base_txt = [_fmt_sub(x) for x in base]
+        _kids_order_b = []
+        _kids_b = {}
+        _kid_has_b = set()
+        for _rk, _rv in _rows_b:
             try:
-                _conn = _sq3.connect(_dbp)
-                _rows = _conn.execute(
-                    "SELECT DISTINCT substr(subkey, 2, instr(subkey||x'ff', x'ff')-2) FROM _globals WHERE ns=? AND length(subkey)>0",
+                _subs_i = _dsk_b(_rk)
+            except Exception:
+                continue
+            if not isinstance(_subs_i, (list, tuple)):
+                _subs_i = [_subs_i]
+            if len(_subs_i) < _blen:
+                continue
+            if [_fmt_sub(x) for x in _subs_i[:_blen]] != _base_txt:
+                continue
+            if len(_subs_i) == _blen:
+                continue
+            _k = _fmt_sub(_subs_i[_blen])
+            if _k not in _kids_b:
+                _kids_order_b.append(_k)
+            if len(_subs_i) == _blen + 1:
+                _kids_b[_k] = _rv
+            else:
+                _kid_has_b.add(_k)
+        for _k in _kids_order_b:
+            _v = _kids_b.get(_k, "")
+            if isinstance(_v, bytes):
+                _v = _v.decode('utf-8', errors='replace')
+            elif _v is None:
+                _v = ""
+            else:
+                _v = str(_v)
+            entries.append({"ns": ns, "subs": base + [_k], "value": _v,
+                            "has_children": _k in _kid_has_b,
+                            "has_value": _k in _kids_b})
+    else:
+        # Root level: SQL directo + decode en Python (14-sep-2026; antes: 1
+        # ejecución MVM por hijo solo para valor+has_children → ~20 s en nss
+        # grandes como KANBAN con 150+ hijos).
+        if _cur_depth == 0:
+            import sqlite3 as _sq3r
+            from pdb_tools import decode_subkey as _dsk_r
+            _rows_r = []
+            try:
+                _conn_r = _sq3r.connect(_get_db())
+                _conn_r.text_factory = lambda x: x
+                _rows_r = _conn_r.execute(
+                    "SELECT subkey, value FROM _globals WHERE ns=? ORDER BY subkey",
                     (ns,)).fetchall()
-                _kids = [r[0] for r in _rows if r[0]]
-                _conn.close()
-            except Exception as _e:
-                pass
-            # Decode bytes from SQLite
-            _kids = [k.decode('utf-8', errors='replace') if isinstance(k, bytes) else k for k in _kids]
-            entries.append({"ns": ns, "subs": [], "value": val or "",
-                            "has_children": len(_kids) > 0})
-            for k in _kids:
-                k = k.strip()
-                if not k:
+                _conn_r.close()
+            except Exception:
+                _rows_r = []
+            _root_val = ""
+            _kids_order_r = []
+            _kids_r = {}
+            _kid_has_r = set()
+            for _rk, _rv in _rows_r:
+                try:
+                    _subs_i = _dsk_r(_rk)
+                except Exception:
                     continue
-                val = _m_get(ns, [k])
-                has_kids = _m_has(ns, [k])
-                entries.append({"ns": ns, "subs": [k], "value": val or "",
-                                "has_children": has_kids})
+                if not isinstance(_subs_i, (list, tuple)):
+                    _subs_i = [_subs_i]
+                if len(_subs_i) == 0:
+                    if _rv is not None:
+                        _root_val = _rv.decode('utf-8', errors='replace') if isinstance(_rv, bytes) else str(_rv)
+                    continue
+                _k = _fmt_sub(_subs_i[0])
+                if _k not in _kids_r:
+                    _kids_order_r.append(_k)
+                if len(_subs_i) == 1:
+                    _kids_r[_k] = _rv
+                else:
+                    _kid_has_r.add(_k)
+            entries.append({"ns": ns, "subs": [], "value": _root_val,
+                            "has_children": len(_kids_order_r) > 0})
+            for _k in _kids_order_r:
+                _v = _kids_r.get(_k, "")
+                if isinstance(_v, bytes):
+                    _v = _v.decode('utf-8', errors='replace')
+                elif _v is None:
+                    _v = ""
+                else:
+                    _v = str(_v)
+                has_kids = _k in _kid_has_r
+                entries.append({"ns": ns, "subs": [_k], "value": _v,
+                                "has_children": has_kids,
+                                "has_value": _k in _kids_r})
                 if has_kids and (depth == -1 or _cur_depth + 1 <= depth):
-                    _collect(ns, entries, [k], depth, _cur_depth + 1)
+                    _collect(ns, entries, [_k], depth, _cur_depth + 1)
 
 def _ddp_push(ns, entries):
-    """Push entries to PDB via Rust MVM SQLite direct."""
+    """Push entries to PDB — SQL directo (14-sep-2026: antes 1 ejecución MVM
+    por entrada; ahora INSERT OR REPLACE con encode_subkey, 1 transacción)."""
     try:
-        db = os.environ.get("PDB_PATH") or ""
-        from lumen_mlight import execute_sqlite
-        for e in entries:
-            subs = e.get("subs", [])
-            val = e.get("value", "")
-            # Build M code: SET ^NS(sub1,sub2)=value
-            subs_m = ",".join(f'"{s}"' for s in subs)
-            escaped_val = str(val).replace('"', '""')
-            code = f'S ^{ns}({subs_m})="{escaped_val}"'
-            execute_sqlite(code, sqlite_path=db if db else None, gas_limit=10000)
-        return {"success": True, "count": len(entries)}
+        import sqlite3
+        from pdb_tools import encode_subkey as _esk
+        db = _get_db() or os.environ.get("PDB_PATH") or ""
+        if not db:
+            return {"success": False, "error": "no db path"}
+        conn = sqlite3.connect(db)
+        n = 0
+        try:
+            for e in entries:
+                subs = e.get("subs", [])
+                val = e.get("value", "")
+                subs_m = [_fmt_sub(s) for s in subs]
+                key = _esk(subs_m)
+                sval = "" if val is None else str(val)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                    (ns, key, sval))
+                n += 1
+            # Audit en paridad con _audit_engine_write (contador por ns+segundo);
+            # el push ya no pasa por el engine M → se registra aquí.
+            if ns not in ("AUDIT", "WEIGHTS", "CHANGES", "CORDON"):
+                try:
+                    anow = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+                    akey = _esk([ns, anow])
+                    arow = conn.execute(
+                        "SELECT value FROM _globals WHERE ns='AUDIT' AND subkey=?",
+                        (akey,)).fetchone()
+                    acur = 0
+                    if arow and arow[0] is not None:
+                        try:
+                            acur = int(float(arow[0]))
+                        except Exception:
+                            acur = 0
+                    conn.execute(
+                        "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES ('AUDIT',?,?)",
+                        (akey, str(acur + 1)))
+                except Exception:
+                    pass
+            conn.commit()
+        finally:
+            conn.close()
+        return {"success": True, "count": n}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -623,10 +754,10 @@ def _ddp_push(ns, entries):
 def _ddp_allocate(ns, subs, step=1):
     """Asignación atómica de contador: lee, incrementa y devuelve el nuevo valor.
 
-    El servidor HTTPServer es SINGLE-THREADED → read-modify-write dentro de un
-    mismo handler es atómico entre clientes (dos peticiones concurrentes
-    obtienen valores distintos). Resuelve el race del contador KANBAN
-    (antes: GET /ddp/raw + POST /ddp/push eran 2 round-trips separados).
+    Atomicidad (14-sep-2026): el servidor ahora es ThreadingHTTPServer → el
+    read-modify-write se protege con _WRITE_LOCK (antes la serialización del
+    server single-thread hacía de lock implícito). Mismo contrato: dos
+    peticiones concurrentes obtienen valores distintos.
     """
     import sqlite3
     from pdb_tools import encode_subkey
@@ -637,17 +768,18 @@ def _ddp_allocate(ns, subs, step=1):
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
     try:
-        row = conn.execute("SELECT value FROM _globals WHERE ns=? AND subkey=?", (ns, key)).fetchone()
-        cur = 0
-        if row and row["value"] is not None:
-            try:
-                cur = int(json.loads(row["value"]))
-            except Exception:
-                cur = 0
-        new = cur + step
-        conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
-                     (ns, key, json.dumps(new)))
-        conn.commit()
+        with _WRITE_LOCK:
+            row = conn.execute("SELECT value FROM _globals WHERE ns=? AND subkey=?", (ns, key)).fetchone()
+            cur = 0
+            if row and row["value"] is not None:
+                try:
+                    cur = int(json.loads(row["value"]))
+                except Exception:
+                    cur = 0
+            new = cur + step
+            conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                         (ns, key, json.dumps(new)))
+            conn.commit()
         return {"success": True, "value": new}
     finally:
         conn.close()
@@ -2158,8 +2290,9 @@ if __name__ == "__main__":
 
     _install_engine_audit()  # Trigger ON_SET: audita las escrituras del M (push edge)
 
-    server = HTTPServer(("0.0.0.0", port), VMHandler)
-    print(f"🚀 MVM Web Engine + DDP en http://localhost:{port}")
+    server = ThreadingHTTPServer(("0.0.0.0", port), VMHandler)
+    server.daemon_threads = True
+    print(f"🚀 MVM Web Engine + DDP (threaded) en http://localhost:{port}")
     print(f"   GET  /web/saludo   → HTML")
     print(f"   GET  /ddp/health   → DDP status")
     print(f"   GET  /ddp/pull?ns=X → sync pull")
