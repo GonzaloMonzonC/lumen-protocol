@@ -976,6 +976,7 @@ fn search_web_text(args: &[Value]) -> Result<Value, String> {
     search_web_common(args, true)
 }
 
+#[cfg(feature = "minreq")]
 fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     const MAX_BODY: usize = 200 * 1024;
     let url = args.first().map(|v| v.as_string()).unwrap_or_default();
@@ -1061,6 +1062,13 @@ fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(out.to_string()))
 }
 
+/// Stub sin `minreq`: builds nativos mínimos (NAS/edge) sin HTTP compilan igual;
+/// el device responde con error claro en vez de romper la compilación.
+#[cfg(not(feature = "minreq"))]
+fn http_full_request(_action: &str, _args: &[Value]) -> Result<Value, String> {
+    Err("HTTP device no disponible en este build (feature minreq off)".to_string())
+}
+
 /// MCP JSON-RPC 2.0 request (transporte HTTP, estilo streamable POST).
 /// Devuelve SIEMPRE {"ok":true,"result":...} | {"ok":false,"error":"..."}.
 /// Sin ssrf_guard a proposito: los servidores MCP viven registrados en
@@ -1123,6 +1131,20 @@ fn mcp_http_request(
         return Ok(Value::String(serde_json::json!({"ok": false, "error": err}).to_string()));
     }
     Ok(Value::String(serde_json::json!({"ok": true, "result": parsed.get("result")}).to_string()))
+}
+
+/// Stub sin `minreq` (misma razón que `http_full_request`): el device MCP
+/// solo existe con transporte HTTP; sin la feature, error claro.
+#[cfg(not(feature = "minreq"))]
+fn mcp_http_request(
+    _url: &str,
+    _method: &str,
+    _params: &serde_json::Value,
+    _hmac_key: &str,
+    _auth: &str,
+    _extra: &[(String, String)],
+) -> Result<Value, String> {
+    Err("MCP device no disponible en este build (feature minreq off)".to_string())
 }
 
 impl Host for MemoryHost {
