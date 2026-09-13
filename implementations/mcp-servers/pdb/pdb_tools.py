@@ -904,92 +904,82 @@ def decode_subkey(blob: bytes) -> list:
     """
     subs = []
     i = 0
-    while i < len(blob):
+    n = len(blob)
+    while i < n:
         typ = blob[i]
         i += 1
         if typ == 0x00:  # null sentinel (backward compat)
             subs.append(None)
             break  # sentinel is always last
-        elif typ == 0x01:  # numeric
-            data = blob[i:i+8]
-            i += 8
-            subs.append(_sortable_to_double(data))
-            if i < len(blob) and blob[i] == 0xff:
-                i += 1  # skip separator
+        elif typ == 0x01:  # numeric — DOS codificaciones conviven en la PDB
+            # (a) LEGACY ASCII: 0x01 + digitos ASCII + 0xff.  Ej: 01 31 ff -> 1
+            #     Escrito por herramientas antiguas. Si se leyera como f64 de 8
+            #     bytes el cursor se DESALINEA y acaba leyendo una letra como
+            #     tipo -> "Unknown subkey type byte".
+            j = i
+            while j < n and 0x30 <= blob[j] <= 0x39:
+                j += 1
+            if j > i and j < n and blob[j] == 0xff:
+                txt = blob[i:j].decode('ascii')
+                subs.append(float(txt) if ('.' in txt or 'e' in txt.lower()) else int(txt))
+                i = j + 1
+            else:
+                # (b) CANONICO: f64 big-endian 8 bytes (+ 0xff opcional)
+                #     OJO: un f64 legitimo PUEDE contener 0xff en sus bytes, asi
+                #     que no se puede usar "contiene 0xff" como heuristica.
+                if i + 8 > n:
+                    subs.append(None)  # truncado: no hay mas datos utiles
+                    break
+                subs.append(_sortable_to_double(blob[i:i + 8]))
+                i += 8
+                if i < n and blob[i] == 0xff:
+                    i += 1  # separador/terminador
         elif typ == 0x02:  # string
             end = blob.find(b'\xff', i)
             if end == -1:
-                # Check for zero-length string (\x02 followed by \xff)
-                if i < len(blob) and blob[i] == 0xff:
-                    subs.append("")
-                    i += 1
-                else:
-                    data = blob[i:]
-                    i = len(blob)
+                subs.append(blob[i:].decode('utf-8', 'replace'))
+                i = n
             else:
-                if end == i:  # zero-length string: \x02\xff
-                    subs.append("")
-                else:
-                    data = blob[i:end]
-                    subs.append(data.decode('utf-8'))
+                subs.append(blob[i:end].decode('utf-8'))  # end==i -> "" (zero-length)
                 i = end + 1
+        elif typ == 0xff:
+            # TERMINADOR SUELTO / DOBLE. El escritor Rust anade un 0xff FINAL a la
+            # subkey entera; el writer Python ya pone 0xff por subindice -> salen
+            # parejas 0xff 0xff. Antes esto reventaba con "Unknown subkey type byte:
+            # 0xff" (9,4% de la PDB). Se IGNORA sin empujar subindice vacio.
+            continue
         else:
-            raise ValueError(f"Unknown subkey type byte: 0x{typ:02x}")
+            # NO es formato MUMPS binario: clave guardada en TEXTO PLANO
+            # (pdb_ns_set del thinking server hace key.encode() sin framing).
+            # Se toma el resto del blob como UN subindice de texto.
+            subs.append(blob[i - 1:].decode('utf-8', 'replace'))
+            break
     return subs
 
 def count_levels(blob: bytes) -> int:
-    """Count how many subscript levels are in a subkey BLOB."""
-    if not blob:
-        return 0
-    count = 0
-    i = 0
-    while i < len(blob):
-        typ = blob[i]
-        i += 1
-        count += 1
-        if typ == 0x00:
-            break
-        elif typ == 0x01:
-            i += 8  # 8 bytes double
-            if i < len(blob) and blob[i] == 0xff:
-                i += 1
-        elif typ == 0x02:
-            end = blob.find(b'\xff', i)
-            if end == -1:
-                i = len(blob)
-            else:
-                i = end + 1
-    return count
+    """Numero de niveles de subindice en un BLOB de subkey.
+
+    Implementado SOBRE decode_subkey (fuente unica de verdad). Antes tenia su
+    propia copia del parser y DIVERGIAN en silencio:
+      - terminador doble: 02 "roberto" ff ff -> contaba 2 (real: 1)
+      - clave TEXTO PLANO: "capacidades:semantic-search" -> contaba 27 (uno POR
+        CARACTER, real: 1)
+      - solo terminador: ff -> contaba 1 (real: 0)
+    Ver fix 2026-09-13 (decode_subkey tolerante).
+    """
+    return len(decode_subkey(blob))
 
 def extract_level(blob: bytes, level_idx: int) -> Optional[Any]:
-    """Extract the subscript at the given 0-based level index."""
-    current = 0
-    i = 0
-    while i < len(blob) and current <= level_idx:
-        typ = blob[i]
-        start = i
-        i += 1
-        if typ == 0x00:
-            if current == level_idx:
-                return ""
-            break
-        elif typ == 0x01:
-            if current == level_idx:
-                return _sortable_to_double(blob[i:i+8])
-            i += 8
-            if i < len(blob) and blob[i] == 0xff:
-                i += 1
-        elif typ == 0x02:
-            end = blob.find(b'\xff', i)
-            if end == -1:
-                data = blob[i:]
-                i = len(blob)
-            else:
-                data = blob[i:end]
-                i = end + 1
-            if current == level_idx:
-                return data.decode('utf-8')
-        current += 1
+    """Subindice en la posicion level_idx (0-based).
+
+    Delega en decode_subkey para no volver a divergir del decoder.
+    Nota: una subkey ausente devuelve None (antes el sentinel \\x00 devolvia "").
+    """
+    if not blob:
+        return None
+    subs = decode_subkey(blob)
+    if 0 <= level_idx < len(subs):
+        return subs[level_idx]
     return None
 
 def _double_to_sortable(value: float) -> bytes:
