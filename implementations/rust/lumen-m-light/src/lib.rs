@@ -6,6 +6,7 @@
 
 pub mod compiler;
 pub mod compilation;
+pub mod ddp_client;
 pub mod ffi;
 pub mod host;
 pub mod smith;
