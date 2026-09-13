@@ -167,6 +167,10 @@ _niches: dict[str, dict] = {}  # niche_id -> niche data
 _tasks: dict[str, dict] = {}   # task_id -> task data
 _next_niche_id: int = 1
 _next_task_id: int = 1
+# Ids de tarea borrados a proposito en esta instancia. Sin esto, el MERGE de
+# tareas del save (que rescata las persistidas para no perder las de otras
+# instancias) resucitaria las borradas. Fix 13-09-2026.
+_deleted_tasks: set = set()
 
 def _json_snapshot() -> None:
     """Periodic JSON snapshot for cross-process sync (dashboard)."""
@@ -314,10 +318,37 @@ _json_snap_counter = 0
 
 def _pdb_save_all() -> None:
     """Write ALL thinking state to PDB as individual records. Single ACID transaction."""
+    # OJO: aqui se ASIGNAN _next_task_id / _next_niche_id (bloque de contadores
+    # monotonos mas abajo). Sin esta declaracion Python las trataria como
+    # LOCALES de la funcion -> el contador global nunca se actualizaria y
+    # cualquier lectura previa daria UnboundLocalError (save silenciosamente roto).
+    global _next_task_id, _next_niche_id, _deleted_tasks
     from pdb_tools import encode_subkey
     _pdb_save_lock.acquire()
     try:
         conn = _pdb.pdb_connect()
+        # ── MERGE de tareas ANTES del DELETE (fix 13-09-2026) ───────────────
+        # Este save hace DELETE del namespace STATE COMPLETO y lo reescribe con
+        # lo que la INSTANCIA conoce. Como varias instancias comparten la PDB,
+        # cada una BORRABA las tareas creadas por las demas (last-writer-wins
+        # sobre la lista completa). Consecuencia medida: 5 tareas desaparecieron
+        # (task_77/78/79/81/127), el contador se quedo corto y se reutilizaron
+        # ids -> tareas PISADAS (incidente task_126 del navegador web).
+        # Se rescatan las tareas ya persistidas para no perderlas. Las borradas
+        # a proposito se excluyen con _deleted_tasks (tombstones).
+        try:
+            for _r_sk, _r_sv in conn.execute(
+                "SELECT subkey, value FROM _globals WHERE ns='STATE' AND subkey LIKE 'global:task:%'"
+            ).fetchall():
+                _rk = _r_sk.decode("utf-8", "replace") if isinstance(_r_sk, (bytes, bytearray)) else str(_r_sk)
+                _rk = _rk.split("global:task:", 1)[-1]
+                if _rk and _rk not in _tasks and _rk not in _deleted_tasks:
+                    try:
+                        _tasks[_rk] = json.loads(_r_sv)
+                    except Exception:
+                        pass
+        except Exception as _e_merge:
+            _safe_print(f"[lumen-thinking] merge tareas: aviso {_e_merge}")
         conn.execute("DELETE FROM _globals WHERE ns='STATE'")
         pairs = []
         for sid, sess in _sessions.items():
@@ -529,6 +560,20 @@ def _pdb_save_all() -> None:
             pairs.extend(ch_pairs)
         except Exception as se:
             _safe_print(f"[lumen-thinking] SPACES/CHANGES save FAILED: {se}")
+        # Tareas borradas a proposito: eliminarlas de verdad del STATE y olvidar
+        # el tombstone una vez aplicado (fix 13-09-2026). Sin esto, el MERGE de
+        # arriba resucitaria las tareas borradas desde lo persistido.
+        if _deleted_tasks:
+            try:
+                _del_ids = sorted(_deleted_tasks)
+                conn.executemany(
+                    "DELETE FROM _globals WHERE ns='STATE' AND subkey=?",
+                    [(f"global:task:{_d}".encode(),) for _d in _del_ids],
+                )
+                _deleted_tasks.clear()
+                _safe_print(f"[lumen-thinking] tareas borradas aplicadas: {_del_ids}")
+            except Exception as _e_del:
+                _safe_print(f"[lumen-thinking] borrado de tareas: aviso {_e_del}")
         conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
         conn.commit()
         conn.close()
