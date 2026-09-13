@@ -1147,6 +1147,39 @@ fn mcp_http_request(
     Err("MCP device no disponible en este build (feature minreq off)".to_string())
 }
 
+/// Lee `^CONFIG("ddp_peer")` + `^CONFIG("ddp_hmac_key")` del host (F2 — hub DDP).
+fn ddp_cfg(host: &MemoryHost) -> Result<(String, String), String> {
+    let peer = match host.get("CONFIG", &[Subscript::String("ddp_peer".to_string())]) {
+        Ok(Some(v)) => v.as_string(),
+        _ => String::new(),
+    };
+    if peer.is_empty() {
+        return Err(
+            "DDP: configura ^CONFIG(\"ddp_peer\") (ej: S ^CONFIG(\"ddp_peer\")=\"http://192.168.1.10:8081\")"
+                .to_string(),
+        );
+    }
+    let key = match host.get("CONFIG", &[Subscript::String("ddp_hmac_key".to_string())]) {
+        Ok(Some(v)) => v.as_string(),
+        _ => String::new(),
+    };
+    Ok((peer, key))
+}
+
+/// Texto canónico de un subscript para JSON de DDP.
+fn sub_text(s: &Subscript) -> String {
+    match s {
+        Subscript::Number(n) => {
+            if n.fract() == 0.0 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{n}")
+            }
+        }
+        Subscript::String(x) => x.clone(),
+    }
+}
+
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
         // Read from in-memory BTreeMap
@@ -1469,6 +1502,122 @@ impl Host for MemoryHost {
             }
             "ddp" => {
                 match action {
+                    // ── F2 (14-sep-2026): DDP HTTP+HMAC contra el hub vm_api (:8081) ──
+                    //   $DEVICE("ddp:health")                       → JSON de /ddp/health
+                    //   $DEVICE("ddp:pull","NS",[limit],[depth])    → trae y APLICA local, devuelve nº
+                    //   $DEVICE("ddp:push","NS")                    → sube el subárbol local
+                    // Firma legacy ts+data+key (epoch seg): GET firma path+query; POST firma body.
+                    "health" => {
+                        let (peer, key) = ddp_cfg(self)?;
+                        let (status, body) =
+                            crate::ddp_client::get_signed(&peer, "/ddp/health", &key)?;
+                        if status != 200 {
+                            return Err(format!(
+                                "DDP health HTTP {status}: {}",
+                                body.chars().take(200).collect::<String>()
+                            ));
+                        }
+                        Ok(Value::String(body))
+                    }
+                    "pull" => {
+                        let ns = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        if ns.is_empty() {
+                            return Err(
+                                "uso: $DEVICE(\"ddp:pull\",\"NS\",[limit],[depth])".to_string()
+                            );
+                        }
+                        let limit = match args.get(1).map(|v| v.as_number() as i64).unwrap_or(500) {
+                            n if n > 0 => n,
+                            _ => 500,
+                        };
+                        let depth = args.get(2).map(|v| v.as_number() as i64).unwrap_or(-1);
+                        let (peer, key) = ddp_cfg(self)?;
+                        let path = format!(
+                            "/ddp/pull?ns={}&limit={}&depth={}",
+                            crate::ddp_client::urlenc(&ns),
+                            limit,
+                            depth
+                        );
+                        let (status, body) =
+                            crate::ddp_client::get_signed(&peer, &path, &key)?;
+                        if status != 200 {
+                            return Err(format!(
+                                "DDP pull HTTP {status}: {}",
+                                body.chars().take(200).collect::<String>()
+                            ));
+                        }
+                        let parsed: serde_json::Value = serde_json::from_str(&body)
+                            .map_err(|e| format!("DDP pull: JSON inválido: {e}"))?;
+                        let entries = parsed
+                            .get("entries")
+                            .and_then(|e| e.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        let mut applied = 0usize;
+                        let mut skipped = 0usize;
+                        for e in entries {
+                            let ens = e
+                                .get("ns")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or(ns.as_str())
+                                .to_string();
+                            let val = e
+                                .get("value")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if val.is_empty() {
+                                skipped += 1;
+                                continue;
+                            }
+                            let subs: Vec<Subscript> = e
+                                .get("subs")
+                                .and_then(|x| x.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .map(|s| {
+                                            Subscript::String(
+                                                s.as_str().unwrap_or("").to_string(),
+                                            )
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            self.set(&ens, &subs, Value::String(val))
+                                .map_err(|err| format!("DDP pull set: {err}"))?;
+                            applied += 1;
+                        }
+                        Ok(Value::String(format!("{applied} (skip {skipped})")))
+                    }
+                    "push" => {
+                        let ns = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        if ns.is_empty() {
+                            return Err("uso: $DEVICE(\"ddp:push\",\"NS\")".to_string());
+                        }
+                        let (peer, key) = ddp_cfg(self)?;
+                        let mut entries: Vec<serde_json::Value> = Vec::new();
+                        for ((ens, subs), val) in self.values.iter() {
+                            if ens != &ns {
+                                continue;
+                            }
+                            let sv: Vec<String> = subs.iter().map(sub_text).collect();
+                            entries.push(serde_json::json!({"subs": sv, "value": val.as_string()}));
+                            if entries.len() >= 1000 {
+                                break;
+                            }
+                        }
+                        let body = serde_json::json!({"ns": ns.clone(), "entries": entries})
+                            .to_string();
+                        let (status, resp) =
+                            crate::ddp_client::post_signed(&peer, "/ddp/push", &body, &key)?;
+                        if status != 200 {
+                            return Err(format!(
+                                "DDP push HTTP {status}: {}",
+                                resp.chars().take(200).collect::<String>()
+                            ));
+                        }
+                        Ok(Value::String(resp))
+                    }
                     "get" => {
                         let space = args.first().map(|v| v.as_string()).unwrap_or_default();
                         let global = args.get(1).map(|v| v.as_string()).unwrap_or_default();
