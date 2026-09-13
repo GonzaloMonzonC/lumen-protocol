@@ -722,11 +722,52 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .filter(|value| !value.is_empty())
                 .map(|value| self.eval_expr(&value, line))
                 .collect::<Result<Vec<_>, _>>()?;
+            // Fix 14-sep-2026: `D ^RUTINA(args)` no bindeaba los argumentos al
+            // primer label (los formales quedaban sin valor; solo funcionaba
+            // `D LABEL^RUTINA(args)`). Mapear posicionalmente contra los
+            // formales del PRIMER label del source, igual que el otro camino.
+            let mut saved_params: Vec<(String, Option<Value>)> = Vec::new();
+            if !arguments.is_empty() {
+                let first_label = source.lines().find_map(|l| {
+                    let t = l.trim_start();
+                    if t.is_empty() || t.starts_with(';') {
+                        return None;
+                    }
+                    let name = t
+                        .split(|c: char| c.is_whitespace() || c == '(' || c == ';' || c == ',')
+                        .next()
+                        .unwrap_or("");
+                    if is_identifier(name) {
+                        Some(name.to_ascii_uppercase())
+                    } else {
+                        None
+                    }
+                });
+                if let Some(fl) = first_label {
+                    let formals = parse_formal_params(&source, &fl).unwrap_or_default();
+                    for (i, pname) in formals.iter().enumerate() {
+                        if !pname.is_empty() {
+                            if let Some(val) = arguments.get(i) {
+                                saved_params.push((pname.clone(), self.state.vars.get(pname).cloned()));
+                                self.state.vars.insert(pname.clone(), val.clone());
+                            }
+                        }
+                    }
+                }
+            }
             self.bind_arguments(arguments);
             let scope_base = self.state.local_scopes.len();
             let result = self.exec_inline_control_offset(&source, line, 1);
             self.restore_local_scopes_to(scope_base);
             self.restore_arguments();
+            // Fix 14-sep-2026: los formales son locales del callee en MUMPS;
+            // sin restaurar, la recursión se pisaba sus propios parámetros.
+            for (p, old) in saved_params {
+                match old {
+                    Some(v) => { self.state.vars.insert(p, v); }
+                    None => { self.state.vars.remove(&p); }
+                }
+            }
             let control = result?;
             return Ok(match control {
                 Control::Halt => Control::Halt,
@@ -779,6 +820,10 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
                 evaluated.push(self.eval_expr(raw, line)?);
             }
+            let saved_params: Vec<(String, Option<Value>)> = formals
+                .iter()
+                .map(|p| (p.clone(), self.state.vars.get(p).cloned()))
+                .collect();
             for (i, pname) in formals.iter().enumerate() {
                 let trimmed = raw_args_list.get(i).map(|a| a.trim()).unwrap_or("");
                 if !trimmed.starts_with('.') {
@@ -790,17 +835,29 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             let scope_base = self.state.local_scopes.len();
             self.bind_arguments(evaluated);
             self.inline_depth += 1;
-            let mut i = start_ip;
-            while i < program.instructions.len() {
-                self.charge(line)?;
-                let ctrl = self.execute_instruction(&program.instructions[i])?;
-                match ctrl {
-                    Control::Continue => i += 1,
-                    Control::Skip(n) => i += 1 + n as usize,
-                    Control::Quit | Control::Halt | Control::Yield => break,
+            // Fix 14-sep-2026: durante la ejecución del programa anidado, hacerlo
+            // "el programa actual" (swap temporal) para que las llamadas a
+            // etiquetas LOCALES del propio routine (D SUB(args), D SUB) y sus
+            // formales resuelvan contra ESTE source. Antes label_ip/formales
+            // miraban al programa exterior → «unknown label SUB».
+            let saved_program = std::mem::replace(&mut self.program, program);
+            let exec_res = (|| -> Result<(), VmError> {
+                let mut i = start_ip;
+                while i < self.program.instructions.len() {
+                    self.charge(line)?;
+                    let instr = self.program.instructions[i].clone();
+                    let ctrl = self.execute_instruction(&instr)?;
+                    match ctrl {
+                        Control::Continue => i += 1,
+                        Control::Skip(n) => i += 1 + n as usize,
+                        Control::Quit | Control::Halt | Control::Yield => break,
+                    }
                 }
-            }
+                Ok(())
+            })();
+            self.program = saved_program;
             self.inline_depth -= 1;
+            exec_res?;
             for (src_var, param_name) in &refs {
                 let prefix = format!("{}[", param_name);
                 let collected: Vec<(String, Value)> = self.state.vars.iter()
@@ -818,6 +875,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             self.restore_local_scopes_to(scope_base);
             self.restore_arguments();
+            for (p, old) in saved_params {
+                match old {
+                    Some(v) => { self.state.vars.insert(p, v); }
+                    None => { self.state.vars.remove(&p); }
+                }
+            }
         } else {
             // D LABEL(args) — local DO with optional .ref pass-by-reference
             let label_upper = target_name.trim().to_ascii_uppercase();
@@ -856,6 +919,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             
             // Bind non-.ref params as $1, $2, ...
+            // Fix 14-sep-2026: guardar valores previos de los formales (locales
+            // del callee en MUMPS; antes la recursión se pisaba a sí misma).
+            let saved_params: Vec<(String, Option<Value>)> = formals
+                .iter()
+                .map(|p| (p.clone(), self.state.vars.get(p).cloned()))
+                .collect();
             for (i, pname) in formals.iter().enumerate() {
                 let trimmed = raw_args_list.get(i).map(|a| a.trim()).unwrap_or("");
                 if !trimmed.starts_with('.') {
@@ -905,6 +974,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             // quedaban en vars → test do_binds_and_restores_positional_arguments)
             self.restore_arguments();
             self.restore_local_scopes_to(scope_base);
+            for (p, old) in saved_params {
+                match old {
+                    Some(v) => { self.state.vars.insert(p, v); }
+                    None => { self.state.vars.remove(&p); }
+                }
+            }
         }
         Ok(Control::Continue)
     }
@@ -2450,24 +2525,49 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         }
         let mut subs = Vec::new();
         if let Some(open) = open {
-            let close = raw
-                .rfind(')')
-                .ok_or_else(|| VmError::new("MGLOBAL", "missing )", line))?;
-            for argument in split_top_level(&raw[open + 1..close], ',') {
-                let value = if argument.trim().starts_with('"')
-                    || argument.trim().parse::<f64>().is_ok()
-                    || self.state.vars.contains_key(argument.trim())
-                    || flatten_local_sub(argument.trim()).as_ref().map_or(false, |k| self.state.vars.contains_key(k))
-                    || argument.trim().starts_with('$')
-                    || argument.trim().starts_with('@')
-                    || argument.trim().starts_with('+')
-                    || argument.trim().starts_with('-')
-                {
-                    self.eval_expr(&argument, line)?
-                } else {
-                    Value::String(argument.trim().to_string())
-                };
-                subs.push(Subscript::from_value(value));
+            // Soporta ^G(a) y grupos sucesivos ^G(a)(b): el camino de indirección
+            // de VALOR concatena el tail a un resolved_name con subs (p.ej.
+            // "^KANBAN(""niche_nas"")" + "(k)" → "^KANBAN(...)(k)"). Antes se
+            // usaba un único rfind(')') → los subs quedaban rotos
+            // («undefined variable: "niche_nas")(k»). Parsear AMBOS grupos.
+            let mut pos = open;
+            let bytes = raw.as_bytes();
+            while pos < bytes.len() && bytes[pos] == b'(' {
+                let mut depth = 0i32;
+                let mut quoted = false;
+                let mut end = None;
+                for (j, c) in raw[pos..].char_indices() {
+                    match c {
+                        '"' => quoted = !quoted,
+                        '(' if !quoted => depth += 1,
+                        ')' if !quoted => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = Some(pos + j);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let end = end.ok_or_else(|| VmError::new("MGLOBAL", "missing )", line))?;
+                for argument in split_top_level(&raw[pos + 1..end], ',') {
+                    let value = if argument.trim().starts_with('"')
+                        || argument.trim().parse::<f64>().is_ok()
+                        || self.state.vars.contains_key(argument.trim())
+                        || flatten_local_sub(argument.trim()).as_ref().map_or(false, |k| self.state.vars.contains_key(k))
+                        || argument.trim().starts_with('$')
+                        || argument.trim().starts_with('@')
+                        || argument.trim().starts_with('+')
+                        || argument.trim().starts_with('-')
+                    {
+                        self.eval_expr(&argument, line)?
+                    } else {
+                        Value::String(argument.trim().to_string())
+                    };
+                    subs.push(Subscript::from_value(value));
+                }
+                pos = end + 1;
             }
         }
         Ok((name.to_string(), subs))
