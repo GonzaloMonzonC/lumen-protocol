@@ -188,11 +188,19 @@ def kanban_tool_task_list(args: dict) -> dict:
 
 
 def kanban_tool_task_delete(args: dict) -> dict:
-    from server import _tasks, _save_state
+    import server
+    _tasks, _save_state = server._tasks, server._save_state
     tid = args.get("task_id", "")
     if tid not in _tasks:
         return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
     del _tasks[tid]
+    # Tombstone: el save hace MERGE de las tareas persistidas para no perder
+    # las de otras instancias, asi que hay que marcar explicitamente esta como
+    # borrada o resucitaria. Fix 13-09-2026.
+    try:
+        server._deleted_tasks.add(tid)
+    except Exception:
+        pass
     _save_state()
     return {"content": [{"type": "text", "text": f"🗑️ Task '{tid}' deleted."}]}
 
