@@ -4414,20 +4414,22 @@ def _start_dashboard(port: int = 9876) -> None:
                             _next_task_id += 1
                             new_id = "task_" + str(_next_task_id)
                         _next_task_id += 1
-                        _tasks[new_id] = {
-                            "id": new_id, "niche_id": niche_id, "title": title,
-                            "desc": desc, "priority": priority, "status": "backlog",
-                            "column": "backlog", "tags": [], "assignee": "",
+                        # FIX camino muerto (13-sep-2026): este bloque usaba
+                        # 'niche_id' y 'priority', que NO EXISTEN (la variable
+                        # local es 'nid', y priority nunca se leia de params)
+                        # -> NameError -> crear tareas desde el dashboard NUNCA
+                        # funciono. Ademas asignaba _tasks[new_id] DOS veces con
+                        # formas distintas, guardando dos veces. Ahora: una sola
+                        # asignacion, forma completa, y column/status
+                        # sincronizados (son el mismo dato, ver _col_of).
+                        _prio = (params.get("priority") or "medium").strip() or "medium"
+                        _col0 = _niches[nid]["columns"][0]
+                        _tasks[new_id] = {"id": new_id, "niche_id": nid, "title": title, "desc": desc,
+                            "status": _col0, "column": _col0, "priority": _prio,
+                            "tags": [], "assignee": None,
                             "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
-                            "urls": [], "created_at": time.time(), "updated_at": time.time(),
-                        }
-                        _save_state()
-                        _tasks[new_id] = {"id":new_id,"niche_id":nid,"title":title,"desc":desc,
-                            "status":_niches[nid]["columns"][0],"priority":"medium",
-                            "tags":[],"assignee":None,
-                            "references":{"chains":[],"patterns":[],"decisions":[],"wikis":[]},
-                            "blockers":[],"blocks":[],
-                            "created_at":time.time(),"updated_at":time.time(),"done_at":None}
+                            "urls": [], "blockers": [], "blocks": [],
+                            "created_at": time.time(), "updated_at": time.time(), "done_at": None}
                         _save_state()
                         self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
                         self.wfile.write(_j.dumps({"status":"ok","task_id":new_id}).encode()); return
