@@ -1292,7 +1292,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         if self.state.yield_requested {
                             frame.body_ip = frame.body_ip.saturating_sub(1);
                             self.state.loop_frames.insert(instruction_ip, frame);
-                            self.state.ip = instruction_ip;
+                            // Fix 14-sep-2026: dentro de un inline (D ^RUTINA /
+                            // programa anidado) NO pisar state.ip — el llamador
+                            // re-ejecuta su instrucción y el frame inline hace el
+                            // resume. Pisarlo hacía que run_slice aplicara ip-=1
+                            // sobre el ip ya pisado (underflow si la llamada
+                            // estaba en el índice 0 → exec "completed" prematuro).
+                            if self.inline_depth == 0 {
+                                self.state.ip = instruction_ip;
+                            }
                             return Ok(Control::Yield);
                         }
                     }
@@ -1305,7 +1313,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         // para no saltársela al reanudar.
                         frame.body_ip = frame.body_ip.saturating_sub(1);
                         self.state.loop_frames.insert(instruction_ip, frame);
-                        self.state.ip = instruction_ip;
+                        if self.inline_depth == 0 {
+                            self.state.ip = instruction_ip;
+                        }
                         return Ok(Control::Yield);
                     }
                 }
@@ -1415,17 +1425,26 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             .collect::<Vec<_>>()
             .join("\n");
         // Remove DO block markers before M commands (FOR DO → FOR continuation)
+        // Fix 14-sep-2026: el replace era por SUBSTRING sin límite de palabra —
+        // ` D SUB^X` casaba con ` D S` (SET) y se comía el D → ` SUB^X` →
+        // MUNDEF "undefined variable: SUB^%X(...)"; igual con FICHA (FOR),
+        // NOARG (NEW), etc. Ahora el comando debe ser la palabra COMPLETA:
+        // el patrón exige el sufijo que lo sigue (espacio, ":" o fin de línea).
         let commands = ["S ", "SET ", "I ", "IF ", "F ", "FOR ", "D ", "DO ",
                         "K ", "KILL ", "Q ", "QUIT ", "N ", "NEW ",
                         "W ", "WRITE ", "ZWRITE ", "ZW ", "ZP ", "ZPRINT "];
         let mut flat = flat;
+        flat.push('\n'); // centinela: fin de línea virtual para el último comando
         for cmd in &commands {
-            let pattern = format!(" DO {}", cmd.trim());
-            let replacement = format!(" {}", cmd.trim());
-            flat = flat.replace(&pattern, &replacement);
-            let pattern = format!(" D {}", cmd.trim());
-            flat = flat.replace(&pattern, &replacement);
+            let c = cmd.trim();
+            for d in ["D", "DO"] {
+                let m = format!(" {d} {c}");
+                for suffix in [" ", ":", "\n"] {
+                    flat = flat.replace(&format!("{m}{suffix}"), &format!(" {c}{suffix}"));
+                }
+            }
         }
+        flat.pop();
         // Numera las líneas desde first_line: 1 + (first_line-1) = first_line
         let program = Compiler::compile_with_offset(&flat, first_line.saturating_sub(1))
             .map_err(|e| VmError::new("MCOMPILE", e, line))?;
@@ -1436,7 +1455,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             .state
             .inline_frames
             .iter()
-            .position(|f| f.first_line == first_line)
+            // Fix 14-sep-2026: rposition (ÚLTIMO frame con este first_line).
+            // Con anidamiento (routines que llaman a routines) existen varios
+            // frames con first_line=1; position() cogía el más PROFUNDO y el
+            // resume continuaba con el programa equivocado (y sin consumir el
+            // frame correcto → estado sucio).
+            .rposition(|f| f.first_line == first_line)
         {
             Some(idx) => {
                 let ip = self.state.inline_frames[idx].ip;

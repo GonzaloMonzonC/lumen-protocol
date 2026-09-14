@@ -1777,6 +1777,24 @@ class VMHandler(BaseHTTPRequestHandler):
         try:
             row = conn.execute("SELECT value FROM _globals WHERE ns='AGENTES' AND subkey=?", (key,)).fetchone()
             if not row or not row[0]:
+                # Fallback tolerante (14-sep-2026): escritores con terminador
+                # \xff extra (p.ej. el MVM Rust) no matchean el encode exacto →
+                # escanear el rango de routing y comparar por subkey decodificada.
+                prefix = encode_subkey(["routing"])
+                rows = conn.execute(
+                    "SELECT subkey, value FROM _globals WHERE ns='AGENTES' AND subkey >= ? AND subkey < ?",
+                    (prefix, prefix + b"\xff"),
+                ).fetchall()
+                row = None
+                for k, v in rows:
+                    try:
+                        subs = _decode_subkey(k)
+                    except Exception:
+                        continue
+                    if subs and str(subs[-1]) == agente:
+                        row = (v,)
+                        break
+            if not row or not row[0]:
                 return None
             return json.loads(row[0])
         except Exception:
