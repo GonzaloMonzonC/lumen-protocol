@@ -68,6 +68,20 @@ pub fn http_request(
     body: Option<&str>,
     headers: &[(&str, &str)],
 ) -> Result<(u16, String), String> {
+    http_request_t(method, url, body, headers, 20)
+}
+
+/// Igual que `http_request` con timeout de lectura explícito (segundos).
+/// F5 (14-sep-2026): las llamadas de "voz prestada" al hub pueden tardar
+/// (el agente destino piensa) → 120 s en vez de 20 s. El resto de rutas
+/// (pull/push/health) mantienen su timeout corto.
+pub fn http_request_t(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    headers: &[(&str, &str)],
+    read_timeout_secs: u64,
+) -> Result<(u16, String), String> {
     let (host, port, path) = split_url(url)?;
     let addr = format!("{host}:{port}");
     let sock = addr
@@ -77,7 +91,7 @@ pub fn http_request(
         .ok_or_else(|| format!("DDP: sin dirección para {addr}"))?;
     let mut stream = TcpStream::connect_timeout(&sock, Duration::from_secs(5))
         .map_err(|e| format!("DDP: conecta {addr}: {e}"))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(20)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(read_timeout_secs)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
 
     let mut req = String::new();
@@ -141,6 +155,17 @@ pub fn post_signed(
     body: &str,
     key: &str,
 ) -> Result<(u16, String), String> {
+    post_signed_t(peer, path, body, key, 20)
+}
+
+/// POST firmado con timeout de lectura explícito (segundos).
+pub fn post_signed_t(
+    peer: &str,
+    path: &str,
+    body: &str,
+    key: &str,
+    read_timeout_secs: u64,
+) -> Result<(u16, String), String> {
     let url = format!("{}{}", peer.trim_end_matches('/'), path);
     let ts = now_ts();
     let sig = if key.is_empty() { String::new() } else { hmac_sign(&ts, body, key) };
@@ -149,5 +174,16 @@ pub fn post_signed(
         hdrs.push(("X-DDP-Timestamp", ts.as_str()));
         hdrs.push(("X-DDP-HMAC", sig.as_str()));
     }
-    http_request("POST", &url, Some(body), &hdrs)
+    http_request_t("POST", &url, Some(body), &hdrs, read_timeout_secs)
+}
+
+/// F5: "voz prestada" — el hub (vm_api) espera hasta 90 s al agente
+/// destino; damos 120 s de margen de lectura.
+pub fn post_signed_llm(
+    peer: &str,
+    path: &str,
+    body: &str,
+    key: &str,
+) -> Result<(u16, String), String> {
+    post_signed_t(peer, path, body, key, 120)
 }

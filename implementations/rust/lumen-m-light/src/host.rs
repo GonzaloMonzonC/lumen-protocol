@@ -1976,6 +1976,67 @@ impl Host for MemoryHost {
                             other => Err(format!("Unknown DDP cache action: {other}")),
                         }
                     }
+                    // ── F5 (14-sep-2026): "voz prestada" ──
+                    // El nodo habla con un agente del ecosistema vía el hub:
+                    // POST /ddp/agent/chat (HMAC body) → el hub resuelve el
+                    // agente en ^AGENTES("routing") y lo despacha (workers CF
+                    // / modos de Poli).
+                    //   $DEVICE("ddp:agent","slug","mensaje",[session]) → texto
+                    "agent" => {
+                        let slug = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        let msg = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        if slug.is_empty() || msg.is_empty() {
+                            return Err(
+                                "uso: $DEVICE(\"ddp:agent\",\"slug\",\"mensaje\",[session])"
+                                    .to_string(),
+                            );
+                        }
+                        let session = match args.get(2).map(|v| v.as_string()) {
+                            Some(s) if !s.trim().is_empty() => s,
+                            _ => "mvm-nas".to_string(),
+                        };
+                        let (peer, key) = ddp_cfg(self)?;
+                        let body = serde_json::json!({
+                            "agente": slug,
+                            "mensaje": msg,
+                            "session": session,
+                        })
+                        .to_string();
+                        let (status, resp) = crate::ddp_client::post_signed_llm(
+                            &peer,
+                            "/ddp/agent/chat",
+                            &body,
+                            &key,
+                        )?;
+                        if status != 200 {
+                            return Err(format!(
+                                "DDP agent HTTP {status}: {}",
+                                resp.chars().take(220).collect::<String>()
+                            ));
+                        }
+                        let parsed: serde_json::Value = serde_json::from_str(&resp)
+                            .map_err(|e| format!("DDP agent: JSON inválido: {e}"))?;
+                        let ok = parsed
+                            .get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        if !ok {
+                            let err = parsed
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(resp.as_str());
+                            return Err(format!(
+                                "DDP agent: {}",
+                                err.chars().take(220).collect::<String>()
+                            ));
+                        }
+                        let text = parsed
+                            .get("response")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        Ok(Value::String(text))
+                    }
                     "get" => {
                         let space = args.first().map(|v| v.as_string()).unwrap_or_default();
                         let global = args.get(1).map(|v| v.as_string()).unwrap_or_default();
