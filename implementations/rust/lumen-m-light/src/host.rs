@@ -230,19 +230,22 @@ impl LlmThreadPool {
             let body_str = serde_json::to_string(&body)
                 .map_err(|e| format!("JSON serialize error: {e}"))?;
             
-            let mut req = minreq::post(url)
-                .with_header("Content-Type", "application/json")
-                .with_timeout(120)
-                .with_body(body_str);
-            
-            if is_anthropic {
-                req = req.with_header("x-api-key", &item.api_key)
-                         .with_header("anthropic-version", "2023-06-01");
-            } else if !item.api_key.is_empty() {
-                req = req.with_header("Authorization", &format!("Bearer {}", item.api_key));
-            }
-            
-            let resp = req.send()
+            let build = || {
+                let mut req = minreq::post(url)
+                    .with_header("Content-Type", "application/json")
+                    .with_timeout(120)
+                    .with_body(body_str.clone());
+
+                if is_anthropic {
+                    req = req.with_header("x-api-key", &item.api_key)
+                             .with_header("anthropic-version", "2023-06-01");
+                } else if !item.api_key.is_empty() {
+                    req = req.with_header("Authorization", &format!("Bearer {}", item.api_key));
+                }
+                req
+            };
+
+            let resp = minreq_send_retry(build)
                 .map_err(|e| format!("HTTP error: {e}"))?;
 
             if resp.status_code != 200 {
@@ -1005,6 +1008,38 @@ fn search_web_text(args: &[Value]) -> Result<Value, String> {
     search_web_common(args, true)
 }
 
+/// 14-sep-2026 — Retry de minreq ante fallos ESPORÁDICOS de resolución DNS de la
+/// NAS (musl + kernel 3.2: «Try again»/EAI_AGAIN ~1 de cada N lookups; medido
+/// con la sonda dnsprobe: un fallo aislado y el MISMO lookup 20 ms después OK).
+/// Reconstruye la request (el builder es FnMut) y reintenta SOLO errores de
+/// lookup/conexión — los errores HTTP no se reintentan.
+#[cfg(feature = "minreq")]
+fn minreq_send_retry<F>(mut build: F) -> Result<minreq::Response, minreq::Error>
+where
+    F: FnMut() -> minreq::Request,
+{
+    let mut last: Option<minreq::Error> = None;
+    for attempt in 1..=3u64 {
+        match build().send() {
+            Ok(r) => return Ok(r),
+            Err(e) => {
+                let msg = format!("{e}");
+                let retryable = msg.contains("lookup")
+                    || msg.contains("Try again")
+                    || msg.contains("efused")
+                    || msg.contains("eset");
+                if attempt < 3 && retryable {
+                    std::thread::sleep(std::time::Duration::from_millis(250 * attempt));
+                    last = Some(e);
+                    continue;
+                }
+                return Err(e);
+            }
+        }
+    }
+    Err(last.expect("retry loop: last error"))
+}
+
 #[cfg(feature = "minreq")]
 fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
     const MAX_BODY: usize = 200 * 1024;
@@ -1061,23 +1096,29 @@ fn http_full_request(action: &str, args: &[Value]) -> Result<Value, String> {
         headers.push(("Content-Type".to_string(), "application/json".to_string()));
     }
 
-    let mut req = match action {
-        "get" => minreq::get(&url),
-        "head" => minreq::head(&url),
-        "post" => minreq::post(&url),
-        "put" => minreq::put(&url),
-        "delete" => minreq::delete(&url),
-        _ => return Err(format!("HTTP: método no soportado: {action}")),
-    }
-    .with_timeout(timeout_s);
-    for (k, v) in &headers {
-        req = req.with_header(k.as_str(), v.as_str());
-    }
-    if has_body {
-        req = req.with_body(body);
+    let build = || {
+        let mut req = match action {
+            "get" => minreq::get(&url),
+            "head" => minreq::head(&url),
+            "post" => minreq::post(&url),
+            "put" => minreq::put(&url),
+            "delete" => minreq::delete(&url),
+            _ => minreq::get(&url),
+        }
+        .with_timeout(timeout_s);
+        for (k, v) in &headers {
+            req = req.with_header(k.as_str(), v.as_str());
+        }
+        if has_body {
+            req = req.with_body(body.clone());
+        }
+        req
+    };
+    if !matches!(action, "get" | "head" | "post" | "put" | "delete") {
+        return Err(format!("HTTP: método no soportado: {action}"));
     }
 
-    let resp = req.send().map_err(|e| format!("HTTP {action} error: {e}"))?;
+    let resp = minreq_send_retry(build).map_err(|e| format!("HTTP {action} error: {e}"))?;
     let status = resp.status_code;
     let bytes = resp.as_bytes();
     let truncated = bytes.len() > MAX_BODY;
@@ -2616,18 +2657,20 @@ pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -
         let body_str = serde_json::to_string(&body)
             .map_err(|e| format!("JSON serialize: {e}"))?;
         
-        let mut req = minreq::post(url)
-            .with_header("Content-Type", "application/json")
-            .with_timeout(120)
-            .with_body(body_str);
-        
-        if is_anthropic {
-            req = req.with_header("x-api-key", &api_key)
-                     .with_header("anthropic-version", "2023-06-01");
-        } else {
-            req = req.with_header("Authorization", &format!("Bearer {api_key}"));
-        }
-        let resp = req.send()
+        let build = || {
+            let mut req = minreq::post(url)
+                .with_header("Content-Type", "application/json")
+                .with_timeout(120)
+                .with_body(body_str.clone());
+            if is_anthropic {
+                req = req.with_header("x-api-key", &api_key)
+                         .with_header("anthropic-version", "2023-06-01");
+            } else {
+                req = req.with_header("Authorization", &format!("Bearer {api_key}"));
+            }
+            req
+        };
+        let resp = minreq_send_retry(build)
             .map_err(|e| format!("HTTP error: {e}"))?;
         if resp.status_code != 200 {
             let err_text = resp.as_str().unwrap_or("unknown");
