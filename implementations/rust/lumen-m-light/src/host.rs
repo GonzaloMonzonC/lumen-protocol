@@ -1876,8 +1876,13 @@ impl Host for MemoryHost {
         // leer una línea real de stdin. El lock de std es reentrante y el
         // bucle del REPL comparte el mismo BufReader: la línea no se pierde.
         if self.live_stdin {
-            use std::io::{BufRead, IsTerminal};
+            use std::io::{BufRead, IsTerminal, Write};
             if std::io::stdin().is_terminal() {
+                // Marca de espera (14-sep-2026): la consola web detecta este
+                // prompt «⟩» para saber que el nodo está bloqueado en un READ
+                // (y no simplemente pensando, p.ej. esperando a un LLM).
+                eprint!("⟩ ");
+                std::io::stderr().flush().ok();
                 let mut line = String::new();
                 match std::io::stdin().lock().read_line(&mut line) {
                     Ok(0) => return Ok(String::new()),
