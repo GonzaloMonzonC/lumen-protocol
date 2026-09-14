@@ -638,6 +638,9 @@ pub struct MemoryHost {
     sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
     /// Registry global de sesiones Smith streaming
     pub smith_registry: Arc<crate::smith::SmithRegistry>,
+    /// Caché acotada de namespaces montados como referencia DDP (F2c).
+    /// NO se persiste en SQLite: memoria pura, evictable (FIFO por chunks).
+    remote_cache: std::sync::Mutex<RemoteCache>,
 }
 
 impl Default for MemoryHost {
@@ -653,6 +656,7 @@ impl Default for MemoryHost {
             #[cfg(feature = "sqlite")]
             sqlite_db: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
+            remote_cache: std::sync::Mutex::new(RemoteCache::default()),
         }
     }
 }
@@ -712,6 +716,7 @@ impl MemoryHost {
             sandbox: false,
             sqlite_db: Some(Arc::new(Mutex::new(conn))),
             smith_registry: Arc::new(global_smith_registry().clone()),
+            remote_cache: std::sync::Mutex::new(RemoteCache::default()),
         })
     }
 
@@ -750,6 +755,30 @@ impl MemoryHost {
 
     pub fn held_locks(&self) -> usize {
         self.locks.len()
+    }
+
+    /// Chunk remoto (F2c): caché o fetch bajo demanda. `parent` = subíndices
+    /// del padre; devuelve sus hijos como [(subs, valor, has_children)].
+    fn remote_chunk(
+        &self,
+        rns: &str,
+        parent: &[Subscript],
+    ) -> Result<Vec<(Vec<String>, String, bool, bool)>, String> {
+        let parent_texts: Vec<String> = parent.iter().map(sub_text).collect();
+        if let Ok(mut c) = self.remote_cache.lock() {
+            let hit = c.chunks.get(&(rns.to_string(), parent_texts.clone())).cloned();
+            match hit {
+                Some(h) => {
+                    c.hits += 1;
+                    return Ok(h);
+                }
+                None => {
+                    c.misses += 1;
+                    c.fetches += 1;
+                }
+            }
+        }
+        remote_fetch_chunk(self, rns, parent)
     }
 
     fn pool(&self) -> &'static LlmThreadPool {
@@ -1180,10 +1209,210 @@ fn sub_text(s: &Subscript) -> String {
     }
 }
 
+/// ── F2c (14-sep-2026): referencias DDP — namespaces remotos montados ──
+/// Un ns con `^CONFIG("mount",NS)` definido se lee POR REFERENCIA: los reads
+/// ($G/$O/$D) que no están en local se traen del hub BAJO DEMANDA y se cachean
+/// en RAM de forma acotada (nunca se vuelcan a la PDB local → el nodo no
+/// materializa los datos). Los writes siguen siendo locales (bandeja de salida:
+/// `%DS("NS","U")` los sube al hub después).
+#[derive(Default)]
+struct RemoteCache {
+    /// chunk = hijos de un padre remoto:
+    /// (ns_remoto, padre) → [(subs, valor, has_children, has_value)]
+    chunks: std::collections::BTreeMap<(String, Vec<String>), Vec<(Vec<String>, String, bool, bool)>>,
+    /// orden de inserción para evicción FIFO (≈LRU)
+    lru: std::collections::VecDeque<(String, Vec<String>)>,
+    count: usize,
+    hits: u64,
+    misses: u64,
+    fetches: u64,
+}
+
+impl RemoteCache {
+    fn clear(&mut self) -> usize {
+        let n = self.chunks.len();
+        self.chunks.clear();
+        self.lru.clear();
+        self.count = 0;
+        n
+    }
+    fn stats(&self) -> String {
+        format!(
+            "chunks={} nodos={} hits={} misses={} fetches={}",
+            self.chunks.len(),
+            self.count,
+            self.hits,
+            self.misses,
+            self.fetches
+        )
+    }
+}
+
+/// ¿Está la ns montada como referencia? Devuelve el nombre remoto (o None).
+fn remote_mount(host: &MemoryHost, ns: &str) -> Option<String> {
+    if host.sandbox || ns == "CONFIG" || ns == "SYSINFO" {
+        return None;
+    }
+    let key = (
+        "CONFIG".to_string(),
+        vec![
+            Subscript::String("mount".to_string()),
+            Subscript::String(ns.to_string()),
+        ],
+    );
+    match host.values.get(&key) {
+        Some(v) => {
+            let r = v.as_string();
+            if r.trim().is_empty() {
+                Some(ns.to_string())
+            } else {
+                Some(r.trim().to_string())
+            }
+        }
+        None => None,
+    }
+}
+
+fn cache_max(host: &MemoryHost) -> usize {
+    host.values
+        .get(&(
+            "CONFIG".to_string(),
+            vec![Subscript::String("cache_max".to_string())],
+        ))
+        .map(|v| v.as_number() as usize)
+        .filter(|n| *n >= 16)
+        .unwrap_or(4096)
+}
+
+fn cache_fetch_limit(host: &MemoryHost) -> usize {
+    host.values
+        .get(&(
+            "CONFIG".to_string(),
+            vec![Subscript::String("cache_limit".to_string())],
+        ))
+        .map(|v| v.as_number() as usize)
+        .filter(|n| *n >= 1)
+        .unwrap_or(500)
+}
+
+/// Mete un chunk en la caché con evicción FIFO acotada.
+fn insert_chunk(
+    host: &MemoryHost,
+    rns: &str,
+    parent_texts: &[String],
+    entries: Vec<(Vec<String>, String, bool, bool)>,
+) {
+    let max = cache_max(host);
+    if let Ok(mut c) = host.remote_cache.lock() {
+        let key = (rns.to_string(), parent_texts.to_vec());
+        if let Some(old) = c.chunks.remove(&key) {
+            c.count = c.count.saturating_sub(old.len());
+        }
+        c.lru.retain(|k| k != &key);
+        c.count += entries.len();
+        c.chunks.insert(key.clone(), entries);
+        c.lru.push_back(key);
+        while c.count > max {
+            match c.lru.pop_front() {
+                Some(k) => {
+                    if let Some(old) = c.chunks.remove(&k) {
+                        c.count = c.count.saturating_sub(old.len());
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+}
+
+/// Fetch de un chunk remoto (hijos de `parent`) con pull depth=0. Solo en miss.
+fn remote_fetch_chunk(
+    host: &MemoryHost,
+    rns: &str,
+    parent: &[Subscript],
+) -> Result<Vec<(Vec<String>, String, bool, bool)>, String> {
+    let (peer, key) = ddp_cfg(host)?;
+    let parent_texts: Vec<String> = parent.iter().map(sub_text).collect();
+    let limit = cache_fetch_limit(host);
+    let path = if parent_texts.is_empty() {
+        format!(
+            "/ddp/pull?ns={}&limit={}&depth=0",
+            crate::ddp_client::urlenc(rns),
+            limit
+        )
+    } else {
+        let prefix = parent_texts
+            .iter()
+            .map(|s| crate::ddp_client::urlenc(s))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "/ddp/pull?ns={}&limit={}&depth=0&prefix={}",
+            crate::ddp_client::urlenc(rns),
+            limit,
+            prefix
+        )
+    };
+    let (status, body) = crate::ddp_client::get_signed(&peer, &path, &key)?;
+    if status != 200 {
+        return Err(format!(
+            "DDP refs: pull HTTP {status}: {}",
+            body.chars().take(200).collect::<String>()
+        ));
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("DDP refs: JSON inválido: {e}"))?;
+    let mut out: Vec<(Vec<String>, String, bool, bool)> = Vec::new();
+    if let Some(entries) = parsed.get("entries").and_then(|e| e.as_array()) {
+        for e in entries {
+            let subs: Vec<String> = e
+                .get("subs")
+                .and_then(|s| s.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|x| x.as_str().unwrap_or("").to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let val = e
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let hc = e
+                .get("has_children")
+                .and_then(|h| h.as_bool())
+                .unwrap_or(false);
+            // Fallback si el server no manda has_value (pre 14-sep): valor no vacío.
+            let hv = e
+                .get("has_value")
+                .and_then(|h| h.as_bool())
+                .unwrap_or(!val.is_empty());
+            out.push((subs, val, hc, hv));
+        }
+    }
+    insert_chunk(host, rns, &parent_texts, out.clone());
+    Ok(out)
+}
+
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
         // Read from in-memory BTreeMap
-        Ok(self.values.get(&(ns.to_string(), subs.to_vec())).cloned())
+        if let Some(v) = self.values.get(&(ns.to_string(), subs.to_vec())) {
+            return Ok(Some(v.clone()));
+        }
+        // F2c: ns montada → chunk del padre (fetch bajo demanda + caché acotada)
+        if let Some(rns) = remote_mount(self, ns) {
+            let parent: &[Subscript] = if subs.is_empty() { &[] } else { &subs[..subs.len() - 1] };
+            let path: Vec<String> = subs.iter().map(sub_text).collect();
+            let chunk = self.remote_chunk(&rns, parent)?;
+            for (c_subs, c_val, _hc, _hv) in chunk.iter() {
+                if c_subs == &path {
+                    return Ok(Some(Value::String(c_val.clone())));
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn set(&mut self, ns: &str, subs: &[Subscript], value: Value) -> Result<(), String> {
@@ -1243,10 +1472,31 @@ impl Host for MemoryHost {
         let child = self.values.keys().any(|(candidate_ns, candidate)| {
             candidate_ns == ns && candidate.len() > subs.len() && is_prefix(subs, candidate)
         });
-        Ok(match (own, child) {
-            (true, true) => 11, (true, false) => 1,
-            (false, true) => 10, (false, false) => 0,
-        })
+        if own || child {
+            return Ok(match (own, child) {
+                (true, true) => 11, (true, false) => 1,
+                (false, true) => 10, (false, false) => 0,
+            });
+        }
+        // F2c: ns montada → $D por referencia (has_value/has_children del server)
+        if let Some(rns) = remote_mount(self, ns) {
+            let parent: &[Subscript] = if subs.is_empty() { &[] } else { &subs[..subs.len() - 1] };
+            let path: Vec<String> = subs.iter().map(sub_text).collect();
+            let chunk = self.remote_chunk(&rns, parent)?;
+            let mut own_r = false;
+            let mut child_r = false;
+            for (c_subs, _c_val, hc, hv) in chunk.iter() {
+                if c_subs == &path {
+                    own_r = *hv;
+                    child_r = *hc;
+                }
+            }
+            return Ok(match (own_r, child_r) {
+                (true, true) => 11, (true, false) => 1,
+                (false, true) => 10, (false, false) => 0,
+            });
+        }
+        Ok(0)
     }
 
     fn order(
@@ -1256,26 +1506,30 @@ impl Host for MemoryHost {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
-        // Collect all subscripts for this ns that are descendants of parent
-        let mut decoded: Vec<Vec<Subscript>> = self.values.keys()
-            .filter(|(candidate_ns, subs)| {
-                candidate_ns == ns && is_prefix(parent, subs) && subs.len() > parent.len()
-            })
-            .map(|(_, subs)| subs.clone())
-            .collect();
-
-        // Sort using canonical MUMPS ordering (numbers before strings, ASCII byte compare)
-        decoded.sort_by(|a, b| compare_subscripts(a, b));
-
-        let current_vec: Option<Vec<Subscript>> = current.map(|c| {
-            let mut v = parent.to_vec();
-            v.push(c.clone());
-            v
-        });
+        // Candidatos locales: subíndices descendientes directos de `parent`
+        let mut candidates: Vec<Subscript> = Vec::new();
+        for (candidate_ns, subs) in self.values.keys() {
+            if candidate_ns == ns && is_prefix(parent, subs) && subs.len() > parent.len() {
+                candidates.push(subs[parent.len()].clone());
+            }
+        }
+        // F2c: candidatos remotos (ns montada) — mismo nivel, desde el chunk
+        if let Some(rns) = remote_mount(self, ns) {
+            if let Ok(chunk) = self.remote_chunk(&rns, parent) {
+                let plen = parent.len();
+                for (c_subs, _, _, _) in chunk.iter() {
+                    if c_subs.len() > plen {
+                        candidates.push(Subscript::String(c_subs[plen].clone()));
+                    }
+                }
+            }
+        }
+        // Orden canónico MUMPS (números antes que strings) + únicos
+        candidates.sort_by(|a, b| a.canonical_cmp(b));
+        candidates.dedup();
 
         if direction >= 0 {
-            for subs in decoded.iter() {
-                let candidate = &subs[parent.len()];
+            for candidate in candidates.iter() {
                 if let Some(ref cur) = current {
                     if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
                         continue;
@@ -1284,17 +1538,16 @@ impl Host for MemoryHost {
                 return Ok(Some(candidate.clone()));
             }
         } else {
-            for subs in decoded.iter().rev() {
-                let candidate = &subs[parent.len()];
+            for candidate in candidates.iter().rev() {
                 if let Some(ref cur) = current {
-                        if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
-                            continue;
-                        }
+                    if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
+                        continue;
                     }
-                    return Ok(Some(candidate.clone()));
                 }
+                return Ok(Some(candidate.clone()));
             }
-            return Ok(None);
+        }
+        Ok(None)
     }
 
     fn transaction_start(&mut self) -> Result<(), String> {
@@ -1617,6 +1870,27 @@ impl Host for MemoryHost {
                             ));
                         }
                         Ok(Value::String(resp))
+                    }
+                    // F2c: estado/limpieza de la caché de referencias
+                    "cache" => {
+                        let sub = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        match sub.as_str() {
+                            "" | "stats" => {
+                                let s = match self.remote_cache.lock() {
+                                    Ok(c) => c.stats(),
+                                    Err(_) => "cache bloqueada".to_string(),
+                                };
+                                Ok(Value::String(s))
+                            }
+                            "clear" => {
+                                let n = match self.remote_cache.lock() {
+                                    Ok(mut c) => c.clear(),
+                                    Err(_) => 0,
+                                };
+                                Ok(Value::String(format!("cache limpiada ({n} chunks)")))
+                            }
+                            other => Err(format!("Unknown DDP cache action: {other}")),
+                        }
                     }
                     "get" => {
                         let space = args.first().map(|v| v.as_string()).unwrap_or_default();
@@ -2516,6 +2790,7 @@ impl Clone for MemoryHost {
             #[cfg(feature = "sqlite")]
             sqlite_db: None, // SQLite connections can't be cloned
             smith_registry: self.smith_registry.clone(),
+            remote_cache: std::sync::Mutex::new(RemoteCache::default()), // caché no se clona
         }
     }
 }
