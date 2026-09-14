@@ -867,8 +867,25 @@ fn ssrf_guard(url: &str) -> Result<(), String> {
         return Ok(());
     }
     // Hostname: resolver y comprobar TODAS las IPs (DNS -> IP interna queda bloqueado)
-    let addrs = std::net::ToSocketAddrs::to_socket_addrs(&(host, 443))
-        .map_err(|e| format!("HTTP: resolución DNS de {host} falló: {e}"))?;
+    // 14-sep-2026: retry — los hipos DNS esporádicos de la LAN (~1/N «Try again»)
+    // abortaban el fetch justo aquí (medido: T08CADENA en la NAS).
+    let mut addrs: Option<Vec<std::net::SocketAddr>> = None;
+    let mut last_err = String::new();
+    for attempt in 1..=3u64 {
+        match std::net::ToSocketAddrs::to_socket_addrs(&(host, 443)) {
+            Ok(a) => {
+                addrs = Some(a.collect());
+                break;
+            }
+            Err(e) => {
+                last_err = format!("HTTP: resolución DNS de {host} falló: {e}");
+                if attempt < 3 {
+                    std::thread::sleep(std::time::Duration::from_millis(250 * attempt));
+                }
+            }
+        }
+    }
+    let addrs = addrs.ok_or(last_err)?;
     for addr in addrs {
         if is_private_ip(&addr.ip()) {
             return Err(format!(
