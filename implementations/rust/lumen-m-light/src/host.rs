@@ -864,11 +864,24 @@ fn rag_query(host: &MemoryHost, args: &[Value]) -> String {
         .map(|v| v.as_string())
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "RAG".to_string());
-    let k = args.get(2).map(|v| v.as_number() as usize).unwrap_or(4).clamp(1, 20);
+    let k = args
+        .get(2)
+        .map(|v| v.as_number() as usize)
+        .unwrap_or(4)
+        .clamp(1, 20);
+    let filtro = args
+        .get(3)
+        .map(|v| v.as_string())
+        .unwrap_or_default();
     if q.trim().is_empty() {
-        return "uso: $DEVICE(\"rag:query\",\"pregunta\",[ns],[k])".to_string();
+        return "uso: $DEVICE(\"rag:query\",\"pregunta\",[ns],[k],[filtro])".to_string();
     }
-    let docs = rag_docs(host, &ns);
+    let mut docs = rag_docs(host, &ns);
+    let filtros: Vec<&str> = filtro.split('|').filter(|s| !s.trim().is_empty()).collect();
+    if !filtros.is_empty() {
+        // ── F8 (14-sep-2026): alcance por libro — el prefijo del id (p.ej. "V10-") ──
+        docs.retain(|(id, _)| filtros.iter().any(|f| id.starts_with(*f)));
+    }
     if docs.is_empty() {
         return String::new();
     }
