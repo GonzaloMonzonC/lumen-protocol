@@ -803,6 +803,138 @@ fn compare_subscripts(a: &[Subscript], b: &[Subscript]) -> std::cmp::Ordering {
     a.len().cmp(&b.len())
 }
 
+// ── RAG (F7, 14-sep-2026): recuperación TF-IDF local sobre ^RAG ──────
+
+fn rag_sub_text(s: &Subscript) -> String {
+    match s {
+        Subscript::String(x) => x.clone(),
+        Subscript::Number(n) => format!("{n}"),
+    }
+}
+
+fn rag_tokens(s: &str) -> Vec<String> {
+    const STOP: &[&str] = &[
+        "de","la","el","los","las","del","al","un","una","unos","unas","que","qué","y","o","en",
+        "es","por","con","para","se","su","sus","lo","como","cómo","mas","más","pero","le","ya",
+        "este","esta","esto","si","sí","porque","entre","cuando","cuándo","muy","sin","sobre",
+        "también","tambien","me","hasta","hay","donde","dónde","quien","quién","desde","todo",
+        "nos","durante","todos","les","ni","contra","otros","otra","otro","otras","ese","esa",
+        "eso","ante","ellos","ella","mi","antes","algunos","yo","tanto","estos","estas","mucho",
+        "quienes","nada","muchos","cual","poco","estar","algo","solo","sólo","ser","fue","son",
+        "han","pues","así","aqui","aquí","alli","allí",
+    ];
+    let low = s.to_lowercase();
+    let mut t = String::with_capacity(low.len());
+    for c in low.chars() {
+        if c.is_alphanumeric() {
+            t.push(c);
+        } else {
+            t.push(' ');
+        }
+    }
+    t.split_whitespace()
+        .filter(|w| w.chars().count() >= 3 && !STOP.contains(w))
+        .map(|w| w.to_string())
+        .collect()
+}
+
+/// Documentos de ^NS("doc",id,"texto") → [(id, texto)]
+fn rag_docs(host: &MemoryHost, ns: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for ((n, subs), v) in host.values.iter() {
+        if n.as_str() != ns || subs.len() != 3 {
+            continue;
+        }
+        let es_doc = matches!(&subs[0], Subscript::String(x) if x.as_str() == "doc");
+        let es_texto = matches!(&subs[2], Subscript::String(x) if x.as_str() == "texto");
+        if es_doc && es_texto {
+            let txt = v.as_string();
+            if !txt.trim().is_empty() {
+                out.push((rag_sub_text(&subs[1]), txt));
+            }
+        }
+    }
+    out
+}
+
+fn rag_query(host: &MemoryHost, args: &[Value]) -> String {
+    let q = args.first().map(|v| v.as_string()).unwrap_or_default();
+    let ns = args
+        .get(1)
+        .map(|v| v.as_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "RAG".to_string());
+    let k = args.get(2).map(|v| v.as_number() as usize).unwrap_or(4).clamp(1, 20);
+    if q.trim().is_empty() {
+        return "uso: $DEVICE(\"rag:query\",\"pregunta\",[ns],[k])".to_string();
+    }
+    let docs = rag_docs(host, &ns);
+    if docs.is_empty() {
+        return String::new();
+    }
+    let mut df: HashMap<String, u32> = HashMap::new();
+    let mut tfs: Vec<HashMap<String, u32>> = Vec::with_capacity(docs.len());
+    for (_, txt) in docs.iter() {
+        let mut tf: HashMap<String, u32> = HashMap::new();
+        for t in rag_tokens(txt) {
+            *tf.entry(t).or_insert(0) += 1;
+        }
+        for t in tf.keys() {
+            *df.entry(t.clone()).or_insert(0) += 1;
+        }
+        tfs.push(tf);
+    }
+    let n = docs.len() as f64;
+    let mut q_set: Vec<String> = Vec::new();
+    for t in rag_tokens(&q) {
+        if !q_set.contains(&t) {
+            q_set.push(t);
+        }
+    }
+    let mut scored: Vec<(f64, usize)> = Vec::new();
+    for (i, tf) in tfs.iter().enumerate() {
+        let len: u32 = tf.values().sum();
+        if len == 0 {
+            continue;
+        }
+        let mut score = 0.0f64;
+        for t in q_set.iter() {
+            if let Some(&f) = tf.get(t) {
+                let d = *df.get(t).unwrap_or(&1) as f64;
+                let idf = (1.0 + n / d).ln();
+                score += (f as f64 / len as f64) * idf * idf;
+            }
+        }
+        if score > 0.0 {
+            scored.push((score, i));
+        }
+    }
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out = String::new();
+    for (score, i) in scored.iter().take(k) {
+        let (id, txt) = &docs[*i];
+        let short: String = txt.chars().take(280).collect();
+        out.push_str(&format!(
+            "— [{}] (s={:.2}) {}\n",
+            id,
+            score,
+            short.replace(['\n', '\r'], " ")
+        ));
+    }
+    out.trim_end().to_string()
+}
+
+fn rag_stats(host: &MemoryHost, args: &[Value]) -> String {
+    let ns = args
+        .first()
+        .map(|v| v.as_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "RAG".to_string());
+    let docs = rag_docs(host, &ns);
+    let chars: usize = docs.iter().map(|(_, t)| t.chars().count()).sum();
+    format!("docs={};chars={}", docs.len(), chars)
+}
+
 /// F6 (14-sep-2026): datos vivos del proceso/sistema para %SS («top» del nodo).
 /// Linux: /proc (status/stat/loadavg/meminfo/uptime/fd). Otros S.O.: lo básico (pid).
 fn sys_top() -> String {
@@ -1914,6 +2046,16 @@ impl Host for MemoryHost {
                 match action {
                     "top" | "stat" => Ok(Value::String(sys_top())),
                     _ => Err(format!("Unknown SYS action: {action}")),
+                }
+            }
+            "rag" => {
+                // ── F7 (14-sep-2026): RAG local TF-IDF sobre ^RAG("doc",id,…) ──
+                //   $DEVICE("rag:query","pregunta",[ns="RAG"],[k=4]) → líneas "— [id] …"
+                //   $DEVICE("rag:stats",[ns])                         → "docs=N;chars=M"
+                match action {
+                    "query" => Ok(Value::String(rag_query(self, &args))),
+                    "stats" => Ok(Value::String(rag_stats(self, &args))),
+                    _ => Err(format!("Unknown RAG action: {action}")),
                 }
             }
             #[cfg(feature = "minreq")]
