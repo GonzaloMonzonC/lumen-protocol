@@ -630,6 +630,10 @@ pub struct MemoryHost {
     transactions: Vec<BTreeMap<(String, Vec<Subscript>), Value>>,
     pub routines: HashMap<String, String>,
     pub input: Vec<String>,
+    /// READ vivo (14-sep-2026): en el REPL interactivo, `R/READ` bloquea y lee
+    /// la siguiente línea real de stdin cuando la cola de input está vacía
+    /// (la consola web vía pty puede así responder a la máquina).
+    pub live_stdin: bool,
     locks: HashMap<(String, Vec<Subscript>), u64>,
     pub llm_api_keys: HashMap<String, String>,
     /// Modo sandbox: deshabilita TODOS los devices (HTTP, LLM, DDP).
@@ -653,6 +657,7 @@ impl Default for MemoryHost {
             transactions: Vec::new(),
             routines: HashMap::new(),
             input: Vec::new(),
+            live_stdin: false,
             locks: HashMap::new(),
             llm_api_keys: HashMap::new(),
             sandbox: false,
@@ -714,6 +719,7 @@ impl MemoryHost {
             transactions: Vec::new(),
             routines: HashMap::new(),
             input: Vec::new(),
+            live_stdin: false,
             locks: HashMap::new(),
             llm_api_keys: HashMap::new(),
             sandbox: false,
@@ -1863,11 +1869,24 @@ impl Host for MemoryHost {
     }
 
     fn read(&mut self) -> Result<String, String> {
-        if self.input.is_empty() {
-            Ok(String::new())
-        } else {
-            Ok(self.input.remove(0))
+        if !self.input.is_empty() {
+            return Ok(self.input.remove(0));
         }
+        // READ vivo (14-sep-2026): REPL interactivo en terminal → bloquear y
+        // leer una línea real de stdin. El lock de std es reentrante y el
+        // bucle del REPL comparte el mismo BufReader: la línea no se pierde.
+        if self.live_stdin {
+            use std::io::{BufRead, IsTerminal};
+            if std::io::stdin().is_terminal() {
+                let mut line = String::new();
+                match std::io::stdin().lock().read_line(&mut line) {
+                    Ok(0) => return Ok(String::new()),
+                    Ok(_) => return Ok(line.trim_end_matches(['\n', '\r']).to_string()),
+                    Err(e) => return Err(format!("read stdin: {e}")),
+                }
+            }
+        }
+        Ok(String::new())
     }
 
     fn lock(&mut self, ns: &str, subs: &[Subscript], _timeout: Option<f64>) -> Result<bool, String> {
@@ -3175,6 +3194,7 @@ impl Clone for MemoryHost {
             transactions: self.transactions.clone(),
             routines: self.routines.clone(),
             input: self.input.clone(),
+            live_stdin: self.live_stdin,
             locks: self.locks.clone(),
             llm_api_keys: self.llm_api_keys.clone(),
             sandbox: self.sandbox,

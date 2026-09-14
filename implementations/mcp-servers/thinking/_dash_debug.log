@@ -1,0 +1,10 @@
+[lumen-thinking] _load_state() called. PDB path: C:\Users\gonzalo\pdb-data\lumen-pdb.db
+[lumen-thinking] PDB path: C:\Users\gonzalo\pdb-data\lumen-pdb.db
+[lumen-thinking] PDB exists: True
+[lumen-thinking] PDB size: 252157952
+[lumen-thinking] PDB restored: 2 sessions, 2 chains
+[lumen-thinking] State restored from PDB
+[lumen-thinking] Kanban self-heal: 46 tareas con status sincronizado desde column
+[lumen-dashboard] LUMEN WebSocket on ws://127.0.0.1:9877
+[lumen-dashboard] Loading dashboard from C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\mcp-servers\thinking\dashboard.html
+[lumen-dashboard] Metrics server on http://127.0.0.1:9876/metrics
