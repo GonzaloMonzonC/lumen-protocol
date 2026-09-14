@@ -1616,7 +1616,33 @@ impl Host for MemoryHost {
         #[cfg(feature = "wasm")]
         { return Ok(wasm_llm_fork(provider, model, prompt, system)); }
         #[cfg(not(feature = "wasm"))]
-        { Ok(self.pool().fork(provider, model, prompt, system)) }
+        {
+            // Nodo (14-sep-2026): si el env del proceso no trae key, caer a
+            // ^CONFIG("llm_key_<proveedor>") — mismo patrón que la clave DDP:
+            // la consola del nodo se autoconfigura desde su propia PDB (sin
+            // exports de shell en el NAS). El env SIEMPRE gana si está.
+            let env_name = match provider.to_lowercase().as_str() {
+                "openrouter" => Some("OPENROUTER_API_KEY"),
+                "deepseek" => Some("DEEPSEEK_API_KEY"),
+                "lingyi" | "zai" | "yi" => Some("LINGYI_API_KEY"),
+                "anthropic" => Some("ANTHROPIC_AUTH_TOKEN"),
+                _ => None,
+            };
+            if let Some(name) = env_name {
+                if std::env::var(name).unwrap_or_default().is_empty() {
+                    if let Ok(Some(v)) = self.get(
+                        "CONFIG",
+                        &[Subscript::String(format!("llm_key_{}", provider.to_lowercase()))],
+                    ) {
+                        let s = v.as_string();
+                        if !s.trim().is_empty() {
+                            std::env::set_var(name, s.trim().to_string());
+                        }
+                    }
+                }
+            }
+            Ok(self.pool().fork(provider, model, prompt, system))
+        }
     }
 
         fn llm_poll(&self, future_id: u64) -> Result<Option<String>, String> {
