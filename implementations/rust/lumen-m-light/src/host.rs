@@ -803,6 +803,86 @@ fn compare_subscripts(a: &[Subscript], b: &[Subscript]) -> std::cmp::Ordering {
     a.len().cmp(&b.len())
 }
 
+/// F6 (14-sep-2026): datos vivos del proceso/sistema para %SS («top» del nodo).
+/// Linux: /proc (status/stat/loadavg/meminfo/uptime/fd). Otros S.O.: lo básico (pid).
+fn sys_top() -> String {
+    #[allow(unused_mut)]
+    let mut s = format!("pid={}", std::process::id());
+    #[cfg(target_os = "linux")]
+    {
+        fn campo(texto: &str, clave: &str) -> String {
+            texto
+                .lines()
+                .find(|l| l.starts_with(clave))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .unwrap_or_default()
+                .to_string()
+        }
+        if let Ok(st) = std::fs::read_to_string("/proc/self/status") {
+            let rss = campo(&st, "VmRSS:");
+            let hwm = campo(&st, "VmHWM:");
+            let thr = campo(&st, "Threads:");
+            if !rss.is_empty() {
+                s.push_str(&format!(";rss_kb={rss}"));
+            }
+            if !hwm.is_empty() {
+                s.push_str(&format!(";hwm_kb={hwm}"));
+            }
+            if !thr.is_empty() {
+                s.push_str(&format!(";threads={thr}"));
+            }
+        }
+        if let Ok(stat) = std::fs::read_to_string("/proc/self/stat") {
+            if let Some((_, tras)) = stat.rsplit_once(')') {
+                let f: Vec<&str> = tras.split_whitespace().collect();
+                if f.len() > 20 {
+                    let ut: u64 = f[11].parse().unwrap_or(0);
+                    let st_: u64 = f[12].parse().unwrap_or(0);
+                    let inicio: u64 = f[19].parse().unwrap_or(0);
+                    let ticks = ut + st_;
+                    s.push_str(&format!(";cpu_ticks={ticks}"));
+                    if let Ok(up) = std::fs::read_to_string("/proc/uptime") {
+                        if let Some(sys_up) =
+                            up.split_whitespace().next().and_then(|x| x.parse::<f64>().ok())
+                        {
+                            let proc_up = sys_up - (inicio as f64 / 100.0);
+                            if proc_up > 0.5 {
+                                s.push_str(&format!(";uptime_s={}", proc_up as u64));
+                                let pct = (ticks as f64 / 100.0) / proc_up * 100.0;
+                                s.push_str(&format!(";cpu_pct={pct:.1}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(ld) = std::fs::read_to_string("/proc/loadavg") {
+            let p: Vec<&str> = ld.split_whitespace().collect();
+            if p.len() >= 3 {
+                s.push_str(&format!(";load1={};load5={};load15={}", p[0], p[1], p[2]));
+            }
+        }
+        if let Ok(mi) = std::fs::read_to_string("/proc/meminfo") {
+            let tot = campo(&mi, "MemTotal:");
+            let mut av = campo(&mi, "MemAvailable:");
+            if av.is_empty() {
+                // kernels viejos (DSM 3.10) sin MemAvailable → MemFree
+                av = campo(&mi, "MemFree:");
+            }
+            if !tot.is_empty() {
+                s.push_str(&format!(";mem_total_kb={tot}"));
+            }
+            if !av.is_empty() {
+                s.push_str(&format!(";mem_avail_kb={av}"));
+            }
+        }
+        if let Ok(rd) = std::fs::read_dir("/proc/self/fd") {
+            s.push_str(&format!(";fds={}", rd.count()));
+        }
+    }
+    s
+}
+
 /// Device HTTP COMPLETO (F1 2026-08-17 — acceso Internet MVM, sin deuda técnica):
 /// GET/HEAD/POST/PUT/DELETE con headers, timeout, User-Agent por defecto y límite de
 /// respuesta. Contrato JSON estructurado {status, ok, body, truncated} SIEMPRE.
@@ -1825,6 +1905,15 @@ impl Host for MemoryHost {
                         http_full_request(action, &args)
                     }
                     _ => Err(format!("Unknown HTTP action: {action}")),
+                }
+            }
+            "sys" => {
+                // ── F6 (14-sep-2026): $DEVICE("sys:top") — top del nodo (proceso/sistema) ──
+                // Devuelve "k=v;k=v;…" con lo disponible: pid, uptime_s, rss_kb, hwm_kb,
+                // threads, fds, cpu_ticks, cpu_pct, load1/5/15, mem_total_kb, mem_avail_kb.
+                match action {
+                    "top" | "stat" => Ok(Value::String(sys_top())),
+                    _ => Err(format!("Unknown SYS action: {action}")),
                 }
             }
             #[cfg(feature = "minreq")]
