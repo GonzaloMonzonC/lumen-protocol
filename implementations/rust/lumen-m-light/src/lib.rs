@@ -11,6 +11,8 @@ pub mod ddp_client;
 pub mod ffi;
 pub mod host;
 pub mod smith;
+#[cfg(feature = "ssh")]
+pub mod ssh;
 pub mod transpiler;
 pub mod value;
 pub mod vm;

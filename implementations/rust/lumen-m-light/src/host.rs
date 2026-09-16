@@ -2096,6 +2096,15 @@ impl Host for MemoryHost {
                     _ => Err(format!("Unknown RAG action: {action}")),
                 }
             }
+            #[cfg(feature = "ssh")]
+            "ssh" => {
+                // ── PoC 16-sep-2026: manos SSH del nodo (cliente ssh del sistema) ──
+                //   $DEVICE("ssh:exec","user@host","comando",[timeout_s]) → salida combinada
+                match action {
+                    "exec" => crate::ssh::ssh_exec(self, &args),
+                    _ => Err(format!("Unknown SSH action: {action}")),
+                }
+            }
             #[cfg(feature = "minreq")]
             "search" => {
                 // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
