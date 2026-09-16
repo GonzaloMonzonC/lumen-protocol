@@ -1390,6 +1390,20 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         if target.is_empty() || target.starts_with('"') {
             return Ok(());
         }
+        // READ vivo (16-sep-2026): si va a bloquear (live_stdin en tty),
+        // volcar YA lo capturado para que la consola vea la pregunta (p.ej.
+        // «Elige 1/2/3») mientras espera; se vacía para no duplicar al final.
+        if self.host.read_will_block() {
+            #[cfg(not(feature = "wasm"))]
+            {
+                let pend = std::mem::take(&mut self.state.output);
+                if !pend.is_empty() {
+                    use std::io::Write;
+                    print!("{pend}");
+                    std::io::stdout().flush().ok();
+                }
+            }
+        }
         let value = self
             .host
             .read()
