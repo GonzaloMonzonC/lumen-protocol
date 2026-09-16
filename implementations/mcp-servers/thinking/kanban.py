@@ -52,6 +52,8 @@ def kanban_tool_niche_create(args: dict) -> dict:
         color = args.get("color", "#22d3ee")
         desc = args.get("desc", "")
         columns = args.get("columns", ["Backlog", "In Progress", "Review", "Done", "Blocked"])
+        # Fix incidente 6 (16-sep-2026): mismo caso que en task_create.
+        server._sync_counter_from_pdb("niche")
         nid = f"niche_{server._next_niche_id}"
         server._next_niche_id += 1
         server._niches[nid] = {
@@ -109,6 +111,11 @@ def kanban_tool_task_create(args: dict) -> dict:
             return {"content": [{"type": "text", "text": "Error: 'niche_id' and 'title' required."}]}
         if nid not in server._niches:
             return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
+        # Fix incidente 6 (16-sep-2026): el guard `while tid in _tasks` solo ve
+        # la memoria de ESTA instancia; una instancia stale puede asignar un id
+        # ya ocupado por otra (caso real: task_175 «mesh mvm-nas» pisada).
+        # Releer el max persistido (STATE+SPACES) antes de asignar.
+        server._sync_counter_from_pdb("task")
         tid = f"task_{server._next_task_id}"
         # FIX bug kanban (3 incidentes 2026-09-09): el contador en memoria puede
         # quedar desincronizado del estado persistido y PISAR ids existentes.
