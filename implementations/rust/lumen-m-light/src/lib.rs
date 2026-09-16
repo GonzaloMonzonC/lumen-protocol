@@ -4,6 +4,7 @@
 //! remains behind [`host::Host`], so production integrations can keep SQLite
 //! access inside `pdb_tools` instead of bypassing triggers and journals.
 
+pub mod atomic64;
 pub mod compiler;
 pub mod compilation;
 pub mod ddp_client;
