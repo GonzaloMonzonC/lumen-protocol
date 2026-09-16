@@ -28,4 +28,7 @@ default = ["sqlite", "minreq", "dll"]
 debug_for = []
 sqlite = ["dep:rusqlite"]
 dll = ["dep:libloading"]
+# Device SSH ($DEVICE("ssh:exec",...)) — opt-in (spawn del cliente ssh del
+# sistema). No entra en default: los nodos que lo quieran lo activan.
+ssh = []
 wasm = ["wasm-bindgen"]
