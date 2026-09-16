@@ -557,6 +557,12 @@ pub trait Host {
     fn read_would_block(&self) -> bool {
         false
     }
+    /// ¿El próximo `read()` va a bloquear leyendo stdin vivo? (consola web
+    /// vía pty / REPL). El VM vuelca entonces la salida pendiente para que
+    /// la pregunta (p.ej. «Elige 1/2/3») se vea MIENTRAS espera respuesta.
+    fn read_will_block(&self) -> bool {
+        false
+    }
     /// LOCK ^NS(subs).
     fn lock(&mut self, _ns: &str, _subs: &[Subscript], _timeout: Option<f64>) -> Result<bool, String> {
         Ok(true)
@@ -1893,6 +1899,11 @@ impl Host for MemoryHost {
             }
         }
         Ok(String::new())
+    }
+
+    fn read_will_block(&self) -> bool {
+        use std::io::IsTerminal;
+        self.live_stdin && std::io::stdin().is_terminal()
     }
 
     fn lock(&mut self, ns: &str, subs: &[Subscript], _timeout: Option<f64>) -> Result<bool, String> {
