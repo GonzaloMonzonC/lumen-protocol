@@ -172,6 +172,52 @@ _next_task_id: int = 1
 # instancias) resucitaria las borradas. Fix 13-09-2026.
 _deleted_tasks: set = set()
 
+
+# ── Sincronizacion de contadores con la PDB (fix incidente 6, 16-sep-2026) ──
+# Una instancia stale (cargada antes de que otras crearan tareas) tiene el
+# contador en memoria por debajo del max real y puede ASIGNAR un id ya ocupado,
+# pisando la tarea de otra instancia (caso real: task_175 «mesh mvm-nas»). Los
+# create (kanban MCP y endpoint HTTP) llaman aqui antes de asignar: se relee el
+# max persistido (STATE canonico + espejo SPACES; SELECT barato) y el contador
+# nunca queda por debajo de max+1.
+def _max_persisted_id(kind: str) -> int:
+    """Max id numerico persistido para 'task' o 'niche' (STATE + SPACES)."""
+    import re as _re_mod
+    mx = 0
+    try:
+        import _pdb
+        conn = _pdb.pdb_connect()
+        pat = _re_mod.compile(rf"{kind}_(\d+)\xff?$")
+        rows = conn.execute(
+            "SELECT subkey FROM _globals WHERE ns='STATE' AND subkey LIKE ?",
+            (f"global:{kind}:%",),
+        ).fetchall()
+        rows += conn.execute("SELECT subkey FROM _globals WHERE ns='SPACES'").fetchall()
+        for (sk,) in rows:
+            s = sk.decode("latin-1", "replace") if isinstance(sk, (bytes, bytearray)) else str(sk)
+            m = pat.search(s)
+            if m:
+                v = int(m.group(1))
+                if v > mx:
+                    mx = v
+    except Exception as e:
+        try:
+            _safe_print(f"[lumen-thinking] sync max {kind} id: aviso {e}")
+        except Exception:
+            pass
+    return mx
+
+
+def _sync_counter_from_pdb(kind: str) -> None:
+    """Sube _next_task_id/_next_niche_id a max persistido+1 si van por debajo."""
+    global _next_task_id, _next_niche_id
+    mx = _max_persisted_id(kind)
+    if kind == "task" and mx + 1 > _next_task_id:
+        _next_task_id = mx + 1
+    elif kind == "niche" and mx + 1 > _next_niche_id:
+        _next_niche_id = mx + 1
+
+
 def _json_snapshot() -> None:
     """Periodic JSON snapshot for cross-process sync (dashboard)."""
     import shutil
@@ -4453,6 +4499,9 @@ def _start_dashboard(port: int = 9876) -> None:
                             self.send_response(404); self.end_headers()
                             self.wfile.write(_j.dumps({"error":"Niche not found"}).encode()); return
                         global _next_task_id
+                        # Fix incidente 6 (16-sep-2026): releer max persistido antes de
+                        # asignar (instancia stale puede reutilizar un id vivo).
+                        _sync_counter_from_pdb("task")
                         new_id = "task_" + str(_next_task_id)
                         # FIX bug kanban (3 incidentes): nunca pisar ids existentes
                         while new_id in _tasks:
