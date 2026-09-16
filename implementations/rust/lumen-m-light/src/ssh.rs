@@ -5,8 +5,11 @@
 //! - Usa el cliente `ssh` del sistema (OpenSSH/dropbear) en modo BatchMode:
 //!   la autenticación va por claves de `~/.ssh` del usuario que corre la MVM
 //!   (nunca passwords en código ni en la PDB).
-//! - Allowlist: `^CONFIG("ssh_allow")` = destinos permitidos separados por
-//!   comas ("user@host"). Si la clave no existe, SOLO se permite localhost.
+//! - **Fail-closed**: sin `^CONFIG("ssh_allow")` el device está DESHABILITADO
+//!   (ni siquiera localhost). Con la clave presente: localhost siempre + los
+//!   destinos de la lista (separada por comas, "user@host"). Así una
+//!   instancia nueva (p.ej. neferu, la cara pública de los libros) nace sin
+//!   manos sin tocar nada más — mismo binario, otra BD.
 //! - Timeout duro (default 15 s, máx 120 s) y cap de salida (4 KB) con drenado
 //!   del resto para que el proceso remoto nunca bloquee el pipe.
 //!
@@ -41,10 +44,19 @@ pub fn ssh_exec(host: &MemoryHost, args: &[Value]) -> Result<Value, String> {
         .unwrap_or(15)
         .clamp(1, 120);
 
-    if !allowed(host, &target) {
-        return Err(format!(
-            "ssh: destino '{target}' no permitido — añádelo a ^CONFIG(\"ssh_allow\") (lista separada por comas)"
-        ));
+    match allow_state(host, &target) {
+        AllowState::Ok => {}
+        AllowState::NoConfig => {
+            return Err(
+                "ssh: device deshabilitado — define ^CONFIG(\"ssh_allow\") (lista de destinos permitidos)"
+                    .to_string(),
+            )
+        }
+        AllowState::Denied => {
+            return Err(format!(
+                "ssh: destino '{target}' no permitido — añádelo a ^CONFIG(\"ssh_allow\") (lista separada por comas)"
+            ))
+        }
     }
 
     let mut child = Command::new("ssh")
@@ -132,17 +144,31 @@ fn cap(s: &str) -> String {
     out
 }
 
-/// Allowlist: localhost siempre; el resto, solo si está en ^CONFIG("ssh_allow").
-fn allowed(host: &MemoryHost, target: &str) -> bool {
-    let hostpart = target.rsplit('@').next().unwrap_or(target);
-    if hostpart == "localhost" || hostpart == "127.0.0.1" || hostpart == "::1" {
-        return true;
-    }
+enum AllowState {
+    Ok,
+    NoConfig,
+    Denied,
+}
+
+/// Fail-closed: sin `^CONFIG("ssh_allow")` (o vacía) → NoConfig (ssh apagado).
+/// Con lista → localhost siempre + los destinos exactos de la lista.
+fn allow_state(host: &MemoryHost, target: &str) -> AllowState {
     let list = match host.get("CONFIG", &[Subscript::String("ssh_allow".to_string())]) {
         Ok(Some(v)) => v.as_string(),
-        _ => String::new(),
+        _ => return AllowState::NoConfig,
     };
-    list.split(',').map(|s| s.trim()).any(|t| t == target)
+    if list.trim().is_empty() {
+        return AllowState::NoConfig;
+    }
+    let hostpart = target.rsplit('@').next().unwrap_or(target);
+    if hostpart == "localhost" || hostpart == "127.0.0.1" || hostpart == "::1" {
+        return AllowState::Ok;
+    }
+    if list.split(',').map(|s| s.trim()).any(|t| t == target) {
+        AllowState::Ok
+    } else {
+        AllowState::Denied
+    }
 }
 
 /// Hilo lector: drena el pipe completo (sin bloquear al remoto) y conserva
@@ -186,20 +212,26 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_localhost_siempre() {
+    fn fail_closed_sin_config() {
         let h = host_with_allow("");
-        assert!(allowed(&h, "localhost"));
-        assert!(allowed(&h, "nasdedavid@localhost"));
-        assert!(allowed(&h, "user@127.0.0.1"));
-        assert!(!allowed(&h, "user@192.168.1.14"));
+        // Sin ^CONFIG("ssh_allow") ni siquiera localhost: device apagado.
+        let args = vec![
+            Value::String("localhost".to_string()),
+            Value::String("uptime".to_string()),
+        ];
+        let err = ssh_exec(&h, &args).unwrap_err();
+        assert!(err.contains("deshabilitado"), "err: {err}");
+        assert!(matches!(allow_state(&h, "localhost"), AllowState::NoConfig));
     }
 
     #[test]
-    fn allowlist_desde_config() {
+    fn con_config_localhost_y_lista() {
         let h = host_with_allow("nasdedavid@192.168.1.14, root@10.0.0.2");
-        assert!(allowed(&h, "nasdedavid@192.168.1.14"));
-        assert!(allowed(&h, "root@10.0.0.2"));
-        assert!(!allowed(&h, "root@10.0.0.3"));
+        assert!(matches!(allow_state(&h, "nasdedavid@localhost"), AllowState::Ok));
+        assert!(matches!(allow_state(&h, "user@127.0.0.1"), AllowState::Ok));
+        assert!(matches!(allow_state(&h, "nasdedavid@192.168.1.14"), AllowState::Ok));
+        assert!(matches!(allow_state(&h, "root@10.0.0.2"), AllowState::Ok));
+        assert!(matches!(allow_state(&h, "root@10.0.0.3"), AllowState::Denied));
     }
 
     #[test]
@@ -211,7 +243,7 @@ mod tests {
 
     #[test]
     fn destino_no_permitido() {
-        let h = host_with_allow("");
+        let h = host_with_allow("user@10.1.1.1");
         let args = vec![
             Value::String("user@10.9.9.9".to_string()),
             Value::String("uptime".to_string()),
