@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Curación distribuida de modelos LLM gratuitos</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Curación distribuida de modelos LLM gratuitos</h1>
+</header>
+<h1
+id="curación-distribuida-de-modelos-llm-gratuitos-arquitectura-y-evaluación-empírica-de-un-tejido-de-inferencia-de-coste-cero-para-la-democratización-de-la-ia">Curación
+distribuida de modelos LLM gratuitos: arquitectura y evaluación empírica
+de un tejido de inferencia de coste cero para la democratización de la
+IA</h1>
+<p><strong>Gonzalo Monzón</strong> Proyecto LUMEN (Cadences Lab)
+<code>gonzalo@cadenceslab.com</code></p>
+<hr />
+<blockquote>
+<p><strong>Resumen</strong></p>
+<p>El acceso a modelos de lenguaje de gran escala está mediado por
+costes de API y por la dependencia de un reducido número de proveedores,
+lo que limita su uso por parte de colectivos con presupuesto cero. Las
+capas gratuitas (<em>free tiers</em>) de agregadores como OpenRouter
+ofrecen una alternativa, pero su catálogo es volátil —modelos que
+aparecen, se retiran o degradan sin aviso— y carecen de garantías de
+servicio, lo que hace inviable su uso directo en sistemas autónomos.
+Presentamos la arquitectura y la evaluación empírica de un
+<strong>tejido de inferencia de coste cero</strong>: un conjunto de
+nodos heterogéneos (dos servidores NAS ARM, un PC, una instancia de
+máquina virtual propia) que consumen una <strong>cadena de modelos
+gratuitos auto-curada</strong>, mantenida por (i) un agente diario de
+investigación web que descubre candidatos, (ii) un curador que prueba
+cada candidato con una batería ligera de tres sondas (vivacidad, rigor
+aritmético con restricción de formato, estilo con límite de longitud) y
+publica la cadena ordenada por puntuación, y (iii) las propias fuentes,
+que <strong>re-validan la cadena escalonadas a lo largo del día</strong>
+y emiten opiniones firmadas a un registro central. Sobre una ventana de
+observación continua de ~15,5 horas recogimos <strong>87 validaciones
+independientes</strong> sobre 14 modelos con latencias reales por
+fuente. Los resultados muestran que (1) es posible sostener un servicio
+de inferencia multi-nodo a <strong>coste $0 ininterrumpidamente y sin
+intervención humana</strong>; (2) la validación multi-fuente revela
+<em>flakiness</em> que una única fuente no ve —la latencia del mismo
+modelo varió 28× (0,9 s–26,2 s) entre fuentes/franjas, y modelos que
+pasan en una ventana fallan en otra—; y (3) el desacuerdo entre fuentes
+es una señal utilizable para retirar modelos inestables. Discutimos las
+implicaciones para infraestructuras de IA soberanas, los límites del
+estudio, y la extensión del diseño a una red voluntaria tipo SETI@home
+(Lumen@Home) con transporte por radio de bajo ancho de banda
+(Reticulum/LoRa).</p>
+<p><strong>Palabras clave:</strong> modelos de lenguaje, capas
+gratuitas, curación automática, validación distribuida, computación
+voluntaria, democratización de la IA, radio mesh.</p>
+</blockquote>
+<hr />
+<h2 id="introducción">1. Introducción</h2>
+<p>Los grandes modelos de lenguaje (LLM) se han convertido en
+infraestructura de propósito general, pero su acceso describe una curva
+de desigualdad: capacidades de frontera al alcance de quien puede pagar
+por token, y millones de usuarios potenciales —escuelas rurales,
+bibliotecas comunitarias, ONG, investigadores sin financiación,
+colectivos culturales— al margen. La barrera no es solo económica: es
+también de <strong>dependencia</strong>, porque operar sobre un único
+proveedor implica aceptar sus precios, sus políticas y su
+disponibilidad.</p>
+<p>Una vía intermedia existe: los <strong>catálogos gratuitos</strong>
+de agregadores como OpenRouter<a href="#fn1" class="footnote-ref"
+id="fnref1" role="doc-noteref"><sup>1</sup></a> publican modelos con
+precio cero promocional o permanente. Su atractivo es evidente —potencia
+de frontera reciente a coste nulo— y sus problemas también: el catálogo
+rota sin aviso, los modelos se retiran
+(<code>minimax/minimax-m3:free</code>, retirado el 10-sep-2026, fue
+observado en nuestro sistema), el rendimiento fluctúa hora a hora, y
+<strong>nadie garantiza nada</strong>: no hay SLA, ni estado publicado,
+ni histórico.</p>
+<p>Este artículo presenta la arquitectura y las mediciones de un sistema
+que convierte ese catálogo volátil en un <strong>servicio estable a
+coste cero</strong> mediante dos ideas sencillas:</p>
+<ol type="1">
+<li><strong>Curación automática con guardas</strong>: un agente
+descubre, un curador prueba y publica, y solo entra en producción lo que
+pasa una batería de sondas — jamás cadenas de menos de tres modelos,
+jamás escrituras sin verificación.</li>
+<li><strong>Validación distribuida multi-fuente</strong>: los propios
+consumidores de la cadena (nodos de cómputo heterogéneos) la
+<strong>re-validan en ventanas horarias distintas</strong> y emiten
+opiniones firmadas a un registro central. La fiabilidad deja de ser una
+promesa del proveedor y pasa a ser una <strong>medición continua de la
+comunidad de nodos</strong>.</li>
+</ol>
+<p>Nuestra contribución es: (a) la arquitectura completa y desplegada,
+(b) un protocolo de validación ligero y replicable, (c) un conjunto de
+observaciones reales en ventana continua que cuantifica la volatilidad
+del <em>free tier</em> y el valor de medir desde múltiples puntos, y (d)
+el diseño de extensión hacia una red voluntaria (Lumen@Home)
+transportable por radio.</p>
+<h2 id="trabajo-relacionado">2. Trabajo relacionado</h2>
+<p><strong>Computación voluntaria.</strong> SETI@home (1999–2020)
+demostró que millones de voluntarios donan ciclos ociosos cuando la
+participación es trivial: 5,2 millones de participantes y 12.000
+millones de detecciones<a href="#fn2" class="footnote-ref" id="fnref2"
+role="doc-noteref"><sup>2</sup></a>. BOINC<a href="#fn3"
+class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a>
+continúa operando ~30 proyectos de ciencia con el mismo modelo: unidades
+de trabajo pequeñas, cliente invisible, créditos visibles. Nuestro
+diseño de Lumen@Home (§7) traslada ese patrón desde el cómputo numérico
+hacia la <strong>validación y el procesamiento de conocimiento</strong>
+con nodos LLM.</p>
+<p><strong>Enrutado y cascadas de modelos.</strong> La literatura de
+<em>frugal AI</em> propone cascadas (modelo barato → modelo caro) y
+enrutadores aprendidos para reducir coste por consulta. Nuestro sistema
+comparte el principio de cascada, pero invierte el objeto de
+optimización: no buscamos minimizar el coste de un servicio con
+presupuesto, sino <strong>sostener el servicio con presupuesto
+cero</strong>, lo que exige mecanismos de descubrimiento y reparación
+continuos que las cascadas estáticas no contemplan.</p>
+<p><strong>Redes tolerantes y mesh por radio.</strong> Reticulum<a
+href="#fn4" class="footnote-ref" id="fnref4"
+role="doc-noteref"><sup>4</sup></a> proporciona un stack de red cifrado
+extremo a extremo diseñado para operar sobre medios de muy bajo ancho de
+banda (LoRa, packet radio, HF), y Meshtastic<a href="#fn5"
+class="footnote-ref" id="fnref5" role="doc-noteref"><sup>5</sup></a>
+ofrece mallas LoRa de bajo consumo con presets que van de ~0,2 a ~20
+kbps. Ambos son los candidatos naturales para el transporte de
+coordinación de una red LUMEN off-grid (§7), dado que las unidades de
+trabajo de nuestro protocolo son texto de bytes.</p>
+<h2 id="arquitectura-del-sistema">3. Arquitectura del sistema</h2>
+<p>El sistema (desplegado, en producción durante el periodo de
+estudio)<a href="#fn6" class="footnote-ref" id="fnref6"
+role="doc-noteref"><sup>6</sup></a> consta de:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Componente</th>
+<th>Descripción</th>
+<th>Implementación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Nodos</strong></td>
+<td>Ejecutan cargas M y llamadas LLM; 4 fuentes activas en el
+estudio</td>
+<td>NAS ARM (×2, roles distintos), PC de escritorio, instancia MVM
+local</td>
+</tr>
+<tr>
+<td><strong>Cadena</strong></td>
+<td>Lista ordenada de modelos free usada como cascada de fallback</td>
+<td>Tabla <code>^LLMFREE</code> en la base de datos embebida de cada
+nodo</td>
+</tr>
+<tr>
+<td><strong>Registro central</strong></td>
+<td>API pública de lectura + ingesta de opiniones firmadas</td>
+<td>Cloudflare Pages Functions + KV
+(<code>cadences.app/api/llmfree</code>)</td>
+</tr>
+<tr>
+<td><strong>Descubridor</strong></td>
+<td>Agente diario que investiga en la web nuevos modelos gratis y deja
+candidatos</td>
+<td>Cron 06:30; escribe candidatos estructurados (JSON)</td>
+</tr>
+<tr>
+<td><strong>Curador</strong></td>
+<td>Prueba candidatos + catálogo, puntúa, decide y publica</td>
+<td>Cron 07:00; única autoridad que fija la cadena</td>
+</tr>
+<tr>
+<td><strong>Fuentes validadoras</strong></td>
+<td>Re-prueban la cadena vigente y opinan</td>
+<td>Nodos cada 12 h; PC 15:00; instancia MVM 21:00</td>
+</tr>
+<tr>
+<td><strong>Puerta (gateway)</strong></td>
+<td>Sirve la cadena a las aplicaciones consumidoras leyendo el
+registro</td>
+<td>Función edge con fallback local</td>
+</tr>
+</tbody>
+</table>
+<p>Diagrama de flujo:</p>
+<pre><code> 06:30  Descubridor ──candidatos──► 07:00  Curador
+                                        │  prueba (batería) → puntúa → ordena → guardas
+                                        ▼
+                             REGISTRO CENTRAL (cadena canónica + feed)
+                              ▲            │                  ▲
+                   opiniones  │            ▼                  │ opiniones
+        ┌─────────────────────┴──┐   GATEWAY (apps)   ┌───────┴────────┐
+        │ nodos 12h · PC 15:00   │                    │  MVM 21:00     │
+        └────────────────────────┘                    └────────────────┘</code></pre>
+<p><strong>Semántica “registro primero”.</strong> La cadena canónica se
+publica en el registro <strong>antes</strong> de escribirse en los
+nodos; así, cualquier re-validación concurrente converge siempre a la
+versión publicada y no puede reintroducir una cadena obsoleta.</p>
+<h2 id="protocolo-de-validación">4. Protocolo de validación</h2>
+<h3 id="batería-de-sondas">4.1 Batería de sondas</h3>
+<p>Cada modelo se somete a tres micro-pruebas (una llamada LLM cada
+una), puntuadas 0–4:</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Sonda</th>
+<th>Prompt</th>
+<th>Criterio</th>
+<th>Puntos</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1 · Vivacidad</td>
+<td>«responde solo: ok»</td>
+<td>respuesta no vacía y sin error de transporte</td>
+<td>2 (obligatoria)</td>
+</tr>
+<tr>
+<td>P2 · Rigor</td>
+<td>«Dos cosas en una sola línea: (a) 7*6= (b) en cinco palabras
+exactas, qué es una ciudad de libros»</td>
+<td>contiene <code>42</code></td>
+<td>+1</td>
+</tr>
+<tr>
+<td>P3 · Estilo</td>
+<td>«En 10 palabras o menos, convence a un nodo LUMEN de que eres
+fiable»</td>
+<td>respuesta ≤ 12 palabras</td>
+<td>+1</td>
+</tr>
+</tbody>
+</table>
+<p>P2/P3 solo se ejecutan si P1 pasa (ahorro de llamadas y limpieza del
+catálogo). La latencia de P1 se registra como métrica secundaria. El
+ritmo inter-modelo está limitado (4,5 s) para respetar los límites de
+ráfaga de los proveedores.</p>
+<h3 id="reglas-de-decisión">4.2 Reglas de decisión</h3>
+<ul>
+<li><strong>Usable</strong>: pasa P1. <strong>Orden de cadena</strong>:
+posiciones fijas históricas (vivas) primero, resto por puntuación
+descendente y latencia ascendente; máximo 7 modelos por cadena.</li>
+<li><strong>Guardas</strong>: nunca se aplica ni publica una cadena con
+menos de 3 modelos vivos; nunca se escribe en los nodos sin verificación
+de la lectura posterior.</li>
+<li>Los modelos retirados observados se excluyen explícitamente.</li>
+</ul>
+<h3 id="frescura-y-deduplicación">4.3 Frescura y deduplicación</h3>
+<p>El registro mantiene (a) el <strong>estado vivo</strong> por fuente
+(última opinión de cada validador) y (b) un <strong>feed de
+novedades</strong>: las opiniones idénticas a la anterior de la misma
+fuente no generan ruido. Para el análisis, deduplicamos observaciones
+por (modelo, fuente, instante).</p>
+<h2 id="evaluación-empírica">5. Evaluación empírica</h2>
+<h3 id="metodología">5.1 Metodología</h3>
+<p>Ventana de observación continua: <strong>17-sep-2026, 01:34–17:03 UTC
+(~15,5 h)</strong>, con el sistema operando de forma autónoma (sin
+intervención humana tras el despliegue). Se registraron 15 entradas en
+el feed del registro, conteniendo <strong>87 validaciones</strong>
+(modelo × fuente × instante) sobre <strong>14 modelos distintos</strong>
+desde <strong>5 fuentes</strong> (curador y 4 validadores).</p>
+<h3 id="resultados">5.2 Resultados</h3>
+<table>
+<colgroup>
+<col style="width: 11%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr>
+<th>Modelo (free)</th>
+<th style="text-align: right;">Obs.</th>
+<th style="text-align: right;">Pasan</th>
+<th style="text-align: right;">Lat. mín</th>
+<th style="text-align: right;">Lat. mediana</th>
+<th style="text-align: right;">Lat. máx</th>
+<th style="text-align: right;">Pts. media</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>nex-agi/nex-n2.5-pro</td>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;"><strong>11</strong></td>
+<td style="text-align: right;">0,92 s</td>
+<td style="text-align: right;">2,51 s</td>
+<td style="text-align: right;">26,20 s</td>
+<td style="text-align: right;">3,6</td>
+</tr>
+<tr>
+<td>nvidia/nemotron-3-super-120b</td>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">0,52 s</td>
+<td style="text-align: right;">1,63 s</td>
+<td style="text-align: right;">9,90 s</td>
+<td style="text-align: right;">2,2</td>
+</tr>
+<tr>
+<td>nvidia/nemotron-3.5-lightning</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">3,43 s</td>
+<td style="text-align: right;">14,45 s</td>
+<td style="text-align: right;">29,56 s</td>
+<td style="text-align: right;">3,6</td>
+</tr>
+<tr>
+<td>openrouter/free (enrutador)</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">2,14 s</td>
+<td style="text-align: right;">2,91 s</td>
+<td style="text-align: right;">10,66 s</td>
+<td style="text-align: right;">3,2</td>
+</tr>
+<tr>
+<td>inclusionai/ling-3.0-flash-sante</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">1,13 s</td>
+<td style="text-align: right;">2,49 s</td>
+<td style="text-align: right;">10,08 s</td>
+<td style="text-align: right;">3,0</td>
+</tr>
+<tr>
+<td>nvidia/nemotron-3-ultra-550b</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">1,17 s</td>
+<td style="text-align: right;">9,97 s</td>
+<td style="text-align: right;">13,60 s</td>
+<td style="text-align: right;">3,8</td>
+</tr>
+<tr>
+<td>nex-agi/nex-n2.5-mini</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">1,83 s</td>
+<td style="text-align: right;">5,95 s</td>
+<td style="text-align: right;">9,87 s</td>
+<td style="text-align: right;">3,8</td>
+</tr>
+<tr>
+<td><em>(5 modelos con ≤ 4 obs.)</em></td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Hallazgos principales:</strong></p>
+<ol type="1">
+<li><strong>Viabilidad a coste cero y sin humano.</strong> Durante 15,5
+h, el servicio se mantuvo con cadenas de 7 modelos, incluyendo la
+<strong>entrada autónoma de 4 modelos nuevos</strong> al catálogo
+(descubrimiento web → prueba → cadena) y la retirada implícita de
+modelos flojos, sin ninguna intervención humana. Coste total de
+inferencia: $0.</li>
+<li><strong>La varianza inter-fuente es enorme y medible.</strong> El
+mismo modelo registró latencias de 0,92 s (PC, 15:00) a 26,20 s
+(curador, 07:00) — una dispersión de <strong>28×</strong> — y
+<code>nemotron-3.5-lightning</code> osciló entre 3,4 s y 29,6 s según la
+franja. Una fuente única habría reportado una foto estática; cinco
+fuentes escalonadas revelan el perfil real.</li>
+<li><strong>El desacuerdo entre fuentes identifica modelos
+inestables.</strong> En una auditoría manual de 28 llamadas,
+<code>lightning</code> y el enrutador <code>openrouter/free</code>
+fallaron con timeouts; en las ventanas medidas por los nodos pasaron. La
+conclusión operativa no es “el modelo falla” sino “<strong>este modelo
+es intermitente</strong>” — y el sistema lo retira o lo degrada con esa
+evidencia acumulada, no con una impresión puntual.</li>
+<li><strong>Los micro-probes separan modelos que la vivacidad
+confunde.</strong> <code>nemotron-3-super</code> aprueba vivacidad pero
+puntúa 2,2/4 (responde en inglés a prompts en castellano, formato
+irregular), mientras <code>nex</code> y <code>ultra</code> puntúan
+3,8/4. La puntuación permite <em>ordenar</em> la cascada, no solo
+filtrar.</li>
+</ol>
+<h3 id="límites-del-estudio">5.3 Límites del estudio</h3>
+<p>Ventana corta (15,5 h) y N pequeño; un solo agregador de origen
+(OpenRouter); sondas deliberadamente ligeras (miden vivacidad,
+aritmética trivial, restricción de formato — <strong>no</strong> calidad
+de razonamiento largo ni fidelidad factual); latencias auto-reportadas
+por los validadores (incluyen su propio overhead, lo que es a la vez
+métrica de servicio percibido); y volatilidad intrínseca del objeto de
+estudio (los resultados de mañana no serán los de hoy — precisamente el
+punto). Los datos completos quedan versionados en el repositorio del
+proyecto para su re-análisis.</p>
+<h2 id="discusión">6. Discusión</h2>
+<p>Tres consecuencias nos parecen generalizables:</p>
+<ul>
+<li><strong>La fiabilidad como medición, no como promesa.</strong> Donde
+no hay SLA, el sustituto es evidencia distribuida continua: varias
+fuentes, franjas escalonadas y un registro público. El coste marginal de
+esa evidencia es ~0 porque reutiliza los propios nodos
+consumidores.</li>
+<li><strong>La volatilidad del free tier es gestionable con guardas
+conservadoras.</strong> La clave no es elegir bien una vez, sino
+<em>nunca quedarse sin cadena</em>: umbral de 3 modelos, cascada con
+fallback, publicación atómica y curación diaria. El sistema tolera que
+un modelo muera en cualquier momento porque su muerte es detectable en
+horas, no en incidencias.</li>
+<li><strong>La democratización requiere infraestructura mínima, no
+máxima.</strong> El binario completo de un nodo ocupa ~4 MB y corre en
+hardware de desecho; el coste de reproducción del diseño es
+prácticamente nulo. Esto invierte la intuición dominante (más GPUs) y
+sugiere que la palanca real es de <strong>red y protocolo</strong>, no
+de cómputo.</li>
+</ul>
+<h2 id="trabajo-futuro-lumenhome-y-radio">7. Trabajo futuro: Lumen@Home
+y radio</h2>
+<p><strong>Lumen@Home (computación voluntaria).</strong> Las
+validaciones descritas son, en esencia, <strong>unidades de
+trabajo</strong> con todas las primitivas ya construidas: petición,
+ejecución con límite de recursos, firma del resultado y agregación en un
+registro. La extensión natural es abrir el circuito a voluntarios
+(<code>mvm-nas --volunteer &lt;url&gt;</code>): validación por quórum
+2-de-3, reputación simple y permisos delegables mediante
+<em>macaroons</em>, siguiendo las lecciones de BOINC/SETI@home<a
+href="#fn7" class="footnote-ref" id="fnref7"
+role="doc-noteref"><sup>7</sup></a><a href="#fn8" class="footnote-ref"
+id="fnref8" role="doc-noteref"><sup>8</sup></a>: unidad pequeña, cliente
+invisible, crédito visible.</p>
+<p><strong>Transporte por radio.</strong> Las unidades de trabajo del
+sistema son texto de bytes y JSON de kilobytes: <strong>la capa de
+coordinación completa cabe en un canal de ~1 kbps</strong>. Sobre
+Reticulum<a href="#fn9" class="footnote-ref" id="fnref9"
+role="doc-noteref"><sup>9</sup></a> (cifrado extremo a extremo sobre
+LoRa/packet/HF) o mallas Meshtastic<a href="#fn10" class="footnote-ref"
+id="fnref10" role="doc-noteref"><sup>10</sup></a>, un nodo equipado con
+un módulo LoRa (~€20–40) puede recibir trabajo, ejecutarlo contra un
+modelo <strong>local</strong> (llama.cpp/Ollama, sin Internet) y
+devolver el resultado firmado. Esa combinación —modelo local + radio—
+cierra el círculo de la soberanía: el nodo deja de necesitar la nube, no
+por ideología, sino por física del medio.</p>
+<h2 id="reproducibilidad">8. Reproducibilidad</h2>
+<ul>
+<li><strong>Registro público</strong> (lectura):
+<code>https://cadences.app/api/llmfree</code> y <code>/hist</code> —
+cadena canónica, opiniones por fuente y feed de novedades con
+puntuaciones y latencias.</li>
+<li><strong>Datos del estudio</strong>: volcados en el repositorio del
+proyecto (<code>cadenceslab-social</code>, carpeta
+<code>modelos-free/</code>: informes diarios,
+<code>historial.jsonl</code>, digests de investigación).</li>
+<li><strong>Componentes</strong>: nodos (binario ARM ~4 MB + base
+embebida), curador y validadores (scripts), batería de sondas descrita
+en §4.1. Partes del sistema son privadas por contener despliegues
+personales; el protocolo completo se describe aquí para su
+reimplementación independiente.</li>
+</ul>
+<h2 id="conclusión">9. Conclusión</h2>
+<p>Un catálogo de modelos gratuitos, tratado como <strong>recurso
+comunitario medido</strong>, puede sostener servicios de inferencia
+reales a coste cero y sin operador humano: descubrimiento diario,
+curación con guardas, publicación canónica y validación distribuida
+escalonada. La medición multi-fuente no es un lujo metodológico: es el
+mecanismo que convierte la volatilidad de los <em>free tiers</em> en
+información accionable. Los siguientes pasos —unidades de trabajo
+abiertas a voluntarios y transporte por radio de bajo ancho de banda—
+extienden el mismo diseño hasta una red que puede operar sin datacenter,
+sin tarjeta y, si hace falta, sin Internet.</p>
+<blockquote>
+<p>«SETI@home buscaba señales de otros. Lumen@Home reparte la
+inteligencia entre nosotros.» Y por radio, si hace falta. 📡</p>
+</blockquote>
+<hr />
+<h2 id="referencias">Referencias</h2>
+<p><em>Manuscrito preparado el 17 de septiembre de 2026. Datos: ventana
+01:34–17:03 UTC del 17-sep-2026, 87 validaciones, 14 modelos, 5 fuentes.
+Repositorio: lumen-protocol (docs/).</em></p>
+<section id="footnotes" class="footnotes footnotes-end-of-document"
+role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1"><p>OpenRouter — API unificada de modelos (endpoint público
+<code>/api/v1/models</code> con precios).<a href="#fnref1"
+class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2"><p>SETI@home (Berkeley SETI Research Center, 1999–2020;
+&gt;5,2 M participantes; 12·10⁹ detecciones). Documentación histórica y
+nota de hibernación de marzo de 2020.<a href="#fnref2"
+class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3"><p>BOINC — Berkeley Open Infrastructure for Network
+Computing (Universidad de California, Berkeley); ~30 proyectos activos
+de computación voluntaria.<a href="#fnref3" class="footnote-back"
+role="doc-backlink">↩︎</a></p></li>
+<li id="fn4"><p>Reticulum Network Stack — <em>«the cryptography-based
+networking stack for building unstoppable networks with LoRa, Packet
+Radio, WiFi and everything in between»</em>;
+<code>rnx</code>/<code>rncp</code> operan sobre enlaces de muy bajo
+ancho de banda.<a href="#fnref4" class="footnote-back"
+role="doc-backlink">↩︎</a></p></li>
+<li id="fn5"><p>Meshtastic — mallas LoRa de bajo consumo; presets de
+módem de ~0,2 kbps (LongSlow) a ~20 kbps (ShortTurbo), con restricciones
+de ciclo de trabajo según banda ISM.<a href="#fnref5"
+class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn6"><p>Sistema propio: nodos MVM (mvm-nas), rutinas M de
+curación y validación, registro central en Cloudflare (Pages Functions +
+KV) y puerta de inferencia con lectura dinámica de la cadena.<a
+href="#fnref6" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn7"><p>SETI@home (Berkeley SETI Research Center, 1999–2020;
+&gt;5,2 M participantes; 12·10⁹ detecciones). Documentación histórica y
+nota de hibernación de marzo de 2020.<a href="#fnref7"
+class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn8"><p>BOINC — Berkeley Open Infrastructure for Network
+Computing (Universidad de California, Berkeley); ~30 proyectos activos
+de computación voluntaria.<a href="#fnref8" class="footnote-back"
+role="doc-backlink">↩︎</a></p></li>
+<li id="fn9"><p>Reticulum Network Stack — <em>«the cryptography-based
+networking stack for building unstoppable networks with LoRa, Packet
+Radio, WiFi and everything in between»</em>;
+<code>rnx</code>/<code>rncp</code> operan sobre enlaces de muy bajo
+ancho de banda.<a href="#fnref9" class="footnote-back"
+role="doc-backlink">↩︎</a></p></li>
+<li id="fn10"><p>Meshtastic — mallas LoRa de bajo consumo; presets de
+módem de ~0,2 kbps (LongSlow) a ~20 kbps (ShortTurbo), con restricciones
+de ciclo de trabajo según banda ISM.<a href="#fnref10"
+class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+</body>
+</html>
