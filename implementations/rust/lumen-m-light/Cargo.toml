@@ -31,4 +31,7 @@ dll = ["dep:libloading"]
 # Device SSH ($DEVICE("ssh:exec",...)) — opt-in (spawn del cliente ssh del
 # sistema). No entra en default: los nodos que lo quieran lo activan.
 ssh = []
+# Device ZS estilo MSM: graba ^EDIT(BUF) → routines/DEST.m + recarga en caliente
+# (nativo, fuera de WASM). Ver src/zroutines.rs
+zroutines = []
 wasm = ["wasm-bindgen"]
