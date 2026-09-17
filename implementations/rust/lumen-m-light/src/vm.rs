@@ -1945,6 +1945,17 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let value = self
                     .eval_expr(args.first().map_or("", String::as_str), line)?
                     .as_string();
+                // M clásico: $L(x) = nº de caracteres · $L(x,d) = nº de PIEZAS
+                // (ocurrencias de d + 1). Fix 2026-09-18 (antes ignoraba d).
+                if let Some(darg) = args.get(1) {
+                    let delim = self.eval_expr(darg, line)?.as_string();
+                    let n = if delim.is_empty() {
+                        value.chars().count()
+                    } else {
+                        value.split(delim.as_str()).count()
+                    };
+                    return Ok(Value::Number(n as f64));
+                }
                 Ok(Value::Number(value.chars().count() as f64))
             }
             "$F" | "$FIND" => {
@@ -1998,7 +2009,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     .transpose()?;
                 let pieces: Vec<&str> = value.split(&delimiter).collect();
                 let n = pieces.len();
-                let from = piece.min(n);
+                // M clásico: pieza fuera de rango = "" (antes se clampaba a la
+                // última → «$P devuelve el último trozo» rompía bucles). Fix 2026-09-18.
+                let from = piece;
+                if from > n {
+                    return Ok(Value::String(String::new()));
+                }
                 let to = end.map_or(from, |e| e.min(n));
                 if from == 0 || from > to {
                     return Ok(Value::String(String::new()));
@@ -2025,7 +2041,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             .map(|x| x.as_number().max(start as f64) as usize)
                     })
                     .transpose()?
-                    .unwrap_or(start);
+                    // M clásico: $E(x,start) sin `to` = DESDE start HASTA EL FINAL
+                    // (antes devolvía 1 char). Fix 2026-09-18.
+                    .unwrap_or_else(|| value.chars().count());
                 Ok(Value::String(
                     value
                         .chars()

@@ -15,6 +15,8 @@ pub mod smith;
 pub mod ssh;
 #[cfg(feature = "zroutines")]
 pub mod zroutines;
+#[cfg(feature = "spawn")]
+pub mod spawn;
 pub mod transpiler;
 pub mod value;
 pub mod vm;

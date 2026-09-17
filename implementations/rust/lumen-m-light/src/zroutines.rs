@@ -26,6 +26,7 @@ use crate::value::{Subscript, Value};
 pub fn zroutines_device(host: &mut MemoryHost, action: &str, args: &[Value]) -> Result<Value, String> {
     match action {
         "save" => zs_save(host, args),
+        "rollback" => zs_rollback(host, args),
         _ => Err(format!("[ZS] acción desconocida: {action} (usa \"save\")")),
     }
 }
@@ -104,4 +105,41 @@ fn sub_str(s: &Subscript) -> String {
         Subscript::String(x) => x.clone(),
         Subscript::Number(n) => n.to_string(),
     }
+}
+
+/// `$DEVICE("zroutines:rollback", NAME)` — restaura routines/NAME.m desde el
+/// .bak (la versión anterior al último ZS) y recarga en caliente. Fix 18-sep.
+fn zs_rollback(host: &mut MemoryHost, args: &[Value]) -> Result<Value, String> {
+    let name = args
+        .first()
+        .map(|v| v.as_string())
+        .unwrap_or_default()
+        .trim()
+        .to_uppercase();
+    if name.is_empty() {
+        return Err("[ZS] uso: $DEVICE(\"zroutines:rollback\",\"NAME\")".to_string());
+    }
+    let dir = host
+        .values
+        .get(&(
+            "SYSINFO".to_string(),
+            vec![Subscript::String("routines_dir".to_string())],
+        ))
+        .map(|v| v.as_string())
+        .unwrap_or_default();
+    if dir.trim().is_empty() {
+        return Err("[ZS] sin ^SYSINFO(\"routines_dir\")".to_string());
+    }
+    let dirp = PathBuf::from(dir.trim());
+    let path = dirp.join(format!("{name}.m"));
+    let bak = dirp.join(format!("{name}.m.bak"));
+    if !bak.exists() {
+        return Err(format!("[ZS] no hay {name}.m.bak para restaurar"));
+    }
+    let src = std::fs::read_to_string(&bak).map_err(|e| format!("[ZS] leyendo .bak: {e}"))?;
+    std::fs::write(&path, &src).map_err(|e| format!("[ZS] escribiendo {name}.m: {e}"))?;
+    host.add_routine(name.clone(), src);
+    Ok(Value::String(format!(
+        "ok · {name} restaurada del .bak · recargada en caliente ✓"
+    )))
 }

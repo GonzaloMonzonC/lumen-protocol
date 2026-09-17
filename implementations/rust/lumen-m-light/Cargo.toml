@@ -34,4 +34,6 @@ ssh = []
 # Device ZS estilo MSM: graba ^EDIT(BUF) → routines/DEST.m + recarga en caliente
 # (nativo, fuera de WASM). Ver src/zroutines.rs
 zroutines = []
+# Device spawn:run — el nodo se auto-lanza en subproceso con timeout (sandbox)
+spawn = []
 wasm = ["wasm-bindgen"]

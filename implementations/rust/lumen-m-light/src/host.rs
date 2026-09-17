@@ -2122,6 +2122,12 @@ impl Host for MemoryHost {
                 //   $DEVICE("zroutines","save",BUF,[DEST]) → routines/DEST.m + recarga
                 crate::zroutines::zroutines_device(self, action, &args)
             }
+            #[cfg(feature = "spawn")]
+            "spawn" => {
+                // ── 18-sep-2026: sandbox — el nodo se auto-lanza en hijo con timeout ──
+                //   $DEVICE("spawn","run","<codigo M>",[timeout_s]) → exit/salida/TIMEOUT
+                crate::spawn::spawn_device(self, action, &args)
+            }
             #[cfg(feature = "minreq")]
             "search" => {
                 // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
