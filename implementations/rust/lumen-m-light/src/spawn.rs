@@ -43,6 +43,7 @@ fn spawn_run(host: &mut MemoryHost, args: &[Value]) -> Result<Value, String> {
     let timeout = args
         .get(1)
         .map(|v| v.as_number())
+        .filter(|n| *n > 0.0) // arg vacío (""→0) ⇒ usar default, no 1s
         .unwrap_or(10.0)
         .clamp(1.0, 120.0);
     let exe = std::env::current_exe().map_err(|e| format!("[SPAWN] current_exe: {e}"))?;
