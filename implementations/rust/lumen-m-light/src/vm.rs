@@ -702,6 +702,36 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .map_err(|e| VmError::new("MROUTINE", e, line))?
                 .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {name}"), line))?;
             
+            // Fix 18-sep-2026: `D ^RUTINA` ≡ `D PRIMERLABEL^RUTINA`. Se delega en el
+            // camino cualificado (que COMPILA y hace SWAP de programa) para que las
+            // etiquetas LOCALES del routine resuelvan (p.ej. `D CHECK` dentro de %AUTO).
+            // Antes: exec_inline contra el programa exterior → «unknown label CHECK».
+            let first_label = source.lines().find_map(|l| {
+                let t = l.trim_start();
+                if t.is_empty() || t.starts_with(';') {
+                    return None;
+                }
+                let cand = t
+                    .split(|c: char| c.is_whitespace() || c == '(' || c == ';' || c == ',')
+                    .next()
+                    .unwrap_or("");
+                let mut ch = cand.chars();
+                let ok = match ch.next() {
+                    Some('%') => cand.len() > 1 && ch.all(|c| c.is_ascii_alphanumeric()),
+                    Some(c) if c.is_ascii_alphabetic() => ch.all(|c| c.is_ascii_alphanumeric()),
+                    _ => false,
+                };
+                if ok {
+                    Some(cand.to_ascii_uppercase())
+                } else {
+                    None
+                }
+            });
+            if let Some(fl) = first_label {
+                let rewritten = format!("{fl}^{name}{raw_arguments}");
+                return self.exec_do(&rewritten, line);
+            }
+
             // Try compiled version first — BYPASS real del intérprete
             let compiler = get_compiler();
             if let Some(compiled_fn) = compiler.get_compiled_fn(name) {
