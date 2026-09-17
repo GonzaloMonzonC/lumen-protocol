@@ -95,7 +95,7 @@ texto de bytes.
 
 ## 3. Arquitectura del sistema
 
-El sistema (desplegado, en producción durante el periodo de estudio) consta de:
+El sistema (desplegado, en producción durante el periodo de estudio)[^6] consta de:
 
 | Componente | Descripción | Implementación |
 |---|---|---|
