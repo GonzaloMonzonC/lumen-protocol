@@ -2116,6 +2116,12 @@ impl Host for MemoryHost {
                     _ => Err(format!("Unknown SSH action: {action}")),
                 }
             }
+            #[cfg(feature = "zroutines")]
+            "zroutines" => {
+                // ── 17-sep-2026: ZS estilo MSM — «grabar rutinas» desde M ──
+                //   $DEVICE("zroutines","save",BUF,[DEST]) → routines/DEST.m + recarga
+                crate::zroutines::zroutines_device(self, action, &args)
+            }
             #[cfg(feature = "minreq")]
             "search" => {
                 // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
