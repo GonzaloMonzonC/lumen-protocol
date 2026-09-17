@@ -217,7 +217,12 @@ impl LlmThreadPool {
                     "chat_template_kwargs": {"enable_thinking": false},
                 })
             } else {
-                serde_json::json!({
+                // Fix 19-sep-2026: deepseek «piensa» por defecto (v4-pro y a veces
+                // flash con prompts largos → content vacío o razonamiento enrrollado).
+                // `"thinking":{"type":"disabled"}` verificado contra la API: respuesta
+                // directa en content, cero reasoning_content. (chat_template_kwargs
+                // NO vale para api.deepseek.com — lo ignora.)
+                let mut body = serde_json::json!({
                     "model": item.model,
                     "messages": [
                         {"role": "system", "content": item.system},
@@ -225,7 +230,16 @@ impl LlmThreadPool {
                     ],
                     "max_tokens": 8192,
                     "temperature": 0.7,
-                })
+                });
+                if item.provider.to_lowercase() == "deepseek" {
+                    if let Some(obj) = body.as_object_mut() {
+                        obj.insert(
+                            "thinking".to_string(),
+                            serde_json::json!({"type": "disabled"}),
+                        );
+                    }
+                }
+                body
             };
 
             let body_str = serde_json::to_string(&body)
