@@ -4,6 +4,91 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/). History predating this file
 lives in `git log` and the GitHub Releases.
 
+## [2026-09] — 2026-09-18
+
+### Added
+- **M-Light — `spawn:run` device**: auto-launches the compile sandbox with a
+  timeout; `zroutines:rollback` (`.bak`) for ZS saves.
+- **`deepseek` provider without thinking**: `"thinking":{"type":"disabled"}` in
+  the request body (~702 ms, zero reasoning; the API ignores
+  `chat_template_kwargs` for this).
+
+### Fixed
+- **`D ^RUTINA` — definitive fix**: routine calls now run **inline**
+  (`inline_frames`) — the only path that resumes **yields** correctly
+  (`$DEVICE` LLM/READ calls inside routines return their answer instead of
+  empty); local labels in the routine source are rewritten to
+  `D ETIQ^RUTINA` before inlining. Verified: `%LLT` yields+phrase ✓ ·
+  `%TT` args ✓ · `%TT2` labels ✓.
+- **`D ^RTN(args)`**: split-target regression — arguments are re-wrapped in
+  `(...)` before delegation.
+- **`D ^RUTINA` ≡ `D PRIMERLABEL^RUTINA`**: local labels resolve
+  («unknown label CHECK» was this).
+- **`spawn`**: empty timeout ⇒ 10 s default (was 1 s).
+- **M classic semantics**: `$L(x,d)` = piece count · `$P` out of range = `""` ·
+  `$E(x,i)` = to end of string (suite `%CONF` 37/37 green).
+
+## [2026-09] — 2026-09-17
+
+### Docs
+- **Paper — *Curación distribuida de modelos LLM gratuitos*** (architecture +
+  empirical evaluation: 87 validations / 14 models / 5 sources / $0): Markdown +
+  print-ready HTML + `.docx` + `.pdf`.
+- **LUMEN para la democratización**: fit comparison + **Lumen@Home**
+  (SETI-style volunteering) + **radio P2P** (Reticulum/LoRa) — LUMEN payloads
+  fit in 1 kbps.
+
+## [2026-09] — 2026-09-16
+
+### Added
+- **M-Light — `ssh:exec` device** (feature `ssh`): SSH hands for MVMs
+  (BatchMode, `^CONFIG("ssh_allow")` allowlist, hard timeout, output cap).
+  **Fail-closed**: without allowlist the device is disabled (not even
+  localhost).
+- **Portable `Atomic64`**: shim for targets without 64-bit atomics (fixes
+  mips32 builds; port to MIPS routers with build-std).
+
+### Fixed
+- **Live READ**: pending output is flushed before blocking on `R`; «live READ»
+  marker in the REPL (real wait vs slow LLM).
+- **thinking**: counters re-read the persisted max id before assigning
+  (incident 6 fix).
+
+## [2026-09] — 2026-09-14
+
+### Added
+- **Node devices**: `sys:top` (the node's own top — RSS/peak/CPU/threads/fds/
+  load/RAM from /proc), `rag:query`/`rag:stats` (local TF-IDF over `^RAG`;
+  per-book scope filter), `ddp:agent` (borrowed voice), `ddp:health`/`pull`/
+  `push` (F2) and **DDP refs in the host** (F2c: `get`/`order`/`data` by
+  reference + `has_value`/`has_children`, bounded cache).
+- **`ddp_client.rs`** — DDP over plain `TcpStream` + legacy HMAC
+  (`ts + data + key`).
+- **LLM key fallback**: if the env has no key, `^CONFIG("llm_key_<prov>")` is
+  used (self-configuring node; verified on the NAS at 703 ms).
+- **vm_api (hub)**: `_collect`/`_push`/`_cordone`/`_allocate` **SQL-direct** +
+  `ThreadingHTTPServer` + `_WRITE_LOCK` — pulls ~**850× faster**.
+- **`compilation.rs` (JIT)**: `MVM_NO_JIT` gate for toolchain-less nodes; no
+  retry after failure; creates workspace/src (ENOENT fix).
+
+### Fixed
+- **Interpreter**: local labels in routines (nested program context + args
+  bound to the first label), multi-group `^G(a)(b)` parser, formal
+  save/restore (recursion), tolerant `^AGENTES` lookup.
+- **Network resilience**: `minreq` retry (3 attempts, backoff, lookup/connect
+  only) for http/llm + DNS retry in the SSRF guard (LAN hiccups aborted
+  suites: 11/11 and 8/8 green).
+- **`host.rs` stubs without `minreq`** + stack-overflow guard in `eval_expr`.
+
+## [2026-09] — 2026-09-13
+
+### Fixed
+- **PDB**: tolerant `decode_subkey` — 3 subkey formats that broke the DB (9.4%
+  of cases).
+- **thinking/kanban**: monotonic counters (`task_create` overwrote ids); dead
+  path to create tasks from the dashboard repaired; `save` no longer erases
+  other instances' tasks.
+
 ## [2026-09] — 2026-09-11
 
 ### Added
@@ -11,6 +96,10 @@ lives in `git log` and the GitHub Releases.
   live numbers generated from this repo (`scripts/extract_data.py` in the private site repo),
   benchmarks, the 8 areas, MCP tools, implementations, Colab CTA; EN/ES with theme toggle.
   Repo homepage points to it.
+
+### Fixed
+- **`^ROUTINE`**: ASCII subkey decoder fixed («unknown routine LQ»); quantum
+  submit now surfaces real errors (e.g. 429 from Tuna-9).
 
 ### Docs
 - README: 🌐 Website link in the nav row. README_ES: same + tool-count consistency —

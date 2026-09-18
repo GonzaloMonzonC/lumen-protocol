@@ -40,3 +40,20 @@
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — capas, módulos, data flow, tests
 - [AGENT_GUIDE.md](../AGENT_GUIDE.md) — construir tu primer agente
 - [COGNITIVE_OS.md](COGNITIVE_OS.md) — visión general con stack Rust
+
+---
+
+## 🚀 Septiembre 2026 — M-Light sobre el metal (nodos `mvm-nas`)
+
+La stack-VM Rust opera ya la familia de nodos `mvm-nas` (ARMv7, 256 MB):
+devices nativos, LLM desde el nodo, DDP y REPL conversacional con READ vivo.
+Detalle por fecha en [`CHANGELOG.md`](../CHANGELOG.md).
+
+- **Devices**: `http`/`llm` (TLS nativo), `ddp:*` (health/pull/push/agent + refs
+  por referencia), `ssh:exec` (fail-closed), `rag:query`/`rag:stats` (TF-IDF
+  local), `sys:top`, `zroutines` (ZS estilo MSM), `spawn:run`.
+- **Intérprete**: `D ^RUTINA` inline con yields reanudados (devices dentro de
+  rutinas), etiquetas locales resueltas, `$L/$P/$E` clásicos (suite `%CONF`
+  37/37), READ vivo en el REPL.
+- **Fiabilidad**: retry DNS (http/llm/ssrf), `Atomic64` portátil (mips32), gate
+  `MVM_NO_JIT` para nodos sin toolchain.

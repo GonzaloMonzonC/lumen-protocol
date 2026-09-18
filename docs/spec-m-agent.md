@@ -324,5 +324,16 @@ Tests hechos autocontenidos: `tests_msajob` (siembra sus pulses),
   en UTC (stack-VM Rust); `RedbHost` — el trait Host de la VM directamente
   sobre el crate lumen-pdb (redb), con TSTART anidado por undo-log: la VM
   Rust corre standalone sin el puente Python.
+- v0.3 addendum (2026-09-18, informativo): fixes de septiembre en la
+  implementación Rust — `D ^RUTINA` corre inline (`inline_frames`) y
+  **reanuda los yields** (los `$DEVICE` dentro de rutinas devuelven respuesta,
+  p. ej. LLM); `D ^RUTINA` ≡ `D PRIMERLABEL^RUTINA` (etiquetas locales
+  resuelven); `$L(x,d)` = piezas, `$P` fuera de rango = `""`, `$E(x,i)` = hasta
+  el final (suite `%CONF` 37/37).
+  **Rarezas actuales del parser** (a tener en cuenta al escribir rutinas): `Q`
+  dentro de un bloque dot corta el bucle `F` completo — el único `Q` de corte
+  válido es el de la propia línea `F` (`F ... Q:cond`); y la cadena `I a I b D`
+  ejecuta el bloque **incondicionalmente** (bug conocido; workaround: flag
+  local + `I flag D`).
 - v0.4 (previsto): changefeed de suscripciones, detección de deadlock y
   verificación de macaroons en el edge worker.
