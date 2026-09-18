@@ -330,10 +330,10 @@ Tests hechos autocontenidos: `tests_msajob` (siembra sus pulses),
   p. ej. LLM); `D ^RUTINA` ≡ `D PRIMERLABEL^RUTINA` (etiquetas locales
   resuelven); `$L(x,d)` = piezas, `$P` fuera de rango = `""`, `$E(x,i)` = hasta
   el final (suite `%CONF` 37/37).
-  **Rarezas actuales del parser** (a tener en cuenta al escribir rutinas): `Q`
-  dentro de un bloque dot corta el bucle `F` completo — el único `Q` de corte
-  válido es el de la propia línea `F` (`F ... Q:cond`); y la cadena `I a I b D`
-  ejecuta el bloque **incondicionalmente** (bug conocido; workaround: flag
-  local + `I flag D`).
+  **Comportamiento del parser a tener en cuenta**: `Q` dentro de un bloque dot
+  corta el bucle `F` completo — el único `Q` de corte válido es el de la propia
+  línea `F` (`F ... Q:cond`). La cadena `I a I b D` ante bloque se **normaliza a
+  AND con short-circuit** en el compilador (`I a, b D`; corregido 2026-09-18 —
+  los workarounds con flags siguen funcionando igual).
 - v0.4 (previsto): changefeed de suscripciones, detección de deadlock y
   verificación de macaroons en el edge worker.

@@ -27,6 +27,11 @@ lives in `git log` and the GitHub Releases.
 - **`spawn`**: empty timeout ⇒ 10 s default (was 1 s).
 - **M classic semantics**: `$L(x,d)` = piece count · `$P` out of range = `""` ·
   `$E(x,i)` = to end of string (suite `%CONF` 37/37 green).
+- **Chained `I c1 I c2 D` before a DO block**: the extra conditionals stayed
+  *inside* the \x01 condition → MUNDEF «undefined variable» with plain operands,
+  or (string comparisons) the block fired unconditionally. The compiler now
+  normalizes the chain to comma-AND with short-circuit (`I c1, c2 D`) — same M
+  semantics; verified by the new `chained_if_before_do_block` test (12 cases).
 
 ## [2026-09] — 2026-09-17
 
