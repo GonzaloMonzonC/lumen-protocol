@@ -1,6 +1,6 @@
 # ◆ Mapa de documentación LUMEN
 
-> Actualizado: 2026-07-15. Sustituye a `doc-map-2026-06-20.md` (histórico).
+> Actualizado: 2026-09-18. Sustituye a `doc-map-2026-06-20.md` (histórico).
 > Regla: si tocas código que contradice un doc, actualiza el doc o márcalo aquí.
 
 ## Núcleo (empezar aquí)
@@ -9,9 +9,9 @@
 |-----|--------|--------|
 | [`../QUICKSTART_ES.md`](../QUICKSTART_ES.md) / [`../QUICKSTART.md`](../QUICKSTART.md) | **Onboarding: de cero a agentes LLM en ~10 min** (clone, DLL, key, vm_api, agentes) | ✅ Vigente (2026-08-18) |
 | [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) | **Plan canónico** PDB + M-Light + MVM, fases y ROI | ✅ Vigente (2026-07-15) |
-| [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.3) | ✅ Vigente (2026-07-15) |
+| [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.3) | ✅ Vigente (v0.3 + addendum 2026-09-18) |
 | [CASOS_USO_AGENTES.md](CASOS_USO_AGENTES.md) | Casos A2A: Namespaces compartidos, hibernación y migración entre nodos | ✅ Vigente (2026-07-15) |
-| [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-07-15) |
+| [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-09-18) |
 | `ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
 
 | [COGNITIVE_OS.md](COGNITIVE_OS.md) | Arquitectura del OS cognitivo, referencia de tools | Revisar tool-counts |

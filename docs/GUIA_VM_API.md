@@ -194,6 +194,7 @@ PDB_PATH (env) > PDB_DB (env) > <repo>/implementations/mcp-servers/pdb/lumen-pdb
 
 | Commit | Qué arregló |
 |--------|-------------|
+| (2026-09-14) | `_collect`/`_push` **SQL-directos** en `vm_api` (sin MVM por nodo) + `ThreadingHTTPServer` + `_WRITE_LOCK` — pulls ~850× más rápidos |
 | (2026-08-18) | `/vm/execute` con backend Rust: `ok` siempre false, error oculto, args ignorados en inline, escrituras sin persistencia, wrapper de audit incompatible con `execute_sqlite(source=...)`, `variables` descartado en el modo directo de `execute_sqlite` |
 | (2026-08-17) | Eliminadas todas las rutas hardcodeadas `C:\Users\<usuario>\...` del ecosistema → `_paths.py` canónico |
 |  | Sync Angi→KANBAN muerto en silencio (`_LenteConn` rompía `row_factory`) |
