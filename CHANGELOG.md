@@ -26,7 +26,10 @@ lives in `git log` and the GitHub Releases.
   («unknown label CHECK» was this).
 - **`spawn`**: empty timeout ⇒ 10 s default (was 1 s).
 - **M classic semantics**: `$L(x,d)` = piece count · `$P` out of range = `""` ·
-  `$E(x,i)` = to end of string (suite `%CONF` 37/37 green).
+  `$E(x,i)` = to end of string (suite `%CONF` 37/37 green). ⚠️ Consumer note:
+  code that relied on the old lax behavior (`$E(x,1)` = first char) must use the
+  explicit `$E(x,1,1)` — this change silently regressed the fleet's `%ME`/`%ML`
+  chain routines until fixed routine-side (v3.1, 2026-09-18).
 - **Chained `I c1 I c2 D` before a DO block**: the extra conditionals stayed
   *inside* the \x01 condition → MUNDEF «undefined variable» with plain operands,
   or (string comparisons) the block fired unconditionally. The compiler now
