@@ -728,14 +728,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
             });
             if let Some(fl) = first_label {
-                // Fix 20-sep-2026: split_call_target devuelve raw_arguments SIN los
-                // parentesis → hay que re-envolverlos, si no `D ^%TT("hola",7)` se
-                // convertia en `%TT^%TT"hola",7` → «unknown routine %TT"hola",7».
-                let rewritten = if raw_arguments.is_empty() {
-                    format!("{fl}^{name}")
-                } else {
-                    format!("{fl}^{name}({raw_arguments})")
-                };
+                let rewritten = format!("{fl}^{name}{raw_arguments}");
                 return self.exec_do(&rewritten, line);
             }
 
