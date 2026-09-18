@@ -702,42 +702,52 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .map_err(|e| VmError::new("MROUTINE", e, line))?
                 .ok_or_else(|| VmError::new("MROUTINE", format!("unknown routine {name}"), line))?;
             
-            // Fix 18-sep-2026: `D ^RUTINA` ≡ `D PRIMERLABEL^RUTINA`. Se delega en el
-            // camino cualificado (que COMPILA y hace SWAP de programa) para que las
-            // etiquetas LOCALES del routine resuelvan (p.ej. `D CHECK` dentro de %AUTO).
-            // Antes: exec_inline contra el programa exterior → «unknown label CHECK».
-            let first_label = source.lines().find_map(|l| {
-                let t = l.trim_start();
-                if t.is_empty() || t.starts_with(';') {
-                    return None;
+            // Fix 20-sep-2026 (v2): `D ^RUTINA[args]` vuelve a ejecutarse INLINE —
+            // es el único camino que reanuda bien los YIELDS del device LLM: al
+            // re-slicear, el re-run de la línea reencuentra el InlineFrame pendiente
+            // (`inline_frames`). El camino cualificado compila un programa aparte y
+            // en el re-slice se RE-EJECUTA desde cero (fork nuevo en cada slice →
+            // resultado vacío; regresión detectada con %LLT/%DIAG).
+            // Para que las etiquetas LOCALES resuelvan (el motivo de 1a8dcd7 — el
+            // viejo «unknown label CHECK»), las llamadas `D ETIQ` a etiquetas del
+            // PROPIO source se reescriben a `D ETIQ^RUTINA` (cualificadas) antes de
+            // ejecutar el inline. Las llamadas a otros routines ya iban cualificadas.
+            let src_eff = {
+                let mut labels: Vec<String> = Vec::new();
+                for l in source.lines() {
+                    let t = l.trim_start();
+                    if t.is_empty() || t.starts_with(';') {
+                        continue;
+                    }
+                    let cand = t
+                        .split(|c: char| c.is_whitespace() || c == '(' || c == ';' || c == ',')
+                        .next()
+                        .unwrap_or("");
+                    let mut ch = cand.chars();
+                    let ok = match ch.next() {
+                        Some('%') => cand.len() > 1 && ch.all(|c| c.is_ascii_alphanumeric()),
+                        Some(c) if c.is_ascii_alphabetic() => ch.all(|c| c.is_ascii_alphanumeric()),
+                        _ => false,
+                    };
+                    if ok && !is_command_name(cand) {
+                        labels.push(cand.to_string());
+                    }
                 }
-                let cand = t
-                    .split(|c: char| c.is_whitespace() || c == '(' || c == ';' || c == ',')
-                    .next()
-                    .unwrap_or("");
-                let mut ch = cand.chars();
-                let ok = match ch.next() {
-                    Some('%') => cand.len() > 1 && ch.all(|c| c.is_ascii_alphanumeric()),
-                    Some(c) if c.is_ascii_alphabetic() => ch.all(|c| c.is_ascii_alphanumeric()),
-                    _ => false,
-                };
-                if ok {
-                    Some(cand.to_ascii_uppercase())
-                } else {
-                    None
+                let mut out = source.clone();
+                for lbl in &labels {
+                    for pre in ["D ", "DO "] {
+                        for suffix in [" ", "(", "\n", "\r\n"] {
+                            let from = format!("{pre}{lbl}{suffix}");
+                            let to = match suffix {
+                                "(" => format!("{pre}{lbl}^{name}("),
+                                s => format!("{pre}{lbl}^{name}{s}"),
+                            };
+                            out = out.replace(&from, &to);
+                        }
+                    }
                 }
-            });
-            if let Some(fl) = first_label {
-                // Fix 20-sep-2026: split_call_target devuelve raw_arguments SIN los
-                // parentesis → hay que re-envolverlos, si no `D ^%TT("hola",7)` se
-                // convertia en `%TT^%TT"hola",7` → «unknown routine %TT"hola",7».
-                let rewritten = if raw_arguments.is_empty() {
-                    format!("{fl}^{name}")
-                } else {
-                    format!("{fl}^{name}({raw_arguments})")
-                };
-                return self.exec_do(&rewritten, line);
-            }
+                out
+            };
 
             // Try compiled version first — BYPASS real del intérprete
             let compiler = get_compiler();
@@ -794,7 +804,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             self.bind_arguments(arguments);
             let scope_base = self.state.local_scopes.len();
-            let result = self.exec_inline_control_offset(&source, line, 1);
+            let result = self.exec_inline_control_offset(&src_eff, line, 1);
             self.restore_local_scopes_to(scope_base);
             self.restore_arguments();
             // Fix 14-sep-2026: los formales son locales del callee en MUMPS;
