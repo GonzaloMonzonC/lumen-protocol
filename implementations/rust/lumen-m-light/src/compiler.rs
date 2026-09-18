@@ -185,6 +185,13 @@ impl Compiler {
                     }
                     // Strip trailing DO/D from IF line since blocks are already collected
                     let condition = code.trim_end_matches(" DO").trim_end_matches(" D");
+                    // Fix 2026-09-18 (cadena `I c1 I c2 … D` + bloque dot): el resto de
+                    // condicionales quedaba DENTRO de la condición (\x01) y eval_expr la
+                    // rompía — MUNDEF «undefined variable: …» con operandos simples, o
+                    // (comparando strings) evaluaba solo el primer comparando → el bloque
+                    // se disparaba SIEMPRE. Normalizar a comas: AND con short-circuit
+                    // (misma semántica M que la cadena de IFs).
+                    let condition = normalize_if_chain(condition);
                     let if_arg = format!("{}{}{}{}{}", condition, "\x01", true_body.trim(), "\x01", false_body.trim());
                     compile_line(&if_arg, line_number, &mut instructions)?;
                     i = k - 1;  // Skip ELSE and its body too
@@ -483,6 +490,50 @@ fn next_command_boundary(value: &str) -> usize {
     value.len()
 }
 
+/// Fix 2026-09-18: normaliza una cadena de condicionales M (`I c1 I c2 I c3`)
+/// a la forma con comas (`I c1, c2, c3`) — AND con short-circuit, la MISMA
+/// semántica que la cadena de IFs. Solo convierte fronteras de comando
+/// top-level cuyo token sea I/IF (paréntesis y strings respetados); si dentro
+/// de la «condición» aparece otro comando (entrada patológica), el resto se
+/// conserva tal cual.
+fn normalize_if_chain(condition: &str) -> String {
+    let trimmed = condition.trim();
+    let upper = trimmed.to_uppercase();
+    let head_len = if upper.starts_with("IF ") {
+        2
+    } else if upper.starts_with("I ") {
+        1
+    } else {
+        return condition.to_string();
+    };
+    let mut out = String::from(&trimmed[..head_len]);
+    let mut rest = trimmed[head_len..].trim_start();
+    loop {
+        let b = next_command_boundary(rest);
+        if b >= rest.len() {
+            out.push(' ');
+            out.push_str(rest.trim_end());
+            break;
+        }
+        out.push(' ');
+        out.push_str(rest[..b].trim_end());
+        let after = rest[b..].trim_start();
+        let tok_end = after.find(char::is_whitespace).unwrap_or(after.len());
+        let token = after[..tok_end].split(':').next().unwrap_or("");
+        let tu = token.to_ascii_uppercase();
+        if tu == "I" || tu == "IF" {
+            out.push(',');
+            // El propio `I`/`IF` de la cadena se consume; seguimos con su argumento
+            rest = after[tok_end..].trim_start();
+        } else {
+            out.push(' ');
+            out.push_str(after);
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -577,5 +628,40 @@ mod tests {
         assert!(program.labels.contains_key("MOVER"), "labels={:?}", program.labels);
         let program2 = Compiler::compile("D calcTotal(1)\nQ\ncalcTotal(n)\nS ^T=2\nQ").unwrap();
         assert!(program2.labels.contains_key("CALCTOTAL"), "labels={:?}", program2.labels);
+    }
+
+    /// Fix 2026-09-18: cadena `I c1 I c2 … D` ante bloque dot — antes la
+    /// segunda condición quedaba dentro del argumento \x01: MUNDEF con
+    /// operandos simples («undefined variable: 1 I 1=0») y, comparando
+    /// strings, el bloque se disparaba SIEMPRE. Ahora: AND con short-circuit.
+    #[test]
+    fn chained_if_before_do_block() {
+        let cases: Vec<(&str, &str)> = vec![
+            // números: 1=1 I 1=0 → falso (antes: MUNDEF abortaba el programa)
+            ("I 1=1 I 1=0 D\n. W \"no\"\nW \"fin1\" Q", "fin1"),
+            ("I 1=1 I 1=1 D\n. W \"si\"\nW \"fin2\" Q", "sifin2"),
+            // short-circuit real con variables
+            ("S a=1,b=0\nI a=1 I b=1 D\n. W \"no\"\nW \"fin3\" Q", "fin3"),
+            ("S a=1,b=1\nI a=1 I b=1 D\n. W \"si \"\nW \"fin4\" Q", "si fin4"),
+            ("S a=0,b=1\nI a=1 I b=1 D\n. W \"no\"\nW \"fin5\" Q", "fin5"),
+            // globals en la condición (el caso %ARB: id'="" I $G(^X)="")
+            ("S id=\"k1\"\nK ^TQ S ^TQ(id)=\"V\"\nI id'=\"\" I $G(^TQ(id))=\"\" D\n. W \"no\"\nW \"fin6\" Q", "fin6"),
+            ("S id=\"k1\"\nK ^TQ\nI id'=\"\" I $G(^TQ(id))=\"\" D\n. W \"si \"\nW \"fin7\" Q", "si fin7"),
+            // else: corre salvo que TODAS cumplan
+            ("S a=0\nI a=1 I a=1 D\n. W \"no\"\nE  D\n. W \"else \"\nW \"fin8\" Q", "else fin8"),
+            ("S a=1\nI a=1 I a=1 D\n. W \"si\"\nE  D\n. W \"else\"\nW \"fin9\" Q", "sifin9"),
+            ("S a=1\nI a=1 I a=0 D\n. W \"no\"\nE  D\n. W \"else\"\nW \"fin10\" Q", "elsefin10"),
+            // cadena también en el ELSE (E I c1 I c2 D)
+            ("S a=0,b=1\nI a=1 D\n. W \"no\"\nE  I b=1 I b=1 D\n. W \"else-si \"\nW \"fin11\" Q", "else-si fin11"),
+            ("S a=0,b=1\nI a=1 D\n. W \"no\"\nE  I b=1 I b=0 D\n. W \"no2\"\nW \"fin12\" Q", "fin12"),
+        ];
+        for (code, want) in cases {
+            let program = crate::compiler::Compiler::compile(code).unwrap();
+            let mut host = crate::MemoryHost::default();
+            let mut vm = crate::Vm::new(program, &mut host);
+            let execution = vm.run();
+            assert!(!matches!(execution, crate::Execution::Error), "{code:?} got {execution:?}");
+            assert_eq!(vm.state.output, want, "salida para {code:?}");
+        }
     }
 }
