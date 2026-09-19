@@ -15,7 +15,7 @@
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use crate::host::MemoryHost;
+use crate::host::{Host, MemoryHost};
 use crate::value::{Subscript, Value};
 
 pub fn spawn_device(host: &mut MemoryHost, action: &str, args: &[Value]) -> Result<Value, String> {
@@ -26,11 +26,9 @@ pub fn spawn_device(host: &mut MemoryHost, action: &str, args: &[Value]) -> Resu
 }
 
 fn sysinfo_str(host: &MemoryHost, key: &str) -> String {
-    host.values
-        .get(&(
-            "SYSINFO".to_string(),
-            vec![Subscript::String(key.to_string())],
-        ))
+    host.get("SYSINFO", &[Subscript::String(key.to_string())])
+        .ok()
+        .flatten()
         .map(|v| v.as_string())
         .unwrap_or_default()
 }

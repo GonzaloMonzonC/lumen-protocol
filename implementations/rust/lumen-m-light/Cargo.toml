@@ -20,6 +20,10 @@ ureq = { version = "3", optional = true }
 minreq = { version = "2", optional = true, features = ["json-using-serde", "https-rustls"] }
 wasm-bindgen = { version = "0.2", optional = true }
 libloading = { version = "0.8", optional = true }
+# Backend LMDB (feature "lmdb") — motor directo mmap para nodos. Cross-builds
+# desde Windows necesitan el vendor-patch de lmdb-master-sys (abajo) + el
+# wrapper tools/cc-arm.py para ARMv7 (ver README del repo).
+heed = { version = "0.22", optional = true, default-features = false }
 
 [features]
 default = ["sqlite", "minreq", "dll"]
@@ -27,6 +31,8 @@ default = ["sqlite", "minreq", "dll"]
 # --no-default-features --features wasm (globals en RAM, sin rusqlite).
 debug_for = []
 sqlite = ["dep:rusqlite"]
+# Motor LMDB (directo, mmap): from_lmdb() en MemoryHost. Opt-in por nodo.
+lmdb = ["dep:heed"]
 dll = ["dep:libloading"]
 # Device SSH ($DEVICE("ssh:exec",...)) — opt-in (spawn del cliente ssh del
 # sistema). No entra en default: los nodos que lo quieran lo activan.
@@ -37,3 +43,11 @@ zroutines = []
 # Device spawn:run — el nodo se auto-lanza en subproceso con timeout (sandbox)
 spawn = []
 wasm = ["wasm-bindgen"]
+
+# Vendor-patch (19-sep-2026): lmdb-master-sys 0.2.6 tiene un bug de build script
+# (#[cfg(target_os = "windows")] evalúa el HOST) que rompe cross-builds
+# Windows→Linux. Fix en vendor/lmdb-master-sys/build.rs (gate por CARGO_CFG_TARGET_OS).
+# Nota: los builds que consuman esta crate (p.ej. mvm-nas) deben replicar este
+# [patch.crates-io] en su Cargo.toml raíz.
+[patch.crates-io]
+lmdb-master-sys = { path = "vendor/lmdb-master-sys" }

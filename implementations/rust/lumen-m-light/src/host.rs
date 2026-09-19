@@ -664,6 +664,9 @@ pub struct MemoryHost {
     /// (feature "sqlite" — no disponible en builds WASM)
     #[cfg(feature = "sqlite")]
     sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
+    /// Backend LMDB (feature "lmdb") — modo DIRECTO (mmap, sin precarga a RAM).
+    #[cfg(feature = "lmdb")]
+    lmdb: Option<crate::lmdb_store::LmdbStore>,
     /// Registry global de sesiones Smith streaming
     pub smith_registry: Arc<crate::smith::SmithRegistry>,
     /// Caché acotada de namespaces montados como referencia DDP (F2c).
@@ -684,6 +687,8 @@ impl Default for MemoryHost {
             sandbox: false,
             #[cfg(feature = "sqlite")]
             sqlite_db: None,
+            #[cfg(feature = "lmdb")]
+            lmdb: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()),
         }
@@ -745,6 +750,8 @@ impl MemoryHost {
             llm_api_keys: HashMap::new(),
             sandbox: false,
             sqlite_db: Some(Arc::new(Mutex::new(conn))),
+            #[cfg(feature = "lmdb")]
+            lmdb: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()),
         })
@@ -757,7 +764,47 @@ impl MemoryHost {
         { false }
     }
 
+    /// Crea un MemoryHost con backend LMDB DIRECTO (mmap, sin precarga a RAM).
+    /// get/set/kill/data/order y transacciones operan contra LMDB — «solo el
+    /// puntero en RAM». mapsize: LUMEN_LMDB_MAPSIZE_MB (default 1024; ≤1400 en 32-bit).
+    #[cfg(feature = "lmdb")]
+    pub fn from_lmdb(dir: &str) -> Result<Self, String> {
+        let store = crate::lmdb_store::LmdbStore::open(dir)?;
+        Ok(Self {
+            values: BTreeMap::new(),
+            transactions: Vec::new(),
+            routines: HashMap::new(),
+            input: Vec::new(),
+            live_stdin: false,
+            locks: HashMap::new(),
+            llm_api_keys: HashMap::new(),
+            sandbox: false,
+            #[cfg(feature = "sqlite")]
+            sqlite_db: None,
+            lmdb: Some(store),
+            smith_registry: Arc::new(global_smith_registry().clone()),
+            remote_cache: std::sync::Mutex::new(RemoteCache::default()),
+        })
+    }
+
+    pub fn is_lmdb(&self) -> bool {
+        #[cfg(feature = "lmdb")]
+        { self.lmdb.is_some() }
+        #[cfg(not(feature = "lmdb"))]
+        { false }
+    }
+
+    /// Acceso al store LMDB (None si la feature está off o no está activo).
+    #[cfg(feature = "lmdb")]
+    pub(crate) fn lmdb_store(&self) -> Option<&crate::lmdb_store::LmdbStore> {
+        self.lmdb.as_ref()
+    }
+
     pub fn entries(&self) -> Vec<GlobalEntry> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &self.lmdb {
+            return store.entries_raw().unwrap_or_default();
+        }
         let mut entries: Vec<_> = self
             .values
             .iter()
@@ -867,6 +914,10 @@ fn rag_tokens(s: &str) -> Vec<String> {
 
 /// Documentos de ^NS("doc",id,"texto") → [(id, texto)]
 fn rag_docs(host: &MemoryHost, ns: &str) -> Vec<(String, String)> {
+    #[cfg(feature = "lmdb")]
+    if let Some(store) = host.lmdb_store() {
+        return store.rag_docs(ns).unwrap_or_default();
+    }
     let mut out: Vec<(String, String)> = Vec::new();
     for ((n, subs), v) in host.values.iter() {
         if n.as_str() != ns || subs.len() != 3 {
@@ -1563,14 +1614,11 @@ fn remote_mount(host: &MemoryHost, ns: &str) -> Option<String> {
     if host.sandbox || ns == "CONFIG" || ns == "SYSINFO" {
         return None;
     }
-    let key = (
-        "CONFIG".to_string(),
-        vec![
-            Subscript::String("mount".to_string()),
-            Subscript::String(ns.to_string()),
-        ],
-    );
-    match host.values.get(&key) {
+    let key_subs = vec![
+        Subscript::String("mount".to_string()),
+        Subscript::String(ns.to_string()),
+    ];
+    match host.get("CONFIG", &key_subs).ok().flatten() {
         Some(v) => {
             let r = v.as_string();
             if r.trim().is_empty() {
@@ -1584,22 +1632,18 @@ fn remote_mount(host: &MemoryHost, ns: &str) -> Option<String> {
 }
 
 fn cache_max(host: &MemoryHost) -> usize {
-    host.values
-        .get(&(
-            "CONFIG".to_string(),
-            vec![Subscript::String("cache_max".to_string())],
-        ))
+    host.get("CONFIG", &[Subscript::String("cache_max".to_string())])
+        .ok()
+        .flatten()
         .map(|v| v.as_number() as usize)
         .filter(|n| *n >= 16)
         .unwrap_or(4096)
 }
 
 fn cache_fetch_limit(host: &MemoryHost) -> usize {
-    host.values
-        .get(&(
-            "CONFIG".to_string(),
-            vec![Subscript::String("cache_limit".to_string())],
-        ))
+    host.get("CONFIG", &[Subscript::String("cache_limit".to_string())])
+        .ok()
+        .flatten()
         .map(|v| v.as_number() as usize)
         .filter(|n| *n >= 1)
         .unwrap_or(500)
@@ -1707,6 +1751,26 @@ fn remote_fetch_chunk(
 
 impl Host for MemoryHost {
     fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
+        // Backend LMDB (directo, mmap): sin BTreeMap de por medio.
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &self.lmdb {
+            if let Some(b) = store.get_raw(ns, subs)? {
+                return Ok(Some(Value::String(String::from_utf8_lossy(&b).into_owned())));
+            }
+            // Sin valor local → ns montada (mismo flujo que el camino RAM)
+            if let Some(rns) = remote_mount(self, ns) {
+                let parent: &[Subscript] =
+                    if subs.is_empty() { &[] } else { &subs[..subs.len() - 1] };
+                let path: Vec<String> = subs.iter().map(sub_text).collect();
+                let chunk = self.remote_chunk(&rns, parent)?;
+                for (c_subs, c_val, _hc, _hv) in chunk.iter() {
+                    if c_subs == &path {
+                        return Ok(Some(Value::String(c_val.clone())));
+                    }
+                }
+            }
+            return Ok(None);
+        }
         // Read from in-memory BTreeMap
         if let Some(v) = self.values.get(&(ns.to_string(), subs.to_vec())) {
             return Ok(Some(v.clone()));
@@ -1726,6 +1790,10 @@ impl Host for MemoryHost {
     }
 
     fn set(&mut self, ns: &str, subs: &[Subscript], value: Value) -> Result<(), String> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &mut self.lmdb {
+            return store.set_raw(ns, subs, value.as_string().as_bytes());
+        }
         // Always update in-memory BTreeMap first
         self.values.insert((ns.to_string(), subs.to_vec()), value.clone());
         // Persist to SQLite if available
@@ -1744,6 +1812,10 @@ impl Host for MemoryHost {
     }
 
     fn kill(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &mut self.lmdb {
+            return store.kill_raw(ns, subs);
+        }
         // Always update in-memory BTreeMap
         let before = self.values.len();
         self.values.retain(|(candidate_ns, candidate), _| {
@@ -1778,6 +1850,35 @@ impl Host for MemoryHost {
     }
 
     fn data(&self, ns: &str, subs: &[Subscript]) -> Result<u8, String> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &self.lmdb {
+            let d = store.data_raw(ns, subs)?;
+            if d != 0 {
+                return Ok(d);
+            }
+            // Sin datos locales → ns montada (mismo flujo que el camino RAM)
+            if let Some(rns) = remote_mount(self, ns) {
+                let parent: &[Subscript] =
+                    if subs.is_empty() { &[] } else { &subs[..subs.len() - 1] };
+                let path: Vec<String> = subs.iter().map(sub_text).collect();
+                let chunk = self.remote_chunk(&rns, parent)?;
+                let mut own_r = false;
+                let mut child_r = false;
+                for (c_subs, _c_val, hc, hv) in chunk.iter() {
+                    if c_subs == &path {
+                        own_r = *hv;
+                        child_r = *hc;
+                    }
+                }
+                return Ok(match (own_r, child_r) {
+                    (true, true) => 11,
+                    (true, false) => 1,
+                    (false, true) => 10,
+                    (false, false) => 0,
+                });
+            }
+            return Ok(0);
+        }
         let own = self.values.contains_key(&(ns.to_string(), subs.to_vec()));
         let child = self.values.keys().any(|(candidate_ns, candidate)| {
             candidate_ns == ns && candidate.len() > subs.len() && is_prefix(subs, candidate)
@@ -1816,6 +1917,46 @@ impl Host for MemoryHost {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
+        // Backend LMDB: cursor directo O(log n); con ns montada, merge con remotos.
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &self.lmdb {
+            if remote_mount(self, ns).is_none() {
+                return store.order_raw(ns, parent, current, direction);
+            }
+            let mut candidates = store.order_candidates(ns, parent)?;
+            if let Some(rns) = remote_mount(self, ns) {
+                if let Ok(chunk) = self.remote_chunk(&rns, parent) {
+                    let plen = parent.len();
+                    for (c_subs, _, _, _) in chunk.iter() {
+                        if c_subs.len() > plen {
+                            candidates.push(Subscript::String(c_subs[plen].clone()));
+                        }
+                    }
+                }
+            }
+            candidates.sort_by(|a, b| a.canonical_cmp(b));
+            candidates.dedup();
+            if direction >= 0 {
+                for candidate in candidates.iter() {
+                    if let Some(ref cur) = current {
+                        if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
+                            continue;
+                        }
+                    }
+                    return Ok(Some(candidate.clone()));
+                }
+            } else {
+                for candidate in candidates.iter().rev() {
+                    if let Some(ref cur) = current {
+                        if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
+                            continue;
+                        }
+                    }
+                    return Ok(Some(candidate.clone()));
+                }
+            }
+            return Ok(None);
+        }
         // Candidatos locales: subíndices descendientes directos de `parent`
         let mut candidates: Vec<Subscript> = Vec::new();
         for (candidate_ns, subs) in self.values.keys() {
@@ -1861,11 +2002,20 @@ impl Host for MemoryHost {
     }
 
     fn transaction_start(&mut self) -> Result<(), String> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &mut self.lmdb {
+            store.tstart();
+            return Ok(());
+        }
         self.transactions.push(self.values.clone());
         Ok(())
     }
 
     fn transaction_commit(&mut self) -> Result<(), String> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &mut self.lmdb {
+            return store.tcommit();
+        }
         self.transactions
             .pop()
             .map(|_| ())
@@ -1873,6 +2023,10 @@ impl Host for MemoryHost {
     }
 
     fn transaction_rollback(&mut self) -> Result<(), String> {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &mut self.lmdb {
+            return store.trollback();
+        }
         let snapshot = self
             .transactions
             .pop()
@@ -1882,6 +2036,10 @@ impl Host for MemoryHost {
     }
 
     fn transaction_level(&self) -> usize {
+        #[cfg(feature = "lmdb")]
+        if let Some(store) = &self.lmdb {
+            return store.tlevel();
+        }
         self.transactions.len()
     }
 
@@ -2248,7 +2406,8 @@ impl Host for MemoryHost {
                         }
                         let (peer, key) = ddp_cfg(self)?;
                         let mut entries: Vec<serde_json::Value> = Vec::new();
-                        for ((ens, subs), val) in self.values.iter() {
+                        for entry in self.entries().iter() {
+                            let (ens, subs, val) = (&entry.ns, &entry.subs, &entry.value);
                             if ens != &ns {
                                 continue;
                             }
@@ -3117,7 +3276,8 @@ fn hmac_sha256(key: &str, data: &str) -> String {
 /// (qpdb.py / poli_server): String → \x02 <utf8> \xff ; Number → \x01 <f64 BE 8B> ;
 /// terminator final \xff. (Fix 2026-09-04: antes los números se codificaban como
 /// \x01 + texto ASCII → incompatible con qpdb/Python en ambas direcciones.)
-fn encode_one_sub(sub: &Subscript) -> Vec<u8> {
+/// Codifica UN subíndice (01+IEEE nums / 02+ascii+ff strings). Orden-preservante.
+pub(crate) fn encode_one_sub(sub: &Subscript) -> Vec<u8> {
     let mut out = Vec::new();
     match sub {
         Subscript::Number(v) => {
@@ -3134,7 +3294,7 @@ fn encode_one_sub(sub: &Subscript) -> Vec<u8> {
 }
 
 /// Codificar vector de subscripts a formato MUMPS binario.
-fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
+pub(crate) fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
     let mut out = Vec::new();
     for sub in subs {
         out.extend(encode_one_sub(sub));
@@ -3156,7 +3316,7 @@ fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
 /// TODOS los subscripts string-numéricos se re-normalizaban con parse::<f64> al
 /// insertarse → las filas escritas con subscript string "1" quedaban invisibles
 /// para ^G("1") tras un reload (y colisionaban con ^G(1)).
-fn decode_subkey(subkey: &[u8]) -> Vec<Subscript> {
+pub(crate) fn decode_subkey(subkey: &[u8]) -> Vec<Subscript> {
     let mut result = Vec::new();
     let mut i = 0;
     while i < subkey.len() {
@@ -3234,6 +3394,7 @@ impl std::fmt::Debug for MemoryHost {
         f.debug_struct("MemoryHost")
             .field("values", &self.values.len())
             .field("has_sqlite", &self.is_sqlite())
+            .field("has_lmdb", &self.is_lmdb())
             .field("routines", &self.routines.len())
             .finish()
     }
@@ -3252,6 +3413,8 @@ impl Clone for MemoryHost {
             sandbox: self.sandbox,
             #[cfg(feature = "sqlite")]
             sqlite_db: None, // SQLite connections can't be cloned
+            #[cfg(feature = "lmdb")]
+            lmdb: self.lmdb.clone(), // comparte env LMDB (mismo proceso)
             smith_registry: self.smith_registry.clone(),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()), // caché no se clona
         }
