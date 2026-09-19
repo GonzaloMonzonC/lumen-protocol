@@ -10,6 +10,8 @@ pub mod compilation;
 pub mod ddp_client;
 pub mod ffi;
 pub mod host;
+#[cfg(feature = "lmdb")]
+pub mod lmdb_store;
 pub mod smith;
 #[cfg(feature = "ssh")]
 pub mod ssh;

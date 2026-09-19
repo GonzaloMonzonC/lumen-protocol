@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::host::MemoryHost;
+use crate::host::{Host, MemoryHost};
 use crate::value::{Subscript, Value};
 
 /// `$DEVICE("zroutines","save", BUF, [DEST])`
@@ -44,11 +44,9 @@ fn zs_save(host: &mut MemoryHost, args: &[Value]) -> Result<Value, String> {
     }
     // Directorio de rutinas: ^SYSINFO("routines_dir") — lo siembra mvm-nas.
     let dir = host
-        .values
-        .get(&(
-            "SYSINFO".to_string(),
-            vec![Subscript::String("routines_dir".to_string())],
-        ))
+        .get("SYSINFO", &[Subscript::String("routines_dir".to_string())])
+        .ok()
+        .flatten()
         .map(|v| v.as_string())
         .unwrap_or_default();
     if dir.trim().is_empty() {
@@ -56,7 +54,8 @@ fn zs_save(host: &mut MemoryHost, args: &[Value]) -> Result<Value, String> {
     }
     // Serializar ^EDIT(BUF,n) en orden numérico (mismo criterio que :save).
     let mut by_num: BTreeMap<u64, (bool, String)> = BTreeMap::new();
-    for ((ns, subs), v) in host.values.iter() {
+    for entry in host.entries().iter() {
+        let (ns, subs, v) = (&entry.ns, &entry.subs, &entry.value);
         if ns != "EDIT" || subs.len() < 2 {
             continue;
         }
@@ -120,11 +119,9 @@ fn zs_rollback(host: &mut MemoryHost, args: &[Value]) -> Result<Value, String> {
         return Err("[ZS] uso: $DEVICE(\"zroutines:rollback\",\"NAME\")".to_string());
     }
     let dir = host
-        .values
-        .get(&(
-            "SYSINFO".to_string(),
-            vec![Subscript::String("routines_dir".to_string())],
-        ))
+        .get("SYSINFO", &[Subscript::String("routines_dir".to_string())])
+        .ok()
+        .flatten()
         .map(|v| v.as_string())
         .unwrap_or_default();
     if dir.trim().is_empty() {
