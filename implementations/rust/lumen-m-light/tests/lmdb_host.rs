@@ -7,6 +7,7 @@
 //! anidables con rollback (undo-log), y equivalencia del orden RAM↔LMDB.
 #![cfg(feature = "lmdb")]
 
+use lumen_mlight::lmdb_store::LmdbStore;
 use lumen_mlight::{Host, MemoryHost, Subscript, Value};
 
 fn tmp_dir(tag: &str) -> String {
@@ -223,13 +224,58 @@ fn numeros_con_ff_en_mantisa_no_cortan_la_enumeracion() {
     }
     let mut cur: Option<Subscript> = None;
     let mut count = 0usize;
+    let mut saw_x = false;
     loop {
         match h.order("FF", &[], cur.as_ref(), 1).unwrap() {
-            Some(s) => { count += 1; cur = Some(s); }
+            Some(s) => {
+                if let Subscript::Number(v) = &s {
+                    if *v == x {
+                        saw_x = true;
+                    }
+                }
+                count += 1;
+                cur = Some(s);
+            }
             None => break,
         }
     }
     assert_eq!(count, 51, "la enumeración no debe cortarse con nums FF en mantisa");
+    assert!(saw_x, "el num con 0xFF en mantisa debe decodificar como Number (no String basura)");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn fila_legacy_ascii_y_canonica_conviven() {
+    // Regresión 2026-09-20 (fix decoder): \x01 + ascii + \xff (formato viejo)
+    // sigue leyéndose como Number si parsea, y convive con el canónico 01+8B.
+    let dir = tmp_dir("legacy");
+    let mut store = LmdbStore::open(&dir).unwrap();
+    let mut k_legacy = vec![0x01u8];
+    k_legacy.extend_from_slice(b"123");
+    k_legacy.push(0xFF);
+    k_legacy.push(0xFF);
+    let mut k_canon = vec![0x01u8];
+    k_canon.extend_from_slice(&7.0f64.to_be_bytes());
+    k_canon.push(0xFF);
+    store
+        .put_many(&[
+            ("LG".to_string(), k_legacy, b"v123".to_vec()),
+            ("LG".to_string(), k_canon, b"v7".to_vec()),
+        ])
+        .unwrap();
+    drop(store);
+    let h = MemoryHost::from_lmdb(&dir).unwrap();
+    assert_eq!(h.order("LG", &[], None, 1).unwrap(), Some(nn(7.0)));
+    assert_eq!(
+        h.order("LG", &[], Some(&nn(7.0)), 1).unwrap(),
+        Some(nn(123.0)),
+        "el legacy '123' debe seguir viéndose como Number(123) en $O"
+    );
+    // Limitación conocida de LMDB: una fila legacy se ENUMERA con su valor
+    // decodificado, pero $G con la clave canónica no la encuentra (la clave
+    // almacenada son los bytes legacy; no hay filas legacy en producción).
+    assert!(h.get("LG", &[nn(123.0)]).unwrap().is_none());
+    assert!(h.get("LG", &[nn(7.0)]).unwrap().is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -291,5 +337,79 @@ fn orden_equivalente_ram_vs_lmdb() {
             }
         }
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tx_batching_write_behind() {
+    // #3 batching (20-sep-2026): los sets dentro de TS/TC se acumulan en memoria
+    // (read-your-writes) y se aplican en UNA write-txn al TCOMMIT externo.
+    let dir = tmp_dir("txbatch");
+    {
+        let mut h = MemoryHost::from_lmdb(&dir).unwrap();
+        h.set("B", &[ss("k")], Value::String("v0".into())).unwrap();
+        h.transaction_start().unwrap();
+        for i in 0..50u64 {
+            h.set("B", &[nn(i as f64)], Value::String(format!("n{i}"))).unwrap();
+        }
+        h.set("B", &[ss("k")], Value::String("v1".into())).unwrap();
+        // read-your-writes dentro de la txn
+        assert_eq!(h.get("B", &[ss("k")]).unwrap().unwrap().as_string(), "v1");
+        assert_eq!(h.get("B", &[nn(49.0)]).unwrap().unwrap().as_string(), "n49");
+        // $D y $O también ven los pendientes
+        assert_eq!(h.data("B", &[nn(3.0)]).unwrap(), 1);
+        assert_eq!(h.order("B", &[], None, 1).unwrap(), Some(nn(0.0)));
+        assert_eq!(h.transaction_level(), 1);
+        h.transaction_commit().unwrap();
+        assert_eq!(h.transaction_level(), 0);
+    }
+    // Persistencia real tras reabrir el env
+    {
+        let h = MemoryHost::from_lmdb(&dir).unwrap();
+        assert_eq!(h.get("B", &[ss("k")]).unwrap().unwrap().as_string(), "v1");
+        assert_eq!(h.get("B", &[nn(49.0)]).unwrap().unwrap().as_string(), "n49");
+        assert_eq!(h.get("B", &[nn(0.0)]).unwrap().unwrap().as_string(), "n0");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tx_rollback_descarta_y_anidado() {
+    let dir = tmp_dir("txrb2");
+    let mut h = MemoryHost::from_lmdb(&dir).unwrap();
+    h.set("R", &[ss("a")], Value::String("orig".into())).unwrap();
+    h.set("R", &[ss("b"), nn(1.0)], Value::String("b1".into())).unwrap();
+    h.set("R", &[ss("b"), nn(2.0)], Value::String("b2".into())).unwrap();
+    // rollback descarta writes Y deletes (sin tocar disco)
+    h.transaction_start().unwrap();
+    h.set("R", &[ss("a")], Value::String("tmp".into())).unwrap();
+    h.set("R", &[ss("nueva")], Value::String("x".into())).unwrap();
+    let n = h.kill("R", &[ss("b")]).unwrap();
+    assert!(n >= 2, "el kill en txn debe contar las claves afectadas ({n})");
+    assert_eq!(h.data("R", &[ss("b"), nn(1.0)]).unwrap(), 0);
+    assert_eq!(
+        h.order("R", &[], Some(&ss("a")), 1).unwrap(),
+        Some(ss("nueva")),
+        "en txn: 'b' muerto en overlay, 'nueva' viva"
+    );
+    h.transaction_rollback().unwrap();
+    assert_eq!(h.get("R", &[ss("a")]).unwrap().unwrap().as_string(), "orig");
+    assert!(h.get("R", &[ss("nueva")]).unwrap().is_none());
+    assert_eq!(h.get("R", &[ss("b"), nn(1.0)]).unwrap().unwrap().as_string(), "b1");
+    assert_eq!(
+        h.order("R", &[], Some(&ss("a")), 1).unwrap(),
+        Some(ss("b")),
+        "tras rollback: 'b' restaurada, 'nueva' ya no está"
+    );
+    // anidado: rollback interno → queda el estado del externo; commit externo aplica
+    h.transaction_start().unwrap();
+    h.set("R", &[ss("a")], Value::String("n1".into())).unwrap();
+    h.transaction_start().unwrap();
+    h.set("R", &[ss("a")], Value::String("n2".into())).unwrap();
+    assert_eq!(h.get("R", &[ss("a")]).unwrap().unwrap().as_string(), "n2");
+    h.transaction_rollback().unwrap();
+    assert_eq!(h.get("R", &[ss("a")]).unwrap().unwrap().as_string(), "n1");
+    h.transaction_commit().unwrap();
+    assert_eq!(h.get("R", &[ss("a")]).unwrap().unwrap().as_string(), "n1");
     let _ = std::fs::remove_dir_all(&dir);
 }
