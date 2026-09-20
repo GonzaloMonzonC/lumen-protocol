@@ -181,6 +181,10 @@ impl LlmThreadPool {
     }
 
     fn do_llm_call(item: &WorkItem) -> Result<String, String> {
+        // F4.2: fuente 2 — Tom/Workers AI (protocolo propio: /v1/process + HMAC DDP).
+        if item.provider.to_lowercase() == "tom" {
+            return Self::do_tom_call(item);
+        }
         let url = match item.provider.to_lowercase().as_str() {
             "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
             "deepseek" => "https://api.deepseek.com/v1/chat/completions",
@@ -303,6 +307,108 @@ impl LlmThreadPool {
 
         #[cfg(not(feature = "minreq"))]
         { return Err("HTTP client not enabled (minreq feature)".to_string()); }
+    }
+
+    /// F4.2 — fuente 2: Tom/Workers AI. Protocolo propio (NO OpenAI):
+    /// POST {TOM_WORKER_URL}/v1/process  {"prompt": <system+prompt>, "tier": <model>}
+    /// Auth HMAC DDP: X-DDP-Timestamp + X-DDP-HMAC = HMAC_SHA256(DDP_HMAC_KEY, ts+body+key)
+    /// Respuesta: {"ok":true,"content":"…","model":"@cf/…"} → content.
+    fn do_tom_call(item: &WorkItem) -> Result<String, String> {
+        let base = std::env::var("TOM_WORKER_URL").unwrap_or_default();
+        if base.trim().is_empty() {
+            return Err("tom: sin TOM_WORKER_URL (env / ^CONFIG(tom_worker_url))".to_string());
+        }
+        let key = std::env::var("DDP_HMAC_KEY").unwrap_or_default();
+        if key.trim().is_empty() {
+            return Err("tom: sin DDP_HMAC_KEY (env / ^CONFIG(ddp_hmac_key))".to_string());
+        }
+        let url = format!("{}/v1/process", base.trim().trim_end_matches('/'));
+        let prompt = if item.system.trim().is_empty() {
+            item.prompt.clone()
+        } else {
+            format!("{}\n\n{}", item.system, item.prompt)
+        };
+        let body = serde_json::json!({ "prompt": prompt, "tier": item.model });
+        let body_str = serde_json::to_string(&body)
+            .map_err(|e| format!("JSON serialize error: {e}"))?;
+
+        llm_pace_wait();
+
+        #[cfg(feature = "minreq")]
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                .to_string();
+            let msg = format!("{ts}{body_str}{key}");
+            let sig = Self::hmac_sha256_hex(key.as_bytes(), msg.as_bytes());
+            let build = || {
+                minreq::post(url.as_str())
+                    .with_header("Content-Type", "application/json")
+                    .with_header("User-Agent", "Mozilla/5.0 LUMEN-DDP/1.0")
+                    .with_header("X-DDP-Timestamp", ts.as_str())
+                    .with_header("X-DDP-HMAC", sig.as_str())
+                    .with_timeout(120)
+                    .with_body(body_str.clone())
+            };
+            let resp = minreq_send_retry(build).map_err(|e| format!("HTTP error: {e}"))?;
+            if resp.status_code != 200 {
+                let err_text = resp.as_str().unwrap_or("unknown");
+                return Err(format!("API error {}: {}", resp.status_code, err_text));
+            }
+            let json: serde_json::Value = resp
+                .json()
+                .map_err(|e| format!("JSON parse error: {e}"))?;
+            if json["ok"].as_bool() != Some(true) {
+                let err = json["error"].as_str().unwrap_or("ok=false");
+                return Err(format!("tom: {err}"));
+            }
+            let content = json["content"].as_str().unwrap_or("").to_string();
+            if !content.is_empty() {
+                // El worker del pool solo escribe el estado en Errores: el éxito
+                // debe marcarse aquí (igual que hace do_llm_call con OpenRouter)
+                // — sin esto la future queda Pending para siempre (poll=None).
+                if let Ok(mut state) = item.state.lock() {
+                    *state = LlmFutureStatus::Resolved(content.clone());
+                }
+                return Ok(content);
+            }
+            let alt = json["response"].as_str().unwrap_or("").to_string();
+            if alt.is_empty() {
+                return Err("tom: respuesta vacía".to_string());
+            }
+            if let Ok(mut state) = item.state.lock() {
+                *state = LlmFutureStatus::Resolved(alt.clone());
+            }
+            Ok(alt)
+        }
+        #[cfg(not(feature = "minreq"))]
+        {
+            Err("HTTP client not enabled (minreq feature)".to_string())
+        }
+    }
+
+    /// HMAC-SHA256 en hex — mismo esquema de auth DDP que usan los agentes (ts+body+key).
+    fn hmac_sha256_hex(key: &[u8], msg: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        const BLK: usize = 64;
+        let mut k = [0u8; BLK];
+        if key.len() > BLK {
+            let h = Sha256::digest(key);
+            k[..32].copy_from_slice(&h);
+        } else {
+            k[..key.len()].copy_from_slice(key);
+        }
+        let mut ipad = [0x36u8; BLK];
+        let mut opad = [0x5cu8; BLK];
+        for i in 0..BLK {
+            ipad[i] ^= k[i];
+            opad[i] ^= k[i];
+        }
+        let inner = Sha256::digest([&ipad[..], msg].concat());
+        let outer = Sha256::digest([&opad[..], &inner[..]].concat());
+        outer.iter().map(|b| format!("{b:02x}")).collect()
     }
 
     pub fn fork(&self, provider: &str, model: &str, prompt: &str, system: &str) -> u64 {
