@@ -405,6 +405,34 @@ impl LlmThreadPool {
     }
 }
 
+/// Task 206 (servidor LLM F1): llamada LLM síncrona y pública — MISMA ruta HTTP que el
+/// device `llm:call` (WorkItem + do_llm_call), para consumidores externos como el gateway
+/// del nodo (`mvm-nas --serve`). La key del proveedor se resuelve del entorno, como fork/chain.
+pub fn llm_call_sync(
+    provider: &str,
+    model: &str,
+    prompt: &str,
+    system: &str,
+) -> Result<String, String> {
+    let api_key = match provider.to_lowercase().as_str() {
+        "openrouter" => std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
+        "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+        "lingyi" | "zai" | "yi" => std::env::var("LINGYI_API_KEY").unwrap_or_default(),
+        "anthropic" => std::env::var("ANTHROPIC_AUTH_TOKEN").unwrap_or_default(),
+        _ => String::new(),
+    };
+    let item = WorkItem {
+        id: 0,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        prompt: prompt.to_string(),
+        system: system.to_string(),
+        api_key,
+        state: Arc::new(Mutex::new(LlmFutureStatus::Pending)),
+    };
+    LlmThreadPool::do_llm_call(&item)
+}
+
 
 // ── FiberBgPool — thread pool para ejecutar M code en background ─
 #[derive(Debug, Clone, Serialize, Deserialize)]

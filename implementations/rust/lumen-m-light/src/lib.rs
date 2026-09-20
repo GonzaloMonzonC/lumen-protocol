@@ -30,7 +30,7 @@ pub mod wasm;
 pub mod ddp;
 
 pub use compiler::{Compiler, Instruction, Opcode, Program};
-pub use host::{GlobalEntry, Host, MemoryHost};
+pub use host::{GlobalEntry, Host, MemoryHost, llm_call_sync};
 pub use value::{Subscript, Value};
 pub use vm::{Execution, LocalScope, LoopFrame, Vm, VmError, VmState, VM_VERSION};
 
