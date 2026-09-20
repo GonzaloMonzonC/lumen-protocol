@@ -207,6 +207,53 @@ fn transacciones_rollback_commit_anidado() {
 }
 
 #[test]
+fn numeros_con_ff_en_mantisa_no_cortan_la_enumeracion() {
+    // Regresión 20-sep-2026: f64-BE con byte 0xFF dentro (p.ej. from_bits
+    // 0x40B0FF0000000000) hacía que el decode lo tratara como legacy y la
+    // enumeración de $O se cortara. El boundary de saltos es estructural.
+    let dir = tmp_dir("ffbytes");
+    let mut h = MemoryHost::from_lmdb(&dir).unwrap();
+    let x = f64::from_bits(0x40B0FF0000000000);
+    for i in 0..30u64 {
+        h.set("FF", &[nn(i as f64)], Value::String(format!("v{i}"))).unwrap();
+    }
+    h.set("FF", &[nn(x)], Value::String("vx".into())).unwrap();
+    for i in 40..60u64 {
+        h.set("FF", &[nn(i as f64)], Value::String(format!("v{i}"))).unwrap();
+    }
+    let mut cur: Option<Subscript> = None;
+    let mut count = 0usize;
+    loop {
+        match h.order("FF", &[], cur.as_ref(), 1).unwrap() {
+            Some(s) => { count += 1; cur = Some(s); }
+            None => break,
+        }
+    }
+    assert_eq!(count, 51, "la enumeración no debe cortarse con nums FF en mantisa");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn order_cache_invalidada_por_writes() {
+    let dir = tmp_dir("cache");
+    let mut h = MemoryHost::from_lmdb(&dir).unwrap();
+    h.set("C", &[ss("a")], Value::String("1".into())).unwrap();
+    h.set("C", &[ss("b")], Value::String("2".into())).unwrap();
+    // primer $O → construye la caché de hijos
+    assert_eq!(sub_str(&h.order("C", &[], None, 1).unwrap().unwrap()), "a");
+    // nuevo hijo → la caché debe invalidarse y verlo
+    h.set("C", &[ss("c")], Value::String("3".into())).unwrap();
+    assert_eq!(
+        sub_str(&h.order("C", &[], Some(&ss("b")), 1).unwrap().unwrap()),
+        "c"
+    );
+    // kill → invalidación
+    h.kill("C", &[ss("c")]).unwrap();
+    assert!(h.order("C", &[], Some(&ss("b")), 1).unwrap().is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn orden_equivalente_ram_vs_lmdb() {
     let dir = tmp_dir("equiv");
     let mut ram = MemoryHost::default();
