@@ -762,6 +762,21 @@ def _load_state() -> bool:
                 _safe_print(f"[lumen-thinking] Kanban self-heal: {_fixed} tareas con status sincronizado desde column")
         except Exception as _he:
             _safe_print(f"[lumen-thinking] Kanban self-heal omitido: {_he}")
+        # Work-ID self-heal (2026-09-20): _load_works() corre en import (sesiones aun
+        # vacias) -> _next_work_id quedaba en 1 y work_start reutilizaba un id existente
+        # (work_done completaba el item equivocado; en PDB el work:1 se pisaba).
+        try:
+            _mx_work = 0
+            for _ws in _sessions.values():
+                for _w_ in _ws.works:
+                    try:
+                        _mx_work = max(_mx_work, int(_w_.get("id", 0)))
+                    except (TypeError, ValueError):
+                        pass
+            if _mx_work:
+                globals()["_next_work_id"] = _mx_work + 1
+        except Exception as _we:
+            _safe_print(f"[lumen-thinking] Work-ID self-heal omitido: {_we}")
         return True
 
     _safe_print("[lumen-thinking] No saved state found — starting fresh.")
