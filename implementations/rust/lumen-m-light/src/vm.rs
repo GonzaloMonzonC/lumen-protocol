@@ -2327,6 +2327,27 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             .map_err(|e| VmError::new("MLLM", e, line))?;
                         Ok(Value::Number(id as f64))
                     }
+                    ("llm", "free") => {
+                        // F1 (206-bis): lista de modelos free → "id1|id2|…"
+                        if self.host.is_sandbox() {
+                            return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
+                        }
+                        let url = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        Ok(Value::String(
+                            self.host.llm_free(&url).map_err(|e| VmError::new("MLLM", e, line))?,
+                        ))
+                    }
+                    ("llm", "probe") => {
+                        // F1 (206-bis): sonda de tools → "TC:<fn>" | "TXT:<…>" | "ERR:<…>"
+                        if self.host.is_sandbox() {
+                            return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
+                        }
+                        let model = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let prompt = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        Ok(Value::String(
+                            self.host.llm_probe(&model, &prompt).map_err(|e| VmError::new("MLLM", e, line))?,
+                        ))
+                    }
                     _ => {
                         // Sync device (HTTP, etc.)
                         self.host.device_call(dev, act, &call_args)

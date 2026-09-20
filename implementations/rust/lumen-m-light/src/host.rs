@@ -192,6 +192,7 @@ impl LlmThreadPool {
 
         #[cfg(feature = "minreq")]
         {
+            llm_pace_wait();
             let is_anthropic = item.provider.to_lowercase() == "anthropic";
             
             let body = if is_anthropic {
@@ -453,6 +454,7 @@ pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<se
     };
     #[cfg(feature = "minreq")]
     {
+        llm_pace_wait();
         let body_str = serde_json::to_string(body)
             .map_err(|e| format!("JSON serialize error: {e}"))?;
         let build = || {
@@ -477,6 +479,154 @@ pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<se
     }
     #[cfg(not(feature = "minreq"))]
     { return Err("HTTP client not enabled (minreq feature)".to_string()); }
+}
+
+/// Task 206-bis (F1): lista de modelos FREE de OpenRouter para el device `llm:free`.
+/// GET público a `/api/v1/models` (UA navegador) → filtra `pricing.prompt=="0"` y
+/// `pricing.completion=="0"` → `"id1|id2|…"` (created desc). URL configurable por
+/// argumento (`^CONFIG("llm_models_url")`) o env `LUMEN_MODELS_URL`.
+pub fn llm_free_models(url_override: &str) -> Result<String, String> {
+    let url = if !url_override.trim().is_empty() {
+        url_override.trim().to_string()
+    } else {
+        std::env::var("LUMEN_MODELS_URL")
+            .unwrap_or_else(|_| "https://openrouter.ai/api/v1/models".to_string())
+    };
+    #[cfg(feature = "minreq")]
+    {
+        let build = || {
+            minreq::get(&url)
+                .with_header(
+                    "User-Agent",
+                    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+                )
+                .with_header("Accept", "application/json")
+                .with_timeout(60)
+        };
+        let resp = minreq_send_retry(build).map_err(|e| format!("HTTP error: {e}"))?;
+        if resp.status_code != 200 {
+            let err_text = resp.as_str().unwrap_or("unknown");
+            return Err(format!("API error {}: {}", resp.status_code, err_text));
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| format!("JSON parse error: {e}"))?;
+        let is_zero = |v: &serde_json::Value| -> bool {
+            if let Some(s) = v.as_str() {
+                s.parse::<f64>().map(|x| x == 0.0).unwrap_or(false)
+            } else if let Some(n) = v.as_f64() {
+                n == 0.0
+            } else {
+                false
+            }
+        };
+        let mut free: Vec<(i64, String)> = Vec::new();
+        if let Some(arr) = json.get("data").and_then(|d| d.as_array()) {
+            for m in arr {
+                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                let pr = m.get("pricing");
+                let p0 = pr
+                    .and_then(|p| p.get("prompt"))
+                    .map(is_zero)
+                    .unwrap_or(false);
+                let c0 = pr
+                    .and_then(|p| p.get("completion"))
+                    .map(is_zero)
+                    .unwrap_or(false);
+                if p0 && c0 {
+                    let created = m.get("created").and_then(|v| v.as_i64()).unwrap_or(0);
+                    free.push((created, id));
+                }
+            }
+        }
+        free.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let ids: Vec<String> = free
+            .into_iter()
+            .map(|(_, id)| id)
+            .filter(|id| seen.insert(id.clone()))
+            .collect();
+        Ok(ids.join("|"))
+    }
+    #[cfg(not(feature = "minreq"))]
+    { return Err("HTTP client not enabled (minreq feature)".to_string()); }
+}
+
+/// Task 206-bis (F1): sonda de tools para el device `llm:probe`.
+/// Llama al modelo con la herramienta `get_time`; resume el veredicto:
+/// `"TC:<fn>"` si pidió tool_calls · `"TXT:<respuesta>"` si contestó texto · `"ERR:<motivo>"`.
+pub fn llm_probe_call(model: &str, prompt: &str) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": [{
+            "type": "function",
+            "function": {
+                "name": "get_time",
+                "description": "Devuelve la hora actual UTC",
+                "parameters": {"type": "object", "properties": {}}
+            }
+        }],
+        "tool_choice": "auto"
+    });
+    match llm_call_sync_json("openrouter", &body) {
+        Ok(j) => {
+            let msg = j
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"));
+            let tc = msg
+                .and_then(|m| m.get("tool_calls"))
+                .and_then(|v| v.as_array())
+                .filter(|a| !a.is_empty());
+            if let Some(arr) = tc {
+                let name = arr
+                    .get(0)
+                    .and_then(|t| t.get("function"))
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
+                return Ok(format!("TC:{name}"));
+            }
+            let content = msg
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            Ok(format!(
+                "TXT:{}",
+                content.chars().take(200).collect::<String>()
+            ))
+        }
+        Err(e) => Ok(format!("ERR:{}", e.chars().take(120).collect::<String>())),
+    }
+}
+
+// ── Pacing global de llamadas LLM (task_206-bis) ──────────────────────
+// Respeta el límite de OpenRouter free (20 req/min): separa los INICIOS de llamada
+// al menos `LUMEN_LLM_PACE_MS` ms (def 3000 · 0 = off). Aplica a TODOS los consumidores
+// (eval, %MR, gateway) — el límite es de la cuenta, no del consumidor.
+static LLM_PACE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+fn llm_pace_wait() {
+    let pace_ms: u64 = std::env::var("LUMEN_LLM_PACE_MS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(3000);
+    if pace_ms == 0 {
+        return;
+    }
+    if let Ok(mut g) = LLM_PACE.lock() {
+        if let Some(prev) = *g {
+            let elapsed = prev.elapsed().as_millis() as u64;
+            if elapsed < pace_ms {
+                std::thread::sleep(std::time::Duration::from_millis(pace_ms - elapsed));
+            }
+        }
+        *g = Some(std::time::Instant::now());
+    }
 }
 
 
@@ -681,6 +831,16 @@ pub trait Host {
     /// Crea un future que depende de otro.
     fn llm_chain(&self, _parent_id: u64, _provider: &str, _model: &str, _prompt: &str, _system: &str) -> Result<u64, String> {
         Err("LLM device not implemented".to_string())
+    }
+
+    /// Task 206-bis (F1): lista de modelos FREE de OpenRouter (device `llm:free`).
+    fn llm_free(&self, _url: &str) -> Result<String, String> {
+        Err("llm:free no soportado en este host".to_string())
+    }
+
+    /// Task 206-bis (F1): sonda de tools de un modelo (device `llm:probe`).
+    fn llm_probe(&self, _model: &str, _prompt: &str) -> Result<String, String> {
+        Err("llm:probe no soportado en este host".to_string())
     }
 
     // ── User Device (pregunta al humano) ────────────────────
@@ -2302,6 +2462,16 @@ impl Host for MemoryHost {
 
     fn llm_chain(&self, parent_id: u64, provider: &str, model: &str, prompt: &str, system: &str) -> Result<u64, String> {
         Ok(self.pool().chain(parent_id, provider, model, prompt, system))
+    }
+
+    /// F1 (206-bis): modelos free de OpenRouter (device `llm:free`).
+    fn llm_free(&self, url: &str) -> Result<String, String> {
+        llm_free_models(url)
+    }
+
+    /// F1 (206-bis): sonda de tools (device `llm:probe`).
+    fn llm_probe(&self, model: &str, prompt: &str) -> Result<String, String> {
+        llm_probe_call(model, prompt)
     }
 
     // ── User Device implementation ($DEVICE("user:ask")) ─────
