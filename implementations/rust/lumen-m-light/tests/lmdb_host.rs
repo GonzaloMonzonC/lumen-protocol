@@ -413,3 +413,50 @@ fn tx_rollback_descarta_y_anidado() {
     assert_eq!(h.get("R", &[ss("a")]).unwrap().unwrap().as_string(), "n1");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn sysinfo_overlay_ram_sobre_store() {
+    // Estreno neferu (20-sep-2026): el host siembra ^SYSINFO (nodo/version/
+    // routines_dir/filas…) SOLO en el mapa RAM. En modo LMDB el mapa debe
+    // actuar de overlay de lectura ($G/$D/$O) para ese namespace.
+    let dir = tmp_dir("sysinfo_overlay");
+    let mut h = MemoryHost::from_lmdb(&dir).unwrap();
+    // store: una clave NO gestionada bajo SYSINFO (p.ej. fuente) y una ns normal
+    h.set("SYSINFO", &[ss("fuente"), ss("X"), nn(1.0)], Value::String("src".into()))
+        .unwrap();
+    h.set("OTRA", &[ss("k")], Value::String("v".into())).unwrap();
+    // overlay RAM (lo que hace seed_sysinfo con si_put)
+    h.values.insert(
+        ("SYSINFO".to_string(), vec![ss("nodo")]),
+        Value::String("NODO-X".into()),
+    );
+    h.values.insert(
+        ("SYSINFO".to_string(), vec![ss("routines_dir")]),
+        Value::String("routines".into()),
+    );
+    // $G: overlay gana; el store sigue visible
+    assert_eq!(h.get("SYSINFO", &[ss("nodo")]).unwrap().unwrap().as_string(), "NODO-X");
+    assert_eq!(h.get("SYSINFO", &[ss("routines_dir")]).unwrap().unwrap().as_string(), "routines");
+    assert_eq!(
+        h.get("SYSINFO", &[ss("fuente"), ss("X"), nn(1.0)]).unwrap().unwrap().as_string(),
+        "src"
+    );
+    // $D: unión (semilla sola, store solo-hijos, ns ajena intacta)
+    assert_eq!(h.data("SYSINFO", &[ss("nodo")]).unwrap(), 1);
+    assert_eq!(h.data("SYSINFO", &[ss("fuente")]).unwrap(), 10);
+    assert_eq!(h.data("OTRA", &[ss("k")]).unwrap(), 1);
+    // $O: unión ordenada canónica (fuente < nodo < routines_dir)
+    assert_eq!(sub_str(&h.order("SYSINFO", &[], None, 1).unwrap().unwrap()), "fuente");
+    assert_eq!(
+        sub_str(&h.order("SYSINFO", &[], Some(&ss("fuente")), 1).unwrap().unwrap()),
+        "nodo"
+    );
+    assert_eq!(sub_str(&h.order("SYSINFO", &[], None, -1).unwrap().unwrap()), "routines_dir");
+    // set/kill en SYSINFO: espejo inmediato en el overlay
+    h.set("SYSINFO", &[ss("nodo")], Value::String("NODO-Y".into())).unwrap();
+    assert_eq!(h.get("SYSINFO", &[ss("nodo")]).unwrap().unwrap().as_string(), "NODO-Y");
+    h.kill("SYSINFO", &[ss("nodo")]).unwrap();
+    assert!(h.get("SYSINFO", &[ss("nodo")]).unwrap().is_none());
+    assert_eq!(h.data("SYSINFO", &[ss("nodo")]).unwrap(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}

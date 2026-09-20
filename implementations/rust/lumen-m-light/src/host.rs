@@ -1754,6 +1754,16 @@ impl Host for MemoryHost {
         // Backend LMDB (directo, mmap): sin BTreeMap de por medio.
         #[cfg(feature = "lmdb")]
         if let Some(store) = &self.lmdb {
+            // ^SYSINFO (20-sep-2026): el host siembra sus claves gestionadas SOLO
+            // en el mapa RAM (nodo/version/routines_dir/filas…). En modo LMDB ese
+            // mapa actúa de OVERLAY de lectura para este ns — paridad con el modo
+            // RAM (donde el seed purga y re-siembra el mapa). Bug cazado en el
+            // estreno de neferu: /health, %SS, ZS y spawn salían vacíos.
+            if ns == "SYSINFO" {
+                if let Some(v) = self.values.get(&(ns.to_string(), subs.to_vec())) {
+                    return Ok(Some(v.clone()));
+                }
+            }
             if let Some(b) = store.get_raw(ns, subs)? {
                 return Ok(Some(Value::String(String::from_utf8_lossy(&b).into_owned())));
             }
@@ -1792,7 +1802,13 @@ impl Host for MemoryHost {
     fn set(&mut self, ns: &str, subs: &[Subscript], value: Value) -> Result<(), String> {
         #[cfg(feature = "lmdb")]
         if let Some(store) = &mut self.lmdb {
-            return store.set_raw(ns, subs, value.as_string().as_bytes());
+            let r = store.set_raw(ns, subs, value.as_string().as_bytes());
+            // ^SYSINFO: espejo en el mapa RAM (overlay de lectura coherente:
+            // p.ej. ZS guarda ^SYSINFO("fuente",…) y ZL debe verlo al momento).
+            if ns == "SYSINFO" {
+                self.values.insert((ns.to_string(), subs.to_vec()), value);
+            }
+            return r;
         }
         // Always update in-memory BTreeMap first
         self.values.insert((ns.to_string(), subs.to_vec()), value.clone());
@@ -1814,7 +1830,13 @@ impl Host for MemoryHost {
     fn kill(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
         #[cfg(feature = "lmdb")]
         if let Some(store) = &mut self.lmdb {
-            return store.kill_raw(ns, subs);
+            let n = store.kill_raw(ns, subs)?;
+            // ^SYSINFO: espejo del borrado en el overlay RAM.
+            if ns == "SYSINFO" {
+                self.values
+                    .retain(|(cns, csubs), _| cns != ns || !is_prefix(subs, csubs));
+            }
+            return Ok(n);
         }
         // Always update in-memory BTreeMap
         let before = self.values.len();
@@ -1852,6 +1874,24 @@ impl Host for MemoryHost {
     fn data(&self, ns: &str, subs: &[Subscript]) -> Result<u8, String> {
         #[cfg(feature = "lmdb")]
         if let Some(store) = &self.lmdb {
+            // ^SYSINFO: $D sobre la unión overlay RAM (semillas del host) + store.
+            if ns == "SYSINFO" {
+                let own_m = self
+                    .values
+                    .contains_key(&(ns.to_string(), subs.to_vec()));
+                let child_m = self.values.keys().any(|(n, c)| {
+                    n == ns && c.len() > subs.len() && is_prefix(subs, c)
+                });
+                let d = store.data_raw(ns, subs)?;
+                let own = own_m || d == 1 || d == 11;
+                let child = child_m || d == 10 || d == 11;
+                return Ok(match (own, child) {
+                    (true, true) => 11,
+                    (true, false) => 1,
+                    (false, true) => 10,
+                    (false, false) => 0,
+                });
+            }
             let d = store.data_raw(ns, subs)?;
             if d != 0 {
                 return Ok(d);
@@ -1920,6 +1960,37 @@ impl Host for MemoryHost {
         // Backend LMDB: cursor directo O(log n); con ns montada, merge con remotos.
         #[cfg(feature = "lmdb")]
         if let Some(store) = &self.lmdb {
+            // ^SYSINFO: $O sobre la unión overlay RAM (semillas) + store.
+            if ns == "SYSINFO" {
+                let mut candidates: Vec<Subscript> = store.order_candidates(ns, parent)?;
+                for ((cns, subs), _) in self.values.iter() {
+                    if cns.as_str() == ns && is_prefix(parent, subs) && subs.len() > parent.len() {
+                        candidates.push(subs[parent.len()].clone());
+                    }
+                }
+                candidates.sort_by(|a, b| a.canonical_cmp(b));
+                candidates.dedup();
+                if direction >= 0 {
+                    for candidate in candidates.iter() {
+                        if let Some(ref cur) = current {
+                            if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
+                                continue;
+                            }
+                        }
+                        return Ok(Some(candidate.clone()));
+                    }
+                } else {
+                    for candidate in candidates.iter().rev() {
+                        if let Some(ref cur) = current {
+                            if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
+                                continue;
+                            }
+                        }
+                        return Ok(Some(candidate.clone()));
+                    }
+                }
+                return Ok(None);
+            }
             if remote_mount(self, ns).is_none() {
                 return store.order_raw(ns, parent, current, direction);
             }
