@@ -1634,13 +1634,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
         }
         flat.pop();
-        // Numera las líneas desde first_line: 1 + (first_line-1) = first_line
-        let program = Compiler::compile_with_offset(&flat, first_line.saturating_sub(1))
-            .map_err(|e| VmError::new("MCOMPILE", e, line))?;
         // ¿Hay un frame inline pendiente para este first_line? (resume tras yield)
         // Fix 2026-08-27: sin esto, el resume re-ejecutaba el bloque desde 0 →
         // efectos duplicados ($DEVICE("llm:call") dentro de DO resolvía 2 veces).
-        let resume_ip = match self
+        // Fix 21-sep-2026 (task_206-bis): al resumir se REUTILIZA el programa
+        // guardado en el frame — antes se recompilaba el source en CADA llamada
+        // y los `loop_id` de los FOR internos cambiaban → los frames de
+        // `loop_frames` (guardados con el id viejo) nunca se encontraban →
+        // replay infinito en F anidados dentro de D ^RUTINA.
+        let (program, resume_ip) = match self
             .state
             .inline_frames
             .iter()
@@ -1652,11 +1654,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             .rposition(|f| f.first_line == first_line)
         {
             Some(idx) => {
-                let ip = self.state.inline_frames[idx].ip;
-                self.state.inline_frames.remove(idx);
-                ip
+                let frame = self.state.inline_frames.remove(idx);
+                (frame.program, frame.ip)
             }
-            None => 0,
+            None => {
+                // Numera las líneas desde first_line: 1 + (first_line-1) = first_line
+                let prog = Compiler::compile_with_offset(&flat, first_line.saturating_sub(1))
+                    .map_err(|e| VmError::new("MCOMPILE", e, line))?;
+                (prog, 0)
+            }
         };
         self.inline_depth += 1;
         let result = (|| {
