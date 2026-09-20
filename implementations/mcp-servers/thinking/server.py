@@ -408,7 +408,7 @@ def _pdb_save_all() -> None:
             for w in sess.works:
                 pairs.append(("STATE", f"session:{sid}:work:{w['id']}".encode(), json.dumps(w).encode()))
             for pat in sess.patterns:
-                pairs.append(("STATE", f"session:{sid}:pattern:{pat.get('name','?')}".encode(), json.dumps(pat).encode()))
+                pairs.append(("STATE", f"session:{sid}:pattern:{pat.get('pattern_name') or pat.get('name') or ('p%s' % pat.get('id','?'))}".encode(), json.dumps(pat).encode()))
             for d in sess.decisions:
                 pairs.append(("STATE", f"session:{sid}:decision:{d['id']}".encode(), json.dumps(d).encode()))
             for title, page in sess.wiki.items():
