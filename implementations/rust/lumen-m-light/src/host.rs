@@ -3310,73 +3310,96 @@ pub(crate) fn encode_subkey(subs: &[Subscript]) -> Vec<u8> {
 /// Decodificar subkey binaria canónica a Subscripts TIPADOS.
 /// Formato: \x02 <str> \xff (string → Subscript::String, SIEMPRE string) ·
 /// \x01 <f64 BE 8B> (número → Subscript::Number) · \xff suelto = terminador.
-/// Legacy: \x01 + texto ASCII + \xff → Number si parsea como número, String si no.
+/// Legacy: \x01 + texto ASCII + \xff → Number si parsea como número.
 /// Bytes desconocidos se leen como string hasta \xff (tolerancia con filas legacy).
 /// Fix 2026-09-10 (bug tipos string/número): antes la salida era Vec<String> y
 /// TODOS los subscripts string-numéricos se re-normalizaban con parse::<f64> al
 /// insertarse → las filas escritas con subscript string "1" quedaban invisibles
 /// para ^G("1") tras un reload (y colisionaban con ^G(1)).
+/// Fix 2026-09-20 (incidente FF-bytes): la heurística "legacy si los 8 bytes
+/// contienen 0xFF" mangleaba NÚMEROS canónicos cuyo f64 contiene un byte 0xFF
+/// (los volvía String basura y cortaba enumeraciones). Nueva regla: el candidato
+/// legacy (\x01 + ascii + \xff) se acepta SOLO si el texto parsea como número
+/// (formato del encoder viejo); si no parsea → es canónico (8 bytes f64).
+/// OJO: ante ambigüedad imposible-de-desambiguar (f64 diminutos ~1e-77 cuyos
+/// bytes son dígitos ASCII) se prefiere la lectura legacy, igual que antes.
 pub(crate) fn decode_subkey(subkey: &[u8]) -> Vec<Subscript> {
     let mut result = Vec::new();
     let mut i = 0;
     while i < subkey.len() {
-        match subkey[i] {
-            0x01 => {
-                if i + 9 <= subkey.len() {
-                    let eight = &subkey[i + 1..i + 9];
-                    if eight.contains(&0xFF) {
-                        // Legacy lumen-m-light: \x01 + texto ASCII + \xff (los f64
-                        // canonicos de enteros/indices nunca contienen 0xFF).
-                        let end = subkey[i + 1..]
-                            .iter()
-                            .position(|&b| b == 0xFF)
-                            .map(|p| i + 1 + p)
-                            .unwrap_or(subkey.len());
-                        let txt = String::from_utf8_lossy(&subkey[i + 1..end]).to_string();
-                        result.push(if let Ok(n) = txt.parse::<f64>() {
-                            Subscript::Number(n)
-                        } else {
-                            Subscript::String(txt)
-                        });
-                        i = end + 1;
-                    } else {
-                        let mut bytes = [0u8; 8];
-                        bytes.copy_from_slice(eight);
-                        result.push(Subscript::Number(f64::from_be_bytes(bytes)));
-                        i += 9;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            0x02 | 0x00 => {
-                i += 1;
-                let end = subkey[i..]
-                    .iter()
-                    .position(|&b| b == 0xFF)
-                    .map(|p| i + p)
-                    .unwrap_or(subkey.len());
-                result.push(Subscript::String(
-                    String::from_utf8_lossy(&subkey[i..end]).to_string(),
-                ));
-                i = end + 1;
-            }
-            0xFF => i += 1, // terminador
-            _ => {
-                // legacy/desconocido: chunk como string hasta \xff (comportamiento previo)
-                let end = subkey[i..]
-                    .iter()
-                    .position(|&b| b == 0xFF)
-                    .map(|p| i + p)
-                    .unwrap_or(subkey.len());
-                result.push(Subscript::String(
-                    String::from_utf8_lossy(&subkey[i..end]).to_string(),
-                ));
-                i = end + 1;
-            }
+        let (sub, n) = decode_step(&subkey[i..]);
+        if let Some(s) = sub {
+            result.push(s);
         }
+        i += n.max(1);
     }
     result
+}
+
+/// Un paso de decodificación: (subscript, bytes consumidos).
+fn decode_step(b: &[u8]) -> (Option<Subscript>, usize) {
+    if b.is_empty() {
+        return (None, 1);
+    }
+    match b[0] {
+        0x01 => {
+            // Candidato legacy PRIMERO: \x01 + texto ASCII + \xff — se acepta
+            // SOLO si el texto parsea como f64 (formato del encoder viejo; cubre
+            // cualquier longitud de texto legacy). Para un NÚMERO canónico (8B
+            // f64) el candidato contiene bytes de control (01/02/NUL) → no parsea
+            // → se trata como canónico. Antes: los legacy de ≠7 chars se perdían
+            // o se volvían String, y los f64 con 0xFF se mangleaban.
+            if let Some(p) = b[1..]
+                .iter()
+                .position(|&x| x == 0xFF)
+                .filter(|&p| p <= 24)
+            {
+                let txt = String::from_utf8_lossy(&b[1..1 + p]).to_string();
+                if let Ok(n) = txt.parse::<f64>() {
+                    return (Some(Subscript::Number(n)), p + 2);
+                }
+            }
+            if b.len() >= 9 {
+                let mut bytes = [0u8; 8];
+                bytes.copy_from_slice(&b[1..9]);
+                (Some(Subscript::Number(f64::from_be_bytes(bytes))), 9)
+            } else {
+                (None, 1)
+            }
+        }
+        0x02 | 0x00 => {
+            let end = b[1..]
+                .iter()
+                .position(|&x| x == 0xFF)
+                .map(|p| 1 + p)
+                .unwrap_or(b.len());
+            (
+                Some(Subscript::String(
+                    String::from_utf8_lossy(&b[1..end]).to_string(),
+                )),
+                end + 1,
+            )
+        }
+        0xFF => (None, 1), // terminador
+        _ => {
+            // legacy/desconocido: chunk como string hasta \xff (comportamiento previo)
+            let end = b.iter().position(|&x| x == 0xFF).unwrap_or(b.len());
+            (
+                Some(Subscript::String(
+                    String::from_utf8_lossy(&b[..end]).to_string(),
+                )),
+                end + 1,
+            )
+        }
+    }
+}
+
+/// Primer subscript de una subkey + bytes consumidos — compartido con la
+/// enumeración de $O en LMDB (lmdb_store.rs) para que cursor y valores usen
+/// SIEMPRE la misma lectura del formato.
+pub(crate) fn first_sub_with_len(subkey: &[u8]) -> Option<(Subscript, usize)> {
+    let (sub, n) = decode_step(subkey);
+    sub.map(|s| (s, n))
 }
 
 /// Extraer el primer subscript de una subkey binaria.
