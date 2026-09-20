@@ -45,7 +45,7 @@ pub struct VmState {
     #[serde(default)]
     pub call_stack: Vec<usize>,
     #[serde(default)]
-    pub loop_frames: BTreeMap<usize, LoopFrame>,
+    pub loop_frames: BTreeMap<u32, LoopFrame>,
     #[serde(default)]
     pub local_scopes: Vec<LocalScope>,
     #[serde(default)]
@@ -94,6 +94,11 @@ pub struct VmState {
     /// bloque completo (efectos duplicados con $DEVICE("llm:call") dentro de DO).
     #[serde(default)]
     pub inline_frames: Vec<InlineFrame>,
+    /// Frames de llamadas locales (`D ETIQUETA` misma rutina) pendientes de
+    /// reanudar tras un yield. Fix 21-sep-2026: reanudan DENTRO del callee
+    /// (antes el replay re-disparaba los devices ya consumidos).
+    #[serde(default)]
+    pub local_frames: Vec<LocalCallFrame>,
     /// Estado del RNG de $RANDOM (LCG). Fix 2026-08-28: $R no existía → MFUNCTION.
     /// Se serializa para que el resume continúe la secuencia (no repetir valores).
     #[serde(default = "default_rng_state")]
@@ -152,6 +157,7 @@ impl VmState {
             fibers: vec![FiberState::default()],
             active_fiber: 0,
             inline_frames: Vec::new(),
+            local_frames: Vec::new(),
             rng_state: default_rng_state(),
             next_is_else: false,
         }
@@ -175,6 +181,13 @@ pub struct LoopFrame {
     limit: Option<f64>,
     body: String,
     body_ip: usize,
+    /// Programa compilado del cuerpo, CACHEADO (fix 21-sep-2026). Antes el
+    /// body se recompilaba en CADA llamada a exec_for: los `loop_id` de los
+    /// FOR internos cambiaban entre el guardado del frame y su resume → el
+    /// frame hijo (guardado con el id viejo) nunca se encontraba → replay
+    /// infinito. Con el cache los ids son estables entre slices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    body_program: Option<crate::compiler::Program>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -196,7 +209,7 @@ pub struct FiberState {
     #[serde(default)]
     pub call_stack: Vec<usize>,
     #[serde(default)]
-    pub loop_frames: BTreeMap<usize, LoopFrame>,
+    pub loop_frames: BTreeMap<u32, LoopFrame>,
     #[serde(default)]
     pub local_scopes: Vec<LocalScope>,
     #[serde(default)]
@@ -211,6 +224,8 @@ pub struct FiberState {
     pub output: String,
     #[serde(default)]
     pub inline_frames: Vec<InlineFrame>,
+    #[serde(default)]
+    pub local_frames: Vec<LocalCallFrame>,
 }
 
 /// Frame de un cuerpo inline (IF/DO/FOR con bloques de puntos) pendiente de
@@ -225,6 +240,31 @@ pub struct InlineFrame {
     pub ip: usize,
     /// Línea real de la primera instrucción del cuerpo (reporting de errores).
     pub first_line: usize,
+}
+
+/// Frame de una llamada local (`D ETIQUETA` misma rutina) pendiente de reanudar
+/// tras un yield. Fix 21-sep-2026 (task_206-bis): antes, un yield dentro de un
+/// callee local rompía el bucle anidado y restauraba el ip del llamador → cada
+/// slice RE-EJECUTABA el `D ETIQUETA` desde cero; los devices cuyo future ya se
+/// había consumido (`yield_future.take()`) RE-DISPARABAN la llamada (replay ×N:
+/// %LEVAL llamó 9× a los modelos). Ahora el re-run de la línea reanuda DENTRO
+/// del callee, en la instrucción exacta que cedió.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalCallFrame {
+    /// Línea del `D ETIQUETA` que originó la llamada (clave de reencuentro).
+    pub line: usize,
+    /// Etiqueta destino (MAYÚSCULAS).
+    pub label: String,
+    /// Instrucción del callee donde quedó (la que cedió; re-ejecutable).
+    pub callee_ip: usize,
+    /// ip del llamador a restaurar al terminar el callee.
+    pub return_ip: usize,
+    /// Base de `local_scopes` para restaurar al terminar.
+    pub scope_base: usize,
+    /// Formales del callee con sus valores previos (restaurar al terminar).
+    pub saved_params: Vec<(String, Option<Value>)>,
+    /// Referencias .ref (origen, parámetro) para el writeback al terminar.
+    pub refs: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +367,7 @@ impl<'a, H: Host> Vm<'a, H> {
             self.state.fibers[i].yield_future = self.state.yield_future;
             self.state.fibers[i].output = std::mem::take(&mut self.state.output);
             self.state.fibers[i].inline_frames = std::mem::take(&mut self.state.inline_frames);
+            self.state.fibers[i].local_frames = std::mem::take(&mut self.state.local_frames);
         }
     }
 
@@ -346,6 +387,7 @@ impl<'a, H: Host> Vm<'a, H> {
             self.state.yield_future = f.yield_future;
             self.state.output = f.output.clone();
             self.state.inline_frames = f.inline_frames.clone();
+            self.state.local_frames = f.local_frames.clone();
         }
         self.state.active_fiber = index;
     }
@@ -572,7 +614,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let arg = instruction.argument.replace('\x01', "\n");
                 self.exec_inline(&arg, instruction.line)?;
             }
-            Opcode::For => return self.exec_for(&instruction.argument, instruction.line),
+            Opcode::For => return self.exec_for(&instruction.argument, instruction.line, instruction.loop_id),
             Opcode::Quit => {
                 let argument = instruction.argument.trim();
                 if argument.is_empty() {
@@ -929,75 +971,143 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 }
             }
         } else {
-            // D LABEL(args) — local DO with optional .ref pass-by-reference
+            // D LABEL(args) — local DO con resume-aware de yields (fix 21-sep-2026)
+            // task_206-bis: antes el replay re-disparaba los devices ya consumidos
+            // ($DEVICE dentro del callee → llamadas LLM ×N). Ahora hay frame.
             let label_upper = target_name.trim().to_ascii_uppercase();
             let source_local = self.program.source.clone();
             let formals = parse_formal_params(&source_local, &label_upper).unwrap_or_default();
-            
-            let mut refs: Vec<(String, String)> = Vec::new();
-            let raw_args_list = split_top_level(raw_arguments, ',')
-                .into_iter()
-                .filter(|v| !v.is_empty())
-                .collect::<Vec<_>>();
-            let mut evaluated = Vec::new();
-            
-            for (i, raw) in raw_args_list.iter().enumerate() {
-                let trimmed = raw.trim();
-                let param_name = formals.get(i).cloned().unwrap_or_default();
-                if trimmed.starts_with('.') && !param_name.is_empty() {
-                    let src_var = trimmed.trim_start_matches('.').trim().to_string();
-                    if is_identifier(&src_var) {
-                        // Copy array from caller var to callee param
-                        let prefix = format!("{}[", src_var);
-                        let collected: Vec<(String, Value)> = self.state.vars.iter()
-                            .filter(|(k, _)| k.starts_with(&prefix))
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect();
-                        for (key, val) in &collected {
-                            let suffix = key.trim_start_matches(&prefix);
-                            self.state.vars.insert(format!("{}[{}", param_name, suffix), val.clone());
-                        }
-                        refs.push((src_var, param_name));
-                        evaluated.push(Value::Null);
-                        continue;
-                    }
-                }
-                evaluated.push(self.eval_expr(raw, line)?);
-            }
-            
-            // Bind non-.ref params as $1, $2, ...
-            // Fix 14-sep-2026: guardar valores previos de los formales (locales
-            // del callee en MUMPS; antes la recursión se pisaba a sí misma).
-            let saved_params: Vec<(String, Option<Value>)> = formals
-                .iter()
-                .map(|p| (p.clone(), self.state.vars.get(p).cloned()))
-                .collect();
-            for (i, pname) in formals.iter().enumerate() {
-                let trimmed = raw_args_list.get(i).map(|a| a.trim()).unwrap_or("");
-                if !trimmed.starts_with('.') {
-                    if let Some(val) = evaluated.get(i) {
-                        self.state.vars.insert(pname.clone(), val.clone());
-                    }
-                }
-            }
-            self.bind_arguments(evaluated);
-            let scope_base = self.state.local_scopes.len();
-
-            // Local label jump
-            let destination = self.label_ip(target_name, line)?;
             let saved_ip = self.state.ip;
-            self.state.call_stack.push(self.state.ip);
-            self.state.ip = destination;
-            
-            // Execute up to label
-            while self.state.ip < self.program.instructions.len() && !self.state.halted {
-                let instr = self.program.instructions[self.state.ip].clone();
-                let ctrl = self.execute_instruction(&instr)?;
-                match ctrl {
-                    Control::Continue => self.state.ip += 1,
-                    Control::Skip(n) => self.state.ip += 1 + n as usize,
-                    Control::Quit | Control::Halt | Control::Yield => break,
+
+            // ★ Fix 21-sep-2026: ¿frame pendiente para ESTA línea+etiqueta?
+            // → REANUDAR dentro del callee, sin rehacer la preparación de args.
+            let resume_idx = self
+                .state
+                .local_frames
+                .iter()
+                .rposition(|f| f.line == line && f.label == label_upper);
+            let (scope_base, refs, saved_params) = if let Some(idx) = resume_idx {
+                let f = self.state.local_frames.remove(idx);
+                // El frame del call_stack se mantiene mientras el callee está
+                // suspendido; re-push defensivo solo si falta.
+                if self.state.call_stack.last().copied() != Some(f.return_ip) {
+                    self.state.call_stack.push(f.return_ip);
                 }
+                self.state.ip = f.callee_ip;
+                (f.scope_base, f.refs, f.saved_params)
+            } else {
+                let mut refs: Vec<(String, String)> = Vec::new();
+                let raw_args_list = split_top_level(raw_arguments, ',')
+                    .into_iter()
+                    .filter(|v| !v.is_empty())
+                    .collect::<Vec<_>>();
+                let mut evaluated = Vec::new();
+
+                for (i, raw) in raw_args_list.iter().enumerate() {
+                    let trimmed = raw.trim();
+                    let param_name = formals.get(i).cloned().unwrap_or_default();
+                    if trimmed.starts_with('.') && !param_name.is_empty() {
+                        let src_var = trimmed.trim_start_matches('.').trim().to_string();
+                        if is_identifier(&src_var) {
+                            // Copy array from caller var to callee param
+                            let prefix = format!("{}[", src_var);
+                            let collected: Vec<(String, Value)> = self.state.vars.iter()
+                                .filter(|(k, _)| k.starts_with(&prefix))
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
+                            for (key, val) in &collected {
+                                let suffix = key.trim_start_matches(&prefix);
+                                self.state.vars.insert(format!("{}[{}", param_name, suffix), val.clone());
+                            }
+                            refs.push((src_var, param_name));
+                            evaluated.push(Value::Null);
+                            continue;
+                        }
+                    }
+                    evaluated.push(self.eval_expr(raw, line)?);
+                }
+
+                // Bind non-.ref params as $1, $2, ...
+                // Fix 14-sep-2026: guardar valores previos de los formales (locales
+                // del callee en MUMPS; antes la recursión se pisaba a sí misma).
+                let saved_params: Vec<(String, Option<Value>)> = formals
+                    .iter()
+                    .map(|p| (p.clone(), self.state.vars.get(p).cloned()))
+                    .collect();
+                for (i, pname) in formals.iter().enumerate() {
+                    let trimmed = raw_args_list.get(i).map(|a| a.trim()).unwrap_or("");
+                    if !trimmed.starts_with('.') {
+                        if let Some(val) = evaluated.get(i) {
+                            self.state.vars.insert(pname.clone(), val.clone());
+                        }
+                    }
+                }
+                self.bind_arguments(evaluated);
+                let scope_base = self.state.local_scopes.len();
+                // Local label jump
+                let destination = self.label_ip(target_name, line)?;
+                self.state.call_stack.push(self.state.ip);
+                self.state.ip = destination;
+                // Frame de la llamada (vive hasta Quit o hasta el yield; en el
+                // yield se reemplaza con el punto exacto para el resume).
+                self.state.local_frames.push(LocalCallFrame {
+                    line,
+                    label: label_upper.clone(),
+                    callee_ip: self.state.ip,
+                    return_ip: saved_ip,
+                    scope_base,
+                    saved_params: saved_params.clone(),
+                    refs: refs.clone(),
+                });
+                (scope_base, refs, saved_params)
+            };
+
+            // Ejecutar el callee hasta Quit / Halt / yield (soft: yield_requested)
+            let mut outcome = Control::Continue;
+            while self.state.ip < self.program.instructions.len() && !self.state.halted {
+                let cur = self.state.ip;
+                let instr = self.program.instructions[cur].clone();
+                let ctrl = self.execute_instruction(&instr)?;
+                if self.state.yield_requested {
+                    // Suspender: frame con el punto EXACTO (la instrucción que
+                    // cedió — se re-ejecuta y re-poll el mismo future) y
+                    // devolver Continue para que run_slice rebobine la línea D.
+                    if let Some(idx) = self
+                        .state
+                        .local_frames
+                        .iter()
+                        .rposition(|f| f.line == line && f.label == label_upper)
+                    {
+                        self.state.local_frames.remove(idx);
+                    }
+                    self.state.local_frames.push(LocalCallFrame {
+                        line,
+                        label: label_upper.clone(),
+                        callee_ip: cur,
+                        return_ip: saved_ip,
+                        scope_base,
+                        saved_params: saved_params.clone(),
+                        refs: refs.clone(),
+                    });
+                    self.state.ip = saved_ip;
+                    return Ok(Control::Continue);
+                }
+                match ctrl {
+                    Control::Continue => self.state.ip = cur + 1,
+                    Control::Skip(n) => self.state.ip = cur + 1 + n as usize,
+                    Control::Quit => { outcome = Control::Quit; break; }
+                    Control::Halt => { outcome = Control::Halt; break; }
+                    Control::Yield => break, // yield duro (LOCK); semántica previa
+                }
+            }
+            // Terminó la llamada: consumir el frame (si queda) y limpiar.
+            if let Some(idx) = self
+                .state
+                .local_frames
+                .iter()
+                .rposition(|f| f.line == line && f.label == label_upper)
+            {
+                self.state.local_frames.remove(idx);
             }
             self.state.ip = saved_ip;
             self.state.call_stack.pop();
@@ -1027,7 +1137,11 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     None => { self.state.vars.remove(&p); }
                 }
             }
+            if matches!(outcome, Control::Halt) {
+                return Ok(Control::Halt);
+            }
         }
+
         Ok(Control::Continue)
     }
 
@@ -1249,13 +1363,19 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         Ok(true)
     }
 
-    fn exec_for(&mut self, argument: &str, line: usize) -> Result<Control, VmError> {
+    fn exec_for(&mut self, argument: &str, line: usize, loop_id: u32) -> Result<Control, VmError> {
         let argument = argument.trim();
         if argument.is_empty() {
             return Ok(Control::Continue);
         }
+        // Fix 21-sep-2026: la CLAVE del frame es `loop_id` (único global). Antes
+        // era `state.ip-1`, que para todos los FOR anidados dentro de un inline
+        // (D ^RUTINA) es la MISMA (state.ip clavado en la línea D) → colisión:
+        // el FOR externo adoptaba el frame del interno al resumir → replay
+        // infinito con devices. `instruction_ip` solo se usa ahora para
+        // rebobinar `state.ip` en FORs de nivel superior (inline_depth == 0).
         let instruction_ip = self.state.ip.saturating_sub(1);
-        let mut frame = if let Some(frame) = self.state.loop_frames.remove(&instruction_ip) {
+        let mut frame = if let Some(frame) = self.state.loop_frames.remove(&loop_id) {
             frame
         } else {
             let (specification, raw_body) = split_for_body(argument);
@@ -1282,6 +1402,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     limit,
                     body: strip_block(raw_body).to_string(),
                     body_ip: 0,
+                    body_program: None,
                 }
             } else {
                 LoopFrame {
@@ -1291,11 +1412,18 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     limit: None,
                     body: strip_block(argument).to_string(),
                     body_ip: 0,
+                    body_program: None,
                 }
             }
         };
-        let body_program = Compiler::compile(&frame.body)
-            .map_err(|error| VmError::new("MCOMPILE", error, line))?;
+        // Fix 21-sep-2026: el cuerpo se compila UNA vez y se cachea en el frame
+        // (ids de `loop_id` estables entre slices; sin recompilar en cada resume).
+        if frame.body_program.is_none() {
+            let prog = Compiler::compile(&frame.body)
+                .map_err(|error| VmError::new("MCOMPILE", error, line))?;
+            frame.body_program = Some(prog);
+        }
+        let body_program = frame.body_program.clone().unwrap();
 
         loop {
             if frame.body_ip == 0 {
@@ -1316,7 +1444,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     && self.host.transaction_level() == 0
                     && self.inline_depth == 0
                 {
-                    self.state.loop_frames.insert(instruction_ip, frame);
+                    self.state.loop_frames.insert(loop_id, frame);
                     self.state.ip = instruction_ip;
                     return Ok(Control::Yield);
                 }
@@ -1338,7 +1466,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         // body_ip para reanudar en la misma instrucción.
                         if self.state.yield_requested {
                             frame.body_ip = frame.body_ip.saturating_sub(1);
-                            self.state.loop_frames.insert(instruction_ip, frame);
+                            self.state.loop_frames.insert(loop_id, frame);
                             // Fix 14-sep-2026: dentro de un inline (D ^RUTINA /
                             // programa anidado) NO pisar state.ip — el llamador
                             // re-ejecuta su instrucción y el frame inline hace el
@@ -1359,7 +1487,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         // entrada, LOCK sin adquirir): rebobinar el body_ip
                         // para no saltársela al reanudar.
                         frame.body_ip = frame.body_ip.saturating_sub(1);
-                        self.state.loop_frames.insert(instruction_ip, frame);
+                        self.state.loop_frames.insert(loop_id, frame);
                         if self.inline_depth == 0 {
                             self.state.ip = instruction_ip;
                         }
@@ -3409,6 +3537,83 @@ mod for_split_tests {
         assert_eq!(vm.state.output, "CT=2", "cada iteración debe incrementar UNA vez, output={:?}", vm.state.output);
         let ct = host.inner.get("CT", &[]).unwrap();
         assert_eq!(ct.clone().map(|v| v.as_number()), Some(2.0), "^CT debe ser 2, got {ct:?}");
+    }
+
+    /// Fix 21-sep-2026 (task_206-bis): yields dentro de una llamada LOCAL
+    /// (`D AUX` misma rutina). Antes, cada resume re-ejecutaba el callee desde
+    /// cero y los devices ya consumidos RE-DISPARABAN llamadas nuevas (replay
+    /// ×N: %LEVAL llamó 9× a los modelos). Ahora el frame local reanuda dentro
+    /// del callee: 2 devices = EXACTAMENTE 2 forks, sin replay.
+    #[test]
+    fn yield_inside_local_do_resumes_no_replay() {
+        let source = "S ^CT=0\nD AUX\nW \"fin \",^R1,\"|\",^R2 Q\nAUX S ^R1=$DEVICE(\"llm:call\",\"uno\")\nS ^CT=^CT+1\nS ^R2=$DEVICE(\"llm:call\",\"dos\")\nS ^CT=^CT+1\nQ";
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut host = FakeLlmHost::new();
+        let results = host.results.clone();
+        let counter = host.next_id.clone();
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+
+        let mut yields = 0;
+        loop {
+            let exec = vm.run();
+            match exec {
+                crate::Execution::Yielded => {
+                    yields += 1;
+                    assert!(yields <= 3, "demasiados yields: replay detectado ({yields})");
+                    let id = vm.state.yield_future.expect("yield_future");
+                    results.borrow_mut().insert(id, format!("resp{id}"));
+                    let state = vm.state.clone();
+                    vm = crate::Vm::resume(program.clone(), state, &mut host).unwrap();
+                }
+                crate::Execution::Completed | crate::Execution::Halted => break,
+                other => panic!("inesperado: {other:?}"),
+            }
+        }
+        assert_eq!(yields, 2, "2 devices = 2 yields");
+        assert_eq!(*counter.borrow(), 2, "solo 2 forks totales (replay disparaba más)");
+        assert_eq!(vm.state.output, "fin resp1|resp2", "output={:?}", vm.state.output);
+        let ct = host.inner.get("CT", &[]).unwrap();
+        assert_eq!(ct.clone().map(|v| v.as_number()), Some(2.0), "^CT debe ser 2");
+    }
+
+    /// Fix 21-sep-2026: FOR ANIDADO con device (p.ej. retry-F dentro de un
+    /// processing-F). Antes ambos FOR compartían clave en `loop_frames`
+    /// (state.ip-1 = misma línea D dentro de inline) → al resumir un yield, el
+    /// FOR externo adoptaba el frame del interno → replay infinito ("try" ×N).
+    /// Ahora la clave es `loop_id` único por instrucción FOR.
+    #[test]
+    fn nested_for_with_device_resumes_without_collision() {
+        let source = "S ^T=0\nF a=1:1:2 D\n. S r=\"\"\n. F b=1:1:2 D\n. . S r=$DEVICE(\"llm:call\",\"x\")\n. S ^T=^T+1\nW \"T=\",^T Q";
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut host = FakeLlmHost::new();
+        let results = host.results.clone();
+        let counter = host.next_id.clone();
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+
+        let mut yields = 0;
+        loop {
+            let exec = vm.run();
+            match exec {
+                crate::Execution::Yielded => {
+                    yields += 1;
+                    assert!(yields <= 16, "demasiados yields: colisión de loop_frames ({yields})");
+                    let id = vm.state.yield_future.expect("yield_future");
+                    // Inyectar solo 1 de cada 2 yields → cada device espera 2
+                    // ciclos (reproduce el multi-ciclo real de una llamada lenta)
+                    if yields % 2 == 0 {
+                        results.borrow_mut().insert(id, format!("resp{id}"));
+                    }
+                    let state = vm.state.clone();
+                    vm = crate::Vm::resume(program.clone(), state, &mut host).unwrap();
+                }
+                crate::Execution::Completed | crate::Execution::Halted => break,
+                other => panic!("inesperado: {other:?}"),
+            }
+        }
+        assert!(yields >= 4 && yields <= 16, "yields={yields} (esperado 4..16 por el doble ciclo)");
+        assert_eq!(*counter.borrow(), 4, "4 forks exactos (sin replay)");
+        let t = host.inner.get("T", &[]).unwrap();
+        assert_eq!(t.clone().map(|v| v.as_number()), Some(2.0), "^T debe ser 2, got {t:?}");
     }
 
     /// Device USER (2026-08-28): $DEVICE("user:ask", pregunta) hace yield;

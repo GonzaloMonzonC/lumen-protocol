@@ -38,7 +38,20 @@ pub struct Instruction {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postcondition: Option<String>,
     pub line: usize,
+    /// ID único de bucle (solo significativo en `Opcode::For`). Fix 21-sep-2026:
+    /// la clave de `loop_frames` era `state.ip-1`, que dentro de un inline
+    /// (`D ^RUTINA`) es LA MISMA para todos los FOR anidados (state.ip queda
+    /// clavado en la línea D) → colisión de frames → el FOR externo adoptaba el
+    /// frame del interno al resumir un yield → replay infinito con devices.
+    /// Ahora cada FOR lleva un ID global y `loop_frames` se indexa por él.
+    #[serde(default)]
+    pub loop_id: u32,
 }
+
+/// Contador global de IDs de bucle — único por instrucción FOR en TODO proceso
+/// (los programas inline/bodies se compilan ad-hoc; el ID debe ser único entre
+/// todos ellos porque comparten el mapa `loop_frames` del VM).
+static NEXT_LOOP_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Program {
@@ -92,6 +105,7 @@ impl Compiler {
                     argument: label.to_string(),
                     postcondition: None,
                     line: line_number,
+                    loop_id: 0,
                 });
                 rest.trim()
             } else {
@@ -200,6 +214,12 @@ impl Compiler {
                 }
             }
             i += 1;
+        }
+        // Fix 21-sep-2026: ID único por instrucción FOR (clave de loop_frames).
+        for instr in instructions.iter_mut() {
+            if matches!(instr.opcode, Opcode::For) {
+                instr.loop_id = NEXT_LOOP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
         }
         let source_hash = format!("{:x}", Sha256::digest(source.as_bytes()));
         Ok(Program {
@@ -382,6 +402,7 @@ fn compile_line(
                 argument: rest.to_string(),
                 postcondition: None,
                 line: line_number,
+                loop_id: 0,
             });
             break;
         };
@@ -427,6 +448,7 @@ fn compile_line(
             argument,
             postcondition,
             line: line_number,
+            loop_id: 0,
         });
         rest = after_token[boundary..].trim_start();
     }
