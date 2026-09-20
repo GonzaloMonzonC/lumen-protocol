@@ -433,6 +433,52 @@ pub fn llm_call_sync(
     LlmThreadPool::do_llm_call(&item)
 }
 
+/// Task 206 · F1.5: llamada LLM con payload OpenAI COMPLETO (messages arbitrarios,
+/// `tools`, `tool_choice`, temperature…) — passthrough para el gateway del nodo.
+/// Devuelve el JSON ÍNTEGRO de la respuesta para relay fiel (content O tool_calls +
+/// finish_reason + usage). Misma ruta HTTP/keys que `llm_call_sync` (env; el gateway
+/// hace el bootstrap desde ^CONFIG antes de servir).
+pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let url = match provider.to_lowercase().as_str() {
+        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+        "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+        "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
+        _ => return Err(format!("unknown provider: {provider}")),
+    };
+    let api_key = match provider.to_lowercase().as_str() {
+        "openrouter" => std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
+        "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+        "lingyi" | "zai" | "yi" | "01ai" => std::env::var("LINGYI_API_KEY").unwrap_or_default(),
+        _ => String::new(),
+    };
+    #[cfg(feature = "minreq")]
+    {
+        let body_str = serde_json::to_string(body)
+            .map_err(|e| format!("JSON serialize error: {e}"))?;
+        let build = || {
+            let mut req = minreq::post(url)
+                .with_header("Content-Type", "application/json")
+                .with_timeout(150)
+                .with_body(body_str.clone());
+            if !api_key.is_empty() {
+                req = req.with_header("Authorization", &format!("Bearer {api_key}"));
+            }
+            req
+        };
+        let resp = minreq_send_retry(build).map_err(|e| format!("HTTP error: {e}"))?;
+        if resp.status_code != 200 {
+            let err_text = resp.as_str().unwrap_or("unknown");
+            return Err(format!("API error {}: {}", resp.status_code, err_text));
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| format!("JSON parse error: {e}"))?;
+        Ok(json)
+    }
+    #[cfg(not(feature = "minreq"))]
+    { return Err("HTTP client not enabled (minreq feature)".to_string()); }
+}
+
 
 // ── FiberBgPool — thread pool para ejecutar M code en background ─
 #[derive(Debug, Clone, Serialize, Deserialize)]
