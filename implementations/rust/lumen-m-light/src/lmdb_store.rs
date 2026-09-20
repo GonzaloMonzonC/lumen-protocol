@@ -38,6 +38,8 @@ use crate::{Subscript, Value};
 use heed::types::Bytes;
 use heed::{Database, Env, EnvOpenOptions};
 use std::ops::Bound;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 /// Entrada del undo-log: clave + valor previo (None = la clave no existía).
 #[derive(Clone)]
@@ -46,11 +48,22 @@ struct UndoEntry {
     previous: Option<Vec<u8>>,
 }
 
+/// Caché de hijos por nivel (para $O): clave = prefijo del parent.
+struct OrderCache {
+    version: u64,
+    map: std::collections::HashMap<Vec<u8>, Vec<Subscript>>,
+}
+
 pub struct LmdbStore {
     env: Env,
     db: Database<Bytes, Bytes>,
     /// Un Vec de entradas por nivel de TSTART, en orden cronológico.
     undo: Vec<Vec<UndoEntry>>,
+    /// Caché de hijos por parent para $O (invalidada por versión en cada write).
+    /// ⚠️ Asume un único proceso escritor (modelo del nodo); otro proceso que
+    /// escriba no la invalida (el modo LMDB del motor es de proceso único).
+    order_cache: Mutex<OrderCache>,
+    write_version: AtomicU64,
 }
 
 impl Clone for LmdbStore {
@@ -63,7 +76,13 @@ impl Clone for LmdbStore {
             .open_database::<Bytes, Bytes>(&rtxn, Some("globals"))
             .expect("lmdb clone: open_database")
             .expect("lmdb clone: db globals existe");
-        Self { env: self.env.clone(), db, undo: self.undo.clone() }
+        Self {
+            env: self.env.clone(),
+            db,
+            undo: self.undo.clone(),
+            order_cache: Mutex::new(OrderCache { version: 0, map: Default::default() }),
+            write_version: AtomicU64::new(self.write_version.load(Ordering::Relaxed)),
+        }
     }
 }
 
@@ -128,7 +147,13 @@ impl LmdbStore {
             .map_err(|e| map_err("create_database", e))?;
         wtxn.commit().map_err(|e| map_err("commit(init)", e))?;
 
-        Ok(Self { env, db, undo: Vec::new() })
+        Ok(Self {
+            env,
+            db,
+            undo: Vec::new(),
+            order_cache: Mutex::new(OrderCache { version: 0, map: Default::default() }),
+            write_version: AtomicU64::new(1),
+        })
     }
 
     /// Tamaño del mapa (diagnóstico).
@@ -160,7 +185,46 @@ impl LmdbStore {
         self.db
             .put(&mut wtxn, &key, val)
             .map_err(|e| map_err("put", e))?;
-        wtxn.commit().map_err(|e| map_err("commit(set)", e))
+        wtxn.commit().map_err(|e| map_err("commit(set)", e))?;
+        self.invalidate();
+        Ok(())
+    }
+
+    /// Inserción masiva en UNA sola write-transaction (conversores / bulk load).
+    /// `rows` = (ns, subkey YA codificado, value bytes). No entra en el undo-log
+    /// (uso: migración one-shot fuera de transacciones M).
+    pub fn put_many(&mut self, rows: &[(String, Vec<u8>, Vec<u8>)]) -> Result<usize, String> {
+        let mut wtxn = self.env.write_txn().map_err(|e| map_err("write_txn(put_many)", e))?;
+        for (ns, subkey, val) in rows {
+            let mut k = Vec::with_capacity(ns.len() + 1 + subkey.len());
+            k.extend_from_slice(ns.as_bytes());
+            k.push(0);
+            k.extend_from_slice(subkey);
+            self.db.put(&mut wtxn, &k, val).map_err(|e| map_err("put_many", e))?;
+        }
+        wtxn.commit().map_err(|e| map_err("commit(put_many)", e))?;
+        self.invalidate();
+        Ok(rows.len())
+    }
+
+    /// Nº total de claves (verificación del conversor).
+    pub fn count(&self) -> Result<u64, String> {
+        let rtxn = self.env.read_txn().map_err(|e| map_err("read_txn(count)", e))?;
+        self.db.len(&rtxn).map_err(|e| map_err("len", e))
+    }
+
+    /// Lectura cruda por subkey ya codificado (verificación del conversor).
+    pub fn get_raw_subkey(&self, ns: &str, subkey: &[u8]) -> Result<Option<Vec<u8>>, String> {
+        let mut k = Vec::with_capacity(ns.len() + 1 + subkey.len());
+        k.extend_from_slice(ns.as_bytes());
+        k.push(0);
+        k.extend_from_slice(subkey);
+        let rtxn = self.env.read_txn().map_err(|e| map_err("read_txn", e))?;
+        Ok(self
+            .db
+            .get(&rtxn, &k)
+            .map_err(|e| map_err("get", e))?
+            .map(|v| v.to_vec()))
     }
 
     /// KILL ^ns(subs...): borra el nodo y todo su subárbol. Devuelve nº de claves.
@@ -204,6 +268,7 @@ impl LmdbStore {
             )
             .map_err(|e| map_err("delete_range", e))?;
         wtxn.commit().map_err(|e| map_err("commit(kill)", e))?;
+        self.invalidate();
         Ok(n as u64)
     }
 
@@ -243,14 +308,25 @@ impl LmdbStore {
         })
     }
 
-    /// Enumera los hijos directos de `parent` (subs de primer nivel bajo el
-    /// rango (P, P+FF]). Saltos de cursor: O(log n) por hijo. Orden byte, que
-    /// luego se re-ordena canónicamente donde corresponda.
+    /// Enumera los hijos directos de `parent` en orden canónico M (números por
+    /// valor, luego strings lexicográficas — igual que el host RAM).
+    /// Saltos de cursor: O(log n) por hijo, UNA vez por parent (caché hasta el
+    /// siguiente write) → $O queda O(log k) por paso.
     pub fn order_candidates(&self, ns: &str, parent: &[Subscript]) -> Result<Vec<Subscript>, String> {
         let pfx = prefix_key(ns, parent);
+        if let Some(list) = self.cache_get(&pfx) {
+            return Ok(list);
+        }
+        let list = self.enumerate_children(&pfx)?;
+        self.cache_put(pfx, list.clone());
+        Ok(list)
+    }
+
+    /// Enumeración cruda (byte-order con saltos) + re-orden canónico. Sin caché.
+    fn enumerate_children(&self, pfx: &[u8]) -> Result<Vec<Subscript>, String> {
         let rtxn = self.env.read_txn().map_err(|e| map_err("read_txn(cand)", e))?;
         let mut out: Vec<Subscript> = Vec::new();
-        let mut seek = pfx.clone();
+        let mut seek = pfx.to_vec();
 
         loop {
             let item = self
@@ -261,29 +337,71 @@ impl LmdbStore {
                 Some(kv) => kv,
                 None => break,
             };
-            if !k.starts_with(&pfx) || k.len() <= pfx.len() {
+            if !k.starts_with(pfx) || k.len() <= pfx.len() {
                 break;
             }
             let rest = &k[pfx.len()..];
             if rest[0] == 0xFF {
                 break; // nodo del propio `parent` (P+FF) → no hay más hijos
             }
-            let sub = match decode_subkey(rest).into_iter().next() {
-                Some(s) => s,
-                None => break,
+            // ⚠️ Boundary ESTRUCTURAL del primer sub (no fiarse del decode: el
+            // decoder manglea nums cuyo f64-BE contiene 0xFF — bug pre-existente
+            // del core; con él, el saltar con un sub mal decodificado corta la
+            // enumeración). Formato del encoder actual: 01 → 01+8B (9 bytes);
+            // 02 → 02+ascii+FF (hasta el FF inclusive).
+            let boundary = match rest[0] {
+                0x01 => 9usize.min(rest.len()),
+                0x02 => rest
+                    .iter()
+                    .position(|&b| b == 0xFF)
+                    .map(|p| p + 1)
+                    .unwrap_or(rest.len()),
+                _ => break,
             };
-            // saltar el subárbol de `sub`: mayor clave < su nodo es P+enc(sub)+FF
-            let mut jump = pfx.clone();
-            jump.extend(encode_one_sub(&sub));
+            if let Some(sub) = decode_subkey(&rest[..boundary]).into_iter().next() {
+                out.push(sub);
+            }
+            // saltar el subárbol del sub: P + bytes-del-sub + 0xFF (su nodo máx.)
+            let mut jump = pfx.to_vec();
+            jump.extend_from_slice(&rest[..boundary]);
             jump.push(0xFF);
             seek = jump;
-            out.push(sub);
         }
+        // Orden canónico M + dedup (el byte-order no vale para strings-prefijo)
+        out.sort_by(|a, b| a.canonical_cmp(b));
+        out.dedup();
         Ok(out)
     }
 
+    fn cache_get(&self, pfx: &[u8]) -> Option<Vec<Subscript>> {
+        let c = self.order_cache.lock().ok()?;
+        if c.version != self.write_version.load(Ordering::Relaxed) {
+            return None;
+        }
+        c.map.get(pfx).cloned()
+    }
+
+    fn cache_put(&self, pfx: Vec<u8>, list: Vec<Subscript>) {
+        if let Ok(mut c) = self.order_cache.lock() {
+            let v = self.write_version.load(Ordering::Relaxed);
+            if c.version != v {
+                c.map.clear();
+                c.version = v;
+            }
+            if c.map.len() > 32 {
+                c.map.clear();
+            }
+            c.map.insert(pfx, list);
+        }
+    }
+
+    /// Invalida la caché de $O (cualquier write cambia los hijos).
+    fn invalidate(&self) {
+        self.write_version.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// $O forward/backward con semántica canónica idéntica al host RAM:
-    /// candidatos por cursor + sort `canonical_cmp` + selección por dirección.
+    /// búsqueda binaria sobre la lista de hijos (cacheada).
     pub fn order_raw(
         &self,
         ns: &str,
@@ -291,29 +409,22 @@ impl LmdbStore {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
-        let mut candidates = self.order_candidates(ns, parent)?;
-        candidates.sort_by(|a, b| a.canonical_cmp(b));
-        candidates.dedup();
+        let candidates = self.order_candidates(ns, parent)?;
         if direction >= 0 {
-            for candidate in candidates.iter() {
-                if let Some(cur) = current {
-                    if candidate.canonical_cmp(cur) != std::cmp::Ordering::Greater {
-                        continue;
-                    }
-                }
-                return Ok(Some(candidate.clone()));
-            }
+            let start = match current {
+                Some(cur) => candidates
+                    .partition_point(|c| c.canonical_cmp(cur) != std::cmp::Ordering::Greater),
+                None => 0,
+            };
+            Ok(candidates.get(start).cloned())
         } else {
-            for candidate in candidates.iter().rev() {
-                if let Some(cur) = current {
-                    if candidate.canonical_cmp(cur) != std::cmp::Ordering::Less {
-                        continue;
-                    }
-                }
-                return Ok(Some(candidate.clone()));
-            }
+            let end = match current {
+                Some(cur) => candidates
+                    .partition_point(|c| c.canonical_cmp(cur) == std::cmp::Ordering::Less),
+                None => candidates.len(),
+            };
+            Ok(end.checked_sub(1).and_then(|i| candidates.get(i).cloned()))
         }
-        Ok(None)
     }
 
     /// Todas las entradas (dumps, fibers, ffi) — decodifica ns + subs + value.
@@ -402,6 +513,8 @@ impl LmdbStore {
                 }
             }
         }
-        wtxn.commit().map_err(|e| map_err("commit(rollback)", e))
+        wtxn.commit().map_err(|e| map_err("commit(rollback)", e))?;
+        self.invalidate();
+        Ok(())
     }
 }
