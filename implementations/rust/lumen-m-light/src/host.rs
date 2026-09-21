@@ -1368,7 +1368,7 @@ fn rag_stats(host: &MemoryHost, args: &[Value]) -> String {
 
 /// F6 (14-sep-2026): datos vivos del proceso/sistema para %SS («top» del nodo).
 /// Linux: /proc (status/stat/loadavg/meminfo/uptime/fd). Otros S.O.: lo básico (pid).
-fn sys_top() -> String {
+pub fn sys_top() -> String {
     #[allow(unused_mut)]
     let mut s = format!("pid={}", std::process::id());
     #[cfg(target_os = "linux")]
@@ -1441,6 +1441,24 @@ fn sys_top() -> String {
         }
         if let Ok(rd) = std::fs::read_dir("/proc/self/fd") {
             s.push_str(&format!(";fds={}", rd.count()));
+        }
+        {
+            // NAS (22-sep-2026): disco vía statvfs — /volume1 en DSM, "/" como fallback.
+            use std::ffi::CString;
+            let path = if std::path::Path::new("/volume1").exists() { "/volume1" } else { "/" };
+            if let Ok(cp) = CString::new(path) {
+                let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+                if unsafe { libc::statvfs(cp.as_ptr(), &mut st) } == 0 {
+                    let fb = st.f_blocks as u64;
+                    if fb > 0 {
+                        let fr = st.f_frsize as u64;
+                        let total_mb = fb.saturating_mul(fr) / 1048576;
+                        let free_mb = (st.f_bavail as u64).saturating_mul(fr) / 1048576;
+                        let used_pct = 100u64.saturating_mul(fb.saturating_sub(st.f_bfree as u64)) / fb;
+                        s.push_str(&format!(";disk_path={path};disk_total_mb={total_mb};disk_free_mb={free_mb};disk_used_pct={used_pct}"));
+                    }
+                }
+            }
         }
     }
     s
