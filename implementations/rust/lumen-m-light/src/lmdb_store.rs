@@ -133,6 +133,44 @@ fn node_key(ns: &str, subs: &[Subscript]) -> Vec<u8> {
     k
 }
 
+/// Clave estilo python/qpdb (datos legacy): 0xFF tras CADA número y SIN
+/// terminador final extra. Los datos escritos por qpdb/poli/python (y los
+/// convertidos a LMDB desde SQLite) usan esta variante (compat 22-sep-2026).
+fn legacy_variant_key(ns: &str, subs: &[Subscript]) -> Vec<u8> {
+    let mut k = Vec::with_capacity(ns.len() + 1 + subs.len() * 10);
+    k.extend_from_slice(ns.as_bytes());
+    k.push(0);
+    for s in subs {
+        k.extend(encode_one_sub(s));
+        if matches!(s, Subscript::Number(_)) {
+            k.push(0xFF);
+        }
+    }
+    k
+}
+
+/// ¿La clave `k` (completa, con ns) pertenece LÓGICAMENTE al subárbol `subs`?
+/// Compara subscripts por VALOR (no por bytes) → cubre ambas convenciones.
+fn key_matches_subtree(k: &[u8], ns: &str, subs: &[Subscript]) -> bool {
+    if let Some((kns, subkey)) = split_ns(k) {
+        if kns != ns {
+            return false;
+        }
+        let decoded = decode_subkey(subkey);
+        decoded.len() >= subs.len()
+            && decoded[..subs.len()]
+                .iter()
+                .zip(subs)
+                .all(|(a, b)| match (a, b) {
+                    (Subscript::Number(x), Subscript::Number(y)) => x == y,
+                    (Subscript::String(x), Subscript::String(y)) => x == y,
+                    _ => false,
+                })
+    } else {
+        false
+    }
+}
+
 /// Devuelve (ns, subkey_bytes) de una clave. None si no hay separador (clave ajena).
 fn split_ns(key: &[u8]) -> Option<(&str, &[u8])> {
     let i = key.iter().position(|b| *b == 0)?;
@@ -210,11 +248,22 @@ impl LmdbStore {
             return Ok(v); // la txn manda (read-your-writes)
         }
         let rtxn = self.env.read_txn().map_err(|e| map_err("read_txn", e))?;
-        Ok(self
-            .db
-            .get(&rtxn, &key)
-            .map_err(|e| map_err("get", e))?
-            .map(|v| v.to_vec()))
+        if let Some(v) = self.db.get(&rtxn, &key).map_err(|e| map_err("get", e))? {
+            return Ok(Some(v.to_vec()));
+        }
+        // Compat 22-sep-2026: datos legacy (python/qpdb → convertidos a LMDB)
+        // sin terminador final de nodo y con 0xFF tras números → variante legacy.
+        let legacy = legacy_variant_key(ns, subs);
+        if legacy != key {
+            if let Some(v) = self
+                .db
+                .get(&rtxn, &legacy)
+                .map_err(|e| map_err("get(legacy)", e))?
+            {
+                return Ok(Some(v.to_vec()));
+            }
+        }
+        Ok(None)
     }
 
     /// Estado de una clave según los niveles abiertos (innermost primero).
@@ -245,7 +294,15 @@ impl LmdbStore {
         let key = node_key(ns, subs);
         if !self.txns.is_empty() {
             // Write-behind: acumular en el nivel abierto (cero disco hasta TCOMMIT).
-            let prev = self.visible(&key)?;
+            let mut prev = self.visible(&key)?;
+            if prev.is_none() {
+                // compat legacy (22-sep-2026): el valor previo puede vivir en la
+                // variante python (sin FF final / con FF tras números)
+                let legacy = legacy_variant_key(ns, subs);
+                if legacy != key {
+                    prev = self.visible(&legacy)?;
+                }
+            }
             if let Some(level) = self.txns.last_mut() {
                 level.ops.entry(key).or_insert((prev, None)).1 = Some(val.to_vec());
             }
@@ -301,13 +358,17 @@ impl LmdbStore {
     }
 
     /// KILL ^ns(subs...): borra el nodo y todo su subárbol. Devuelve nº de claves.
-    /// Rango: (P, P+0xFF] con P sin terminador final — cubre nodo+descendientes
-    /// y NADA más (el byte tras P en un descendiente es 01/02 < FF; nada tras
-    /// el nodo P+FF en el formato).
+    /// Cubre AMBAS convenciones de clave (canónica del motor + legacy python):
+    /// ventana [min(Pc,Pl), max(Pc,Pl)+0xFFFF] + filtro lógico
+    /// `key_matches_subtree`. El rango exacto (P, P+0xFF] fallaba con filas
+    /// legacy (nodo python sin FF final, 22-sep-2026).
     pub fn kill_raw(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
         let start = prefix_key(ns, subs);
-        let mut end = start.clone();
-        end.push(0xFF);
+        let legacy = legacy_variant_key(ns, subs);
+        let floor = if legacy < start { legacy.clone() } else { start.clone() };
+        let mut ceil = if legacy > start { legacy.clone() } else { start.clone() };
+        ceil.push(0xFF);
+        ceil.push(0xFF);
 
         if !self.txns.is_empty() {
             // Write-behind: registrar deletes en el nivel (sin tocar disco).
@@ -318,11 +379,14 @@ impl LmdbStore {
                     .db
                     .range(
                         &rtxn,
-                        &(Bound::Excluded(start.as_slice()), Bound::Included(end.as_slice())),
+                        &(Bound::Included(floor.as_slice()), Bound::Included(ceil.as_slice())),
                     )
                     .map_err(|e| map_err("range(kill)", e))?;
                 for item in iter {
                     let (k, _v) = item.map_err(|e| map_err("iter(kill)", e))?;
+                    if !key_matches_subtree(k, ns, subs) {
+                        continue;
+                    }
                     // ya "borrada" en el overlay → no cuenta
                     if matches!(self.overlay_get(k), Some(None)) {
                         continue;
@@ -330,12 +394,11 @@ impl LmdbStore {
                     keys.push(k.to_vec());
                 }
             }
-            // + claves creadas en txns bajo el prefijo
+            // + claves creadas en txns bajo el subárbol lógico
             for level in &self.txns {
                 for (k, (_prev, next)) in level.ops.iter() {
                     if next.is_some()
-                        && k.len() > start.len()
-                        && k.starts_with(&start)
+                        && key_matches_subtree(k, ns, subs)
                         && !keys.iter().any(|e| e == k)
                     {
                         keys.push(k.clone());
@@ -356,17 +419,34 @@ impl LmdbStore {
             return Ok(n);
         }
 
+        // Disco: recolectar (read txn) y borrar (write txn).
+        let keys: Vec<Vec<u8>> = {
+            let rtxn = self.env.read_txn().map_err(|e| map_err("read_txn(kill)", e))?;
+            let mut v: Vec<Vec<u8>> = Vec::new();
+            let iter = self
+                .db
+                .range(
+                    &rtxn,
+                    &(Bound::Included(floor.as_slice()), Bound::Included(ceil.as_slice())),
+                )
+                .map_err(|e| map_err("range(kill)", e))?;
+            for item in iter {
+                let (k, _v) = item.map_err(|e| map_err("iter(kill)", e))?;
+                if key_matches_subtree(k, ns, subs) {
+                    v.push(k.to_vec());
+                }
+            }
+            v
+        };
         let mut wtxn = self.env.write_txn().map_err(|e| map_err("write_txn(kill)", e))?;
-        let n = self
-            .db
-            .delete_range(
-                &mut wtxn,
-                &(Bound::Excluded(start.as_slice()), Bound::Included(end.as_slice())),
-            )
-            .map_err(|e| map_err("delete_range", e))?;
+        for k in &keys {
+            self.db
+                .delete(&mut wtxn, k)
+                .map_err(|e| map_err("delete(kill)", e))?;
+        }
         wtxn.commit().map_err(|e| map_err("commit(kill)", e))?;
         self.invalidate();
-        Ok(n as u64)
+        Ok(keys.len() as u64)
     }
 
     /// $DATA: 0 / 1 / 10 / 11 (solo local).
@@ -377,28 +457,49 @@ impl LmdbStore {
         let rtxn = self.env.read_txn().map_err(|e| map_err("read_txn(data)", e))?;
         let own = match self.overlay_get(&node) {
             Some(v) => v.is_some(),
-            None => self
-                .db
-                .get(&rtxn, &node)
-                .map_err(|e| map_err("get(data)", e))?
-                .is_some(),
+            None => {
+                let direct = self
+                    .db
+                    .get(&rtxn, &node)
+                    .map_err(|e| map_err("get(data)", e))?;
+                if direct.is_some() {
+                    true
+                } else {
+                    // compat legacy (22-sep-2026): nodo en variante python
+                    let legacy = legacy_variant_key(ns, subs);
+                    legacy != node
+                        && self
+                            .db
+                            .get(&rtxn, &legacy)
+                            .map_err(|e| map_err("get(data/legacy)", e))?
+                            .is_some()
+                }
+            }
         };
-        // hijo = primera clave del rango que no sea el propio nodo (el nodo
-        // ordena DESPUÉS de sus descendientes, así que si hay hijo, sale antes).
-        // Con txn abierta: se saltan las claves borradas por el overlay y se
-        // añaden los hijos creados en txns.
+        // hijo = clave del subárbol (cualquiera de las DOS convenciones: canónica
+        // o legacy python) distinta del propio nodo en sus dos variantes.
+        // Ventana [min(Pc,Pl), max(Pc,Pl)+0xFFFF] + filtro lógico: en un store
+        // mixto el orden "nodo tras descendientes" ya no basta (22-sep-2026).
+        let legacy_node = legacy_variant_key(ns, subs);
+        let floor = if legacy_node < start { legacy_node.clone() } else { start.clone() };
+        let mut ceil = if legacy_node > start { legacy_node.clone() } else { start.clone() };
+        ceil.push(0xFF);
+        ceil.push(0xFF);
         let mut child = false;
         let iter = self
             .db
             .range(
                 &rtxn,
-                &(Bound::Excluded(start.as_slice()), Bound::Included(node.as_slice())),
+                &(Bound::Included(floor.as_slice()), Bound::Included(ceil.as_slice())),
             )
             .map_err(|e| map_err("range(data)", e))?;
         for item in iter {
             let (k, _v) = item.map_err(|e| map_err("iter(data)", e))?;
-            if k == node.as_slice() {
-                continue;
+            if k == node.as_slice() || k == legacy_node.as_slice() {
+                continue; // el propio nodo no es hijo
+            }
+            if !key_matches_subtree(k, ns, subs) {
+                continue; // hermano vecino (p.ej. números cercanos) fuera del subárbol
             }
             if matches!(self.overlay_get(k), Some(None)) {
                 continue; // borrada en txn
@@ -410,9 +511,9 @@ impl LmdbStore {
             'outer: for level in &self.txns {
                 for (k, (_prev, next)) in level.ops.iter() {
                     if next.is_some()
-                        && k.len() > start.len()
-                        && k.starts_with(&start)
+                        && key_matches_subtree(k, ns, subs)
                         && k.as_slice() != node.as_slice()
+                        && k.as_slice() != legacy_node.as_slice()
                     {
                         child = true;
                         break 'outer;
