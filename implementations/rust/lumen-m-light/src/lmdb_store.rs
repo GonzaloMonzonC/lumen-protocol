@@ -59,6 +59,29 @@ struct OrderCache {
     map: std::collections::HashMap<Vec<u8>, Vec<Subscript>>,
 }
 
+/// Siguiente (dir>=0) / anterior (dir<0) respecto a `current` en una lista de
+/// hijos ordenada canónicamente (misma semántica que el host RAM).
+fn order_search(
+    list: &[Subscript],
+    current: Option<&Subscript>,
+    direction: i32,
+) -> Option<Subscript> {
+    if direction >= 0 {
+        let start = match current {
+            Some(cur) => list
+                .partition_point(|c| c.canonical_cmp(cur) != std::cmp::Ordering::Greater),
+            None => 0,
+        };
+        list.get(start).cloned()
+    } else {
+        let end = match current {
+            Some(cur) => list.partition_point(|c| c.canonical_cmp(cur) == std::cmp::Ordering::Less),
+            None => list.len(),
+        };
+        end.checked_sub(1).and_then(|i| list.get(i).cloned())
+    }
+}
+
 pub struct LmdbStore {
     env: Env,
     db: Database<Bytes, Bytes>,
@@ -458,7 +481,11 @@ impl LmdbStore {
             let mut jump = pfx.to_vec();
             jump.extend_from_slice(&rest[..boundary]);
             jump.push(0xFF);
-            seek = jump;
+            // Garantía de avance ESTRICTO (anti-bucle): si el salto no supera
+            // la clave actual (encoding inesperado → jump = prefijo de k),
+            // seek = k → get_greater_than(k) da la siguiente clave estricta.
+            // Cualquier caso degenerado = avance + dedup final, nunca ∞.
+            seek = if jump.as_slice() > k { jump } else { k.to_vec() };
         }
         // Orden canónico M + dedup (el byte-order no vale para strings-prefijo)
         out.sort_by(|a, b| a.canonical_cmp(b));
@@ -495,7 +522,12 @@ impl LmdbStore {
             let mut p2 = pfx.to_vec();
             p2.extend_from_slice(&enc);
             if !self.subtree_exists(&p2)? {
-                dead.push(enc);
+                // Comparar con la MISMA forma que encode_one_sub (los subkeys
+                // qpdb/poli llevan \xff tras el número; encode_one_sub no).
+                let canon = first_sub_with_len(&enc)
+                    .map(|(s, _)| encode_one_sub(&s))
+                    .unwrap_or(enc);
+                dead.push(canon);
             }
         }
         out.retain(|s| {
@@ -575,8 +607,27 @@ impl LmdbStore {
         self.write_version.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// $O forward/backward con semántica canónica idéntica al host RAM:
-    /// búsqueda binaria sobre la lista de hijos (cacheada).
+    /// Respuesta de $O desde la caché SIN clonar la lista completa:
+    /// None = caché no válida (toca enumerar); Some(r) = resultado directo.
+    fn cached_order(
+        &self,
+        pfx: &[u8],
+        current: Option<&Subscript>,
+        direction: i32,
+    ) -> Option<Option<Subscript>> {
+        let c = self.order_cache.lock().ok()?;
+        if c.version != self.write_version.load(Ordering::Relaxed) {
+            return None;
+        }
+        let list = c.map.get(pfx)?;
+        Some(order_search(list, current, direction))
+    }
+
+    /// $O forward/backward con semántica canónica idéntica al host RAM.
+    /// Camino caliente SIN clonar la lista cacheada: la búsqueda binaria va
+    /// dentro del candado y solo se clona el subscript devuelto. (Antes cada
+    /// paso clonaba los k hijos → 0,6 ms/paso con 82k hijos; incidente
+    /// 22-sep-2026: scan de ^CHANGES en 52 s cuando debe ser <1 s.)
     pub fn order_raw(
         &self,
         ns: &str,
@@ -584,22 +635,18 @@ impl LmdbStore {
         current: Option<&Subscript>,
         direction: i32,
     ) -> Result<Option<Subscript>, String> {
-        let candidates = self.order_candidates(ns, parent)?;
-        if direction >= 0 {
-            let start = match current {
-                Some(cur) => candidates
-                    .partition_point(|c| c.canonical_cmp(cur) != std::cmp::Ordering::Greater),
-                None => 0,
-            };
-            Ok(candidates.get(start).cloned())
-        } else {
-            let end = match current {
-                Some(cur) => candidates
-                    .partition_point(|c| c.canonical_cmp(cur) == std::cmp::Ordering::Less),
-                None => candidates.len(),
-            };
-            Ok(end.checked_sub(1).and_then(|i| candidates.get(i).cloned()))
+        let pfx = prefix_key(ns, parent);
+        if self.txns.is_empty() {
+            if let Some(r) = self.cached_order(&pfx, current, direction) {
+                return Ok(r);
+            }
+            let list = self.enumerate_children(&pfx)?;
+            let r = order_search(&list, current, direction);
+            self.cache_put(pfx, list); // se mueve a la caché, sin clon
+            return Ok(r);
         }
+        let list = self.enumerate_children_txn(&pfx)?;
+        Ok(order_search(&list, current, direction))
     }
 
     /// Todas las entradas (dumps, fibers, ffi) — decodifica ns + subs + value.
