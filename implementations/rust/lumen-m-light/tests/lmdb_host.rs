@@ -513,3 +513,72 @@ fn order_numero_multinivel_qpdb_no_se_cuelga() {
     assert_eq!(h.order("CHANGES", &[], None, -1).unwrap(), Some(ss("zeta")));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn compat_lectura_legacy_python() {
+    // Regresión 22-sep-2026 (datos REALES del PC/nodos convertidos a LMDB):
+    // las filas escritas por qpdb/poli/python usan la variante legacy — 0xFF
+    // tras CADA número y SIN terminador final de nodo — y el motor no las
+    // veía en $G/$D exactos (^KANBAN("meta") daba D=0). Deben leerse, y el
+    // KILL debe cubrir nodo+subárbol en AMBAS variantes.
+    let dir = tmp_dir("legacy_compat");
+    let num = -1.78832053943463e18f64;
+    // subkey legacy para ^CHANGES(<num>,"SET","X") y su hijo ("X","sub")
+    let mut sk = vec![0x01u8];
+    sk.extend_from_slice(&num.to_be_bytes());
+    sk.push(0xFF);
+    sk.extend_from_slice(b"\x02SET\xFF");
+    sk.extend_from_slice(b"\x02X\xFF");
+    let mut sk_hijo = sk.clone();
+    sk_hijo.extend_from_slice(b"\x02sub\xFF");
+    {
+        let mut store = LmdbStore::open(&dir).unwrap();
+        store
+            .put_many(&[
+                ("CHANGES".to_string(), sk, b"v-nodo".to_vec()),
+                ("CHANGES".to_string(), sk_hijo, b"v-hijo".to_vec()),
+                // caso real ^KANBAN("meta"): valor en clave legacy sin FF final
+                (
+                    "KANBAN".to_string(),
+                    b"\x02meta\xFF".to_vec(),
+                    b"{\"total\":212}".to_vec(),
+                ),
+            ])
+            .unwrap();
+    }
+    let mut h = MemoryHost::from_lmdb(&dir).unwrap();
+    // $G exacto DEBE encontrar la fila legacy (antes: None → "" en M)
+    assert_eq!(
+        h.get("CHANGES", &[nn(num), ss("SET"), ss("X")])
+            .unwrap()
+            .unwrap()
+            .as_string(),
+        "v-nodo"
+    );
+    assert_eq!(
+        h.get("KANBAN", &[ss("meta")]).unwrap().unwrap().as_string(),
+        "{\"total\":212}"
+    );
+    // $D: nodo con valor y descendiente → 11; con solo descendientes → 10
+    assert_eq!(h.data("CHANGES", &[nn(num), ss("SET"), ss("X")]).unwrap(), 11);
+    assert_eq!(h.data("CHANGES", &[nn(num), ss("SET")]).unwrap(), 10);
+    assert_eq!(h.data("KANBAN", &[ss("meta")]).unwrap(), 1);
+    // set escribe la variante canónica; get canónica-primero la ve al momento
+    h.set(
+        "CHANGES",
+        &[nn(num), ss("SET"), ss("X")],
+        Value::String("v2".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        h.get("CHANGES", &[nn(num), ss("SET"), ss("X")])
+            .unwrap()
+            .unwrap()
+            .as_string(),
+        "v2"
+    );
+    // kill: canónico (v2) + legacy (v-nodo) + hijo legacy = 3 claves
+    assert_eq!(h.kill("CHANGES", &[nn(num), ss("SET"), ss("X")]).unwrap(), 3);
+    assert_eq!(h.data("CHANGES", &[nn(num), ss("SET"), ss("X")]).unwrap(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
