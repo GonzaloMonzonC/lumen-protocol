@@ -460,3 +460,56 @@ fn sysinfo_overlay_ram_sobre_store() {
     assert_eq!(h.data("SYSINFO", &[ss("nodo")]).unwrap(), 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn order_numero_multinivel_qpdb_no_se_cuelga() {
+    // Regresión 22-sep-2026 (^CHANGES del PC): los subkeys escritos por
+    // qpdb/poli terminan CADA sub con \xff — números incluidos (01+8B+FF).
+    // El salto de $O quedaba como prefijo de la propia clave → la enumeración
+    // giraba sin avanzar (bucle infinito con 103k hijos). Debe completar y
+    // devolver exactamente los hijos, en orden canónico.
+    let dir = tmp_dir("order_numff");
+    let num_a = -1.78832053943463e18f64;
+    let num_b = 3.5f64;
+    {
+        let mut store = LmdbStore::open(&dir).unwrap();
+        let mut sk_a = vec![0x01u8];
+        sk_a.extend_from_slice(&num_a.to_be_bytes());
+        sk_a.push(0xFF);
+        sk_a.extend_from_slice(b"\x02SET\xFF");
+        sk_a.extend_from_slice(b"\x02X\xFF");
+        let mut sk_b = vec![0x01u8];
+        sk_b.extend_from_slice(&num_b.to_be_bytes());
+        sk_b.push(0xFF);
+        sk_b.extend_from_slice(b"\x02SET\xFF");
+        let sk_c = b"\x02zeta\xFF".to_vec();
+        store
+            .put_many(&[
+                ("CHANGES".to_string(), sk_a, b"a".to_vec()),
+                ("CHANGES".to_string(), sk_b, b"b".to_vec()),
+                ("CHANGES".to_string(), sk_c, b"c".to_vec()),
+            ])
+            .unwrap();
+    }
+    let h = MemoryHost::from_lmdb(&dir).unwrap();
+    let mut seq: Vec<Subscript> = Vec::new();
+    let mut cur: Option<Subscript> = None;
+    loop {
+        match h.order("CHANGES", &[], cur.as_ref(), 1).unwrap() {
+            Some(s) => {
+                cur = Some(s.clone());
+                seq.push(s);
+            }
+            None => break,
+        }
+        assert!(seq.len() <= 3, "bucle en $O: se enumeraron más hijos que claves hay");
+    }
+    assert_eq!(seq.len(), 3, "enumeración completa sin duplicados");
+    // Orden canónico: números por VALOR (-1.78e18 < 3.5) y luego strings
+    assert_eq!(seq[0], Subscript::Number(num_a));
+    assert_eq!(seq[1], Subscript::Number(num_b));
+    assert_eq!(seq[2], Subscript::String("zeta".to_string()));
+    // backward: del final al primero
+    assert_eq!(h.order("CHANGES", &[], None, -1).unwrap(), Some(ss("zeta")));
+    let _ = std::fs::remove_dir_all(&dir);
+}

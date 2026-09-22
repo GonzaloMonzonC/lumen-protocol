@@ -3801,7 +3801,16 @@ fn decode_step(b: &[u8]) -> (Option<Subscript>, usize) {
             if b.len() >= 9 {
                 let mut bytes = [0u8; 8];
                 bytes.copy_from_slice(&b[1..9]);
-                (Some(Subscript::Number(f64::from_be_bytes(bytes))), 9)
+                // Consumir TAMBIÉN el \xff de cierre si está presente: los
+                // escritores qpdb/poli (p. ej. ^CHANGES del PC) terminan CADA
+                // sub con \xff — números incluidos — y el salto de $O debe
+                // saltar el sub entero. Sin esto, jump = prefijo de la propia
+                // clave → get_greater_than devuelve la misma clave → $O gira
+                // sin avanzar (incidente 22-sep-2026: ^CHANGES 103k hijos,
+                // bucle infinito). Con 0x01/0x02 tras los 8B (convención del
+                // motor) se consumen solo los 8B, como siempre.
+                let n = if b.len() >= 10 && b[9] == 0xFF { 10 } else { 9 };
+                (Some(Subscript::Number(f64::from_be_bytes(bytes))), n)
             } else {
                 (None, 1)
             }
@@ -3942,5 +3951,34 @@ mod subkey_codec_tests {
             Subscript::String("x".into()),
         ]);
         assert_eq!(&child[..prefix.len()], &prefix[..]);
+    }
+
+    /// Regresión 22-sep-2026 (^CHANGES del PC): los subkeys escritos por
+    /// qpdb/poli llevan \xff tras CADA sub — números incluidos (01+8B+FF).
+    /// El decode canónico debe consumir ese \xff: si no, el salto de $O en
+    /// LMDB queda como prefijo de la propia clave → get_greater_than devuelve
+    /// la misma clave → enumeración en bucle infinito (82k hijos de ^CHANGES).
+    #[test]
+    fn decode_numero_consume_ff_de_cierre() {
+        let num = -1.78832053943463e18f64;
+        // Formato qpdb/poli: 01 + 8B + FF (+ siguientes subs)
+        let mut qpdb = vec![0x01];
+        qpdb.extend_from_slice(&num.to_be_bytes());
+        qpdb.push(0xFF);
+        let (sub, n) = decode_step(&qpdb);
+        assert_eq!(sub, Some(Subscript::Number(num)));
+        assert_eq!(n, 10, "01+8B+FF → consume el FF de cierre");
+        qpdb.extend_from_slice(b"\x02SET\xFF");
+        assert_eq!(
+            decode_subkey(&qpdb),
+            vec![Subscript::Number(num), Subscript::String("SET".into())]
+        );
+        // Formato del motor: 01 + 8B + siguiente sub (sin FF intermedio)
+        let mut motor = vec![0x01];
+        motor.extend_from_slice(&num.to_be_bytes());
+        motor.extend_from_slice(b"\x02SET\xFF");
+        let (sub2, n2) = decode_step(&motor);
+        assert_eq!(sub2, Some(Subscript::Number(num)));
+        assert_eq!(n2, 9, "01+8B+02 → consume solo los 8B (como siempre)");
     }
 }
