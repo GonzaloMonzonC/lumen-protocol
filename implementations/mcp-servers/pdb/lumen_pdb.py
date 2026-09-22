@@ -24,13 +24,15 @@ en claves con la SQLite: el migrador (pdb_migrate.py) copia raw.
 import ctypes
 import json
 import os
+import struct
 import sys
 import threading
+from functools import cmp_to_key
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
-from pdb_tools import encode_subkey, decode_subkey  # noqa: E402
+from pdb_tools import _double_to_sortable, decode_subkey, encode_subkey  # noqa: E402
 
 _REPO = _HERE.parent.parent.parent
 _CRATE = _REPO / "implementations" / "rust" / "lumen-pdb"
@@ -464,11 +466,334 @@ class SqlitePDB:
             self._con.execute("PRAGMA wal_checkpoint(FULL)")
 
 
+class LmdbPDB:
+    """Implementación LMDB (py-lmdb) del mismo contrato mínimo.
+
+    Comparte EL MISMO store que el motor M (``mvm-nas -p X.lmdb``): mismas
+    claves y mismos bytes (variante canónica del motor + fallback de lectura
+    a la variante python/qpdb — ver pdb-development: subkey-encodings §5).
+    Virtudes multi-proceso (la razón de ser): lecturas SIEMPRE frescas (mmap,
+    SIN precarga), los commits de cualquier proceso son visibles al instante,
+    escrituras serializadas por LMDB (breves). Caché de hijos por txn-id de
+    LMDB: las cadenas $O no re-escanean el padre en cada paso.
+    """
+
+    name = "lmdb"
+    _CACHE_MAX = 48
+
+    def __init__(self, path, map_size_mb=None):
+        import lmdb  # import perezoso: solo si se elige este motor
+
+        self.path = str(path)
+        mb = map_size_mb or int(os.environ.get(
+            "PDB_LMDB_MAPSIZE_MB",
+            os.environ.get("LUMEN_LMDB_MAPSIZE_MB", "1024")))
+        self._env = lmdb.open(
+            self.path, map_size=int(mb) * 1024 * 1024, max_dbs=4,
+            subdir=True, lock=True, create=True)
+        self._db = self._env.open_db(b"globals")
+        self._lock = threading.RLock()
+        self._children_cache = {}
+
+    def close(self):
+        if self._env is not None:
+            self._env.close()
+            self._env = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    # ── claves: dos convenciones conviven (censo 22-sep-2026) ──
+    # 1) DOMINANTE (writer python/qpdb): bytes EXACTOS de encode_subkey —
+    #    números sortables (flip), 0xFF por sub, SIN FF final.
+    # 2) MOTOR (writer rust/MVM): números IEEE CRUDOS (3FF0 = +1.0, medido en
+    #    filas ^PERSONALITY del motor), sin FF por número, + 0xFF final.
+    @staticmethod
+    def _prefix(ns: str) -> bytes:
+        return ns.encode() + b"\x00"
+
+    @classmethod
+    def _primary_key(cls, ns, subs) -> bytes:
+        """Variante dominante: mismas bytes que pdb_tools.encode_subkey."""
+        return cls._prefix(ns) + encode_subkey(subs)
+
+    @classmethod
+    def _engine_key(cls, ns, subs) -> bytes:
+        """Variante del motor rust: números crudos + terminador final."""
+        k = bytearray(cls._prefix(ns))
+        for s in subs:
+            if isinstance(s, (int, float)) and not isinstance(s, bool):
+                k += b"\x01" + struct.pack(">d", float(s))
+            else:
+                k += encode_subkey([s])
+        k += b"\xff"
+        return bytes(k)
+
+    @classmethod
+    def _engine_prefix(cls, ns, subs) -> bytes:
+        """Prefijo de la variante motor (sin el 0xFF final)."""
+        return cls._engine_key(ns, subs)[:-1]
+
+    @classmethod
+    def _subtree_window(cls, ns, subs):
+        """Ventana [min(P1,P2), max(P1,P2)+0xFFFF] que cubre AMBAS variantes."""
+        p1 = cls._primary_key(ns, subs)
+        p2 = cls._engine_key(ns, subs)
+        lo, hi = (p1, p2) if p1 <= p2 else (p2, p1)
+        return lo, hi + b"\xff\xff"
+
+    @staticmethod
+    def _sub_eq(a, b) -> bool:
+        return a == b  # 1 == 1.0; str == str
+
+    @staticmethod
+    def _sub_cmp(a, b) -> int:
+        an = isinstance(a, (int, float)) and not isinstance(a, bool)
+        bn = isinstance(b, (int, float)) and not isinstance(b, bool)
+        if an and bn:
+            return (a > b) - (a < b)
+        if an:
+            return -1  # números < strings (orden canónico M)
+        if bn:
+            return 1
+        return (a > b) - (a < b)
+
+    @classmethod
+    def _decoded(cls, key: bytes):
+        z = key.find(b"\x00")
+        if z == -1:
+            return None
+        try:
+            return decode_subkey(key[z + 1:])
+        except Exception:
+            return None
+
+    @classmethod
+    def _matches(cls, decoded, subs) -> bool:
+        return (decoded is not None and len(decoded) >= len(subs)
+                and all(cls._sub_eq(a, b) for a, b in zip(decoded, subs)))
+
+    # ── operaciones núcleo ──
+    def set(self, ns, subs, value):
+        key = self._primary_key(ns, subs)
+        other = self._engine_key(ns, subs)
+        raw = json.dumps(value, ensure_ascii=False).encode()
+        with self._lock, self._env.begin(write=True, db=self._db) as txn:
+            txn.put(key, raw)
+            if other != key and txn.get(other) is not None:
+                txn.put(other, raw)  # gemela del motor existente → sincronizar
+        return True
+
+    def set_raw(self, ns, pairs):
+        """Bulk raw: [(subkey_bytes verbatim, value_bytes)] en UNA transacción."""
+        pairs = list(pairs)
+        base = self._prefix(ns)
+        with self._lock, self._env.begin(write=True, db=self._db) as txn:
+            for k, v in pairs:
+                txn.put(base + bytes(k), b"" if v is None else bytes(v))
+        return len(pairs)
+
+    def get_raw(self, ns, subkey):
+        with self._env.begin(db=self._db) as txn:
+            return txn.get(self._prefix(ns) + bytes(subkey))
+
+    def get(self, ns, subs, default=None):
+        k1 = self._primary_key(ns, subs)
+        k2 = self._engine_key(ns, subs)
+        with self._env.begin(db=self._db) as txn:
+            raw = txn.get(k1)
+            if raw is None and k2 != k1:
+                raw = txn.get(k2)
+        if raw is None or raw == b"":
+            return default  # b"" = sentinel de nodo estructural (NULL migrado)
+        try:
+            return json.loads(raw.decode())
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return raw.decode(errors="replace")
+
+    def _children(self, ns, parent_subs):
+        pk = self._prefix(ns) + encode_subkey(parent_subs)
+        with self._lock:
+            with self._env.begin(db=self._db) as txn:
+                tid = txn.id()
+                ent = self._children_cache.get(pk)
+                if ent is not None and ent[0] == tid:
+                    return ent[1]
+                lo, hi = self._subtree_window(ns, parent_subs)
+                nlev = len(parent_subs)
+                seen = {}
+                cur = txn.cursor()
+                ok = cur.set_range(lo)
+                while ok:
+                    k = cur.key()
+                    if k > hi:
+                        break
+                    dec = self._decoded(k)
+                    if self._matches(dec, parent_subs) and len(dec) > nlev:
+                        c = dec[nlev]
+                        seen[(0, float(c)) if isinstance(c, (int, float))
+                             else (1, c)] = c
+                    ok = cur.next()
+                nums = sorted(v for k, v in seen.items() if k[0] == 0)
+                strs = sorted(v for k, v in seen.items() if k[0] == 1)
+                children = nums + strs
+                if len(self._children_cache) >= self._CACHE_MAX:
+                    self._children_cache.pop(next(iter(self._children_cache)))
+                self._children_cache[pk] = (tid, children)
+                return children
+
+    def order(self, ns, subs, direction=1):
+        """$ORDER: subs = padre + posición actual ('' = desde el borde)."""
+        if not subs:
+            raise ValueError("$ORDER necesita al menos un subscript")
+        parent_subs, current = list(subs[:-1]), subs[-1]
+        children = self._children(ns, parent_subs)
+        if not children:
+            return None
+        if current in ("", None):
+            return children[0] if direction >= 0 else children[-1]
+        for i, c in enumerate(children):
+            if self._sub_eq(c, current):
+                if direction >= 0:
+                    return children[i + 1] if i + 1 < len(children) else None
+                return children[i - 1] if i >= 1 else None
+        # current no listado (nodo borrado): primer candidato "más allá"
+        if direction >= 0:
+            for c in children:
+                if self._sub_cmp(c, current) > 0:
+                    return c
+            return None
+        prev = None
+        for c in children:
+            if self._sub_cmp(c, current) < 0:
+                prev = c
+            else:
+                break
+        return prev
+
+    def data(self, ns, subs):
+        k1 = self._primary_key(ns, subs)
+        k2 = self._engine_key(ns, subs)
+        with self._env.begin(db=self._db) as txn:
+            raw = txn.get(k1)
+            if raw is None and k2 != k1:
+                raw = txn.get(k2)
+            own = raw is not None and raw != b""
+            # hijo por BYTE: prefijo dominante o prefijo motor (inmune al
+            # baile de signos raw/sortable del decode; los FF terminadores
+            # de cada nivel hacen el prefijo seguro frente a hermanos)
+            child = False
+            p1 = k1
+            p2 = self._engine_prefix(ns, subs)
+            lo, hi = self._subtree_window(ns, subs)
+            cur = txn.cursor()
+            ok = cur.set_range(lo)
+            while ok:
+                k = cur.key()
+                if k > hi:
+                    break
+                if k != k1 and k != k2 and (k.startswith(p1) or k.startswith(p2)):
+                    child = True
+                    break
+                ok = cur.next()
+        return 11 if own and child else 1 if own else 10 if child else 0
+
+    def kill(self, ns, subs):
+        # matching por BYTE (prefijo dominante o prefijo motor): cubre el nodo
+        # y todo su subárbol en AMBAS convenciones sin depender del decode
+        p1 = self._primary_key(ns, subs)
+        p2 = self._engine_prefix(ns, subs)
+        lo, hi = self._subtree_window(ns, subs)
+        keys = []
+        with self._env.begin(db=self._db) as txn:
+            cur = txn.cursor()
+            ok = cur.set_range(lo)
+            while ok:
+                k = cur.key()
+                if k > hi:
+                    break
+                if k.startswith(p1) or k.startswith(p2):
+                    keys.append(bytes(k))
+                ok = cur.next()
+        if not keys:
+            return 0
+        with self._lock, self._env.begin(write=True, db=self._db) as txn:
+            for k in keys:
+                txn.delete(k)
+        return len(keys)
+
+    def merge(self, dst_ns, dst_subs, src_ns, src_subs):
+        lo, hi = self._subtree_window(src_ns, src_subs)
+        rows = []
+        with self._env.begin(db=self._db) as txn:
+            cur = txn.cursor()
+            ok = cur.set_range(lo)
+            while ok:
+                k = cur.key()
+                if k > hi:
+                    break
+                dec = self._decoded(k)
+                if self._matches(dec, src_subs):
+                    rows.append((dec, bytes(cur.value())))
+                ok = cur.next()
+        n = 0
+        with self._lock, self._env.begin(write=True, db=self._db) as txn:
+            for dec, val in rows:
+                new_subs = list(dst_subs) + dec[len(src_subs):]
+                txn.put(self._primary_key(dst_ns, new_subs), val)
+                n += 1
+        return n
+
+    def count(self, ns):
+        base = self._prefix(ns)
+        n = 0
+        with self._env.begin(db=self._db) as txn:
+            cur = txn.cursor()
+            ok = cur.set_range(base)
+            while ok:
+                if not cur.key().startswith(base):
+                    break
+                n += 1
+                ok = cur.next()
+        return n
+
+    def incr(self, ns, subs, delta=1):
+        k1 = self._primary_key(ns, subs)
+        k2 = self._engine_key(ns, subs)
+        with self._lock, self._env.begin(write=True, db=self._db) as txn:
+            raw = txn.get(k1)
+            if raw is None and k2 != k1:
+                raw = txn.get(k2)
+            current = 0.0
+            if raw not in (None, b""):
+                try:
+                    current = float(json.loads(raw.decode()))
+                except (ValueError, TypeError):
+                    current = 0.0
+            value = current + float(delta)
+            stored = int(value) if float(value).is_integer() else value
+            enc = json.dumps(stored).encode()
+            txn.put(k1, enc)
+            if k2 != k1 and txn.get(k2) is not None:
+                txn.put(k2, enc)  # gemela legacy → sincronizar
+        return stored
+
+    def flush(self):
+        if self._env is not None:
+            try:
+                self._env.sync(True)  # force (firma posicional según versión)
+            except TypeError:
+                self._env.sync()
+
+
 def connect(path=None, engine=None):
     """Selección de motor con fallback automático (flag PDB_ENGINE)."""
     engine = (engine or os.environ.get("PDB_ENGINE", "sqlite")).lower()
-    if engine not in ("sqlite", "redb"):
-        raise ValueError("PDB_ENGINE debe ser 'sqlite' o 'redb'")
+    if engine not in ("sqlite", "redb", "lmdb"):
+        raise ValueError("PDB_ENGINE debe ser 'sqlite', 'redb' o 'lmdb'")
     if engine == "redb":
         redb_path = path or os.environ.get("PDB_REDB_PATH") or str(
             Path(os.environ.get("PDB_PATH", _HERE / "lumen-pdb.db")).with_suffix(".redb"))
@@ -476,5 +801,13 @@ def connect(path=None, engine=None):
             return RedbPDB(redb_path)
         except (OSError, AttributeError) as e:
             print(f"[lumen_pdb] redb no disponible ({e}) — fallback a sqlite",
+                  file=sys.stderr)
+    if engine == "lmdb":
+        lmdb_path = path or os.environ.get("PDB_LMDB_PATH") or str(
+            Path(os.environ.get("PDB_PATH", _HERE / "lumen-pdb.db")).with_suffix(".lmdb"))
+        try:
+            return LmdbPDB(lmdb_path)
+        except Exception as e:
+            print(f"[lumen_pdb] lmdb no disponible ({e}) — fallback a sqlite",
                   file=sys.stderr)
     return SqlitePDB(path)
