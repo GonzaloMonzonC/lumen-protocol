@@ -1016,6 +1016,36 @@ def _decode_value(raw: Optional[str]):
     except (json.JSONDecodeError, TypeError):
         return raw  # fallback: return raw string
 
+# ── Variantes de clave que CONVIVEN en la PDB (censo 22-sep-2026) ───────────
+# El writer rust/MVM añade un 0xFF final extra ("…FF FF"); el writer python no.
+# 20.008 filas del store real existen SOLO en la variante rust → toda lectura
+# exacta debe probar ambas. Ver pdb-development: references/subkey-encodings.md
+def key_variants(subs: list) -> list:
+    """[canónica python, gemela rust (+FF final)] para unos subs dados."""
+    k = encode_subkey(subs)
+    return [k, k + b"\xff"]
+
+def _select_value_row(c, ns: str, key: bytes):
+    """Fila de valor probando la variante canónica y (si no hay) la gemela rust."""
+    row = c.execute(
+        "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
+    ).fetchone()
+    if row is None:
+        row = c.execute(
+            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key + b"\xff"]
+        ).fetchone()
+    return row
+
+def _sync_rust_twin(c, ns: str, key: bytes, enc_value) -> None:
+    """Si existe la gemela rust (key+FF), sincronizarla: el motor la lee como
+    clave canónica y si no, seguiría viendo el valor viejo."""
+    if c.execute(
+        "SELECT 1 FROM _globals WHERE ns=? AND subkey=?", [ns, key + b"\xff"]
+    ).fetchone():
+        c.execute(
+            "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+            [ns, key + b"\xff", enc_value])
+
 # ---------------------------------------------------------------------------
 # SQL helpers
 # ---------------------------------------------------------------------------
@@ -1055,16 +1085,16 @@ def tool_set(args: dict) -> dict:
     try:
         key = encode_subkey(subs)
         c = _get_conn(ns, subs)
-        # Time-travel: save old value before overwriting
-        row = c.execute(
-            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
-        ).fetchone()
+        # Time-travel: save old value before overwriting (probando ambas variantes)
+        row = _select_value_row(c, ns, key)
         if row and row["value"] is not None:
             _save_to_history(ns, subs, _decode_value(row["value"]), "SET", c)
+        val_enc = _encode_value(value)
         c.execute(
             "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
-            [ns, key, _encode_value(value)]
+            [ns, key, val_enc]
         )
+        _sync_rust_twin(c, ns, key, val_enc)
         _auto_index_on_set(ns, subs, c)
         _fire_triggers("ON_SET", ns, subs, value, c)
         _schema_auto_index_on_set(ns, subs, value, c)
@@ -1081,9 +1111,7 @@ def tool_get(args: dict) -> dict:
     try:
         key = encode_subkey(subs)
         c = _get_conn(ns, subs)
-        row = c.execute(
-            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
-        ).fetchone()
+        row = _select_value_row(c, ns, key)
         if row and row["value"] is not None:
             return {"success": True, "value": _decode_value(row["value"])}
         return {"success": True, "value": default, "found": False}
@@ -1099,6 +1127,10 @@ def tool_has(args: dict) -> dict:
         row = c.execute(
             "SELECT 1 FROM _globals WHERE ns=? AND subkey=?", [ns, key]
         ).fetchone()
+        if row is None:  # gemela rust (+FF)
+            row = c.execute(
+                "SELECT 1 FROM _globals WHERE ns=? AND subkey=?", [ns, key + b"\xff"]
+            ).fetchone()
         return {"success": True, "value": row is not None}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -1377,16 +1409,31 @@ def tool_incr(args: dict) -> dict:
         key = encode_subkey(subs)
         c = _get_conn(ns, subs)
         
-        # Two-step atomic increment: ensure node exists, then increment
-        c.execute(
-            "INSERT OR IGNORE INTO _globals (ns, subkey, value) VALUES (?, ?, '0')",
-            [ns, key]
-        )
+        # Two-step increment; censo 22-sep-2026: el nodo puede vivir SOLO en la
+        # gemela rust (+FF) — arrancar de ahí y mantener ambas sincronizadas.
+        row = c.execute(
+            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key]
+        ).fetchone()
+        twin = c.execute(
+            "SELECT value FROM _globals WHERE ns=? AND subkey=?", [ns, key + b"\xff"]
+        ).fetchone()
+        if row is None or row["value"] is None:
+            base = twin["value"] if twin is not None and twin["value"] is not None else "0"
+            c.execute(
+                "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
+                [ns, key, base]
+            )
         c.execute(
             "UPDATE _globals SET value = CAST(json(value) AS REAL) + ? "
             "WHERE ns=? AND subkey=?",
             [increment, ns, key]
         )
+        if twin is not None:
+            c.execute(
+                "UPDATE _globals SET value = CAST(json(value) AS REAL) + ? "
+                "WHERE ns=? AND subkey=?",
+                [increment, ns, key + b"\xff"]
+            )
         c.commit()
         
         # Read back
