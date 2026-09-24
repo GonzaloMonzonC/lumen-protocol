@@ -2485,14 +2485,28 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         ))
                     }
                     ("llm", "probe") => {
-                        // F1 (206-bis): sonda de tools → "TC:<fn>" | "TXT:<…>" | "ERR:<…>"
+                        // F1 (206-bis): sonda de tools → "TC:<fn>|..." | "TXT:<…>" | "ERR:<…>"
+                        // Firma v2 (24-sep-2026):
+                        //   $DEVICE("llm:probe", PROVEEDOR, MODELO, PROMPT, [TOOLS_JSON])
+                        // El proveedor es el 1er argumento (antes iba hardcodeado a
+                        // openrouter y el modelo bandera DeepSeek daba 400), y las
+                        // herramientas llegan como JSON para poder medir la PROHIBIDA.
+                        // Compatibilidad: si llegan 2 args (modelo, prompt) se asume
+                        // openrouter (firma vieja) — no rompe llamadas existentes.
                         if self.host.is_sandbox() {
                             return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
                         }
-                        let model = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
-                        let prompt = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let a0 = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let a1 = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let (prov, model, prompt, tools_json) = if call_args.len() >= 3 {
+                            let a2 = call_args.get(2).map(|v| v.as_string()).unwrap_or_default();
+                            let a3 = call_args.get(3).map(|v| v.as_string()).unwrap_or_default();
+                            (a0, a1, a2, a3)
+                        } else {
+                            ("openrouter".to_string(), a0, a1, String::new())
+                        };
                         Ok(Value::String(
-                            self.host.llm_probe(&model, &prompt).map_err(|e| VmError::new("MLLM", e, line))?,
+                            self.host.llm_probe(&prov, &model, &prompt, &tools_json).map_err(|e| VmError::new("MLLM", e, line))?,
                         ))
                     }
                     _ => {

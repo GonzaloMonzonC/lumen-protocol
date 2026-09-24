@@ -713,23 +713,46 @@ pub fn llm_free_models(url_override: &str) -> Result<String, String> {
 }
 
 /// Task 206-bis (F1): sonda de tools para el device `llm:probe`.
-/// Llama al modelo con la herramienta `get_time`; resume el veredicto:
+/// Llama al modelo con las herramientas indicadas; resume el veredicto:
 /// `"TC:<fn>"` si pidió tool_calls · `"TXT:<respuesta>"` si contestó texto · `"ERR:<motivo>"`.
-pub fn llm_probe_call(model: &str, prompt: &str) -> Result<String, String> {
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "tools": [{
+///
+/// FIX 24-sep-2026 (v4-tools): antes esta funcion tenia DOS defectos que hacian
+/// que la categoria `tools` de la bateria midiera humo:
+///   1) hardcodeaba el proveedor a "openrouter" -> el modelo bandera del
+///      ecosistema (DeepSeek Flash, provider `deepseek`) devolvia
+///      `ERR:API error 400` porque se le pedia como modelo de OpenRouter.
+///   2) ofrecia UNA sola herramienta fija (`get_time`) -> el test de la
+///      herramienta PROHIBIDA era imposible de medir: el modelo nunca podia
+///      elegir ni `list_files` ni `delete_file` porque no existian en la peticion.
+/// Ahora el proveedor es parametro y las herramientas llegan como JSON. La
+/// herramienta prohibida se declara en el JSON (el modelo la VE y debe NO usarla):
+/// eso es lo que mide `T2`.
+pub fn llm_probe_call(provider: &str, model: &str, prompt: &str, tools_json: &str) -> Result<String, String> {
+    // Si no llega JSON de herramientas, se usa get_time como sonda minima
+    // (compatible con llamadas de 2 argumentos de versiones anteriores).
+    let tools: serde_json::Value = if tools_json.trim().is_empty() {
+        serde_json::json!([{
             "type": "function",
             "function": {
                 "name": "get_time",
                 "description": "Devuelve la hora actual UTC",
                 "parameters": {"type": "object", "properties": {}}
             }
-        }],
+        }])
+    } else {
+        match serde_json::from_str(tools_json) {
+            Ok(v) => v,
+            Err(e) => return Ok(format!("ERR:tools_json invalido: {}", e)),
+        }
+    };
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": tools,
         "tool_choice": "auto"
     });
-    match llm_call_sync_json("openrouter", &body) {
+    let prov = if provider.trim().is_empty() { "openrouter" } else { provider.trim() };
+    match llm_call_sync_json(prov, &body) {
         Ok(j) => {
             let msg = j
                 .get("choices")
@@ -740,13 +763,16 @@ pub fn llm_probe_call(model: &str, prompt: &str) -> Result<String, String> {
                 .and_then(|v| v.as_array())
                 .filter(|a| !a.is_empty());
             if let Some(arr) = tc {
-                let name = arr
-                    .get(0)
-                    .and_then(|t| t.get("function"))
-                    .and_then(|f| f.get("name"))
-                    .and_then(|n| n.as_str())
-                    .unwrap_or("");
-                return Ok(format!("TC:{name}"));
+                // Todas las herramientas pedidas, separadas por "|" — asi el
+                // scorer puede ver si eligio la prohibida entre varias.
+                let names: Vec<String> = arr
+                    .iter()
+                    .filter_map(|t| t.get("function"))
+                    .filter_map(|f| f.get("name"))
+                    .filter_map(|n| n.as_str())
+                    .map(|s| s.to_string())
+                    .collect();
+                return Ok(format!("TC:{}", names.join("|")));
             }
             let content = msg
                 .and_then(|m| m.get("content"))
@@ -1034,7 +1060,10 @@ pub trait Host {
     }
 
     /// Task 206-bis (F1): sonda de tools de un modelo (device `llm:probe`).
-    fn llm_probe(&self, _model: &str, _prompt: &str) -> Result<String, String> {
+    /// Firma v2 (24-sep-2026): (provider, model, prompt, tools_json) — el
+    /// proveedor es parametro y las herramientas llegan como JSON, para que la
+    /// herramienta PROHIBIDA sea medible.
+    fn llm_probe(&self, _provider: &str, _model: &str, _prompt: &str, _tools_json: &str) -> Result<String, String> {
         Err("llm:probe no soportado en este host".to_string())
     }
 
@@ -2683,8 +2712,8 @@ impl Host for MemoryHost {
     }
 
     /// F1 (206-bis): sonda de tools (device `llm:probe`).
-    fn llm_probe(&self, model: &str, prompt: &str) -> Result<String, String> {
-        llm_probe_call(model, prompt)
+    fn llm_probe(&self, provider: &str, model: &str, prompt: &str, tools_json: &str) -> Result<String, String> {
+        llm_probe_call(provider, model, prompt, tools_json)
     }
 
     // ── User Device implementation ($DEVICE("user:ask")) ─────
