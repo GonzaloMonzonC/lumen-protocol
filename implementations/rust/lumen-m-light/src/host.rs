@@ -160,7 +160,11 @@ impl LlmThreadPool {
             let wf = futures.clone();
             thread::spawn(move || {
                 for item in rx {
+                    let t0 = std::time::Instant::now();
                     let result = Self::do_llm_call(&item);
+                    // Latencia TOTAL del future (pacing + cola + HTTP). El net lo registra
+                    // do_llm_call/do_tom_call justo después del pacing.
+                    llm_lat_record_total(item.id, t0.elapsed().as_millis() as u64);
                     if let Err(e) = result {
                         if let Ok(mut state) = item.state.lock() {
                             *state = LlmFutureStatus::Rejected(e);
@@ -211,6 +215,11 @@ impl LlmThreadPool {
         #[cfg(feature = "minreq")]
         {
             llm_pace_wait();
+            // ⏱️ FIX 24-sep-2026: de aquí en adelante NO hay espera de cuota — lo que tarde
+            // esto es del modelo (red incluida). Se mide con Instant y se publica a M con
+            // $DEVICE("llm:lat", id); M ya no cronometra con $H (ver LLM_LAT arriba).
+            let t_net = std::time::Instant::now();
+            let http_out: Result<String, String> = (|| {
             let is_anthropic = item.provider.to_lowercase() == "anthropic";
             
             let body = if is_anthropic {
@@ -312,11 +321,19 @@ impl LlmThreadPool {
                 }
             };
 
-            if let Ok(mut state) = item.state.lock() {
-                *state = LlmFutureStatus::Resolved(content.clone());
-            }
-
             Ok(content)
+            })();
+            // ⚠️ ORDEN CRÍTICO: la latencia se publica ANTES de resolver el future. Si no,
+            // M puede despertar del await al resolverse el estado y leer llm:lat en la
+            // ventana en que aún no existe (net=0) → el modelo se quedaría SIN velocidad.
+            // Y cualquier salida de la llamada (éxito o error, con sus `?`) pasa por aquí.
+            llm_lat_record_net(item.id, t_net.elapsed().as_millis() as u64);
+            if let Ok(c) = &http_out {
+                if let Ok(mut state) = item.state.lock() {
+                    *state = LlmFutureStatus::Resolved(c.clone());
+                }
+            }
+            http_out
         }
 
         #[cfg(not(feature = "minreq"))]
@@ -347,9 +364,12 @@ impl LlmThreadPool {
             .map_err(|e| format!("JSON serialize error: {e}"))?;
 
         llm_pace_wait();
+        // ⏱️ Igual que do_llm_call: medir DESPUÉS del pacing y publicar a M (llm:lat).
+        let t_net = std::time::Instant::now();
 
         #[cfg(feature = "minreq")]
         {
+            let http_out: Result<String, String> = (|| {
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -380,22 +400,26 @@ impl LlmThreadPool {
             }
             let content = json["content"].as_str().unwrap_or("").to_string();
             if !content.is_empty() {
-                // El worker del pool solo escribe el estado en Errores: el éxito
-                // debe marcarse aquí (igual que hace do_llm_call con OpenRouter)
-                // — sin esto la future queda Pending para siempre (poll=None).
-                if let Ok(mut state) = item.state.lock() {
-                    *state = LlmFutureStatus::Resolved(content.clone());
-                }
+                // El estado lo resuelve el llamador (justo después de publicar la latencia,
+                // para que M no pueda leer llm:lat antes de que exista). El worker del pool
+                // solo escribe estado en Errores — sin resolver aquí, el éxito quedaría
+                // Pending para siempre (poll=None): de ahí que el llamador SÍ lo marque.
                 return Ok(content);
             }
             let alt = json["response"].as_str().unwrap_or("").to_string();
             if alt.is_empty() {
                 return Err("tom: respuesta vacía".to_string());
             }
-            if let Ok(mut state) = item.state.lock() {
-                *state = LlmFutureStatus::Resolved(alt.clone());
-            }
             Ok(alt)
+            })();
+            // Mismo orden crítico que do_llm_call: latencia primero, estado después.
+            llm_lat_record_net(item.id, t_net.elapsed().as_millis() as u64);
+            if let Ok(c) = &http_out {
+                if let Ok(mut state) = item.state.lock() {
+                    *state = LlmFutureStatus::Resolved(c.clone());
+                }
+            }
+            http_out
         }
         #[cfg(not(feature = "minreq"))]
         {
@@ -760,6 +784,44 @@ fn llm_pace_wait() {
         }
         *g = Some(std::time::Instant::now());
     }
+}
+
+// ── Latencia REAL por future LLM (fix 24-sep-2026) ─────────────────────────────
+// El MOTOR mide con Instant (monótono, ms) alrededor del HTTP. ANTES la medía M con
+// $H y el dato salía inservible por tres motivos, los tres medidos:
+//   1. $H da segundos ENTEROS → 200 ms y 900 ms puntúan los dos 0, justo en el rango
+//      donde los buenos modelos se distinguen (el vp del SCORE pierde el 20 % del peso).
+//   2. El delta incluía el PACING (LUMEN_LLM_PACE_MS, 3 s) — espera de la cuenta, no
+//      del modelo — hasta 3 veces por la batería de reintentos.
+//   3. El resume REINICIA LOCALES: un tb0 vacío hace `$H(2) - 0` = segundos desde
+//      medianoche → los «lat=47802s» del informe eran la HORA (13:16:42), no una latencia.
+// net   = SOLO el HTTP, medido DESPUÉS del pacing → lo que de verdad tarda el modelo.
+// total = desde que el worker toma el item (incluye pacing y espera de cola del pool).
+// Contrato con M: $DEVICE("llm:lat", id) → "<net>|<total>" en ms ("0|0" = sin medida).
+static LLM_LAT: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, (u64, u64)>>> =
+    std::sync::OnceLock::new();
+
+fn llm_lat_map() -> &'static std::sync::Mutex<HashMap<u64, (u64, u64)>> {
+    LLM_LAT.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Registra la latencia NET (solo HTTP, post-pacing) de un future.
+pub fn llm_lat_record_net(id: u64, net_ms: u64) {
+    if let Ok(mut m) = llm_lat_map().lock() {
+        m.entry(id).or_insert((0, 0)).0 = net_ms;
+    }
+}
+
+/// Completa el TOTAL (pacing + cola + HTTP) — lo llama el worker del pool.
+pub fn llm_lat_record_total(id: u64, total_ms: u64) {
+    if let Ok(mut m) = llm_lat_map().lock() {
+        m.entry(id).or_insert((0, 0)).1 = total_ms;
+    }
+}
+
+/// Latencia medida de un future: (net_ms, total_ms). None si el id no se midió.
+pub fn llm_lat_get(id: u64) -> Option<(u64, u64)> {
+    llm_lat_map().lock().ok().and_then(|m| m.get(&id).copied())
 }
 
 

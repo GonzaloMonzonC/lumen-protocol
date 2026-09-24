@@ -2433,6 +2433,19 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         let id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
                         Ok(Value::Bool(self.host.llm_cancel(id).unwrap_or(false)))
                     }
+                    ("llm", "lat") => {
+                        // ⏱️ Latencia REAL medida por el MOTOR (Instant monótono) para un future
+                        // concreto. Contrato: "<net_ms>|<total_ms>".
+                        //   net   = SOLO el HTTP, medido después del pacing → latencia honesta
+                        //           del modelo (es el número que debe usar %LEVAL para el vp).
+                        //   total = pacing + cola del pool + HTTP (diagnóstico).
+                        // "0|0" = sin medida (id inválido, llamada aún en vuelo o provider sin
+                        // registrar). El id es el token: no hay ambigüedad con forks en vuelo,
+                        // y sobrevive al replay del cuerpo (misma id → misma medida).
+                        let id = call_args.get(0).map(|v| v.as_number() as u64).unwrap_or(0);
+                        let (net, total) = crate::host::llm_lat_get(id).unwrap_or((0, 0));
+                        Ok(Value::String(format!("{net}|{total}")))
+                    }
                     ("llm", "all") => {
                         let ids_str = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
                         let ids: Vec<u64> = ids_str.split(',').filter_map(|s| s.trim().parse().ok()).collect();
