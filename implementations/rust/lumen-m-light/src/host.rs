@@ -2775,16 +2775,25 @@ impl Host for MemoryHost {
                                 "uso: $DEVICE(\"ddp:pull\",\"NS\",[limit],[depth])".to_string()
                             );
                         }
-                        let limit = match args.get(1).map(|v| v.as_number() as i64).unwrap_or(500) {
-                            n if n > 0 => n,
-                            _ => 500,
-                        };
+                        // ⚠️ FIX 24-sep-2026 (QA LUMEN OS): el pull traía 500 por defecto y
+                        // `limit<=0` TAMBIÉN daba 500 → pérdida SILENCIOSA en namespaces
+                        // grandes (3000 filas → 549, diciendo OK). Ahora: limit<=0 = TODAS,
+                        // paginando con offset (el hub ya lo soporta y devuelve `total`).
+                        let limit_req = args.get(1).map(|v| v.as_number() as i64).unwrap_or(0);
                         let depth = args.get(2).map(|v| v.as_number() as i64).unwrap_or(-1);
                         let (peer, key) = ddp_cfg(self)?;
+                        let pagina: i64 = if limit_req > 0 { limit_req.min(1000) } else { 1000 };
+                        let tope: Option<i64> = if limit_req > 0 { Some(limit_req) } else { None };
+                        let mut offset: i64 = 0;
+                        let mut applied = 0usize;
+                        let mut skipped = 0usize;
+                        let mut total_hub: i64 = -1;
+                        loop {
                         let path = format!(
-                            "/ddp/pull?ns={}&limit={}&depth={}",
+                            "/ddp/pull?ns={}&limit={}&offset={}&depth={}",
                             crate::ddp_client::urlenc(&ns),
-                            limit,
+                            pagina,
+                            offset,
                             depth
                         );
                         let (status, body) =
@@ -2797,13 +2806,15 @@ impl Host for MemoryHost {
                         }
                         let parsed: serde_json::Value = serde_json::from_str(&body)
                             .map_err(|e| format!("DDP pull: JSON inválido: {e}"))?;
+                        if total_hub < 0 {
+                            total_hub = parsed.get("total").and_then(|t| t.as_i64()).unwrap_or(-1);
+                        }
                         let entries = parsed
                             .get("entries")
                             .and_then(|e| e.as_array())
                             .cloned()
                             .unwrap_or_default();
-                        let mut applied = 0usize;
-                        let mut skipped = 0usize;
+                        let n_lote = entries.len();
                         for e in entries {
                             let ens = e
                                 .get("ns")
@@ -2836,7 +2847,25 @@ impl Host for MemoryHost {
                                 .map_err(|err| format!("DDP pull set: {err}"))?;
                             applied += 1;
                         }
-                        Ok(Value::String(format!("{applied} (skip {skipped})")))
+                        // ¿Hay más páginas? Corte por lote incompleto, por tope pedido
+                        // por el usuario, o por el `total` del hub (así también funciona
+                        // con hubs antiguos que no devuelvan `total`).
+                        offset += n_lote as i64;
+                        if n_lote < pagina as usize {
+                            break;
+                        }
+                        if let Some(t) = tope {
+                            if offset >= t {
+                                break;
+                            }
+                        }
+                        if total_hub >= 0 && offset >= total_hub {
+                            break;
+                        }
+                        }
+                        Ok(Value::String(format!(
+                            "{applied} aplicadas (skip {skipped}) · hub: {total_hub} entradas"
+                        )))
                     }
                     "push" => {
                         let ns = args.first().map(|v| v.as_string()).unwrap_or_default();
@@ -2844,29 +2873,38 @@ impl Host for MemoryHost {
                             return Err("uso: $DEVICE(\"ddp:push\",\"NS\")".to_string());
                         }
                         let (peer, key) = ddp_cfg(self)?;
-                        let mut entries: Vec<serde_json::Value> = Vec::new();
+                        // ⚠️ FIX 24-sep-2026 (QA LUMEN OS): antes cortaba en 1000 entradas
+                        // SIN AVISAR (3000 filas → subía 1000 y respondía success). Ahora se
+                        // recolecta el namespace completo y se envía PAGINADO; el hub hace
+                        // INSERT OR REPLACE por entrada, así que por lotes es seguro.
+                        let mut todas: Vec<serde_json::Value> = Vec::new();
                         for entry in self.entries().iter() {
                             let (ens, subs, val) = (&entry.ns, &entry.subs, &entry.value);
                             if ens != &ns {
                                 continue;
                             }
                             let sv: Vec<String> = subs.iter().map(sub_text).collect();
-                            entries.push(serde_json::json!({"subs": sv, "value": val.as_string()}));
-                            if entries.len() >= 1000 {
-                                break;
+                            todas.push(serde_json::json!({"subs": sv, "value": val.as_string()}));
+                        }
+                        let total = todas.len();
+                        let mut enviadas = 0usize;
+                        for lote in todas.chunks(1000) {
+                            let body = serde_json::json!({"ns": ns.clone(), "entries": lote})
+                                .to_string();
+                            let (status, resp) =
+                                crate::ddp_client::post_signed(&peer, "/ddp/push", &body, &key)?;
+                            if status != 200 {
+                                // Se avisa del envío PARCIAL: no se oculta un fallo a mitad.
+                                return Err(format!(
+                                    "DDP push HTTP {status} tras enviar {enviadas}/{total}: {}",
+                                    resp.chars().take(200).collect::<String>()
+                                ));
                             }
+                            enviadas += lote.len();
                         }
-                        let body = serde_json::json!({"ns": ns.clone(), "entries": entries})
-                            .to_string();
-                        let (status, resp) =
-                            crate::ddp_client::post_signed(&peer, "/ddp/push", &body, &key)?;
-                        if status != 200 {
-                            return Err(format!(
-                                "DDP push HTTP {status}: {}",
-                                resp.chars().take(200).collect::<String>()
-                            ));
-                        }
-                        Ok(Value::String(resp))
+                        Ok(Value::String(format!(
+                            "{{\"success\":true,\"enviadas\":{enviadas},\"total\":{total}}}"
+                        )))
                     }
                     // F2c: estado/limpieza de la caché de referencias
                     "cache" => {
