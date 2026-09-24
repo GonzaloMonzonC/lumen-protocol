@@ -185,13 +185,27 @@ impl LlmThreadPool {
         if item.provider.to_lowercase() == "tom" {
             return Self::do_tom_call(item);
         }
-        let url = match item.provider.to_lowercase().as_str() {
-            "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
-            "deepseek" => "https://api.deepseek.com/v1/chat/completions",
-            "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
-            "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
-            "local" => "http://127.0.0.1:58099/v1/chat/completions",
-            _ => return Err(format!("unknown provider: {}", item.provider)),
+        // PUERTA DEL CÍRCULO (24-sep-2026): si el nodo declara ^CONFIG("llm_url_<prov>")
+        // (sembrado a env por sync_prov_env), la llamada va a ESE endpoint en vez del
+        // proveedor real — así un nodo cliente habla con el hub (que guarda la clave)
+        // y la clave nunca sale de casa.
+        let url_override = std::env::var(format!("LLM_URL_{}", item.provider.to_uppercase()))
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let url_own;
+        let url: &str = match url_override {
+            Some(u) => {
+                url_own = u;
+                url_own.as_str()
+            }
+            None => match item.provider.to_lowercase().as_str() {
+                "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+                "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+                "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
+                "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
+                "local" => "http://127.0.0.1:58099/v1/chat/completions",
+                _ => return Err(format!("unknown provider: {}", item.provider)),
+            },
         };
 
         #[cfg(feature = "minreq")]
@@ -546,11 +560,24 @@ pub fn llm_call_sync(
 /// finish_reason + usage). Misma ruta HTTP/keys que `llm_call_sync` (env; el gateway
 /// hace el bootstrap desde ^CONFIG antes de servir).
 pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let url = match provider.to_lowercase().as_str() {
-        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
-        "deepseek" => "https://api.deepseek.com/v1/chat/completions",
-        "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
-        _ => return Err(format!("unknown provider: {provider}")),
+    // PUERTA DEL CÍRCULO: override por ^CONFIG("llm_url_<prov>") (sembrado a env) — mismo
+    // mecanismo que do_llm_call. Cada camino de llamada lo respeta o el nodo-cliente
+    // hablaría directo al proveedor por unas rutas y por el hub por otras.
+    let url_override = std::env::var(format!("LLM_URL_{}", provider.to_uppercase()))
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let url_own;
+    let url: &str = match url_override {
+        Some(u) => {
+            url_own = u;
+            url_own.as_str()
+        }
+        None => match provider.to_lowercase().as_str() {
+            "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+            "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+            "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
+            _ => return Err(format!("unknown provider: {provider}")),
+        },
     };
     let api_key = match provider.to_lowercase().as_str() {
         "openrouter" => std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
@@ -3641,12 +3668,24 @@ impl Host for MemoryHost {
 /// Función standalone para hacer una LLM call desde un thread Smith.
 /// Usa las env vars OPENROUTER_API_KEY / DEEPSEEK_API_KEY
 pub fn smith_llm_call(provider: &str, model: &str, prompt: &str, system: &str) -> Result<String, String> {
-    let url = match provider.to_lowercase().as_str() {
-        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
-        "deepseek" => "https://api.deepseek.com/v1/chat/completions",
-        "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
-        "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
-        _ => return Err(format!("unknown provider: {provider}")),
+    // PUERTA DEL CÍRCULO: override por ^CONFIG("llm_url_<prov>") (sembrado a env) — mismo
+    // mecanismo que do_llm_call y llm_call_sync_json.
+    let url_override = std::env::var(format!("LLM_URL_{}", provider.to_uppercase()))
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let url_own;
+    let url: &str = match url_override {
+        Some(u) => {
+            url_own = u;
+            url_own.as_str()
+        }
+        None => match provider.to_lowercase().as_str() {
+            "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+            "deepseek" => "https://api.deepseek.com/v1/chat/completions",
+            "lingyi" | "zai" | "yi" | "01ai" => "https://api.lingyiwanwu.com/v1/chat/completions",
+            "anthropic" => "https://api.z.ai/api/anthropic/v1/messages",
+            _ => return Err(format!("unknown provider: {provider}")),
+        },
     };
     let key_env = match provider.to_lowercase().as_str() {
         "openrouter" => "OPENROUTER_API_KEY",
