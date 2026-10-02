@@ -583,7 +583,37 @@ pub fn llm_call_sync(
 /// Devuelve el JSON ÍNTEGRO de la respuesta para relay fiel (content O tool_calls +
 /// finish_reason + usage). Misma ruta HTTP/keys que `llm_call_sync` (env; el gateway
 /// hace el bootstrap desde ^CONFIG antes de servir).
-pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+/// Desglose de latencia de UNA llamada LLM. Se devuelve SIEMPRE — también cuando la
+/// llamada falla: el tiempo de un fallo es justo el dato que hace falta para diagnosticar
+/// una cadena lenta (un modelo que tarda 80 s y luego falla no se distingue de uno que
+/// tarda 80 ms sin esto).
+#[derive(Debug, Clone)]
+pub struct LlmCallStats {
+    pub ms_llamada: u64,   // tiempo real de HTTP + generación (SIN pacing)
+    pub ms_pacing: u64,    // tiempo dormido en llm_pace_wait() respetando el ritmo
+    pub intentos: u64,     // intentos de envío reales (minreq_send_retry; 1 = a la primera)
+}
+
+/// Igual que `llm_call_sync_json` pero devuelve además el desglose de latencia.
+/// El `Result` va PRIMERO para poder encadenar el `?`-estilo sin romper el idioma actual.
+pub fn llm_call_sync_json_stats(provider: &str, body: &serde_json::Value)
+    -> (Result<serde_json::Value, String>, LlmCallStats)
+{
+    // El pacing se mide con RELOJ, no con lo que se pidió dormir: `thread::sleep` se pasa de
+    // largo y hay que contar también la espera del mutex. Reportando lo pedido, el desglose no
+    // sumaba con el total del turno (26-sep-2026).
+    let t_pace = std::time::Instant::now();
+    llm_pace_wait();
+    let ms_pacing = t_pace.elapsed().as_millis() as u64;
+    let t_llamada = std::time::Instant::now();
+    let result = llm_call_sync_json_raw(provider, body);
+    let ms_llamada = t_llamada.elapsed().as_millis() as u64;
+    let stats = LlmCallStats { ms_llamada, ms_pacing, intentos: ultimo_send_intentos() };
+    (result, stats)
+}
+
+/// Igual que `llm_call_sync_json` pero con retry visible (para contar intentos).
+fn llm_call_sync_json_raw(provider: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
     // PUERTA DEL CÍRCULO: override por ^CONFIG("llm_url_<prov>") (sembrado a env) — mismo
     // mecanismo que do_llm_call. Cada camino de llamada lo respeta o el nodo-cliente
     // hablaría directo al proveedor por unas rutas y por el hub por otras.
@@ -611,7 +641,6 @@ pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<se
     };
     #[cfg(feature = "minreq")]
     {
-        llm_pace_wait();
         let body_str = serde_json::to_string(body)
             .map_err(|e| format!("JSON serialize error: {e}"))?;
         let build = || {
@@ -636,6 +665,15 @@ pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<se
     }
     #[cfg(not(feature = "minreq"))]
     { return Err("HTTP client not enabled (minreq feature)".to_string()); }
+}
+
+/// Camino sin métricas — lo usan `do_llm_call`, `llm_probe_call` y `smith_llm_call`. El
+/// desglose de latencia lo publica `llm_call_sync_json_stats`, que es el que usa el gateway.
+/// ⚠️ **NO añadir aquí un `eprintln` por llamada**: esta ruta la usan las baterías (`%LCOG`
+/// hace CIENTOS de llamadas) y llenaría el log del nodo sin que nadie lo lea (26-sep-2026).
+pub fn llm_call_sync_json(provider: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    llm_pace_wait();
+    llm_call_sync_json_raw(provider, body)
 }
 
 /// Task 206-bis (F1): lista de modelos FREE de OpenRouter para el device `llm:free`.
@@ -793,22 +831,30 @@ pub fn llm_probe_call(provider: &str, model: &str, prompt: &str, tools_json: &st
 // (eval, %MR, gateway) — el límite es de la cuenta, no del consumidor.
 static LLM_PACE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
-fn llm_pace_wait() {
+/// Espera entre llamadas LLM para respetar ritmo (evitar rate-limit de OpenRouter).
+/// Devuelve los milisegundos efectivamente dormidos (0 si no tocó esperar).
+pub fn llm_pace_wait() -> u64 {
     let pace_ms: u64 = std::env::var("LUMEN_LLM_PACE_MS")
         .ok()
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(3000);
     if pace_ms == 0 {
-        return;
+        return 0;
     }
     if let Ok(mut g) = LLM_PACE.lock() {
         if let Some(prev) = *g {
             let elapsed = prev.elapsed().as_millis() as u64;
             if elapsed < pace_ms {
-                std::thread::sleep(std::time::Duration::from_millis(pace_ms - elapsed));
+                let sleep_ms = pace_ms - elapsed;
+                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                *g = Some(std::time::Instant::now());
+                return sleep_ms;
             }
         }
         *g = Some(std::time::Instant::now());
+        0
+    } else {
+        0
     }
 }
 
@@ -1809,6 +1855,16 @@ fn search_web_text(args: &[Value]) -> Result<Value, String> {
 /// con la sonda dnsprobe: un fallo aislado y el MISMO lookup 20 ms después OK).
 /// Reconstruye la request (el builder es FnMut) y reintenta SOLO errores de
 /// lookup/conexión — los errores HTTP no se reintentan.
+/// Nº de intentos del ÚLTIMO `minreq_send_retry` (1 = salió a la primera). Se publica
+/// aquí en vez de cambiar la firma: la función tiene 7 llamadores y sólo el camino LLM
+/// necesita el dato para el desglose de latencia (26-sep-2026).
+static ULTIMO_SEND_INTENTOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Intentos del último envío HTTP (para el desglose de latencia del gateway).
+pub fn ultimo_send_intentos() -> u64 {
+    ULTIMO_SEND_INTENTOS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(feature = "minreq")]
 fn minreq_send_retry<F>(mut build: F) -> Result<minreq::Response, minreq::Error>
 where
@@ -1817,7 +1873,10 @@ where
     let mut last: Option<minreq::Error> = None;
     for attempt in 1..=3u64 {
         match build().send() {
-            Ok(r) => return Ok(r),
+            Ok(r) => {
+                ULTIMO_SEND_INTENTOS.store(attempt, std::sync::atomic::Ordering::Relaxed);
+                return Ok(r);
+            }
             Err(e) => {
                 let msg = format!("{e}");
                 let retryable = msg.contains("lookup")
@@ -1829,6 +1888,7 @@ where
                     last = Some(e);
                     continue;
                 }
+                ULTIMO_SEND_INTENTOS.store(attempt, std::sync::atomic::Ordering::Relaxed);
                 return Err(e);
             }
         }
@@ -2013,8 +2073,12 @@ fn mcp_http_request(
     Err("MCP device no disponible en este build (feature minreq off)".to_string())
 }
 
-/// Lee `^CONFIG("ddp_peer")` + `^CONFIG("ddp_hmac_key")` del host (F2 — hub DDP).
-fn ddp_cfg(host: &MemoryHost) -> Result<(String, String), String> {
+/// Lee `^CONFIG("ddp_peer")` + `^CONFIG("ddp_hmac_key")` + la IDENTIDAD del nodo.
+///
+/// La identidad (opcion B) sale de `^CONFIG("nodo_id")`; si no esta, de
+/// `^SYS("NODO")` — que el init fija al arrancar desde el DMI de la maquina
+/// (Asus 1005HA, Acer TravelMate 4000...). Se sanea para que valga como cabecera.
+fn ddp_cfg(host: &MemoryHost) -> Result<(String, String, String), String> {
     let peer = match host.get("CONFIG", &[Subscript::String("ddp_peer".to_string())]) {
         Ok(Some(v)) => v.as_string(),
         _ => String::new(),
@@ -2029,7 +2093,27 @@ fn ddp_cfg(host: &MemoryHost) -> Result<(String, String), String> {
         Ok(Some(v)) => v.as_string(),
         _ => String::new(),
     };
-    Ok((peer, key))
+    let crudo = match host.get("CONFIG", &[Subscript::String("nodo_id".to_string())]) {
+        Ok(Some(v)) if !v.as_string().trim().is_empty() => v.as_string(),
+        _ => match host.get("SYS", &[Subscript::String("NODO".to_string())]) {
+            Ok(Some(v)) => v.as_string(),
+            _ => String::new(),
+        },
+    };
+    // saneado: letras/numeros/._- y todo lo demas a un guion (vale como cabecera)
+    let mut nodo = String::new();
+    let mut guion = false;
+    for c in crudo.trim().chars() {
+        if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+            nodo.push(c);
+            guion = false;
+        } else if !guion {
+            nodo.push('-');
+            guion = true;
+        }
+    }
+    let nodo = nodo.trim_matches('-').to_string();
+    Ok((peer, key, nodo))
 }
 
 /// Texto canónico de un subscript para JSON de DDP.
@@ -2161,7 +2245,7 @@ fn remote_fetch_chunk(
     rns: &str,
     parent: &[Subscript],
 ) -> Result<Vec<(Vec<String>, String, bool, bool)>, String> {
-    let (peer, key) = ddp_cfg(host)?;
+    let (peer, key, nodo) = ddp_cfg(host)?;
     let parent_texts: Vec<String> = parent.iter().map(sub_text).collect();
     let limit = cache_fetch_limit(host);
     let path = if parent_texts.is_empty() {
@@ -2183,7 +2267,7 @@ fn remote_fetch_chunk(
             prefix
         )
     };
-    let (status, body) = crate::ddp_client::get_signed(&peer, &path, &key)?;
+    let (status, body) = crate::ddp_client::get_signed_id(&peer, &path, &key, &nodo)?;
     if status != 200 {
         return Err(format!(
             "DDP refs: pull HTTP {status}: {}",
@@ -2875,9 +2959,9 @@ impl Host for MemoryHost {
                     //   $DEVICE("ddp:push","NS")                    → sube el subárbol local
                     // Firma legacy ts+data+key (epoch seg): GET firma path+query; POST firma body.
                     "health" => {
-                        let (peer, key) = ddp_cfg(self)?;
+                        let (peer, key, nodo) = ddp_cfg(self)?;
                         let (status, body) =
-                            crate::ddp_client::get_signed(&peer, "/ddp/health", &key)?;
+                            crate::ddp_client::get_signed_id(&peer, "/ddp/health", &key, &nodo)?;
                         if status != 200 {
                             return Err(format!(
                                 "DDP health HTTP {status}: {}",
@@ -2899,7 +2983,7 @@ impl Host for MemoryHost {
                         // paginando con offset (el hub ya lo soporta y devuelve `total`).
                         let limit_req = args.get(1).map(|v| v.as_number() as i64).unwrap_or(0);
                         let depth = args.get(2).map(|v| v.as_number() as i64).unwrap_or(-1);
-                        let (peer, key) = ddp_cfg(self)?;
+                        let (peer, key, nodo) = ddp_cfg(self)?;
                         let pagina: i64 = if limit_req > 0 { limit_req.min(1000) } else { 1000 };
                         let tope: Option<i64> = if limit_req > 0 { Some(limit_req) } else { None };
                         let mut offset: i64 = 0;
@@ -2915,7 +2999,7 @@ impl Host for MemoryHost {
                             depth
                         );
                         let (status, body) =
-                            crate::ddp_client::get_signed(&peer, &path, &key)?;
+                            crate::ddp_client::get_signed_id(&peer, &path, &key, &nodo)?;
                         if status != 200 {
                             return Err(format!(
                                 "DDP pull HTTP {status}: {}",
@@ -2990,7 +3074,7 @@ impl Host for MemoryHost {
                         if ns.is_empty() {
                             return Err("uso: $DEVICE(\"ddp:push\",\"NS\")".to_string());
                         }
-                        let (peer, key) = ddp_cfg(self)?;
+                        let (peer, key, nodo) = ddp_cfg(self)?;
                         // ⚠️ FIX 24-sep-2026 (QA LUMEN OS): antes cortaba en 1000 entradas
                         // SIN AVISAR (3000 filas → subía 1000 y respondía success). Ahora se
                         // recolecta el namespace completo y se envía PAGINADO; el hub hace
@@ -3010,7 +3094,7 @@ impl Host for MemoryHost {
                             let body = serde_json::json!({"ns": ns.clone(), "entries": lote})
                                 .to_string();
                             let (status, resp) =
-                                crate::ddp_client::post_signed(&peer, "/ddp/push", &body, &key)?;
+                                crate::ddp_client::post_signed_id(&peer, "/ddp/push", &body, &key, &nodo)?;
                             if status != 200 {
                                 // Se avisa del envío PARCIAL: no se oculta un fallo a mitad.
                                 return Err(format!(
@@ -3064,18 +3148,20 @@ impl Host for MemoryHost {
                             Some(s) if !s.trim().is_empty() => s,
                             _ => "mvm-nas".to_string(),
                         };
-                        let (peer, key) = ddp_cfg(self)?;
+                        let (peer, key, nodo) = ddp_cfg(self)?;
                         let body = serde_json::json!({
                             "agente": slug,
                             "mensaje": msg,
                             "session": session,
                         })
                         .to_string();
-                        let (status, resp) = crate::ddp_client::post_signed_llm(
+                        let (status, resp) = crate::ddp_client::post_signed_id_t(
                             &peer,
                             "/ddp/agent/chat",
                             &body,
                             &key,
+                            &nodo,
+                            120,
                         )?;
                         if status != 200 {
                             return Err(format!(
