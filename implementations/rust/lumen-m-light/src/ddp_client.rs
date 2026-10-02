@@ -20,6 +20,19 @@ pub fn hmac_sign(ts: &str, data: &str, key: &str) -> String {
     hex::encode(mac.finalize().into_bytes())
 }
 
+/// HMAC-SHA256(key, ts + nodo + data + key) — opcion B: firma que ATA la identidad.
+///
+/// El hub (vm_api) puede verificarla y saber QUE nodo la manda, en vez de solo
+/// saber que "alguien del circulo" la manda. Se manda ADEMAS de la legacy.
+pub fn hmac_sign_id(ts: &str, nodo: &str, data: &str, key: &str) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(key.as_bytes()).expect("HMAC acepta claves de cualquier len");
+    mac.update(format!("{ts}{nodo}{data}{key}").as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
 /// Timestamp (epoch segundos) como string — SystemTime (shim en NAS ✓).
 pub fn now_ts() -> String {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -137,13 +150,32 @@ pub fn http_request_t(
 
 /// GET firmado: firma sobre el path+query EXACTO (así lo verifica vm_api).
 pub fn get_signed(peer: &str, path: &str, key: &str) -> Result<(u16, String), String> {
+    get_signed_id(peer, path, key, "")
+}
+
+/// GET firmado con IDENTIDAD de nodo (opcion B). `nodo` vacio = solo legacy.
+pub fn get_signed_id(
+    peer: &str,
+    path: &str,
+    key: &str,
+    nodo: &str,
+) -> Result<(u16, String), String> {
     let url = format!("{}{}", peer.trim_end_matches('/'), path);
     let ts = now_ts();
     let sig = if key.is_empty() { String::new() } else { hmac_sign(&ts, path, key) };
+    let sig2 = if key.is_empty() || nodo.is_empty() {
+        String::new()
+    } else {
+        hmac_sign_id(&ts, nodo, path, key)
+    };
     let mut hdrs: Vec<(&str, &str)> = Vec::new();
     if !key.is_empty() {
         hdrs.push(("X-DDP-Timestamp", ts.as_str()));
         hdrs.push(("X-DDP-HMAC", sig.as_str()));
+        if !nodo.is_empty() {
+            hdrs.push(("X-DDP-Node", nodo));
+            hdrs.push(("X-DDP-HMAC2", sig2.as_str()));
+        }
     }
     http_request("GET", &url, None, &hdrs)
 }
@@ -158,6 +190,17 @@ pub fn post_signed(
     post_signed_t(peer, path, body, key, 20)
 }
 
+/// POST firmado con identidad y timeout por defecto.
+pub fn post_signed_id(
+    peer: &str,
+    path: &str,
+    body: &str,
+    key: &str,
+    nodo: &str,
+) -> Result<(u16, String), String> {
+    post_signed_id_t(peer, path, body, key, nodo, 20)
+}
+
 /// POST firmado con timeout de lectura explícito (segundos).
 pub fn post_signed_t(
     peer: &str,
@@ -166,13 +209,34 @@ pub fn post_signed_t(
     key: &str,
     read_timeout_secs: u64,
 ) -> Result<(u16, String), String> {
+    post_signed_id_t(peer, path, body, key, "", read_timeout_secs)
+}
+
+/// POST firmado con IDENTIDAD de nodo (opcion B). `nodo` vacio = solo legacy.
+pub fn post_signed_id_t(
+    peer: &str,
+    path: &str,
+    body: &str,
+    key: &str,
+    nodo: &str,
+    read_timeout_secs: u64,
+) -> Result<(u16, String), String> {
     let url = format!("{}{}", peer.trim_end_matches('/'), path);
     let ts = now_ts();
     let sig = if key.is_empty() { String::new() } else { hmac_sign(&ts, body, key) };
+    let sig2 = if key.is_empty() || nodo.is_empty() {
+        String::new()
+    } else {
+        hmac_sign_id(&ts, nodo, body, key)
+    };
     let mut hdrs: Vec<(&str, &str)> = Vec::new();
     if !key.is_empty() {
         hdrs.push(("X-DDP-Timestamp", ts.as_str()));
         hdrs.push(("X-DDP-HMAC", sig.as_str()));
+        if !nodo.is_empty() {
+            hdrs.push(("X-DDP-Node", nodo));
+            hdrs.push(("X-DDP-HMAC2", sig2.as_str()));
+        }
     }
     http_request_t("POST", &url, Some(body), &hdrs, read_timeout_secs)
 }
