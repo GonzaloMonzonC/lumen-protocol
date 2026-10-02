@@ -1502,6 +1502,8 @@ class VMHandler(BaseHTTPRequestHandler):
             self._json({"ok": True, "ddp": "local", "hmac": bool(os.environ.get("DDP_HMAC_KEY"))})
         elif path == "/ddp/pull":
             self._handle_ddp_pull(qs)
+        elif path == "/ddp/nodes":
+            self._handle_ddp_nodes(qs)
         elif path == "/ddp/namespaces":
             if not _verify_ddp(self.path, self.headers):
                 self._json({"error": "HMAC auth failed"}, 403)
@@ -1690,6 +1692,30 @@ class VMHandler(BaseHTTPRequestHandler):
         except Exception as e:
             import traceback as _tb
             self._json({"error": f"{e}\n{_tb.format_exc()}"}, 500)
+
+    def _handle_ddp_nodes(self, qs):
+        """GET /ddp/nodes — registro de NODOS del ecosistema (namespace NODOS).
+
+        Los nodos lo escriben al arrancar (rutina %NR) y lo empujan al hub:
+            ^NODOS(<id>,"nombre"|"ip"|"version"|"primera"|"ultima"|...)
+        Con esto, cualquier nodo o la web pueden ver QUIEN esta vivo.
+        """
+        try:
+            raw = self.path
+            if not _verify_ddp(raw, self.headers):
+                self._json({"error": "HMAC auth failed"}, 403)
+                return
+            quien = _ddp_nodo(raw, self.headers)
+            r = _ddp_pull("NODOS", None, int(qs.get("limit", "2000")), 0, 1)
+            nodos = {}
+            for e in r.get("entries", []):
+                subs = e.get("subs") or []
+                if len(subs) >= 2 and e.get("value") is not None:
+                    nodos.setdefault(str(subs[0]), {})[str(subs[1])] = e["value"]
+            self._json({"ok": True, "pide": quien or None,
+                        "n": len(nodos), "nodos": nodos})
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
 
     def _handle_ddp_raw(self, qs):
         """GET /ddp/raw?ns=clinica&limit=10&offset=0
