@@ -2935,6 +2935,14 @@ impl Host for MemoryHost {
                 //   $DEVICE("zroutines","save",BUF,[DEST]) → routines/DEST.m + recarga
                 crate::zroutines::zroutines_device(self, action, &args)
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            "hw" => {
+                // ── 02-oct-2026: HARDWARE FISICO por M (solo /sys, sin deps) ──
+                //   $DEVICE("hw:list")   · hw:temp · hw:rfkill[,unblock]
+                //   $DEVICE("hw:net","iface") · hw:battery
+                // Es tambien el utillaje para depurar la WiFi por telnet.
+                crate::hw::hw_device(action, &args)
+            }
             #[cfg(feature = "spawn")]
             "spawn" => {
                 // ── 18-sep-2026: sandbox — el nodo se auto-lanza en hijo con timeout ──
