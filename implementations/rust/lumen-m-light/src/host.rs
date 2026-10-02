@@ -2974,7 +2974,8 @@ impl Host for MemoryHost {
                         let ns = args.first().map(|v| v.as_string()).unwrap_or_default();
                         if ns.is_empty() {
                             return Err(
-                                "uso: $DEVICE(\"ddp:pull\",\"NS\",[limit],[depth])".to_string()
+                                "uso: $DEVICE(\"ddp:pull\",\"NS\",[limit],[depth],[prefix])"
+                                    .to_string()
                             );
                         }
                         // ⚠️ FIX 24-sep-2026 (QA LUMEN OS): el pull traía 500 por defecto y
@@ -2983,6 +2984,9 @@ impl Host for MemoryHost {
                         // paginando con offset (el hub ya lo soporta y devuelve `total`).
                         let limit_req = args.get(1).map(|v| v.as_number() as i64).unwrap_or(0);
                         let depth = args.get(2).map(|v| v.as_number() as i64).unwrap_or(-1);
+                        // Namespace por nodo: prefijo para traer SOLO un subarbol
+                        // (^NODO("<id>") = memoria propia del nodo).
+                        let prefijo = args.get(3).map(|v| v.as_string()).unwrap_or_default();
                         let (peer, key, nodo) = ddp_cfg(self)?;
                         let pagina: i64 = if limit_req > 0 { limit_req.min(1000) } else { 1000 };
                         let tope: Option<i64> = if limit_req > 0 { Some(limit_req) } else { None };
@@ -2991,13 +2995,24 @@ impl Host for MemoryHost {
                         let mut skipped = 0usize;
                         let mut total_hub: i64 = -1;
                         loop {
-                        let path = format!(
-                            "/ddp/pull?ns={}&limit={}&offset={}&depth={}",
-                            crate::ddp_client::urlenc(&ns),
-                            pagina,
-                            offset,
-                            depth
-                        );
+                        let path = if prefijo.is_empty() {
+                            format!(
+                                "/ddp/pull?ns={}&limit={}&offset={}&depth={}",
+                                crate::ddp_client::urlenc(&ns),
+                                pagina,
+                                offset,
+                                depth
+                            )
+                        } else {
+                            format!(
+                                "/ddp/pull?ns={}&limit={}&offset={}&depth={}&prefix={}",
+                                crate::ddp_client::urlenc(&ns),
+                                pagina,
+                                offset,
+                                depth,
+                                crate::ddp_client::urlenc(&prefijo)
+                            )
+                        };
                         let (status, body) =
                             crate::ddp_client::get_signed_id(&peer, &path, &key, &nodo)?;
                         if status != 200 {
