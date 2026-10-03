@@ -110,3 +110,9 @@ implementations/rust/lumen-m-light/target-mcp/
 *.so
 *.so.pre-*
 *.dylib
+
+# Imágenes de arranque (LUMEN OS) — artefactos de build, nunca al repo OSS.
+# Se generan con build-iso-i686/build_iso_i686.py; el árbol entero es local.
+*.iso
+build-iso-i686/initramfs*/
+*.cpio*
