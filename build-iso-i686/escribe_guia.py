@@ -147,6 +147,8 @@ RDEVICE ;
  D E^%GUIA("device","audio:","FUNCION: audio del nodo. $DEVICE(""audio:info|play|rec|vol|say"") - el voicebot")
  D E^%GUIA("device","img:","FUNCION: imagen. $DEVICE(""img:info|read|make"") - leer (ITT) o crear (TTI)")
  D E^%GUIA("device","cam:","FUNCION: camara. $DEVICE(""cam:list|grab|stream|frame"") - local (V4L2) o IP por red")
+ D E^%GUIA("device","kill","FUNCION: matar un job M. $DEVICE(""kill"",ID) o $DEVICE(""kill"",""all"")")
+ D E^%GUIA("device","jobs","FUNCION: lista de jobs M vivos (id|estado|seg|rutina|resultado). S R=$DEVICE(""jobs"")")
  D E^%GUIA("device","exec:","FUNCION: ejecutar un comando del sistema (con cuidado)")
  Q
  ;

@@ -163,6 +163,9 @@ TOOLS() ; (re)escribe el catalogo ^TOOLS base (idempotente). Llama el arranque.
  S ^TOOLS("cam:list","desc")="camaras disponibles (locales V4L2 o IP por red)"
  S ^TOOLS("cam:list","kind")="d:cam:list"
  S ^TOOLS("cam:list","params")="{""type"":""object"",""properties"":{}}"
+ S ^TOOLS("jobs","desc")="lista de jobs M vivos del nodo (id|estado|seg|rutina)"
+ S ^TOOLS("jobs","kind")="d:jobs"
+ S ^TOOLS("jobs","params")="{""type"":""object"",""properties"":{}}"
  Q 1
  ;
 DEMO ; demo interactiva del bucle

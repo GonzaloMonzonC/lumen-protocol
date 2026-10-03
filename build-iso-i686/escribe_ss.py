@@ -33,6 +33,7 @@ SS = r'''%SS(OP) ; %SS ; SYSTEM STATUS del nodo - vista tipo MSM (v3, 04-oct-202
  D RED
  D JOBS
  D AGENTES
+ D CTRL
  D MAS^%PAGE
  D FIN^%PAGE
  Q
@@ -67,10 +68,11 @@ SISTEMA ; el Linux de debajo
  W "  load ..... ",$$V("load1")," ",$$V("load5")," ",$$V("load15"),!
  Q
  ;
-MJOBS ; LISTA 1: los PROCESOS M del motor ($DEVICE("sys:mvm"))
+MJOBS ; LISTA 1: los PROCESOS M del motor ($DEVICE("sys:mvm"), estilo MSM)
+ ; Formato de cada job: id|estado|segundos|rutina|resultado
  N T L
  S T=$DEVICE("sys:mvm")
- W "-- PROCESOS M (motor) --",!
+ W "-- PROCESOS M (job | estado | seg | rutina | resultado) --",!
  I T="" W "  (ninguno vivo)",! Q
  F L=1:1:$L(T,$C(10)) D
  . N LN
@@ -82,7 +84,7 @@ MJOBS ; LISTA 1: los PROCESOS M del motor ($DEVICE("sys:mvm"))
 PSOBS ; LISTA 2: los PROCESOS DEL OS ($DEVICE("sys:ps"), top por memoria)
  N T L N
  S T=$DEVICE("sys:ps","12")
- W "-- PROCESOS DEL OS (top memoria) --",!
+ W "-- PROCESOS DEL OS (pid|comm|rss|estado|ticks) --",!
  I T="" W "  (no disponible fuera de Linux)",! Q
  F L=1:1:$L(T,$C(10)) D
  . N LN
@@ -138,6 +140,13 @@ AGENTES ; quien anda por aqui
  F  S K=$O(^AGENTES("routing",K)) Q:K=""  S N=N+1
  W "-- AGENTES --",!
  W "  enrutados ",N," (D ^%AG para la lista)",!
+ Q
+ ;
+CTRL ; CONTROL DE JOBS (senales, estilo MSM) - las senales del nodo
+ W "-- CONTROL (jobs) --",!
+ W "  ver ....... D ^%SS(""M"")     los procesos M vivos",!
+ W "  matar ..... S R=$DEVICE(""kill"",ID)",!
+ W "  matar todo  S R=$DEVICE(""kill"",""all"")",!
  Q
  ;
 PM ; solo los PROCESOS M (para "M")
