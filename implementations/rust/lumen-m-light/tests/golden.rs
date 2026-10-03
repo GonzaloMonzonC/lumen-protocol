@@ -312,6 +312,27 @@ fn tool_list_reads_the_catalog_from_a_global() {
 }
 
 #[test]
+fn av_devices_exist_and_answer() {
+    // 04-oct-2026 (DISENO-4 B/C): audio: / img: / cam: deben existir y responder
+    // algo HONESTO (no "Unknown device"). En el host de test (Windows) devuelven
+    // el aviso de "sin herramienta local"; lo que se fija es que NO es error.
+    for src in [
+        r#"S r=$DEVICE("audio:info") S ok=1"#,
+        r#"S r=$DEVICE("img:info","/tmp/x.png") S ok=1"#,
+        r#"S r=$DEVICE("cam:list") S ok=1"#,
+    ] {
+        let program = Compiler::compile(src).unwrap();
+        let mut host = MemoryHost::default();
+        let execution = {
+            let mut vm = Vm::new(program, &mut host);
+            vm.state.gas_limit = 10_000;
+            vm.run()
+        };
+        assert_eq!(execution, Execution::Completed, "{src}");
+    }
+}
+
+#[test]
 fn sys_ps_device_does_not_raise_unknown_action() {
     // 03-oct-2026: $DEVICE("sys:ps") debe existir (el %GUIA lo anuncia). Antes
     // el binario grabado no lo tenia -> "Unknown SYS action". Aqui lo fijamos:

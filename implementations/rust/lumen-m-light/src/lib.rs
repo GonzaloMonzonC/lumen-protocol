@@ -33,6 +33,10 @@ pub mod ddp;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod hw;
 
+/// Audio, imagen y camara por $DEVICE("audio:*"|"img:*"|"cam:*") — DISENO-4.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod av;
+
 pub use compiler::{Compiler, Instruction, Opcode, Program};
 pub use host::{GlobalEntry, Host, LlmCallStats, MemoryHost, llm_call_sync, llm_call_sync_json, llm_call_sync_json_stats, llm_pace_wait, ultimo_send_intentos};
 pub use value::{Subscript, Value};
