@@ -84,6 +84,11 @@ pub struct VmState {
     /// Es lo que el `%SS` lee para decir por que esta parado un job (estilo MSM).
     #[serde(default)]
     pub wait_reason: String,
+    /// 04-oct-2026 ($$QID, device por job): el ultimo $DEVICE("familia:accion")
+    /// que invoco este VM. El %SS lo muestra como «device» de cada job (lo que
+    /// el MSM daba con p/c). Vacio = ninguno todavia.
+    #[serde(default)]
+    pub last_device: String,
     #[serde(default)]
     pub return_value: Option<Value>,
     /// $ZH: UNIX timestamp al crear el VM (para elapsed time)
@@ -158,6 +163,7 @@ impl VmState {
             yield_requested: false,
             yield_future: None,
             wait_reason: String::new(),
+            last_device: String::new(),
             return_value: None,
             zh_start: crate::time_now_secs(),
             fibers: vec![FiberState::default()],
@@ -2372,6 +2378,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let path = self.eval_expr(args.get(0).map_or("", String::as_str), line)?.as_string();
                 let call_args: Vec<Value> = args[1..].iter().map(|a| self.eval_expr(a, line)).collect::<Result<_, _>>()?;
                 let (dev, act) = path.split_once(':').unwrap_or((&path, "call"));
+                // 04-oct-2026 ($$QID, device por job): registrar QUE device usa este
+                // job AHORA. Es lo que el %SS del MSM mostraba como p/c en cada job.
+                self.state.last_device = path.clone();
                 match (dev, act) {
                     // ── USER Device: $DEVICE("user:ask", pregunta) ──
                     // La rutina M pregunta al humano; el host (JS) abre un modal,

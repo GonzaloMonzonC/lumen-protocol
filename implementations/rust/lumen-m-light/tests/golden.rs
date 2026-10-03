@@ -379,6 +379,18 @@ fn unknown_sys_action_does_not_abort_the_routine() {
 }
 
 #[test]
+fn last_device_records_the_active_device() {
+    // 04-oct-2026 (device por job): el VM recuerda el ultimo $DEVICE(...) que uso
+    // (lo que el %SS muestra como device de cada job, estilo p/c del MSM).
+    let program = Compiler::compile(r#"S r=$DEVICE("sys:ps") S d2=1"#).unwrap();
+    let mut host = MemoryHost::default();
+    let mut vm = Vm::new(program, &mut host);
+    vm.state.gas_limit = 100_000;
+    vm.run();
+    assert_eq!(vm.state.last_device, "sys:ps");
+}
+
+#[test]
 fn wait_reason_tracks_why_a_job_yields() {
     // 04-oct-2026 ($$QID): cuando el VM hace yield esperando un LLM, wait_reason
     // debe decir «LLM» (es lo que el %SS muestra como QID). Aqui se usa un host

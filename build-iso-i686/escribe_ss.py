@@ -70,10 +70,10 @@ SISTEMA ; el Linux de debajo
  Q
  ;
 MJOBS ; LISTA 1: los PROCESOS M del motor ($DEVICE("sys:mvm"), estilo MSM)
- ; Formato de cada job: id|estado|seg|ESPERA|rutina|resultado  (ESPERA = $$QID)
+ ; Formato: id|estado|seg|ESPERA|device|rutina|resultado  (ESPERA=$$QID, device=p/c)
  N T L
  S T=$DEVICE("sys:mvm")
- W "-- PROCESOS M (job | est | seg | QID/espera | rutina | resultado) --",!
+ W "-- PROCESOS M (job | est | seg | QID | device | rutina | resultado) --",!
  I T="" W "  (ninguno vivo)",! Q
  F L=1:1:$L(T,$C(10)) D
  . N LN

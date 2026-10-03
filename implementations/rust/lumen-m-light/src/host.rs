@@ -1002,11 +1002,12 @@ pub enum FiberBgStatus {
 pub struct FiberWait {
     pub clase: String, // Running | LLM | USER | IO | Gas | Done | Error
     pub detalle: String, // p.ej. el proveedor del LLM
+    pub device: String, // 04-oct-2026: el ultimo $DEVICE("familia:accion") del job
 }
 
 impl Default for FiberWait {
     fn default() -> Self {
-        FiberWait { clase: "Running".to_string(), detalle: String::new() }
+        FiberWait { clase: "Running".to_string(), detalle: String::new(), device: String::new() }
     }
 }
 
@@ -1117,6 +1118,8 @@ impl FiberBgPool {
                             w.detalle.clear();
                         }
                     }
+                    // 04-oct-2026: el device activo del job (device por job, estilo MSM).
+                    w.device = vm.state.last_device.clone();
                 }
             }
             match vm.run_slice(100000) {
@@ -1248,24 +1251,25 @@ impl FiberBgPool {
             } else {
                 ("?", String::new())
             };
-            let (origen, segs, espera) = match jobs.get(&id) {
+            let (origen, segs, espera, dev) = match jobs.get(&id) {
                 Some(m) => {
                     let fin = if m.fin_unix > 0.0 { m.fin_unix } else { ahora };
                     let d = (fin - m.desde_unix).max(0.0);
-                    let e = m
+                    let (e, dv) = m
                         .espera
                         .lock()
                         .map(|w| {
-                            if w.detalle.is_empty() {
+                            let e = if w.detalle.is_empty() {
                                 w.clase.clone()
                             } else {
                                 format!("{}:{}", w.clase, w.detalle)
-                            }
+                            };
+                            (e, w.device.clone())
                         })
                         .unwrap_or_default();
-                    (m.origen.clone(), format!("{:.1}", d), e)
+                    (m.origen.clone(), format!("{:.1}", d), e, dv)
                 }
-                None => (String::new(), "?".to_string(), String::new()),
+                None => (String::new(), "?".to_string(), String::new(), String::new()),
             };
             // Si ya termino (OK/ERR) y la espera decia Running, forzar Done.
             let espera = if estado == "OK" || estado == "ERR" {
@@ -1273,7 +1277,10 @@ impl FiberBgPool {
             } else {
                 espera
             };
-            out.push(format!("{}|{}|{}s|{}|{}|{}", id, estado, segs, espera, origen, resumen));
+            out.push(format!(
+                "{}|{}|{}s|{}|{}|{}|{}",
+                id, estado, segs, espera, dev, origen, resumen
+            ));
         }
         out.join("\n")
     }
