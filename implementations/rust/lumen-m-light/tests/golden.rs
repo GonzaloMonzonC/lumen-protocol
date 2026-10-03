@@ -379,6 +379,26 @@ fn unknown_sys_action_does_not_abort_the_routine() {
 }
 
 #[test]
+fn new_accepts_space_separated_variable_lists() {
+    // 04-oct-2026 (BUG del %SS / ss.rut del MSM): `N T L` (espacios) es sintaxis M
+    // valida. Antes el `L` colisionaba con Opcode::Lock -> el resto de la linea se
+    // compilaba como LOCK -> "global must start with ^". Debe funcionar con
+    // espacios Y con comas, y no comerse una orden siguiente.
+    let (execution, state, _) = run("N T L S X=1 W X N A B S Y=2 W Y");
+    assert_eq!(execution, Execution::Completed);
+    assert_eq!(state.vars["X"], Value::Number(1.0));
+    assert_eq!(state.vars["Y"], Value::Number(2.0));
+}
+
+#[test]
+fn new_single_var_then_set_works() {
+    // El caso exacto del %SS(OP): `N OP S OP=$G(OP)`.
+    let (execution, state, _) = run("N OP S OP=$G(OP) S OP2=7");
+    assert_eq!(execution, Execution::Completed);
+    assert_eq!(state.vars["OP2"], Value::Number(7.0));
+}
+
+#[test]
 fn last_device_records_the_active_device() {
     // 04-oct-2026 (device por job): el VM recuerda el ultimo $DEVICE(...) que uso
     // (lo que el %SS muestra como device de cada job, estilo p/c del MSM).

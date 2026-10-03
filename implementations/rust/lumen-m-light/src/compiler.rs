@@ -436,6 +436,15 @@ fn compile_line(
             0
         } else if matches!(command, Opcode::For) || consumes_remainder {
             after_token.len()
+        } else if matches!(command, Opcode::New) {
+            // 04-oct-2026 (BUG del %SS / ss.rut): `N` recibe una LISTA de nombres
+            // de variable (`N T L` o `N T,L`). Un nombre de 1 letra colisiona con
+            // los opcodes de 1 letra (`L`=LOCK, `S`=SET, `W`=WRITE...). Sin esto,
+            // `N T L W "ok"` cortaba en la `L` -> el LOCK se comia el resto ->
+            // "global must start with ^". Regla: en la lista de `N`, un token de 1
+            // letra es COMANDO solo si va seguido de algo que NO es otro nombre
+            // (p.ej. un string/comilla, un ^global, un parentesis, o fin de linea).
+            next_new_names_end(after_token)
         } else {
             next_command_boundary(after_token)
         };
@@ -453,6 +462,72 @@ fn compile_line(
         rest = after_token[boundary..].trim_start();
     }
     Ok(())
+}
+
+/// 04-oct-2026: fin del argumento de `N`/`NEW` (lista de nombres de variable).
+/// Diferencia clave con `next_command_boundary`: en una lista `N T L`, los
+/// nombres de 1 letra colisionan con opcodes de 1 letra (`L`=LOCK, `S`=SET,
+/// `W`=WRITE, `I`=IF...). Aqui un token de 1 letra se trata como COMANDO solo si
+/// el token siguiente NO parece un nombre de variable (es decir, empieza por
+/// `"`, `^`, `$`, `(`, dígito, o no existe). Si el siguiente tambien es un
+/// identificador simple, seguimos en la lista de nombres. Sin esto, `N T L W "ok"`
+/// cortaba en `L` (LOCK) y el resto daba "global must start with ^".
+fn next_new_names_end(value: &str) -> usize {
+    let mut depth = 0i32;
+    let mut quoted = false;
+    let bytes = value.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            if quoted && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                i += 2;
+                continue;
+            }
+            quoted = !quoted;
+        } else if !quoted {
+            if bytes[i] == b'(' || bytes[i] == b'{' || bytes[i] == b'[' {
+                depth += 1;
+            } else if bytes[i] == b')' || bytes[i] == b'}' || bytes[i] == b']' {
+                depth -= 1;
+            } else if bytes[i].is_ascii_whitespace() && depth == 0 {
+                let candidate = value[i..].trim_start();
+                let end = candidate.find(char::is_whitespace).unwrap_or(candidate.len());
+                let token = candidate[..end].split(':').next().unwrap_or_default();
+                if token == "." {
+                    return i;
+                }
+                if let Some(_op) = opcode(token) {
+                    // ¿El siguiente token parece un nombre de variable de la lista?
+                    let after = candidate[end..].trim_start();
+                    let nxt = after.split_whitespace().next().unwrap_or("");
+                    let nxt_simple_name = !nxt.is_empty()
+                        && !nxt.starts_with('"')
+                        && !nxt.starts_with('^')
+                        && !nxt.starts_with('$')
+                        && !nxt.starts_with('(')
+                        && !nxt.starts_with('+')
+                        && !nxt.starts_with('-')
+                        && nxt.chars().next().map_or(false, |c| c.is_ascii_alphanumeric() || c == '%');
+                    // token de 1 letra + siguiente nombre simple => es de la lista, NO comando
+                    // EXCEPCION: si el siguiente token es una ASIGNACION (`v=...`) o una
+                    // llamada, el de 1 letra es un COMANDO (p.ej. `N OP S OP=$G(OP)` ->
+                    // S es SET). Sin esto, la lista se comia `S OP=$G(OP)` entera.
+                    // Y si NO hay siguiente token (fin de linea), tambien es de la lista
+                    // (`N T L` a secas -> L es una variable, no el LOCK).
+                    let nxt_is_assignment = nxt.contains('=')
+                        || nxt.contains('(')
+                        || nxt.starts_with('^');
+                    if token.chars().count() == 1 && (nxt_simple_name || nxt.is_empty()) && !nxt_is_assignment {
+                        i += 1;
+                        continue;
+                    }
+                    return i;
+                }
+            }
+        }
+        i += 1;
+    }
+    value.len()
 }
 
 fn next_command_boundary(value: &str) -> usize {
