@@ -593,7 +593,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let names = if all {
                     self.state.vars.keys().cloned().collect()
                 } else {
-                    split_top_level(&instruction.argument, ',')
+                    // 04-oct-2026 (BUG del %SS): M admite `N T,L` (comas) Y la
+                    // sintaxis MSM clasica `N T L` (espacios) — el ss.rut original
+                    // usa espacios (`N DDBN,DDBT,DEV,DP,DN,I,...`). Antes solo se
+                    // dividia por comas -> "T L" quedaba como UN nombre con espacio
+                    // -> al usar la variable el motor iba a parse_global_ref y daba
+                    // "global must start with ^". Se dividen por AMBOS.
+                    split_new_names(&instruction.argument)
                 };
                 for name in &names {
                     let name = name.trim();
@@ -3031,6 +3037,51 @@ fn split_top_level(value: &str, delimiter: char) -> Vec<String> {
         i += 1;
     }
     result.push(value[start..].trim().to_string());
+    result
+}
+
+/// 04-oct-2026: divide el argumento de `N`/`NEW` en nombres de variable.
+/// M admite AMBAS sintaxis: `N T,L` (comas) y `N T L` (espacios, la del ss.rut
+/// original del MSM: `N DDBN,DDBT,DEV,DP,DN,I,...`). Antes solo se partia por
+/// comas -> "T L" quedaba como UN nombre con espacio -> "global must start with ^"
+/// al usarlo. Aqui se parte por coma O espacio de nivel superior (fuera de
+/// parentesis, corchetes, llaves y comillas), que es lo que espera el M de verdad.
+fn split_new_names(value: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0i32;
+    let mut quoted = false;
+    let bytes = value.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
+            if quoted && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                i += 2;
+                continue;
+            }
+            quoted = !quoted;
+        } else if !quoted {
+            if b == b'(' || b == b'{' || b == b'[' {
+                depth += 1;
+            } else if b == b')' || b == b'}' || b == b']' {
+                depth -= 1;
+            } else if (b == b',' || b.is_ascii_whitespace()) && depth == 0 {
+                let piece = value[start..i].trim();
+                if !piece.is_empty() {
+                    result.push(piece.to_string());
+                }
+                start = i + 1;
+                i += 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let piece = value[start..].trim();
+    if !piece.is_empty() {
+        result.push(piece.to_string());
+    }
     result
 }
 
