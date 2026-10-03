@@ -379,6 +379,45 @@ fn unknown_sys_action_does_not_abort_the_routine() {
 }
 
 #[test]
+fn wait_reason_tracks_why_a_job_yields() {
+    // 04-oct-2026 ($$QID): cuando el VM hace yield esperando un LLM, wait_reason
+    // debe decir «LLM» (es lo que el %SS muestra como QID). Aqui se usa un host
+    // de test cuyo llm_poll nunca completa -> el VM queda en Yielded con motivo.
+    use lumen_mlight::{Compiler, Execution, MemoryHost, Vm};
+    struct HostLento(MemoryHost);
+    impl Host for HostLento {
+        fn get(&self, ns: &str, subs: &[Subscript]) -> Result<Option<Value>, String> {
+            self.0.get(ns, subs)
+        }
+        fn set(&mut self, ns: &str, subs: &[Subscript], v: Value) -> Result<(), String> {
+            self.0.set(ns, subs, v)
+        }
+        fn kill(&mut self, ns: &str, subs: &[Subscript]) -> Result<u64, String> {
+            self.0.kill(ns, subs)
+        }
+        fn data(&self, ns: &str, subs: &[Subscript]) -> Result<u8, String> {
+            self.0.data(ns, subs)
+        }
+        fn order(&self, ns: &str, parent: &[Subscript], cur: Option<&Subscript>, dir: i32)
+            -> Result<Option<Subscript>, String> {
+            self.0.order(ns, parent, cur, dir)
+        }
+        fn transaction_start(&mut self) -> Result<(), String> { self.0.transaction_start() }
+        fn transaction_commit(&mut self) -> Result<(), String> { self.0.transaction_commit() }
+        fn transaction_rollback(&mut self) -> Result<(), String> { self.0.transaction_rollback() }
+        fn transaction_level(&self) -> usize { self.0.transaction_level() }
+        // llm_fork da un id, llm_poll SIEMPRE None -> espera infinita (Yielded)
+        fn llm_fork(&self, _p: &str, _m: &str, _pr: &str, _s: &str) -> Result<u64, String> { Ok(42) }
+        fn llm_poll(&self, _id: u64) -> Result<Option<String>, String> { Ok(None) }
+    }
+    let program = Compiler::compile(r#"S r=$DEVICE("llm:call","hola","","deepseek","x")"#).unwrap();
+    let mut host = HostLento(MemoryHost::default());
+    let mut vm = Vm::new(program, &mut host);
+    assert_eq!(vm.run_slice(50), Execution::Yielded);
+    assert_eq!(vm.state.wait_reason, "LLM:deepseek");
+}
+
+#[test]
 fn kill_and_jobs_devices_work() {
     // 04-oct-2026 (VISION-Y-CONTROL): las «señales» de LUMEN OS. kill/jobs deben
     // existir y responder sin abortar la rutina (M no tiene try/catch).

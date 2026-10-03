@@ -29,6 +29,7 @@ SS = r'''%SS(OP) ; %SS ; SYSTEM STATUS del nodo - vista tipo MSM (v3, 04-oct-202
  D SISTEMA
  D MJOBS
  D PSOBS
+ D QIDS
  D PDBVIVO
  D RED
  D JOBS
@@ -69,16 +70,26 @@ SISTEMA ; el Linux de debajo
  Q
  ;
 MJOBS ; LISTA 1: los PROCESOS M del motor ($DEVICE("sys:mvm"), estilo MSM)
- ; Formato de cada job: id|estado|segundos|rutina|resultado
+ ; Formato de cada job: id|estado|seg|ESPERA|rutina|resultado  (ESPERA = $$QID)
  N T L
  S T=$DEVICE("sys:mvm")
- W "-- PROCESOS M (job | estado | seg | rutina | resultado) --",!
+ W "-- PROCESOS M (job | est | seg | QID/espera | rutina | resultado) --",!
  I T="" W "  (ninguno vivo)",! Q
  F L=1:1:$L(T,$C(10)) D
  . N LN
  . S LN=$P(T,$C(10),L)
  . I LN="" Q
  . W "  ",LN,!
+ Q
+ ;
+QIDS ; la TABLA de QIDs (que significa cada espera), estilo MSM ss.rut
+ W "-- QID (por que espera un job) --",!
+ W "  Running .. ejecutando ahora",!
+ W "  LLM:prov . esperando respuesta del modelo (prov = deepseek...)",!
+ W "  USER ..... esperando al humano ($DEVICE(""user:ask""))",!
+ W "  IO ....... esperando entrada (R)",!
+ W "  Gas ...... reanudando (agoto el slice, sigue solo)",!
+ W "  Done ..... termino",!
  Q
  ;
 PSOBS ; LISTA 2: los PROCESOS DEL OS ($DEVICE("sys:ps"), top por memoria)

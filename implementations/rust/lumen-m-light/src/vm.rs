@@ -79,6 +79,11 @@ pub struct VmState {
     /// Future ID that caused the pending yield.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub yield_future: Option<u64>,
+    /// 04-oct-2026 ($$QID): POR QUE espera el VM — «LLM:deepseek», «USER», «IO»,
+    /// «Gas»… Vacio = ejecutando (Running). Lo escribe cada site que hace yield.
+    /// Es lo que el `%SS` lee para decir por que esta parado un job (estilo MSM).
+    #[serde(default)]
+    pub wait_reason: String,
     #[serde(default)]
     pub return_value: Option<Value>,
     /// $ZH: UNIX timestamp al crear el VM (para elapsed time)
@@ -152,6 +157,7 @@ impl VmState {
             error: None,
             yield_requested: false,
             yield_future: None,
+            wait_reason: String::new(),
             return_value: None,
             zh_start: crate::time_now_secs(),
             fibers: vec![FiberState::default()],
@@ -444,6 +450,16 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     if self.state.yield_requested {
                         self.state.ip -= 1;
                         self.state.yield_requested = false;
+                        // 04-oct-2026 ($$QID): si el sitio que hizo yield no puso
+                        // motivo, se infiere por el tipo de espera. Los sites
+                        // que SI saben (user:ask, llm:call) ya lo rellenaron.
+                        if self.state.wait_reason.is_empty() {
+                            self.state.wait_reason = if self.state.yield_future.is_some() {
+                                "LLM".to_string()
+                            } else {
+                                "Gas".to_string()
+                            };
+                        }
                         return Execution::Yielded;
                     }
                 }
@@ -2370,11 +2386,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         match self.host.user_poll(id).map_err(|e| VmError::new("MUSER", e, line))? {
                             Some(r) => {
                                 self.state.yield_requested = false;
+                                self.state.wait_reason.clear();
                                 Ok(Value::String(r))
                             }
                             None => {
                                 self.state.yield_requested = true;
                                 self.state.yield_future = Some(id);
+                                self.state.wait_reason = "USER".to_string();
                                 Ok(Value::Null)
                             }
                         }
@@ -2407,11 +2425,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                                     // El future se completó: limpiar el flag de
                                     // yield pendiente (podía venir de un resume).
                                     self.state.yield_requested = false;
+                                    self.state.wait_reason.clear();
                                     Ok(Value::String(r))
                                 }
                                 None => {
                                     self.state.yield_requested = true;
                                     self.state.yield_future = Some(id);
+                                    self.state.wait_reason = format!("LLM:{}", provider);
                                     Ok(Value::Null)
                                 }
                             }
@@ -2422,6 +2442,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
                             Some(r) => {
                                 self.state.yield_requested = false;
+                                self.state.wait_reason.clear();
                                 Ok(Value::String(r))
                             }
                             None => {

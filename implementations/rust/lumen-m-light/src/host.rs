@@ -995,6 +995,21 @@ pub enum FiberBgStatus {
     Rejected(String),
 }
 
+/// 04-oct-2026: el «por qué espera» de un job (lo que el MSM daba en $$QID).
+/// Se actualiza desde el worker MIENTRAS el fiber corre, así que el %SS puede
+/// leer un estado vivo: «LLM:deepseek», «USER», «IO», «Gas», «Running», «Done».
+#[derive(Debug, Clone)]
+pub struct FiberWait {
+    pub clase: String, // Running | LLM | USER | IO | Gas | Done | Error
+    pub detalle: String, // p.ej. el proveedor del LLM
+}
+
+impl Default for FiberWait {
+    fn default() -> Self {
+        FiberWait { clase: "Running".to_string(), detalle: String::new() }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct FiberBgItem {
     id: u64,
@@ -1003,6 +1018,8 @@ struct FiberBgItem {
     routines: Vec<(String, String)>,
     api_keys: HashMap<String, String>,
     status: Arc<Mutex<FiberBgStatus>>,
+    /// 04-oct-2026 ($$QID): el worker actualiza aqui el «por que espera» vivo.
+    espera: Arc<Mutex<FiberWait>>,
 }
 
 #[derive(Debug)]
@@ -1024,6 +1041,8 @@ pub struct FiberMeta {
     pub desde_unix: f64,    // epoch de arranque (para la duración)
     pub fin_unix: f64,      // 0.0 mientras corre; epoch al terminar
     pub consumido: bool,    // true si su ^R ya se leyó (job «zombie» recuperable)
+    /// 04-oct-2026 ($$QID): espera COMPARTIDA con el worker — el %SS la lee viva.
+    pub espera: Arc<Mutex<FiberWait>>,
 }
 
 /// Process-wide background fiber pool (singleton).
@@ -1078,6 +1097,28 @@ impl FiberBgPool {
         }
         let mut vm = Vm::new(program, &mut host);
         let exec = loop {
+            // 04-oct-2026 ($$QID): publicar el «por que espera» VIVO en cada slice,
+            // para que $DEVICE("sys:mvm") lo muestre mientras el job corre.
+            {
+                let clase = if vm.state.wait_reason.is_empty() {
+                    "Running"
+                } else {
+                    vm.state.wait_reason.as_str()
+                };
+                if let Ok(mut w) = item.espera.lock() {
+                    // "LLM:deepseek" -> clase "LLM", detalle "deepseek"
+                    match clase.split_once(':') {
+                        Some((c, d)) => {
+                            w.clase = c.to_string();
+                            w.detalle = d.to_string();
+                        }
+                        None => {
+                            w.clase = clase.to_string();
+                            w.detalle.clear();
+                        }
+                    }
+                }
+            }
             match vm.run_slice(100000) {
                 crate::vm::Execution::Completed => break crate::vm::Execution::Completed,
                 crate::vm::Execution::Halted => break crate::vm::Execution::Halted,
@@ -1085,6 +1126,11 @@ impl FiberBgPool {
                 crate::vm::Execution::Error => break crate::vm::Execution::Error,
             }
         };
+        // marcar Done
+        if let Ok(mut w) = item.espera.lock() {
+            w.clase = "Done".to_string();
+            w.detalle.clear();
+        }
         let vm_output = vm.state.output.clone();
         std::mem::drop(vm);
         match exec {
@@ -1105,14 +1151,16 @@ impl FiberBgPool {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let status = Arc::new(Mutex::new(FiberBgStatus::Pending));
         self.futures.lock().unwrap().insert(id, status.clone());
-        // 04-oct-2026: registrar el «job» (origen + arranque) para el %SS rico.
+        // 04-oct-2026: registrar el «job» (origen + arranque + espera viva).
         let origen = source.trim().chars().take(80).collect::<String>();
+        let espera = Arc::new(Mutex::new(FiberWait::default()));
         if let Ok(mut jm) = self.jobs.lock() {
             jm.insert(id, FiberMeta {
                 origen,
                 desde_unix: crate::time_now_secs(),
                 fin_unix: 0.0,
                 consumido: false,
+                espera: espera.clone(),
             });
         }
         let item = FiberBgItem {
@@ -1122,6 +1170,7 @@ impl FiberBgPool {
             routines: routines.to_vec(),
             api_keys: api_keys.clone(),
             status,
+            espera,
         };
         let _ = self.worker_tx.send(item);
         id
@@ -1177,9 +1226,10 @@ impl FiberBgPool {
     }
 
     /// 04-oct-2026: lista de procesos M VIVOS del motor (fibers background),
-    /// para $DEVICE("sys:mvm") y el %SS. Estilo MSM: una linea por job con
-    ///     id|estado|segundos|rutina|resultado
+    /// para $DEVICE("sys:mvm") y el %SS. Estilo MSM ($$QID): una linea por job con
+    ///     id|estado|segundos|ESPERA|rutina|resultado
     /// Estados: RUN (pendiente/ejecutando), OK (resuelto), ERR (rechazado).
+    /// ESPERA = por que esta parado: Running, LLM(:prov), USER, IO, Gas, Done.
     /// Es la vista «PS de la MVM». Ordenada por id.
     pub fn list(&self) -> String {
         let futures = self.futures.lock().unwrap();
@@ -1198,15 +1248,32 @@ impl FiberBgPool {
             } else {
                 ("?", String::new())
             };
-            let (origen, segs) = match jobs.get(&id) {
+            let (origen, segs, espera) = match jobs.get(&id) {
                 Some(m) => {
                     let fin = if m.fin_unix > 0.0 { m.fin_unix } else { ahora };
                     let d = (fin - m.desde_unix).max(0.0);
-                    (m.origen.clone(), format!("{:.1}", d))
+                    let e = m
+                        .espera
+                        .lock()
+                        .map(|w| {
+                            if w.detalle.is_empty() {
+                                w.clase.clone()
+                            } else {
+                                format!("{}:{}", w.clase, w.detalle)
+                            }
+                        })
+                        .unwrap_or_default();
+                    (m.origen.clone(), format!("{:.1}", d), e)
                 }
-                None => (String::new(), "?".to_string()),
+                None => (String::new(), "?".to_string(), String::new()),
             };
-            out.push(format!("{}|{}|{}s|{}|{}", id, estado, segs, origen, resumen));
+            // Si ya termino (OK/ERR) y la espera decia Running, forzar Done.
+            let espera = if estado == "OK" || estado == "ERR" {
+                "Done".to_string()
+            } else {
+                espera
+            };
+            out.push(format!("{}|{}|{}s|{}|{}|{}", id, estado, segs, espera, origen, resumen));
         }
         out.join("\n")
     }

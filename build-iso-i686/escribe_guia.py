@@ -148,7 +148,7 @@ RDEVICE ;
  D E^%GUIA("device","img:","FUNCION: imagen. $DEVICE(""img:info|read|make"") - leer (ITT) o crear (TTI)")
  D E^%GUIA("device","cam:","FUNCION: camara. $DEVICE(""cam:list|grab|stream|frame"") - local (V4L2) o IP por red")
  D E^%GUIA("device","kill","FUNCION: matar un job M. $DEVICE(""kill"",ID) o $DEVICE(""kill"",""all"")")
- D E^%GUIA("device","jobs","FUNCION: lista de jobs M vivos (id|estado|seg|rutina|resultado). S R=$DEVICE(""jobs"")")
+ D E^%GUIA("device","jobs","FUNCION: lista de jobs M vivos (id|estado|seg|QID|rutina|resultado). S R=$DEVICE(""jobs"")")
  D E^%GUIA("device","exec:","FUNCION: ejecutar un comando del sistema (con cuidado)")
  Q
  ;
@@ -158,6 +158,7 @@ RFLUJO ;
  D E^%GUIA("flujo","GUARDAR_MEMORIA","1. S ^NODO(<id>,""clave"")=<valor>","2. D ^%NM para empujarla al hub","3. Al arrancar, el nodo la recupera solo")
  D E^%GUIA("flujo","LEER_UN_GLOBAL","1. D ^%GL(""NS"",40) para ver el subarbol por pantallas","2. Para copiarlo: D ^%GS(""NS"",80) y pegar en otra MVM")
  D E^%GUIA("flujo","USAR_UNA_TOOL","1. El LLM mira el catalogo con $DEVICE(""tool:list"")","2. Llama la que necesita con $DEVICE(""llm:tools"",...)","3. %AGENTE cierra el bucle: ejecuta la tool y devuelve el resultado al LLM")
+ D E^%GUIA("flujo","VER_JOBS","1. D ^%SS(""M"") o S R=$DEVICE(""jobs"")","2. La columna QID dice POR QUE espera: Running, LLM:prov, USER, IO, Gas, Done","3. Matar uno: S R=$DEVICE(""kill"",ID) - todos: $DEVICE(""kill"",""all"")")
  Q
  ;
 RERROR ;
