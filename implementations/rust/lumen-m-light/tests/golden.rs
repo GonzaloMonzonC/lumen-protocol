@@ -247,3 +247,82 @@ fn read_prompt_assigns_host_input_to_the_target() {
     assert_eq!(vm.state.vars["who"], Value::String("Ada".into()));
     assert_eq!(vm.state.output, "Ada");
 }
+
+#[test]
+fn dollar_i_is_an_alias_of_dollar_io() {
+    // 04-oct-2026: $I (alias corto MSM) debe dar el MISMO valor que $IO.
+    // Lo usan rutinas como %PAGE para saber si estan en la consola.
+    let (_, state, _) = run("S a=$IO,b=$I S ok=(a=b)");
+    assert_eq!(state.vars["ok"], Value::Bool(true));
+}
+
+#[test]
+fn sys_mvm_device_reports_live_m_processes() {
+    // 04-oct-2026: $DEVICE("sys:mvm") lista los procesos M del motor (fibers).
+    let program = Compiler::compile(r#"S c=$DEVICE("sys:mvm","n") S ok=1"#).unwrap();
+    let mut host = MemoryHost::default();
+    let execution = {
+        let mut vm = Vm::new(program, &mut host);
+        vm.state.gas_limit = 10_000;
+        vm.run()
+    };
+    assert_eq!(execution, Execution::Completed);
+}
+
+#[test]
+fn json_device_reads_paths_and_counts_arrays() {
+    // 04-oct-2026 (DISENO-4): el bucle de %AGENTE lee lo que devuelve llm:tools
+    // con $DEVICE("json:get"/"json:count") — sin tragar JSON a mano en M.
+    let src = r#"S J="{""kind"":""tool"",""calls"":[{""name"":""%SS"",""args"":""{}""},{""name"":""%GL"",""args"":""{}""}]}"
+S k=$DEVICE("json:get",J,"kind")
+S n=$DEVICE("json:count",J,"calls")
+S t0=$DEVICE("json:get",J,"calls[0].name")
+S t1=$DEVICE("json:get",J,"calls[1].name")"#;
+    let (execution, state, _) = run(src);
+    assert_eq!(execution, Execution::Completed);
+    assert_eq!(state.vars["k"], Value::String("tool".into()));
+    assert_eq!(state.vars["n"], Value::String("2".into()));
+    assert_eq!(state.vars["t0"], Value::String("%SS".into()));
+    assert_eq!(state.vars["t1"], Value::String("%GL".into()));
+}
+
+#[test]
+fn tool_list_reads_the_catalog_from_a_global() {
+    // 04-oct-2026 (DISENO-4): $DEVICE("tool:list") lee ^TOOLS(__names + desc).
+    let program = Compiler::compile(r#"S L=$DEVICE("tool:list") S n=$L(L,$C(10))"#).unwrap();
+    let mut host = MemoryHost::default();
+    host.set(
+        "TOOLS",
+        &[Subscript::String("__names".into())],
+        Value::String("%SS,%GL".into()),
+    )
+    .unwrap();
+    host.set(
+        "TOOLS",
+        &[Subscript::String("%SS".into()), Subscript::String("desc".into())],
+        Value::String("estado del sistema".into()),
+    )
+    .unwrap();
+    let execution = {
+        let mut vm = Vm::new(program, &mut host);
+        vm.state.gas_limit = 10_000;
+        vm.run()
+    };
+    assert_eq!(execution, Execution::Completed);
+}
+
+#[test]
+fn sys_ps_device_does_not_raise_unknown_action() {
+    // 03-oct-2026: $DEVICE("sys:ps") debe existir (el %GUIA lo anuncia). Antes
+    // el binario grabado no lo tenia -> "Unknown SYS action". Aqui lo fijamos:
+    // la llamada debe completarse SIN error (en host de test devuelve vacio).
+    let program =
+        Compiler::compile(r#"S r=$DEVICE("sys:ps") S ok=1"#).unwrap();
+    let mut host = MemoryHost::default();
+    let execution = {
+        let mut vm = Vm::new(program, &mut host);
+        vm.state.gas_limit = 10_000;
+        vm.run()
+    };
+    assert_eq!(execution, Execution::Completed);
+}

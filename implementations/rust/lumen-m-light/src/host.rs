@@ -825,6 +825,78 @@ pub fn llm_probe_call(provider: &str, model: &str, prompt: &str, tools_json: &st
     }
 }
 
+/// 04-oct-2026 (DISENO-4): device `llm:tools`. A diferencia de `llm:probe`
+/// (que SOLO reporta el nombre de la tool pedida, para medir), esta llamada
+/// devuelve la respuesta ÍNTEGRA en un JSON compacto y ESTABLE para que la
+/// rutina M `%AGENTE` cierre el bucle de tool-calling:
+///     {"kind":"tool","calls":[{"name":...,"args":...}]}   el LLM pide tools
+///     {"kind":"text","content":"..."}                      el LLM ya responde
+///     {"kind":"err","msg":"..."}                           fallo (red, API…)
+/// El bucle (llamar -> ejecutar -> volver a llamar) vive en M (%AGENTE), para
+/// trazabilidad; el motor solo hace la llamada y normaliza la salida.
+///     $DEVICE("llm:tools", PROV, MODELO, PROMPT, TOOLS_JSON, [SISTEMA])
+pub fn llm_tools_call(
+    provider: &str,
+    model: &str,
+    prompt: &str,
+    tools_json: &str,
+    system: &str,
+) -> Result<String, String> {
+    let tools: serde_json::Value = if tools_json.trim().is_empty() {
+        serde_json::json!([])
+    } else {
+        match serde_json::from_str(tools_json) {
+            Ok(v) => v,
+            Err(e) => return Ok(format!(r#"{{"kind":"err","msg":"tools_json invalido: {e}"}}"#)),
+        }
+    };
+    let mut messages: Vec<serde_json::Value> = Vec::new();
+    if !system.trim().is_empty() {
+        messages.push(serde_json::json!({"role": "system", "content": system}));
+    }
+    messages.push(serde_json::json!({"role": "user", "content": prompt}));
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto"
+    });
+    let prov = if provider.trim().is_empty() { "openrouter" } else { provider.trim() };
+    match llm_call_sync_json(prov, &body) {
+        Ok(j) => {
+            let msg = j
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"));
+            let tc = msg
+                .and_then(|m| m.get("tool_calls"))
+                .and_then(|v| v.as_array())
+                .filter(|a| !a.is_empty());
+            if let Some(arr) = tc {
+                let calls: Vec<serde_json::Value> = arr
+                    .iter()
+                    .filter_map(|t| t.get("function"))
+                    .map(|f| {
+                        let n = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let a = f.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                        serde_json::json!({"name": n, "args": a})
+                    })
+                    .collect();
+                let out = serde_json::json!({"kind": "tool", "calls": calls});
+                Ok(out.to_string())
+            } else {
+                let content = msg
+                    .and_then(|m| m.get("content"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let out = serde_json::json!({"kind": "text", "content": content});
+                Ok(out.to_string())
+            }
+        }
+        Err(e) => Ok(serde_json::json!({"kind": "err", "msg": e}).to_string()),
+    }
+}
+
 // ── Pacing global de llamadas LLM (task_206-bis) ──────────────────────
 // Respeta el límite de OpenRouter free (20 req/min): separa los INICIOS de llamada
 // al menos `LUMEN_LLM_PACE_MS` ms (def 3000 · 0 = off). Aplica a TODOS los consumidores
@@ -1025,6 +1097,34 @@ impl FiberBgPool {
     pub fn exists(&self, id: u64) -> bool {
         self.futures.lock().unwrap().contains_key(&id)
     }
+
+    /// 04-oct-2026: lista de procesos M VIVOS del motor (fibers background),
+    /// para $DEVICE("sys:mvm") y el %SS. Una linea por proceso:
+    ///     id|estado
+    /// Estados: RUN (pendiente/ejecutando), OK (resuelto), ERR (rechazado).
+    /// Ordenada por id (como los saca el pool). Es la vista "PS de la MVM".
+    pub fn list(&self) -> String {
+        let futures = self.futures.lock().unwrap();
+        let mut ids: Vec<u64> = futures.keys().copied().collect();
+        ids.sort_unstable();
+        let mut out: Vec<String> = Vec::new();
+        for id in ids {
+            if let Some(s) = futures.get(&id) {
+                let est = match &*s.lock().unwrap() {
+                    FiberBgStatus::Pending => "RUN",
+                    FiberBgStatus::Resolved(_) => "OK",
+                    FiberBgStatus::Rejected(_) => "ERR",
+                };
+                out.push(format!("{id}|{est}"));
+            }
+        }
+        out.join("\n")
+    }
+
+    /// Cuantos fibers hay vivos en el pool (para el HDR del %SS).
+    pub fn count(&self) -> usize {
+        self.futures.lock().unwrap().len()
+    }
 }
 
 // ── GlobalEntry ────────────────────────────────────────────────────
@@ -1111,6 +1211,12 @@ pub trait Host {
     /// herramienta PROHIBIDA sea medible.
     fn llm_probe(&self, _provider: &str, _model: &str, _prompt: &str, _tools_json: &str) -> Result<String, String> {
         Err("llm:probe no soportado en este host".to_string())
+    }
+
+    /// 04-oct-2026 (DISENO-4): llamada con tools que devuelve el resultado
+    /// ÍNTEGRO en JSON (para el bucle de tool-calling de %AGENTE).
+    fn llm_tools(&self, _provider: &str, _model: &str, _prompt: &str, _tools_json: &str, _system: &str) -> Result<String, String> {
+        Err("llm:tools no soportado en este host".to_string())
     }
 
     // ── User Device (pregunta al humano) ────────────────────
@@ -1530,8 +1636,240 @@ fn rag_stats(host: &MemoryHost, args: &[Value]) -> String {
     format!("docs={};chars={}", docs.len(), chars)
 }
 
+/// 04-oct-2026: CATALOGO DE TOOLS (DISENO-4). Devuelve "nombre|descripcion" por
+/// tool, una por linea. La fuente es el global ^TOOLS (datos -> ampliable sin
+/// recompilar), con esta forma:
+///     ^TOOLS("<nombre>","desc")          la descripcion corta (para list)
+///     ^TOOLS("<nombre>","kind")          "m:%RTN" | "d:sys:ps" | "mcp:server/tool"
+///     ^TOOLS("<nombre>","params")        el JSON de parametros (para describe)
+/// Si el 1er argumento es "g:NS" se lee de ^NS en vez de ^TOOLS. Si es "r:RTN"
+/// se llama a la rutina RTN (via su salida en ^R/"nombre|desc" por linea); ese
+/// filtrado dinamico lo resuelve la capa M antes de llamar aqui.
+fn tools_list(host: &MemoryHost, args: &[Value]) -> String {
+    let ref_arg = args.first().map(|v| v.as_string()).unwrap_or_default();
+    // "r:RTN": el catalogo lo produjo una rutina M -> llega ya en ^TOOLS("__dyn")
+    // (la rutina lo dejo ahi). Aqui solo leemos. "g:NS": leer ese namespace.
+    let mut ns = "TOOLS".to_string();
+    if let Some(rest) = ref_arg.strip_prefix("g:") {
+        if !rest.trim().is_empty() {
+            ns = rest.trim().to_string();
+        }
+    }
+    // Recorremos ^NS(nombre,"desc"). Sin la API de $ORDER de subscritos anidados,
+    // usamos una lista de nombres declarada en ^NS("__names") (coma-separada), que
+    // la semilla mantiene. Es simple, visible y editable a mano.
+    let names_raw = host
+        .get(&ns, &[Subscript::String("__names".to_string())])
+        .ok()
+        .flatten()
+        .map(|v| v.as_string())
+        .unwrap_or_default();
+    let mut out: Vec<String> = Vec::new();
+    for name in names_raw.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let desc = host
+            .get(&ns, &[Subscript::String(name.to_string()), Subscript::String("desc".to_string())])
+            .ok()
+            .flatten()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        out.push(format!("{}|{}", name, desc));
+    }
+    out.join("\n")
+}
+
+/// 04-oct-2026: JSON schema (formato OpenAI function) de UNA tool, para el
+/// prompt del LLM. `$DEVICE("tool:describe",NOMBRE)`.
+fn tools_describe(host: &MemoryHost, args: &[Value]) -> String {
+    let name = args.first().map(|v| v.as_string()).unwrap_or_default();
+    if name.trim().is_empty() {
+        return "ERR:falta el nombre de la tool".to_string();
+    }
+    let get = |k: &str| -> String {
+        host.get(
+            "TOOLS",
+            &[Subscript::String(name.to_string()), Subscript::String(k.to_string())],
+        )
+        .ok()
+        .flatten()
+        .map(|v| v.as_string())
+        .unwrap_or_default()
+    };
+    let desc = get("desc");
+    let kind = get("kind");
+    let params = get("params");
+    let params = if params.trim().is_empty() {
+        r#"{"type":"object","properties":{}}"#.to_string()
+    } else {
+        params
+    };
+    format!(
+        r#"{{"type":"function","function":{{"name":"{}","description":"{} (kind: {})","parameters":{}}}}}"#,
+        name, desc.replace('"', "'"), kind, params
+    )
+}
+
+/// 04-oct-2026: lee un valor de un JSON por RUTA con puntos y [i] para arrays.
+/// Devuelve el valor como string (los números/bool se serializan, los objetos/
+/// arrays se devuelven como JSON). Cadena vacía si la ruta no existe.
+///   $DEVICE("json:get",JSON,"kind")
+///   $DEVICE("json:get",JSON,"calls[0].name")
+fn json_get(args: &[Value]) -> String {
+    let raw = args.first().map(|v| v.as_string()).unwrap_or_default();
+    let path = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+    let j: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return String::new(),
+    };
+    let mut cur = &j;
+    for seg in path.split('.').filter(|s| !s.is_empty()) {
+        // Seg: "campo" o "campo[i]" o "[i]"
+        let (name, idx) = parse_seg(seg);
+        if !name.is_empty() {
+            cur = match cur.get(&name) {
+                Some(v) => v,
+                None => return String::new(),
+            };
+        }
+        if let Some(i) = idx {
+            cur = match cur.get(i) {
+                Some(v) => v,
+                None => return String::new(),
+            };
+        }
+    }
+    match cur {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// "campo[i]" -> ("campo", Some(i)) · "[i]" -> ("", Some(i)) · "campo" -> ("campo", None)
+fn parse_seg(seg: &str) -> (String, Option<usize>) {
+    if let Some(open) = seg.find('[') {
+        let name = seg[..open].to_string();
+        let idx = seg[open + 1..].trim_end_matches(']').trim().parse::<usize>().ok();
+        (name, idx)
+    } else {
+        (seg.to_string(), None)
+    }
+}
+
+/// 04-oct-2026: cuenta los elementos de un array en la ruta dada.
+///   $DEVICE("json:count",JSON,"calls")  -> cuantas tools pidio el LLM
+fn json_count(args: &[Value]) -> String {
+    let raw = args.first().map(|v| v.as_string()).unwrap_or_default();
+    let path = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+    let j: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return "0".to_string(),
+    };
+    let mut cur = &j;
+    for seg in path.split('.').filter(|s| !s.is_empty()) {
+        let (name, idx) = parse_seg(seg);
+        if !name.is_empty() {
+            cur = match cur.get(&name) {
+                Some(v) => v,
+                None => return "0".to_string(),
+            };
+        }
+        if let Some(i) = idx {
+            cur = match cur.get(i) {
+                Some(v) => v,
+                None => return "0".to_string(),
+            };
+        }
+    }
+    cur.as_array().map(|a| a.len().to_string()).unwrap_or_else(|| "0".to_string())
+}
+
 /// F6 (14-sep-2026): datos vivos del proceso/sistema para %SS («top» del nodo).
 /// Linux: /proc (status/stat/loadavg/meminfo/uptime/fd). Otros S.O.: lo básico (pid).
+// Stub fuera de Linux (Windows, para que cargo check compile): vacio.
+#[cfg(not(target_os = "linux"))]
+pub fn sys_ps() -> String {
+    String::new()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn sys_ps_top(_n: usize) -> String {
+    String::new()
+}
+
+/// Lista de procesos del SISTEMA (para el %SS). Mismo espiritu que sys_top():
+/// leer /proc directo, sin dependencias. Una linea por proceso:
+///     pid|comm|rss_kb|estado|cpu_ticks
+/// Ordenada como la saca /proc (por pid). Si no hay permisos en algun /proc/N,
+/// se salta ese proceso (no falla).
+#[cfg(target_os = "linux")]
+pub fn sys_ps() -> String {
+    let mut out: Vec<String> = Vec::new();
+    let rd = match std::fs::read_dir("/proc") {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
+    for e in rd.flatten() {
+        let nombre = e.file_name().to_string_lossy().to_string();
+        if !nombre.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let base = format!("/proc/{nombre}");
+        let comm = std::fs::read_to_string(format!("{base}/comm"))
+            .map(|x| x.trim().to_string())
+            .unwrap_or_default();
+        if comm.is_empty() {
+            continue;
+        }
+        // memoria residente (de status: VmRSS) - mas fiable que statm
+        let mut rss = String::new();
+        let mut estado = String::new();
+        if let Ok(st) = std::fs::read_to_string(format!("{base}/status")) {
+            for l in st.lines() {
+                if let Some(v) = l.strip_prefix("VmRSS:") {
+                    rss = v.split_whitespace().next().unwrap_or("").to_string();
+                } else if let Some(v) = l.strip_prefix("State:") {
+                    estado = v.trim().split_whitespace().next().unwrap_or("").to_string();
+                }
+            }
+        }
+        // cpu (utime+stime) de stat
+        let mut ticks = String::new();
+        if let Ok(stat) = std::fs::read_to_string(format!("{base}/stat")) {
+            if let Some((_, tras)) = stat.rsplit_once(')') {
+                let f: Vec<&str> = tras.split_whitespace().collect();
+                if f.len() > 13 {
+                    let ut: u64 = f[11].parse().unwrap_or(0);
+                    let st_: u64 = f[12].parse().unwrap_or(0);
+                    ticks = (ut + st_).to_string();
+                }
+            }
+        }
+        out.push(format!("{nombre}|{comm}|{rss}|{estado}|{ticks}"));
+    }
+    out.join("\n")
+}
+
+/// Igual que sys_ps() pero devuelve solo los N procesos que MAS memoria usan,
+/// que es lo que se quiere ver en un top.
+#[cfg(target_os = "linux")]
+pub fn sys_ps_top(n: usize) -> String {
+    let todo = sys_ps();
+    let mut v: Vec<(u64, String)> = todo
+        .lines()
+        .filter_map(|l| {
+            let p: Vec<&str> = l.split('|').collect();
+            if p.len() < 3 {
+                return None;
+            }
+            let mem: u64 = p[2].parse().unwrap_or(0);
+            Some((mem, l.to_string()))
+        })
+        .collect();
+    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.truncate(n);
+    v.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n")
+}
+
 pub fn sys_top() -> String {
     #[allow(unused_mut)]
     let mut s = format!("pid={}", std::process::id());
@@ -2800,6 +3138,11 @@ impl Host for MemoryHost {
         llm_probe_call(provider, model, prompt, tools_json)
     }
 
+    /// 04-oct-2026 (DISENO-4): llamada con tools → JSON íntegro (device `llm:tools`).
+    fn llm_tools(&self, provider: &str, model: &str, prompt: &str, tools_json: &str, system: &str) -> Result<String, String> {
+        llm_tools_call(provider, model, prompt, tools_json, system)
+    }
+
     // ── User Device implementation ($DEVICE("user:ask")) ─────
     // Async como LLM: fork → pending (JS abre modal) → inject → poll.
     fn user_ask(&self, prompt: &str) -> Result<u64, String> {
@@ -2907,6 +3250,33 @@ impl Host for MemoryHost {
                 // threads, fds, cpu_ticks, cpu_pct, load1/5/15, mem_total_kb, mem_avail_kb.
                 match action {
                     "top" | "stat" => Ok(Value::String(sys_top())),
+                    // 03-oct-2026: lista de procesos para el %SS (estilo MSM):
+                    //   $DEVICE("sys:ps")        -> todos: pid|comm|rss|estado|ticks
+                    //   $DEVICE("sys:ps","10")   -> los 10 que mas memoria usan
+                    "ps" => {
+                        let n: usize = args
+                            .first()
+                            .and_then(|v| match v {
+                                Value::String(t) => t.parse().ok(),
+                                _ => None,
+                            })
+                            .unwrap_or(0);
+                        if n > 0 {
+                            Ok(Value::String(sys_ps_top(n)))
+                        } else {
+                            Ok(Value::String(sys_ps()))
+                        }
+                    }
+                    // 04-oct-2026: procesos M del motor (fibers background del pool).
+                    //   $DEVICE("sys:mvm")     -> "id|estado" por proceso (RUN/OK/ERR)
+                    //   $DEVICE("sys:mvm","n") -> igual pero solo el CONTADOR: "vivos=N"
+                    "mvm" => {
+                        if args.first().is_some() {
+                            Ok(Value::String(format!("vivos={}", global_bg_pool().count())))
+                        } else {
+                            Ok(Value::String(global_bg_pool().list()))
+                        }
+                    }
                     _ => Err(format!("Unknown SYS action: {action}")),
                 }
             }
@@ -2948,6 +3318,36 @@ impl Host for MemoryHost {
                 // ── 18-sep-2026: sandbox — el nodo se auto-lanza en hijo con timeout ──
                 //   $DEVICE("spawn","run","<codigo M>",[timeout_s]) → exit/salida/TIMEOUT
                 crate::spawn::spawn_device(self, action, &args)
+            }
+            // ── 04-oct-2026: TOOLS — el catalogo que el LLM LLAMA (DISENO-4) ──
+            // El motor NO ejecuta la tool (eso lo hace la rutina M %AGENTE, para
+            // trazabilidad). Aqui solo se EXPONE el catalogo y su schema:
+            //   $DEVICE("tool:list")            -> "nombre|descripcion" por tool
+            //   $DEVICE("tool:list","g:NS")     -> idem leyendo el catalogo de ^NS
+            //   $DEVICE("tool:list","r:RTN")    -> idem con RTN devolviendo "nombre|desc" por linea
+            //   $DEVICE("tool:describe",NOMBRE) -> JSON schema (formato OpenAI function)
+            // La fuente es ^TOOLS (datos) => se amplia sin recompilar, como ^GUIA/^HELP.
+            "tool" => {
+                match action {
+                    "list" => Ok(Value::String(tools_list(self, &args))),
+                    "describe" => Ok(Value::String(tools_describe(self, &args))),
+                    _ => Err(format!("Unknown TOOL action: {action} (list|describe)")),
+                }
+            }
+            // ── 04-oct-2026: JSON — leer un campo de un JSON por ruta (DISENO-4) ──
+            // M-Light no traga JSON a mano; el bucle de %AGENTE lo necesita para
+            // leer lo que devuelve llm:tools. Ruta con puntos y [i] para arrays:
+            //   $DEVICE("json:get",JSON,"kind")            -> "tool" | "text" | "err"
+            //   $DEVICE("json:get",JSON,"calls[0].name")   -> nombre de la 1a tool
+            //   $DEVICE("json:get",JSON,"calls[0].args")   -> sus argumentos (string)
+            //   $DEVICE("json:get",JSON,"content")         -> el texto
+            //   $DEVICE("json:count",JSON,"calls")         -> cuantas tools pide
+            "json" => {
+                match action {
+                    "get" => Ok(Value::String(json_get(&args))),
+                    "count" => Ok(Value::String(json_count(&args))),
+                    _ => Err(format!("Unknown JSON action: {action} (get|count)")),
+                }
             }
             #[cfg(feature = "minreq")]
             "search" => {
