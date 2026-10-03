@@ -1919,7 +1919,9 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             return Ok(Value::Number(number));
         }
         match atom.to_ascii_uppercase().as_str() {
-            "$IO" => return Ok(Value::Number(self.state.current_io as f64)),
+            // 04-oct-2026: $I es el alias corto de $IO (como en MSM). Muchas rutinas
+            // (p.ej. %PAGE) usan $I para saber si el dispositivo es la consola.
+            "$IO" | "$I" => return Ok(Value::Number(self.state.current_io as f64)),
             "$ECODE" => {
                 return Ok(Value::String(
                     self.state
@@ -2507,6 +2509,26 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         };
                         Ok(Value::String(
                             self.host.llm_probe(&prov, &model, &prompt, &tools_json).map_err(|e| VmError::new("MLLM", e, line))?,
+                        ))
+                    }
+                    ("llm", "tools") => {
+                        // 04-oct-2026 (DISENO-4): llamada con tools que devuelve el
+                        // resultado ÍNTEGRO en JSON para el bucle de tool-calling de
+                        // %AGENTE: {"kind":"tool","calls":[...]}, {"kind":"text",...},
+                        // o {"kind":"err","msg":...}. Síncrona (el bucle lo hace M).
+                        //   $DEVICE("llm:tools", PROV, MODELO, PROMPT, TOOLS_JSON, [SISTEMA])
+                        if self.host.is_sandbox() {
+                            return Err(VmError::new("MDEV", "LLM disabled in sandbox mode", line));
+                        }
+                        let prov = call_args.get(0).map(|v| v.as_string()).unwrap_or_default();
+                        let model = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                        let prompt = call_args.get(2).map(|v| v.as_string()).unwrap_or_default();
+                        let tools_json = call_args.get(3).map(|v| v.as_string()).unwrap_or_default();
+                        let system = call_args.get(4).map(|v| v.as_string()).unwrap_or_default();
+                        Ok(Value::String(
+                            self.host
+                                .llm_tools(&prov, &model, &prompt, &tools_json, &system)
+                                .map_err(|e| VmError::new("MLLM", e, line))?,
                         ))
                     }
                     _ => {
