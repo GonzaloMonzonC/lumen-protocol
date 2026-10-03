@@ -333,6 +333,52 @@ fn av_devices_exist_and_answer() {
 }
 
 #[test]
+fn tool_list_rejects_unresolvable_r_ref_clearly() {
+    // 04-oct-2026 (revision): "r:RTN" no lo puede resolver el host (no corre el
+    // VM) -> debe dar un error CLARO, no un catalogo vacio mudo.
+    let program = Compiler::compile(r#"S L=$DEVICE("tool:list","r:%X") S ok=1"#).unwrap();
+    let mut host = MemoryHost::default();
+    let mut vm = Vm::new(program, &mut host);
+    vm.state.gas_limit = 10_000;
+    assert_eq!(vm.run(), Execution::Completed);
+}
+
+#[test]
+fn tool_describe_reads_from_the_requested_namespace() {
+    // 04-oct-2026 (revision): tool:describe debe leer del MISMO ns que tool:list
+    // (antes leia siempre de ^TOOLS -> "dos listas que creen hablar del mismo sitio").
+    let program = Compiler::compile(r#"S D=$DEVICE("tool:describe","%SS","g:OTRO") S ok=1"#).unwrap();
+    let mut host = MemoryHost::default();
+    host.set(
+        "OTRO",
+        &[Subscript::String("%SS".into()), Subscript::String("desc".into())],
+        Value::String("desde OTRO".into()),
+    )
+    .unwrap();
+    let execution = {
+        let mut vm = Vm::new(program, &mut host);
+        vm.state.gas_limit = 10_000;
+        vm.run()
+    };
+    assert_eq!(execution, Execution::Completed);
+}
+
+#[test]
+fn unknown_sys_action_does_not_abort_the_routine() {
+    // 04-oct-2026 (revision): en M no hay try/catch; una accion sys:* que falte
+    // ABORTARIA la rutina que la llama en un W (p.ej. %SS con binario viejo).
+    // Debe devolver VACIO, no error -> la ejecucion completa.
+    let program = Compiler::compile(r#"S x=$DEVICE("sys:noexiste") S ok=1"#).unwrap();
+    let mut host = MemoryHost::default();
+    let execution = {
+        let mut vm = Vm::new(program, &mut host);
+        vm.state.gas_limit = 10_000;
+        vm.run()
+    };
+    assert_eq!(execution, Execution::Completed);
+}
+
+#[test]
 fn sys_ps_device_does_not_raise_unknown_action() {
     // 03-oct-2026: $DEVICE("sys:ps") debe existir (el %GUIA lo anuncia). Antes
     // el binario grabado no lo tenia -> "Unknown SYS action". Aqui lo fijamos:

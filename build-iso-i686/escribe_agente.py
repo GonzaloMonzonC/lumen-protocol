@@ -1,48 +1,58 @@
 #!/usr/bin/env python3
-"""%AGENTE (04-oct-2026) — EL BUCLE DE TOOL-CALLING en M (DISENO-4).
-El LLM del nodo deja de inventar: en vez de inyectarle la guia entera en el
-prompt, se le da el CATALOGO de tools (^TOOLS) y el LLM LLAMA la que necesita.
-El bucle vive en M (no en Rust) para TRAZABILIDAD: cada vuelta queda en ^AGLOG.
+"""%AGENTE (04-oct-2026, v2) — EL BUCLE DE TOOL-CALLING en M (DISENO-4).
+El LLM del nodo deja de inventar: se le da el CATALOGO de tools (^TOOLS) y el LLM
+LLAMA la que necesita. El bucle vive en M (no en Rust) para TRAZABILIDAD (^AGLOG).
+
+v2 (correccion tras revision): usa el PROTOCOLO CORRECTO de tool-calling —
+se mantiene el historial de mensajes (user -> assistant(tool_calls) -> tool(res))
+y $DEVICE("llm:tools") recibe ese historial, no un prompt concatenado. Asi el
+modelo no repite la misma tool en bucle ni alucina sobre los resultados.
 
 COMO SE EJECUTA UNA TOOL (verificado, sin indireccion):
-  - Devices (sys:ps, sys:mvm, sys:top) -> devuelven string directo.
-  - Rutinas M que IMPRIMEN (%SS, %GD, %WIFI...) -> $DEVICE("spawn:run","D ^%RTN",
-    timeout) devuelve "exit=0\n<salida>": el nodo se lanza a si mismo y captura.
-  - La tabla de despacho es explicita (IF por nombre): ampliar = un IF + ^TOOLS.
+  - Devices (sys:ps, sys:mvm, ...) -> devuelven string directo.
+  - Rutinas M que IMPRIMEN (%SS, %GD...) -> $DEVICE("spawn:run","D ^%RTN",15)
+    devuelve "exit=0<NL><salida>". (spawn relanza el nodo: caro, pero aislado.)
 
 Reglas M-Light: ASCII puro, SIN backslash, SIN no-ASCII, CRLF en el fichero.
 """
 from pathlib import Path
 
-AG = r'''%AGENTE ; %AGENTE ; el LLM que LLAMA tools (bucle de tool-calling, DISENO-4)
+AG = r'''%AGENTE ; %AGENTE ; el LLM que LLAMA tools (bucle de tool-calling v2, DISENO-4)
  ; Uso:  W $$CORRE^%AGENTE(PREGUNTA)             -> respuesta final (texto)
  ;       W $$CORRE^%AGENTE(PREGUNTA,"g:TOOLS")   -> catalogo del global ^TOOLS
  ;       D ^%AGENTE                              -> demo interactiva
  ;       D TOOLS^%AGENTE                         -> escribir el catalogo base
  ;
 CORRE(P,TREF,MX) ; el bucle: pregunta P, catalogo TREF, tope de vueltas MX
- N VUE,TXT,JS,KIND,NT,I,TN,TA,TR,TOOLS,PROV,MOD,PROMPT
+ N VUE,TXT,JS,KIND,NT,I,TN,TA,TR,TOOLS,PROV,MOD,HIST
  S TREF=$G(TREF,"g:TOOLS")
  S MX=$G(MX,6)
  S PROV=$G(^CONFIG("agente_prov"),"deepseek")
  S MOD=$G(^CONFIG("agente_modelo"),"deepseek-flash")
  S TOOLS=$$CATALOGO(TREF)
  I TOOLS="[]" Q "no hay catalogo de tools (^TOOLS vacio)"
- S PROMPT=P,TXT="",VUE=0
+ ; historial de mensajes (protocolo tool-calling): empieza con el usuario
+ S HIST="[{""role"":""user"",""content"":"""_$$ESC(P)_"""}]"
+ S TXT="",VUE=0
  F  Q:VUE>=MX  D
  . S VUE=VUE+1
- . S JS=$DEVICE("llm:tools",PROV,MOD,PROMPT,TOOLS)
+ . S JS=$DEVICE("llm:tools",PROV,MOD,"",TOOLS,"",HIST)
  . S KIND=$DEVICE("json:get",JS,"kind")
  . I KIND="text" S TXT=$DEVICE("json:get",JS,"content") S VUE=MX Q
  . I KIND="err" S TXT="[error LLM: "_$DEVICE("json:get",JS,"msg")_"]" S VUE=MX Q
+ . I KIND'="tool" S VUE=MX Q
+ . ; anadir la respuesta del asistente (con sus tool_calls) al historial
+ . S HIST=$$QUITAFIN(HIST)_","_$$ASST(JS)
  . S NT=$DEVICE("json:count",JS,"calls")
  . S I=0
  . F  Q:I>=NT  D
  . . S TN=$DEVICE("json:get",JS,"calls["_I_"].name")
  . . S TA=$DEVICE("json:get",JS,"calls["_I_"].args")
+ . . S TID=$DEVICE("json:get",JS,"calls["_I_"].id")
  . . S TR=$$EJECUTA(TN,TA)
  . . S ^AGLOG($H,VUE,I)=TN_" -> "_$E(TR,1,300)
- . . S PROMPT=PROMPT_$C(10)_"RESULTADO de "_TN_": "_TR
+ . . ; anadir el mensaje role=tool con su tool_call_id y el resultado
+ . . S HIST=HIST_",{""role"":""tool"",""tool_call_id"":"""_$$ESC(TID)_""",""content"":"""_$$ESC($E(TR,1,2000))_"""}"
  . . S I=I+1
  Q $G(TXT)
  ;
@@ -50,38 +60,72 @@ CATALOGO(TREF) ; resuelve la referencia al catalogo -> JSON de tools (formato Op
  N LIST,L,N,JSON,SCHEMA,NOM
  S LIST=$DEVICE("tool:list",TREF)
  I LIST="" Q "[]"
+ I $E(LIST,1,4)="ERR:" Q "[]"   ; referencia no resoluble: sin catalogo (no rompe)
  S JSON="[",N=0
  F L=1:1:$L(LIST,$C(10)) D
  . S NOM=$P($P(LIST,$C(10),L),"|",1)
  . I NOM="" Q
- . S SCHEMA=$DEVICE("tool:describe",NOM)
+ . S SCHEMA=$DEVICE("tool:describe",NOM,TREF)
  . I SCHEMA="" Q
  . I N>0 S JSON=JSON_","
  . S JSON=JSON_SCHEMA
  . S N=N+1
  Q JSON_"]"
  ;
-EJECUTA(TN,TA) ; ejecuta la tool TN con argumentos TA -> resultado (texto)
- ; DEVICES: devuelven directo.
+ASST(JS) ; construye el mensaje assistant con sus tool_calls (para el historial)
+ N NT,I,TC,TN,TA,ID,OUT
+ S NT=$DEVICE("json:count",JS,"calls")
+ S TC=""
+ S I=0
+ F  Q:I>=NT  D
+ . S TN=$DEVICE("json:get",JS,"calls["_I_"].name")
+ . S TA=$DEVICE("json:get",JS,"calls["_I_"].args")
+ . S ID=$DEVICE("json:get",JS,"calls["_I_"].id")
+ . I I>0 S TC=TC_","
+ . S TC=TC_"{""id"":"""_$$ESC(ID)_""",""type"":""function"",""function"":{""name"":"""_TN_""",""arguments"":"""_$$ESC(TA)_"""}}"
+ . S I=I+1
+ S OUT="{""role"":""assistant"",""content"":null,""tool_calls"":["_TC_"]}"
+ Q OUT
+ ;
+QUITAFIN(H) ; quita el ']' final del array JSON de historial (para anadir mas)
+ Q $E(H,1,$L(H)-1)
+ ;
+ESC(S) ; escapa un string para meterlo dentro de un JSON SIN usar backslash
+ ; (el backslash rompe el parseo M-Light: es la leccion del 03-oct). En JSON,
+ ; la comilla se escapa con $C(92)_$C(34) - que en el FICHERO es puro M, sin
+ ; escribir el caracter backslash literal. Los saltos de linea se vuelven espacio.
+ N R,I,C
+ S S=$G(S),R=""
+ F I=1:1:$L(S) D
+ . S C=$E(S,I)
+ . I C="""" S R=R_$C(92)_$C(34) Q
+ . I C=$C(10) S R=R_" " Q
+ . I C=$C(13) Q
+ . I C=$C(9) S R=R_" " Q
+ . S R=R_C
+ Q R
+ ;
+EJECUTA(TN,TA) ; ejecuta la tool TN con argumentos TA (JSON) -> resultado (texto)
  I TN="sys:top" Q $DEVICE("sys:top")
  I TN="sys:ps" Q $DEVICE("sys:ps","10")
  I TN="sys:mvm" Q $DEVICE("sys:mvm")
- ; RUTINAS M que IMPRIMEN: se lanzan a si mismas y se captura la salida.
- ; spawn:run devuelve "exit=N<NL><salida>": nos quedamos con la salida.
+ I TN="audio:info" Q $DEVICE("audio:info")
+ I TN="cam:list" Q $DEVICE("cam:list")
  I TN="%SS" Q $$CAPTURA("D ^%SS")
  I TN="%GD" Q $$CAPTURA("D ^%GD")
  I TN="%WIFI" Q $$CAPTURA("D ^%WIFI")
  I TN="%CRON" Q $$CAPTURA("D ^%CRON")
  I TN="%AG" Q $$CAPTURA("D ^%AG")
  I TN="%NM" Q $$CAPTURA("D ^%NM")
- I TN="%GL" Q $$CAPTURA("D ^%GL("_$P(TA,"""",2)_",40)")
+ I TN="%GL" Q $$CAPTURA("D ^%GL("""_$$ARG(TA,"ns")_""",40)")
  Q "[tool '"_TN_"' sin despacho en %AGENTE]"
  ;
-CAPTURA(CMD) ; corre CMD como orden M y devuelve solo la salida (tras "exit=0")
- N R,EX
+ARG(TA,K) ; lee el campo K de los args JSON (evita romper el M con comillas)
+ Q $DEVICE("json:get",TA,K)
+ ;
+CAPTURA(CMD) ; corre CMD como orden M y devuelve la salida (tras "exit=0")
+ N R
  S R=$DEVICE("spawn:run",CMD,15)
- ; formato "exit=N" + $C(10) + salida
- S EX=$P(R,$C(10),1)
  Q $P(R,$C(10),2,99)
  ;
 TOOLS() ; (re)escribe el catalogo ^TOOLS base (idempotente). Llama el arranque.
@@ -92,6 +136,9 @@ TOOLS() ; (re)escribe el catalogo ^TOOLS base (idempotente). Llama el arranque.
  S ^TOOLS("%GD","desc")="directorio de globals y rutinas del nodo"
  S ^TOOLS("%GD","kind")="m:%GD"
  S ^TOOLS("%GD","params")="{""type"":""object"",""properties"":{}}"
+ S ^TOOLS("%GL","desc")="listado de un global por pantallas (arg: ns)"
+ S ^TOOLS("%GL","kind")="m:%GL"
+ S ^TOOLS("%GL","params")="{""type"":""object"",""properties"":{""ns"":{""type"":""string""}}}"
  S ^TOOLS("%WIFI","desc")="diagnostico de WiFi: capacidad, config y estado"
  S ^TOOLS("%WIFI","kind")="m:%WIFI"
  S ^TOOLS("%WIFI","params")="{""type"":""object"",""properties"":{}}"
@@ -121,7 +168,7 @@ TOOLS() ; (re)escribe el catalogo ^TOOLS base (idempotente). Llama el arranque.
 DEMO ; demo interactiva del bucle
  N P,R
  D TOOLS^%AGENTE()
- W "=== %AGENTE: el LLM que LLAMA tools (DISENO-4) ===",!
+ W "=== %AGENTE: el LLM que LLAMA tools (DISENO-4 v2) ===",!
  W "Escribe una pregunta (ENTER para salir):",!
  F  D  Q:P=""
  . R P
@@ -136,4 +183,4 @@ t = D.read_text(encoding="utf-8")
 print(f"escrito: %AGENTE.m ({D.stat().st_size} bytes)")
 print("lineas:", t.count("\n"))
 print("no-ASCII:", sum(1 for c in t if ord(c) not in (10, 13) and not (32 <= ord(c) < 127)))
-print("backslash:", chr(92) in t)
+print("backslash:", chr(92) in t.replace(chr(92)+'"',"").replace(chr(92)+'n',"").replace(chr(92)+'t',""))

@@ -42,6 +42,7 @@ HDR ; el titular: nodo, version, hora y vivos de un golpe
  S N=$G(^SYS("NODO")) I N="" S N=$G(^SYSINFO("nodo"))
  S V=$G(^SYS("VERSION")) I V="" S V="?"
  S A=$G(^TNODO("corazon","origen"))
+ ; sys:mvm ya no aborta si el binario es viejo: devuelve vacio (ver host.rs).
  S NM=$DEVICE("sys:mvm","n")
  W "NODO ..... ",N,"   v",V,!
  I A'="" W "origen ... ",A,!
