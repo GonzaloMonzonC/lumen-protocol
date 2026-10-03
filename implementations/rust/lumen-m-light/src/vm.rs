@@ -2525,9 +2525,10 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         let prompt = call_args.get(2).map(|v| v.as_string()).unwrap_or_default();
                         let tools_json = call_args.get(3).map(|v| v.as_string()).unwrap_or_default();
                         let system = call_args.get(4).map(|v| v.as_string()).unwrap_or_default();
+                        let history_json = call_args.get(5).map(|v| v.as_string()).unwrap_or_default();
                         Ok(Value::String(
                             self.host
-                                .llm_tools(&prov, &model, &prompt, &tools_json, &system)
+                                .llm_tools(&prov, &model, &prompt, &tools_json, &system, &history_json)
                                 .map_err(|e| VmError::new("MLLM", e, line))?,
                         ))
                     }

@@ -832,15 +832,20 @@ pub fn llm_probe_call(provider: &str, model: &str, prompt: &str, tools_json: &st
 ///     {"kind":"tool","calls":[{"name":...,"args":...}]}   el LLM pide tools
 ///     {"kind":"text","content":"..."}                      el LLM ya responde
 ///     {"kind":"err","msg":"..."}                           fallo (red, API…)
-/// El bucle (llamar -> ejecutar -> volver a llamar) vive en M (%AGENTE), para
-/// trazabilidad; el motor solo hace la llamada y normaliza la salida.
-///     $DEVICE("llm:tools", PROV, MODELO, PROMPT, TOOLS_JSON, [SISTEMA])
+///
+/// `history_json` (opcional) es el protocolo de tool-calling CORRECTO: un array
+/// de mensajes ya formados que M mantiene entre vueltas. Si viene vacío, se usa
+/// `prompt` como un único mensaje de usuario (comportamiento simple). El bucle
+/// (llamar -> ejecutar -> volver a llamar) vive en M (%AGENTE), para trazabilidad;
+/// el motor solo hace la llamada y normaliza la salida.
+///     $DEVICE("llm:tools", PROV, MODELO, PROMPT, TOOLS_JSON, [SISTEMA], [HISTORY_JSON])
 pub fn llm_tools_call(
     provider: &str,
     model: &str,
     prompt: &str,
     tools_json: &str,
     system: &str,
+    history_json: &str,
 ) -> Result<String, String> {
     let tools: serde_json::Value = if tools_json.trim().is_empty() {
         serde_json::json!([])
@@ -850,11 +855,21 @@ pub fn llm_tools_call(
             Err(e) => return Ok(format!(r#"{{"kind":"err","msg":"tools_json invalido: {e}"}}"#)),
         }
     };
-    let mut messages: Vec<serde_json::Value> = Vec::new();
-    if !system.trim().is_empty() {
-        messages.push(serde_json::json!({"role": "system", "content": system}));
-    }
-    messages.push(serde_json::json!({"role": "user", "content": prompt}));
+    // Mensajes: si llega un histórico (protocolo correcto), se usa tal cual.
+    // Si no, se arma el simple (system + user).
+    let messages: serde_json::Value = if history_json.trim().is_empty() {
+        let mut m: Vec<serde_json::Value> = Vec::new();
+        if !system.trim().is_empty() {
+            m.push(serde_json::json!({"role": "system", "content": system}));
+        }
+        m.push(serde_json::json!({"role": "user", "content": prompt}));
+        serde_json::Value::Array(m)
+    } else {
+        match serde_json::from_str(history_json) {
+            Ok(v @ serde_json::Value::Array(_)) => v,
+            _ => return Ok(r#"{"kind":"err","msg":"history_json no es un array"}"#.to_string()),
+        }
+    };
     let body = serde_json::json!({
         "model": model,
         "messages": messages,
@@ -873,13 +888,16 @@ pub fn llm_tools_call(
                 .and_then(|v| v.as_array())
                 .filter(|a| !a.is_empty());
             if let Some(arr) = tc {
+                // Se devuelven también los `id` de cada tool_call: el mensaje role
+                // "tool" que sigue DEBE citar el tool_call_id o la API da error.
                 let calls: Vec<serde_json::Value> = arr
                     .iter()
-                    .filter_map(|t| t.get("function"))
-                    .map(|f| {
+                    .filter_map(|t| t.get("function").map(|f| (t.get("id"), f)))
+                    .map(|(tid, f)| {
                         let n = f.get("name").and_then(|v| v.as_str()).unwrap_or("");
                         let a = f.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
-                        serde_json::json!({"name": n, "args": a})
+                        let id = tid.and_then(|v| v.as_str()).unwrap_or("");
+                        serde_json::json!({"id": id, "name": n, "args": a})
                     })
                     .collect();
                 let out = serde_json::json!({"kind": "tool", "calls": calls});
@@ -1215,7 +1233,7 @@ pub trait Host {
 
     /// 04-oct-2026 (DISENO-4): llamada con tools que devuelve el resultado
     /// ÍNTEGRO en JSON (para el bucle de tool-calling de %AGENTE).
-    fn llm_tools(&self, _provider: &str, _model: &str, _prompt: &str, _tools_json: &str, _system: &str) -> Result<String, String> {
+    fn llm_tools(&self, _provider: &str, _model: &str, _prompt: &str, _tools_json: &str, _system: &str, _history_json: &str) -> Result<String, String> {
         Err("llm:tools no soportado en este host".to_string())
     }
 
@@ -1642,22 +1660,29 @@ fn rag_stats(host: &MemoryHost, args: &[Value]) -> String {
 ///     ^TOOLS("<nombre>","desc")          la descripcion corta (para list)
 ///     ^TOOLS("<nombre>","kind")          "m:%RTN" | "d:sys:ps" | "mcp:server/tool"
 ///     ^TOOLS("<nombre>","params")        el JSON de parametros (para describe)
-/// Si el 1er argumento es "g:NS" se lee de ^NS en vez de ^TOOLS. Si es "r:RTN"
-/// se llama a la rutina RTN (via su salida en ^R/"nombre|desc" por linea); ese
-/// filtrado dinamico lo resuelve la capa M antes de llamar aqui.
+/// Referencia (1er argumento):
+///   ""        -> ^TOOLS (por defecto)
+///   "g:NS"    -> lee el catalogo de ^NS (names = ^NS("__names") coma-separada)
+///   "r:RTN"   -> ✅ EL CATALOGO DINAMICO LO RESUELVE LA CAPA M (%AGENTE llama
+///                la rutina, que deja el catalogo en un global, y usa "g:NS").
+///                Aqui "r:" no se puede ejecutar M (el host no corre el VM), asi
+///                que se devuelve un error CLARO en vez de un catalogo vacio mudo.
 fn tools_list(host: &MemoryHost, args: &[Value]) -> String {
     let ref_arg = args.first().map(|v| v.as_string()).unwrap_or_default();
-    // "r:RTN": el catalogo lo produjo una rutina M -> llega ya en ^TOOLS("__dyn")
-    // (la rutina lo dejo ahi). Aqui solo leemos. "g:NS": leer ese namespace.
-    let mut ns = "TOOLS".to_string();
-    if let Some(rest) = ref_arg.strip_prefix("g:") {
-        if !rest.trim().is_empty() {
-            ns = rest.trim().to_string();
-        }
+    if let Some(rtn) = ref_arg.strip_prefix("r:") {
+        return format!(
+            "ERR:TOOLS_REF 'r:{}' se resuelve en M (%AGENTE llama la rutina y usa 'g:NS')",
+            rtn.trim()
+        );
     }
-    // Recorremos ^NS(nombre,"desc"). Sin la API de $ORDER de subscritos anidados,
-    // usamos una lista de nombres declarada en ^NS("__names") (coma-separada), que
-    // la semilla mantiene. Es simple, visible y editable a mano.
+    let ns = ref_arg
+        .strip_prefix("g:")
+        .unwrap_or(ref_arg.trim())
+        .trim()
+        .to_string();
+    let ns = if ns.is_empty() { "TOOLS".to_string() } else { ns };
+    // Recorremos ^NS(nombre,"desc") via la lista ^NS("__names") (coma-separada),
+    // que la semilla mantiene. Simple, visible y editable a mano.
     let names_raw = host
         .get(&ns, &[Subscript::String("__names".to_string())])
         .ok()
@@ -1678,15 +1703,21 @@ fn tools_list(host: &MemoryHost, args: &[Value]) -> String {
 }
 
 /// 04-oct-2026: JSON schema (formato OpenAI function) de UNA tool, para el
-/// prompt del LLM. `$DEVICE("tool:describe",NOMBRE)`.
+/// prompt del LLM. `$DEVICE("tool:describe",NOMBRE,[g:NS])` — el 2º argumento
+/// opcional permite leer de OTRO namespace (debe coincidir con el `g:NS` que se
+/// le pasó a `tool:list`; si no, el catalogo y el schema saldrian de sitios
+/// distintos — la familia de bugs "dos listas que creen hablar del mismo sitio").
 fn tools_describe(host: &MemoryHost, args: &[Value]) -> String {
     let name = args.first().map(|v| v.as_string()).unwrap_or_default();
     if name.trim().is_empty() {
         return "ERR:falta el nombre de la tool".to_string();
     }
+    let ref_arg = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+    let ns = ref_arg.strip_prefix("g:").unwrap_or(ref_arg.trim()).trim();
+    let ns = if ns.is_empty() { "TOOLS" } else { ns };
     let get = |k: &str| -> String {
         host.get(
-            "TOOLS",
+            ns,
             &[Subscript::String(name.to_string()), Subscript::String(k.to_string())],
         )
         .ok()
@@ -3139,8 +3170,8 @@ impl Host for MemoryHost {
     }
 
     /// 04-oct-2026 (DISENO-4): llamada con tools → JSON íntegro (device `llm:tools`).
-    fn llm_tools(&self, provider: &str, model: &str, prompt: &str, tools_json: &str, system: &str) -> Result<String, String> {
-        llm_tools_call(provider, model, prompt, tools_json, system)
+    fn llm_tools(&self, provider: &str, model: &str, prompt: &str, tools_json: &str, system: &str, history_json: &str) -> Result<String, String> {
+        llm_tools_call(provider, model, prompt, tools_json, system, history_json)
     }
 
     // ── User Device implementation ($DEVICE("user:ask")) ─────
@@ -3277,7 +3308,20 @@ impl Host for MemoryHost {
                             Ok(Value::String(global_bg_pool().list()))
                         }
                     }
-                    _ => Err(format!("Unknown SYS action: {action}")),
+                    // ── Accion SYS desconocida ──
+                    // NO se devuelve Err: en M no hay try/catch, y una accion que
+                    // falte ABORTARIA la rutina entera que la llama en un W (p.ej.
+                    // %SS en una ISO con binario viejo). Se devuelve texto VACIO,
+                    // como hace hw.rs con un fichero /sys ausente. La pista de que
+                    // la accion no existe queda en ^SYSERR(<accion>), consultable.
+                    _ => {
+                        let _ = self.set(
+                            "SYSERR",
+                            &[Subscript::String(action.to_string())],
+                            Value::String(format!("sys:{} desconocida (binario viejo?)", action)),
+                        );
+                        Ok(Value::String(String::new()))
+                    }
                 }
             }
             "rag" => {
