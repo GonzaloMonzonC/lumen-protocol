@@ -1009,7 +1009,21 @@ struct FiberBgItem {
 pub struct FiberBgPool {
     next_id: AtomicU64,
     futures: Arc<Mutex<HashMap<u64, Arc<Mutex<FiberBgStatus>>>>>,
+    /// Metadata por job (04-oct-2026, estilo MSM): de dónde salió, cuándo, y si
+    /// el resultado ya se consumió. Es lo que permite un `sys:mvm` rico (rutina,
+    /// duración, device) sin tocar la lógica de futures.
+    jobs: Arc<Mutex<HashMap<u64, FiberMeta>>>,
     worker_tx: std::sync::mpsc::Sender<FiberBgItem>,
+}
+
+/// Lo que el `%SS` del MSM llama «un job»: id, de qué rutina salió, desde cuándo,
+/// y cuándo terminó. `pid`/`dev` se rellenan en el motor donde se sabe (spawn).
+#[derive(Debug, Clone)]
+pub struct FiberMeta {
+    pub origen: String,     // la fuente M (primera linea / rutina) que lanzó el job
+    pub desde_unix: f64,    // epoch de arranque (para la duración)
+    pub fin_unix: f64,      // 0.0 mientras corre; epoch al terminar
+    pub consumido: bool,    // true si su ^R ya se leyó (job «zombie» recuperable)
 }
 
 /// Process-wide background fiber pool (singleton).
@@ -1024,6 +1038,8 @@ impl FiberBgPool {
             Arc::new(Mutex::new(HashMap::new()));
         let (tx, rx) = std::sync::mpsc::channel::<FiberBgItem>();
         let worker_futures = futures.clone();
+        let jobs: Arc<Mutex<HashMap<u64, FiberMeta>>> = Arc::new(Mutex::new(HashMap::new()));
+        let worker_jobs = jobs.clone();
 
         thread::spawn(move || {
             for item in rx {
@@ -1036,10 +1052,16 @@ impl FiberBgPool {
                 if let Ok(mut st) = item.status.lock() {
                     *st = status;
                 }
+                // 04-oct-2026: marcar el fin del job (para la duracion del %SS).
+                if let Ok(mut jm) = worker_jobs.lock() {
+                    if let Some(m) = jm.get_mut(&id) {
+                        m.fin_unix = crate::time_now_secs();
+                    }
+                }
             }
         });
 
-        Self { next_id: AtomicU64::new(1), futures, worker_tx: tx }
+        Self { next_id: AtomicU64::new(1), futures, jobs, worker_tx: tx }
     }
 
     fn run_m_code(item: &FiberBgItem) -> Result<String, String> {
@@ -1083,6 +1105,16 @@ impl FiberBgPool {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let status = Arc::new(Mutex::new(FiberBgStatus::Pending));
         self.futures.lock().unwrap().insert(id, status.clone());
+        // 04-oct-2026: registrar el «job» (origen + arranque) para el %SS rico.
+        let origen = source.trim().chars().take(80).collect::<String>();
+        if let Ok(mut jm) = self.jobs.lock() {
+            jm.insert(id, FiberMeta {
+                origen,
+                desde_unix: crate::time_now_secs(),
+                fin_unix: 0.0,
+                consumido: false,
+            });
+        }
         let item = FiberBgItem {
             id,
             source: source.to_string(),
@@ -1116,25 +1148,65 @@ impl FiberBgPool {
         self.futures.lock().unwrap().contains_key(&id)
     }
 
+    /// 04-oct-2026: KILL de un job (estilo MSM: matar un proceso). Quita el fiber
+    /// del pool (su worker terminara y no encontrara el id -> sin efecto). Devuelve
+    /// el numero de jobs matados (0 si el id no existia). Es el `$DEVICE("kill")`.
+    pub fn kill(&self, id: u64) -> usize {
+        let mut n = 0;
+        if self.futures.lock().unwrap().remove(&id).is_some() {
+            n += 1;
+        }
+        if let Ok(mut jm) = self.jobs.lock() {
+            jm.remove(&id);
+        }
+        n
+    }
+
+    /// 04-oct-2026: mata TODOS los jobs (broadcast a los fibers). Devuelve cuantos.
+    pub fn kill_all(&self) -> usize {
+        let n = {
+            let mut f = self.futures.lock().unwrap();
+            let n = f.len();
+            f.clear();
+            n
+        };
+        if let Ok(mut jm) = self.jobs.lock() {
+            jm.clear();
+        }
+        n
+    }
+
     /// 04-oct-2026: lista de procesos M VIVOS del motor (fibers background),
-    /// para $DEVICE("sys:mvm") y el %SS. Una linea por proceso:
-    ///     id|estado
+    /// para $DEVICE("sys:mvm") y el %SS. Estilo MSM: una linea por job con
+    ///     id|estado|segundos|rutina|resultado
     /// Estados: RUN (pendiente/ejecutando), OK (resuelto), ERR (rechazado).
-    /// Ordenada por id (como los saca el pool). Es la vista "PS de la MVM".
+    /// Es la vista «PS de la MVM». Ordenada por id.
     pub fn list(&self) -> String {
         let futures = self.futures.lock().unwrap();
+        let jobs = self.jobs.lock().unwrap();
+        let ahora = crate::time_now_secs();
         let mut ids: Vec<u64> = futures.keys().copied().collect();
         ids.sort_unstable();
         let mut out: Vec<String> = Vec::new();
         for id in ids {
-            if let Some(s) = futures.get(&id) {
-                let est = match &*s.lock().unwrap() {
-                    FiberBgStatus::Pending => "RUN",
-                    FiberBgStatus::Resolved(_) => "OK",
-                    FiberBgStatus::Rejected(_) => "ERR",
-                };
-                out.push(format!("{id}|{est}"));
-            }
+            let (estado, resumen) = if let Some(s) = futures.get(&id) {
+                match &*s.lock().unwrap() {
+                    FiberBgStatus::Pending => ("RUN", String::new()),
+                    FiberBgStatus::Resolved(v) => ("OK", v.chars().take(60).collect::<String>()),
+                    FiberBgStatus::Rejected(e) => ("ERR", e.chars().take(60).collect::<String>()),
+                }
+            } else {
+                ("?", String::new())
+            };
+            let (origen, segs) = match jobs.get(&id) {
+                Some(m) => {
+                    let fin = if m.fin_unix > 0.0 { m.fin_unix } else { ahora };
+                    let d = (fin - m.desde_unix).max(0.0);
+                    (m.origen.clone(), format!("{:.1}", d))
+                }
+                None => (String::new(), "?".to_string()),
+            };
+            out.push(format!("{}|{}|{}s|{}|{}", id, estado, segs, origen, resumen));
         }
         out.join("\n")
     }
@@ -3369,6 +3441,33 @@ impl Host for MemoryHost {
                 //   $DEVICE("spawn","run","<codigo M>",[timeout_s]) → exit/salida/TIMEOUT
                 crate::spawn::spawn_device(self, action, &args)
             }
+            // ── 04-oct-2026: CONTROL DE JOBS (DISENO VISION-Y-CONTROL) ──
+            // Las «señales» de LUMEN OS. Un job = un fiber del pool (sys:mvm).
+            //   $DEVICE("kill",ID)        -> mata el job ID (SIGTERM)
+            //   $DEVICE("kill","all")     -> mata TODOS (broadcast de kill)
+            //   $DEVICE("jobs")           -> alias de sys:mvm (lista de procesos)
+            "kill" => {
+                let a = args.first().map(|v| v.as_string()).unwrap_or_default();
+                if a.trim().eq_ignore_ascii_case("all") {
+                    let n = global_bg_pool().kill_all();
+                    Ok(Value::String(format!("matados={n}")))
+                } else if a.trim().is_empty() {
+                    Err("kill: uso $DEVICE(\"kill\",ID|\"all\")".to_string())
+                } else {
+                    match a.trim().parse::<u64>() {
+                        Ok(id) => {
+                            let n = global_bg_pool().kill(id);
+                            Ok(Value::String(if n > 0 {
+                                format!("job {id} matado")
+                            } else {
+                                format!("job {id} no existe")
+                            }))
+                        }
+                        Err(_) => Err(format!("kill: id invalido '{}'", a.trim())),
+                    }
+                }
+            }
+            "jobs" => Ok(Value::String(global_bg_pool().list())),
             // ── 04-oct-2026: TOOLS — el catalogo que el LLM LLAMA (DISENO-4) ──
             // El motor NO ejecuta la tool (eso lo hace la rutina M %AGENTE, para
             // trazabilidad). Aqui solo se EXPONE el catalogo y su schema:

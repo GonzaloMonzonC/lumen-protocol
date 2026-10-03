@@ -379,6 +379,26 @@ fn unknown_sys_action_does_not_abort_the_routine() {
 }
 
 #[test]
+fn kill_and_jobs_devices_work() {
+    // 04-oct-2026 (VISION-Y-CONTROL): las «señales» de LUMEN OS. kill/jobs deben
+    // existir y responder sin abortar la rutina (M no tiene try/catch).
+    for src in [
+        r#"S r=$DEVICE("jobs") S ok=1"#,
+        r#"S r=$DEVICE("kill","all") S ok=1"#,
+        r#"S r=$DEVICE("kill","999") S ok=1"#,
+    ] {
+        let program = Compiler::compile(src).unwrap();
+        let mut host = MemoryHost::default();
+        let execution = {
+            let mut vm = Vm::new(program, &mut host);
+            vm.state.gas_limit = 10_000;
+            vm.run()
+        };
+        assert_eq!(execution, Execution::Completed, "{src}");
+    }
+}
+
+#[test]
 fn sys_ps_device_does_not_raise_unknown_action() {
     // 03-oct-2026: $DEVICE("sys:ps") debe existir (el %GUIA lo anuncia). Antes
     // el binario grabado no lo tenia -> "Unknown SYS action". Aqui lo fijamos:
