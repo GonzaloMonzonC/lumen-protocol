@@ -3313,6 +3313,12 @@ impl Host for MemoryHost {
                 // Es tambien el utillaje para depurar la WiFi por telnet.
                 crate::hw::hw_device(action, &args)
             }
+            // ── 04-oct-2026 (DISENO-4): AUDIO / IMAGEN / CAMARA por $DEVICE ──
+            //   $DEVICE("audio:info|play|rec|vol|say")  -> el voicebot
+            //   $DEVICE("img:info|read|make")           -> ITT (leer) / TTI (crear)
+            //   $DEVICE("cam:list|grab|stream|frame")   -> camara local o IP (red)
+            #[cfg(not(target_arch = "wasm32"))]
+            "audio" | "img" | "cam" => crate::av::av_device(device, action, &args),
             #[cfg(feature = "spawn")]
             "spawn" => {
                 // ── 18-sep-2026: sandbox — el nodo se auto-lanza en hijo con timeout ──

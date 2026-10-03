@@ -144,6 +144,9 @@ RDEVICE ;
  D E^%GUIA("device","tool:","FUNCION: el catalogo de tools. $DEVICE(""tool:list"") y $DEVICE(""tool:describe"",NOMBRE). Alimenta a %AGENTE")
  D E^%GUIA("device","json:","FUNCION: leer JSON por ruta. $DEVICE(""json:get"",J,""calls[0].name"") y $DEVICE(""json:count"",J,""calls"")")
  D E^%GUIA("device","hw:","FUNCION: hardware: S R=$DEVICE(""hw:disk"") , hw:mem, hw:net, hw:rfkill")
+ D E^%GUIA("device","audio:","FUNCION: audio del nodo. $DEVICE(""audio:info|play|rec|vol|say"") - el voicebot")
+ D E^%GUIA("device","img:","FUNCION: imagen. $DEVICE(""img:info|read|make"") - leer (ITT) o crear (TTI)")
+ D E^%GUIA("device","cam:","FUNCION: camara. $DEVICE(""cam:list|grab|stream|frame"") - local (V4L2) o IP por red")
  D E^%GUIA("device","exec:","FUNCION: ejecutar un comando del sistema (con cuidado)")
  Q
  ;

@@ -85,7 +85,7 @@ CAPTURA(CMD) ; corre CMD como orden M y devuelve solo la salida (tras "exit=0")
  Q $P(R,$C(10),2,99)
  ;
 TOOLS() ; (re)escribe el catalogo ^TOOLS base (idempotente). Llama el arranque.
- I '$D(^TOOLS("__names")) S ^TOOLS("__names")="%SS,%GD,%WIFI,%NM,%CRON,%AG,sys:ps,sys:mvm"
+ I '$D(^TOOLS("__names")) S ^TOOLS("__names")="%SS,%GD,%WIFI,%NM,%CRON,%AG,sys:ps,sys:mvm,audio:info,cam:list"
  S ^TOOLS("%SS","desc")="estado del sistema: proceso, RAM, red, DDP, jobs, agentes"
  S ^TOOLS("%SS","kind")="m:%SS"
  S ^TOOLS("%SS","params")="{""type"":""object"",""properties"":{}}"
@@ -110,6 +110,12 @@ TOOLS() ; (re)escribe el catalogo ^TOOLS base (idempotente). Llama el arranque.
  S ^TOOLS("sys:mvm","desc")="procesos M del motor (fibers vivos)"
  S ^TOOLS("sys:mvm","kind")="d:sys:mvm"
  S ^TOOLS("sys:mvm","params")="{""type"":""object"",""properties"":{}}"
+ S ^TOOLS("audio:info","desc")="tarjetas y dispositivos de audio del nodo"
+ S ^TOOLS("audio:info","kind")="d:audio:info"
+ S ^TOOLS("audio:info","params")="{""type"":""object"",""properties"":{}}"
+ S ^TOOLS("cam:list","desc")="camaras disponibles (locales V4L2 o IP por red)"
+ S ^TOOLS("cam:list","kind")="d:cam:list"
+ S ^TOOLS("cam:list","params")="{""type"":""object"",""properties"":{}}"
  Q 1
  ;
 DEMO ; demo interactiva del bucle
