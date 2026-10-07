@@ -1011,13 +1011,20 @@ impl Default for FiberWait {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct FiberBgItem {
     id: u64,
     source: String,
     globals: Vec<GlobalEntry>,
     routines: Vec<(String, String)>,
     api_keys: HashMap<String, String>,
+    /// 07-oct-2026 (task_237): store LMDB del nodo, CLONADO para el job del pool.
+    /// Comparte el `env` (mismo proceso) y re-abre el handle de la DB — barato.
+    /// Es lo que permite que un $FIBER escriba en el PDB COMPARTIDO sin reabrir
+    /// el environment (LMDB prohíbe abrir el mismo env dos veces en un proceso).
+    /// (Debug manual: LmdbStore no implementa Debug.)
+    #[cfg(feature = "lmdb")]
+    lmdb_store: Option<crate::lmdb_store::LmdbStore>,
     status: Arc<Mutex<FiberBgStatus>>,
     /// 04-oct-2026 ($$QID): el worker actualiza aqui el «por que espera» vivo.
     espera: Arc<Mutex<FiberWait>>,
@@ -1057,12 +1064,31 @@ impl FiberBgPool {
         let futures: Arc<Mutex<HashMap<u64, Arc<Mutex<FiberBgStatus>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let (tx, rx) = std::sync::mpsc::channel::<FiberBgItem>();
-        let worker_futures = futures.clone();
         let jobs: Arc<Mutex<HashMap<u64, FiberMeta>>> = Arc::new(Mutex::new(HashMap::new()));
-        let worker_jobs = jobs.clone();
 
-        thread::spawn(move || {
-            for item in rx {
+        // 07-oct-2026 (task_237): POOL DE N WORKERS. Antes había UN solo worker
+        // (un `thread::spawn` con `for item in rx`) → los jobs se SERIALIZABAN
+        // (medido: escalado lineal 1→33 s, 2→68 s). Ahora N hilos comparten el
+        // receptor bajo un Mutex: cada uno toma el siguiente item libre y lo corre
+        // en paralelo. N configurable por env LUMEN_MVM_WORKERS (def. nucleos, min 1).
+        let rx = Arc::new(Mutex::new(rx));
+        let n = Self::worker_count();
+        for _ in 0..n {
+            let rx = rx.clone();
+            let worker_futures = futures.clone();
+            let worker_jobs = jobs.clone();
+            thread::spawn(move || loop {
+                // Tomar el siguiente item (lock corto: solo el recv).
+                let item = {
+                    let guard = match rx.lock() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    };
+                    match guard.recv() {
+                        Ok(it) => it,
+                        Err(_) => break, // canal cerrado → fin del pool
+                    }
+                };
                 let id = item.id;
                 let result = Self::run_m_code(&item);
                 let status = match result {
@@ -1078,16 +1104,39 @@ impl FiberBgPool {
                         m.fin_unix = crate::time_now_secs();
                     }
                 }
-            }
-        });
+                let _ = &worker_futures; // (reservado: publicar progreso por job)
+            });
+        }
 
         Self { next_id: AtomicU64::new(1), futures, jobs, worker_tx: tx }
+    }
+
+    /// Nº de workers del pool: LUMEN_MVM_WORKERS o el nº de nucleos (min 1).
+    /// En nodos de 1 core (DS216se) queda en 1 (no gana paralelismo, pero no
+    /// empeora); en hardware multicore multiplica el throughput de jobs.
+    fn worker_count() -> usize {
+        if let Ok(v) = std::env::var("LUMEN_MVM_WORKERS") {
+            if let Ok(n) = v.trim().parse::<usize>() {
+                if n >= 1 { return n; }
+            }
+        }
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).max(1)
     }
 
     fn run_m_code(item: &FiberBgItem) -> Result<String, String> {
         use crate::vm::Vm;
         let program = Compiler::compile(&item.source)
             .map_err(|e| format!("Compile error: {e}"))?;
+        // 07-oct-2026 (task_237): si el job trae el store LMDB clonado del nodo,
+        // escribe en el PDB COMPARTIDO (mismo env, handle re-abierto) → sus
+        // S ^X=... PERSISTEN. Sin store, se mantiene el modo anterior: copia
+        // aislada (from_entries) — cómputo puro sin persistencia.
+        #[cfg(feature = "lmdb")]
+        let mut host = match &item.lmdb_store {
+            Some(store) => MemoryHost::from_store(store.clone()),
+            None => MemoryHost::from_entries(item.globals.clone()),
+        };
+        #[cfg(not(feature = "lmdb"))]
         let mut host = MemoryHost::from_entries(item.globals.clone());
         for (name, source) in &item.routines {
             host.add_routine(name, source);
@@ -1150,11 +1199,57 @@ impl FiberBgPool {
         }
     }
 
+    /// Lanza un job del pool. Bajo la feature `lmdb`, `lmdb_store` (clonado, mismo
+    /// env) hace que el job escriba en el PDB COMPARTIDO del nodo; si es `None`,
+    /// el job corre en una copia aislada (cómputo puro).
+    #[cfg(feature = "lmdb")]
+    pub fn spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>, lmdb_store: Option<&crate::lmdb_store::LmdbStore>) -> u64 {
+        self.spawn_inner(source, globals, routines, api_keys, lmdb_store.cloned())
+    }
+
+    /// Variante sin LMDB (builds sin la feature): el job siempre corre en copia.
+    #[cfg(not(feature = "lmdb"))]
     pub fn spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>) -> u64 {
+        self.spawn_inner(source, globals, routines, api_keys)
+    }
+
+    #[cfg(feature = "lmdb")]
+    fn spawn_inner(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>, lmdb_store: Option<crate::lmdb_store::LmdbStore>) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let status = Arc::new(Mutex::new(FiberBgStatus::Pending));
         self.futures.lock().unwrap().insert(id, status.clone());
         // 04-oct-2026: registrar el «job» (origen + arranque + espera viva).
+        let origen = source.trim().chars().take(80).collect::<String>();
+        let espera = Arc::new(Mutex::new(FiberWait::default()));
+        if let Ok(mut jm) = self.jobs.lock() {
+            jm.insert(id, FiberMeta {
+                origen,
+                desde_unix: crate::time_now_secs(),
+                fin_unix: 0.0,
+                consumido: false,
+                espera: espera.clone(),
+            });
+        }
+        let item = FiberBgItem {
+            id,
+            source: source.to_string(),
+            globals: globals.to_vec(),
+            routines: routines.to_vec(),
+            api_keys: api_keys.clone(),
+            #[cfg(feature = "lmdb")]
+            lmdb_store,
+            status,
+            espera,
+        };
+        let _ = self.worker_tx.send(item);
+        id
+    }
+
+    #[cfg(not(feature = "lmdb"))]
+    fn spawn_inner(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let status = Arc::new(Mutex::new(FiberBgStatus::Pending));
+        self.futures.lock().unwrap().insert(id, status.clone());
         let origen = source.trim().chars().take(80).collect::<String>();
         let espera = Arc::new(Mutex::new(FiberWait::default()));
         if let Ok(mut jm) = self.jobs.lock() {
@@ -1559,6 +1654,30 @@ impl MemoryHost {
             smith_registry: Arc::new(global_smith_registry().clone()),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()),
         })
+    }
+
+    /// 07-oct-2026 (task_237): host para un JOB del pool que comparte el store
+    /// LMDB del nodo (clonado: mismo env, handle re-abierto). Permite que
+    /// `$FIBER("bg",...)` ESCRIBA en el PDB compartido, no en una copia.
+    /// LMDB prohíbe abrir el mismo env dos veces en un proceso → hay que pasar
+    /// el store ya abierto, no el path.
+    #[cfg(feature = "lmdb")]
+    pub fn from_store(store: crate::lmdb_store::LmdbStore) -> Self {
+        Self {
+            values: BTreeMap::new(),
+            transactions: Vec::new(),
+            routines: HashMap::new(),
+            input: Vec::new(),
+            live_stdin: false,
+            locks: HashMap::new(),
+            llm_api_keys: HashMap::new(),
+            sandbox: false,
+            #[cfg(feature = "sqlite")]
+            sqlite_db: None,
+            lmdb: Some(store),
+            smith_registry: Arc::new(global_smith_registry().clone()),
+            remote_cache: std::sync::Mutex::new(RemoteCache::default()),
+        }
     }
 
     pub fn is_lmdb(&self) -> bool {
@@ -3376,7 +3495,16 @@ impl Host for MemoryHost {
     }
 
     fn fiber_bg_spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
-        Ok(global_bg_pool().spawn(source, globals, routines, &self.llm_api_keys))
+        // 07-oct-2026 (task_237): propagar el STORE LMDB del nodo (clonado, mismo
+        // env) para que el job escriba en el PDB COMPARTIDO en vez de una copia.
+        #[cfg(feature = "lmdb")]
+        {
+            Ok(global_bg_pool().spawn(source, globals, routines, &self.llm_api_keys, self.lmdb.as_ref()))
+        }
+        #[cfg(not(feature = "lmdb"))]
+        {
+            Ok(global_bg_pool().spawn(source, globals, routines, &self.llm_api_keys, None))
+        }
     }
 
     fn fiber_bg_poll(&self, id: u64) -> Result<Option<String>, String> {
