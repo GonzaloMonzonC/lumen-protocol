@@ -1,0 +1,101 @@
+{
+  "_comment": "Config maestra DDP del ecosistema Cadences Lab. Fuente de verdad declarativa: se carga en la PDB (^System/^DDP) con ddp-config-load.py. Los agentes/nodos leen de la PDB vía DDP.",
+  "version": "1.0",
+
+  "edge": {
+    "url": "https://pdb-edge.example.workers.dev",
+    "user_agent": "Mozilla/5.0 DDPClient/0.2",
+    "timeout": 60
+  },
+
+  "hub": {
+    "url": "http://TU-HUB:8081",
+    "protocol": "ddp",
+    "role": "hub-local"
+  },
+
+  "sync": {
+    "batch_size": 500,
+    "batch_size_worker": 500,
+    "interval": "1m",
+    "default_since": "1970-01-01T00:00:00Z"
+  },
+
+  "namespaces": {
+    "ROUTINE":  { "direction": "pull", "journal": false },
+    "Eval":     { "direction": "pull", "journal": false },
+    "STATE":    { "direction": "pull", "journal": false },
+    "KANBAN":   { "direction": "push", "journal": false, "mode": "bulk" },
+    "FACTS":    { "direction": "both", "journal": true },
+    "AGENTES":  { "direction": "both", "journal": true },
+    "BACKLOG":  { "direction": "both", "journal": true },
+    "PROJECTS": { "direction": "both", "journal": true },
+    "DECISIONS":{ "direction": "both", "journal": true },
+    "GOAL_STATE":{ "direction": "both", "journal": true },
+    "ecosystem":{ "direction": "both", "journal": true },
+    "AUDIT":    { "direction": "both", "journal": true },
+    "COLAB":    { "direction": "both", "journal": true },
+    "CLIMA":    { "direction": "both", "journal": true },
+    "personal": { "direction": "both", "journal": true },
+    "CHANGES":  { "direction": "none", "journal": false, "legacy": true },
+    "HISTORY":  { "direction": "none", "journal": false, "legacy": true },
+    "HELP":     { "direction": "none", "journal": false, "legacy": true },
+    "SYSGEN":   { "direction": "none", "journal": false, "legacy": true },
+    "clinica":  { "direction": "none", "journal": false, "legacy": true }
+  },
+
+  "nodes": {
+    "taller": {
+      "hostname": "localhost",
+      "ip": "127.0.0.1",
+      "role": "desarrollo",
+      "arch": "x86_64"
+    },
+    "neferu": {
+      "hostname": "neferu-llm.cadences.app",
+      "ip": "TU-NAS",
+      "port": 8140,
+      "role": "nodo-llm",
+      "arch": "armv7l",
+      "capabilities": ["llm", "pdb", "cron"]
+    },
+    "hub": {
+      "hostname": "TU-HUB",
+      "ip": "TU-HUB",
+      "port": 8081,
+      "role": "hub-ddp",
+      "arch": "x86_64",
+      "capabilities": ["ddp-hub", "pdb"]
+    }
+  },
+
+  "links": {
+    "edge": {
+      "target": "https://pdb-edge.example.workers.dev",
+      "type": "http",
+      "timeout": 60
+    },
+    "hub": {
+      "target": "http://TU-HUB:8081",
+      "type": "http",
+      "ip": "TU-HUB",
+      "port": 8081,
+      "timeout": 30
+    },
+    "neferu": {
+      "target": "https://neferu-llm.cadences.app",
+      "type": "http",
+      "ip": "TU-NAS",
+      "port": 8140,
+      "timeout": 30
+    }
+  },
+
+  "limits": {
+    "max_links": 16,
+    "buffer_size": 1500,
+    "circuit_buffers": 5,
+    "max_messages": 4,
+    "timeout": 30
+  }
+}
