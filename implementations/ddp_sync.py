@@ -31,9 +31,35 @@ from pdb_ddp_client import DDPClient  # noqa: E402
 from pdb_sync_engine import SyncEngine  # noqa: E402
 from pdb_tools import tool_get, tool_set, pdb_connect  # noqa: E402
 
-DEFAULT_NS = "ROUTINE"
-# La versión antigua usaba EDGE_URL; DDPClient usa PDB_EDGE_URL. Respetamos ambas.
-EDGE_URL = os.environ.get("EDGE_URL") or os.environ.get("PDB_EDGE_URL")
+# Config DDP maestra (ddp.json → PDB). El lector es opcional: si no existe o la
+# config no está cargada, caemos a los valores clásicos para no romper crons.
+try:
+    from ddp_config_read import edge_url as _cfg_edge_url, namespaces as _cfg_namespaces
+except Exception:  # pragma: no cover
+    _cfg_edge_url = _cfg_namespaces = None
+
+
+def _default_ns() -> str:
+    """Namespace por defecto: env → primer 'pull' de la config PDB → ROUTINE."""
+    env = os.environ.get("DDP_NS")
+    if env:
+        return env
+    if _cfg_namespaces:
+        try:
+            ns = _cfg_namespaces("pull")
+            if ns:
+                return ",".join(ns)
+        except Exception:
+            pass
+    return "ROUTINE"
+
+
+DEFAULT_NS = _default_ns()
+# La versión antigua usaba EDGE_URL; DDPClient usa PDB_EDGE_URL. Respetamos ambas,
+# y si no hay ninguna, la URL canónica viene de la config (ddp.json / env / default).
+EDGE_URL = (os.environ.get("EDGE_URL")
+            or os.environ.get("PDB_EDGE_URL")
+            or (_cfg_edge_url() if _cfg_edge_url else None))
 
 
 def _now_iso() -> str:
@@ -41,7 +67,7 @@ def _now_iso() -> str:
 
 
 def _engine() -> SyncEngine:
-    return SyncEngine(ddp=DDPClient(edge_url=EDGE_URL))
+    return SyncEngine(ddp=DDPClient(base_url=EDGE_URL))
 
 
 # ── Sync state: ^DDP("sync", ns, kind) ──
