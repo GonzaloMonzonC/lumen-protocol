@@ -3268,6 +3268,14 @@ def tool_mvm_promote(args: dict) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+def _safe_log(msg: str) -> None:
+    """Log a stderr. Nunca a stdout: stdout es el canal JSON-RPC del MCP."""
+    try:
+        print(msg, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
 TOOLS = [
     {
         "name": "pdb_embed",
@@ -3503,3 +3511,105 @@ HANDLERS = {
     "pdb_mvm_promote": tool_mvm_promote,
 
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Perfiles de catálogo (H6)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# El server exponía 19 de 66 handlers: 47 existían en el código y el agente no
+# podía usarlas NI SABER que existían. Hay un doc previo
+# (docs/token-efficient-tools-2026-06-20.md) que apunta a curaduría deliberada
+# por coste de tokens, así que el defecto no es esconder 47: es esconder la
+# ESCRITURA de un pipeline cuya lectura sí está expuesta, y no decirlo.
+#
+# Perfiles:
+#   lumen-pdb       (por defecto) el catálogo de siempre + pdb_embed. Corto.
+#   lumen-pdb-admin (opt-in)      las 66. Para operador: Poli, CI, consola.
+#
+# El admin NO se activa por defecto: hay que pedirlo con --profile admin o con
+# LUMEN_PDB_PROFILE=admin. Así el catálogo del agente no engorda por accidente,
+# y el operador tiene todo sin mantener dos servidores.
+
+PROFILE_AGENT = "agente"
+PROFILE_ADMIN = "admin"
+
+# Lo único que se AÑADE al catálogo del agente respecto a las 19 de siempre:
+# sin la escritura, la búsqueda semántica no tiene qué devolver. No se amplía
+# nada más: abrir tools "porque parecen inofensivas" es repetir el juicio de la
+# curaduría original sin haberlo medido.
+_AGENT_EXTRA = frozenset({"pdb_embed"})
+
+
+def tools_for_profile(profile: str) -> list[dict]:
+    """Devuelve el catálogo de TOOLS para un perfil.
+
+    En 'agente' se filtra TOOLS por nombre. En 'admin' se devuelven las 66:
+    para las 47 que nunca tuvieron schema se genera uno mínimo a partir del
+    nombre, porque un handler sin inputSchema no lo puede llamar un cliente
+    estricto (es el mismo fallo que H3 en thinking).
+    """
+    profile = (profile or PROFILE_AGENT).strip().lower()
+    if profile == PROFILE_ADMIN:
+        return _admin_tools()
+    nombres = {t["name"] for t in TOOLS} | _AGENT_EXTRA
+    return [t for t in TOOLS if t["name"] in nombres] + [
+        _synthetic_schema(n) for n in sorted(_AGENT_EXTRA) if n not in {t["name"] for t in TOOLS}
+    ]
+
+
+_ADMIN_CACHE: list[dict] | None = None
+
+
+def _admin_tools() -> list[dict]:
+    """Las 66 tools: las que tienen schema, tal cual; el resto, schema mínimo."""
+    global _ADMIN_CACHE
+    if _ADMIN_CACHE is not None:
+        return _ADMIN_CACHE
+    con_schema = {t["name"]: t for t in TOOLS}
+    out = []
+    for nombre in sorted(HANDLERS):
+        out.append(con_schema.get(nombre) or _synthetic_schema(nombre))
+    _ADMIN_CACHE = out
+    return out
+
+
+def _synthetic_schema(nombre: str) -> dict:
+    """Schema mínimo para un handler que nunca tuvo TOOLS entry.
+
+    `additionalProperties: true` porque el handler acepta un dict libre y no
+    podemos inventar sus parámetros: la descripción avisa de que es admin.
+    """
+    return {
+        "name": nombre,
+        "description": f"[admin] Operación de operador. Sin schema declarado: "
+                       f"consulta docs/mcp-catalog.md para sus parámetros.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": True},
+    }
+
+
+def resolve_profile(argv: list[str] | None = None) -> str:
+    """Perfil activo: --profile admin gana sobre LUMEN_PDB_PROFILE.
+
+    Cualquier valor desconocido cae a 'agente' con aviso: un typo no debe
+    abrir de golpe las 66 tools de operador.
+    """
+    argv = argv if argv is not None else sys.argv
+    pedido = ""
+    for i, a in enumerate(argv):
+        if a == "--profile" and i + 1 < len(argv):
+            pedido = argv[i + 1]
+        elif a.startswith("--profile="):
+            pedido = a.split("=", 1)[1]
+    if not pedido:
+        pedido = os.environ.get("LUMEN_PDB_PROFILE", "")
+    pedido = (pedido or PROFILE_AGENT).strip().lower()
+    if pedido not in (PROFILE_AGENT, PROFILE_ADMIN):
+        _safe_log(f"[pdb] perfil desconocido {pedido!r}; uso {PROFILE_AGENT!r}")
+        return PROFILE_AGENT
+    return pedido
+
+
+def catalog_diff() -> list[str]:
+    """Tools presentes en HANDLERS y ausentes en TOOLS. Alimenta el allowlist de CI."""
+    return sorted(set(HANDLERS) - {t["name"] for t in TOOLS})
