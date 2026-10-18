@@ -2346,6 +2346,25 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 let value = (z as f64) / (u64::MAX as f64);
                 Ok(Value::Number((value * limit).floor()))
             }
+            // $ZSEED(n): fija la semilla del RNG y devuelve la anterior.
+            //
+            // Sin esto, `default_rng_state()` usa el reloj y CADA EJECUCIÓN es
+            // distinta: no hay replay posible. Con `$ZSEED(42)` la secuencia de
+            // $RANDOM es reproducible entre procesos y entre máquinas, que es
+            // el requisito del digest por tick y del certificado de decisión.
+            //
+            // OJO: va en eval_function (el match que SÍ recibe argumentos), no
+            // en el match de `atom` sin paréntesis — ahí `$ZSEED(42)` no llega.
+            // Se devuelve la semilla anterior para poder restaurarla.
+            "$ZSEED" => {
+                let semilla = args
+                    .first()
+                    .map_or("0".to_string(), Clone::clone);
+                let valor = self.eval_expr(&semilla, line)?.as_number();
+                let anterior = self.state.rng_state;
+                self.state.rng_state = (valor as i64) as u64;
+                Ok(Value::Number(anterior as f64))
+            }
             "$FN" | "$FNUMBER" => {
                 let number = self
                     .eval_expr(args.first().map_or("", String::as_str), line)?
