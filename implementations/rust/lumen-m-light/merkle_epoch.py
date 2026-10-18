@@ -198,32 +198,54 @@ def epoch_de_pdb(pdb, ns: str | None = None) -> dict:
 
 
 def _leer_ns(pdb, ns: str) -> list[dict]:
-    """Lee un namespace entero recorriendo subkeys con tool_order."""
+    """Lee un namespace ENTERO: baja hasta las hojas, no solo el primer nivel.
+
+    `tool_order` opera por NIVEL: con subs=[''] da la primera clave de la raiz;
+    con subs=['L1',''] da la primera hija de L1. Hay que recorrer el arbol en
+    profundidad para llegar a los valores.
+
+    Dos trampas encontradas:
+      - subs=[] da 'Need at least one subscript for $ORDER' -> usar ['']
+      - iterar solo la raiz devuelve los nodos intermedios (value=None), no las
+        hojas. Un Merkle root sobre eso no cubre los datos reales.
+    """
     salida = []
-    pila = [""]
-    vistos = set()
-    while pila:
+    # pila de prefijos a explorar; se empieza por la raiz
+    pila = [[]]
+    visitados = 0
+    LIMITE = 500_000
+
+    while pila and visitados < LIMITE:
         prefijo = pila.pop()
-        if len(vistos) > 500_000:
-            break
-        clave = prefijo
-        for _ in range(10_000):
+        # valor del propio nodo (si lo tiene)
+        if prefijo:
             try:
-                r = pdb.tool_order({"ns": ns, "subs": [clave] if clave else [],
+                g = pdb.tool_get({"ns": ns, "subs": prefijo})
+                if g.get("success") is not False and g.get("value") is not None:
+                    salida.append({"ns": ns, "subs": list(prefijo), "value": g["value"]})
+                    visitados += 1
+            except Exception:
+                pass
+
+        # recorrer los hijos de este nivel
+        hijos = []
+        clave = ""
+        for _ in range(100_000):
+            try:
+                r = pdb.tool_order({"ns": ns, "subs": list(prefijo) + [clave],
                                     "direction": 1})
             except Exception:
                 break
             if not r.get("success") or r.get("value") in (None, ""):
                 break
             k = str(r["value"])
-            if k == clave or (ns, k) in vistos:
+            if k == clave:
                 break
-            vistos.add((ns, k))
-            try:
-                g = pdb.tool_get({"ns": ns, "subs": [k]})
-                if g.get("success") is not False and "value" in g:
-                    salida.append({"ns": ns, "subs": [k], "value": g.get("value")})
-            except Exception:
-                pass
+            hijos.append(k)
             clave = k
+
+        # apilar en orden inverso para que el recorrido sea ascendente
+        for k in reversed(hijos):
+            pila.append(prefijo + [k])
+
     return salida
