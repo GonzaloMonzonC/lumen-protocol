@@ -1,0 +1,1 @@
+C:\Users\gonzalo\tools\qemu\qemu-system-i386.exe: -netdev user,id=n0,hostfwd=tcp::2323-:23: Could not set up host forwarding rule 'tcp::2323-:23'

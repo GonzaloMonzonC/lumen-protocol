@@ -1,0 +1,2 @@
+# busybox-static implements dpkg applet so it really accesses dpkg db
+busybox-static: uses-dpkg-database-directly

@@ -1,6 +1,6 @@
-import subprocess, json, sys
+import subprocess, json, sys, os
 
-BASE = "http://192.168.1.11:8081"
+BASE = "http://" + (os.environ.get("DDP_HUB_HOST") or "127.0.0.1") + ":8081"
 
 def ddp_push(ns, entries):
     r = subprocess.run(["curl", "-s", "--max-time", "5", "-X", "POST", f"{BASE}/ddp/push",

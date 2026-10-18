@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="firmware">
+  <id>org.debian.packages.firmware_ipw2x00</id>
+  <name>Binary firmware for Intel Pro Wireless 2100, 2200 and 2915</name>
+  <summary>Binary firmware for Intel Pro Wireless 2100, 2200 and 2915 cards supported by the ipw2100 and ipw2200 drivers.</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <provides>
+    <firmware type="runtime">ipw2100-1.3.fw</firmware>
+    <firmware type="runtime">ipw2100-1.3-i.fw</firmware>
+    <firmware type="runtime">ipw2100-1.3-p.fw</firmware>
+    <firmware type="runtime">ipw2200-bss.fw</firmware>
+    <firmware type="runtime">ipw2200-ibss.fw</firmware>
+    <firmware type="runtime">ipw2200-sniffer.fw</firmware>
+    <modalias>pci:v00008086d00001043sv0000103Csd00002741bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002701bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002702bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002711bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002712bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002721bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002722bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002731bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002732bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002741bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002742bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002751bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002752bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002753bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002754bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002761bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00001043sv00008086sd00002762bc*sc*i*</modalias>
+    <modalias>pci:v00008086d0000104Fsv*sd*bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00004220sv*sd*bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00004221sv*sd*bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00004223sv*sd*bc*sc*i*</modalias>
+    <modalias>pci:v00008086d00004224sv*sd*bc*sc*i*</modalias>
+
+  </provides>
+</component>

@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""Quita el DIAGNOSTICO del bloque telnet y deja la version final limpia."""
+P = "C:/Users/gonzalo/Documents/GitHub/lumen-protocol/build-iso-i686/build_initramfs_i686.py"
+s = open(P, encoding="utf-8").read()
+
+old = '''echo "[telnet] telnet-m.sh -> $(ls -l /etc/telnet-m.sh 2>&1)"
+echo "[telnet] ptmx: $([ -e /dev/ptmx ] && echo si || echo NO)"
+echo "[telnet] devpts: $([ -d /dev/pts ] && echo si || echo NO)"
+if [ "$TELNET_ON" = "si" ] && [ -x /etc/telnet-m.sh ]; then
+    # telnetd necesita una PTY: sin /dev/pts montado acepta y cierra al instante
+    [ -d /dev/pts ] || mkdir -p /dev/pts 2>/dev/null
+    /bin/busybox mount -t devpts devpts /dev/pts 2>/dev/null
+    echo "[telnet] devpts tras montar: $([ -d /dev/pts ] && echo si || echo NO)"
+    /bin/busybox telnetd -p "$TELNET_PUERTO" -l /etc/telnet-m.sh >/tmp/telnetd.log 2>&1
+    sleep 2
+    echo "[telnet] escuchando:"
+    /bin/busybox netstat -ltn 2>/dev/null | grep ":$TELNET_PUERTO"
+    echo "[telnet] log de telnetd:"
+    head -3 /tmp/telnetd.log 2>/dev/null
+    if true; then'''
+
+new = '''if [ "$TELNET_ON" = "si" ] && [ -x /etc/telnet-m.sh ]; then
+    # telnetd necesita una PTY: si /dev/pts no esta montado, acepta y cierra al instante
+    [ -d /dev/pts ] || mkdir -p /dev/pts 2>/dev/null
+    /bin/busybox mount -t devpts devpts /dev/pts 2>/dev/null
+    if /bin/busybox telnetd -p "$TELNET_PUERTO" -l /etc/telnet-m.sh >/tmp/telnetd.log 2>&1; then'''
+
+assert old in s, "no encontre el diagnostico"
+s = s.replace(old, new, 1)
+open(P, "w", encoding="utf-8", newline="").write(s)
+import py_compile
+py_compile.compile(P, doraise=True)
+print("PATCH OK: diagnostico fuera, version final")

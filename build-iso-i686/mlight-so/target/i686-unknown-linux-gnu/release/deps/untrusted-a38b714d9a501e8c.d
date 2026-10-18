@@ -1,0 +1,10 @@
+C:\Users\gonzalo\Documents\GitHub\lumen-protocol\build-iso-i686\mlight-so\target\i686-unknown-linux-gnu\release\deps\untrusted-a38b714d9a501e8c.d: C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\lib.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\input.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\no_panic.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\reader.rs
+
+C:\Users\gonzalo\Documents\GitHub\lumen-protocol\build-iso-i686\mlight-so\target\i686-unknown-linux-gnu\release\deps\libuntrusted-a38b714d9a501e8c.rlib: C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\lib.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\input.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\no_panic.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\reader.rs
+
+C:\Users\gonzalo\Documents\GitHub\lumen-protocol\build-iso-i686\mlight-so\target\i686-unknown-linux-gnu\release\deps\libuntrusted-a38b714d9a501e8c.rmeta: C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\lib.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\input.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\no_panic.rs C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\reader.rs
+
+C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\lib.rs:
+C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\input.rs:
+C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\no_panic.rs:
+C:\Users\gonzalo\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\untrusted-0.9.0\src\reader.rs:

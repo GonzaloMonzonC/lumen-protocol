@@ -1,0 +1,1064 @@
+c[?7l[2J[0mSeaBIOS (version rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:03.0 CA00 PCI2.10 PnP PMM+3EFD1D60+3EF31D60 CA00
+Press Ctrl-B to configure iPXE (PCI 00:03.0)...                                                                               
+
+
+Booting from ROM...
+Probing EDD (edd=off to disable)... oc[?7l[2J[    0.000000] Linux version 6.1.0-50-686 (debian-kernel@lists.debian.org) (gcc-12 (Debian 12.2.0-14+deb12u1) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) #1 SMP PREEMPT_DYNAMIC Debian 6.1.176-1 (2026-07-02)
+[    0.000000] BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+[    0.000000] BIOS-e820: [mem 0x000000000009fc00-0x000000000009ffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000000f0000-0x00000000000fffff] reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x000000003ffdffff] usable
+[    0.000000] BIOS-e820: [mem 0x000000003ffe0000-0x000000003fffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
+[    0.000000] Notice: NX (Execute Disable) protection missing in CPU!
+[    0.000000] SMBIOS 2.8 present.
+[    0.000000] DMI: QEMU Standard PC (i440FX + PIIX, 1996), BIOS rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org 04/01/2014
+[    0.000000] tsc: Fast TSC calibration using PIT
+[    0.000000] tsc: Detected 2303.992 MHz processor
+[    0.025111] last_pfn = 0x3ffe0 max_arch_pfn = 0x100000
+[    0.025717] Disabled
+[    0.026142] x86/PAT: MTRRs disabled, skipping PAT initialization too.
+[    0.027356] x86/PAT: Configuration [0-7]: WB  WT  UC- UC  WB  WT  UC- UC  
+[    0.079513] found SMP MP-table at [mem 0x000f54c0-0x000f54cf]
+[    0.088961] RAMDISK: [mem 0x3edf9000-0x3ffdffff]
+[    0.089746] Allocated new RAMDISK: [mem 0x35a17000-0x36bfd51b]
+[    0.182144] Move RAMDISK from [mem 0x3edf9000-0x3ffdf51b] to [mem 0x35a17000-0x36bfd51b]
+[    0.185412] ACPI: Early table checksum verification disabled
+[    0.186999] ACPI: RSDP 0x00000000000F52E0 000014 (v00 BOCHS )
+[    0.187908] ACPI: RSDT 0x000000003FFE2329 000034 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.189585] ACPI: FACP 0x000000003FFE21DD 000074 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.191246] ACPI: DSDT 0x000000003FFE0040 00219D (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.191484] ACPI: FACS 0x000000003FFE0000 000040
+[    0.191652] ACPI: APIC 0x000000003FFE2251 000078 (v03 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.191732] ACPI: HPET 0x000000003FFE22C9 000038 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.191795] ACPI: WAET 0x000000003FFE2301 000028 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.192054] ACPI: Reserving FACP table memory at [mem 0x3ffe21dd-0x3ffe2250]
+[    0.192138] ACPI: Reserving DSDT table memory at [mem 0x3ffe0040-0x3ffe21dc]
+[    0.192157] ACPI: Reserving FACS table memory at [mem 0x3ffe0000-0x3ffe003f]
+[    0.192172] ACPI: Reserving APIC table memory at [mem 0x3ffe2251-0x3ffe22c8]
+[    0.192185] ACPI: Reserving HPET table memory at [mem 0x3ffe22c9-0x3ffe2300]
+[    0.192198] ACPI: Reserving WAET table memory at [mem 0x3ffe2301-0x3ffe2328]
+[    0.194968] 147MB HIGHMEM available.
+[    0.195060] 875MB LOWMEM available.
+[    0.195116]   mapped low ram: 0 - 36bfe000
+[    0.195153]   low ram: 0 - 36bfe000
+[    0.196519] Zone ranges:
+[    0.196598]   DMA      [mem 0x0000000000001000-0x0000000000ffffff]
+[    0.196806]   Normal   [mem 0x0000000001000000-0x0000000036bfdfff]
+[    0.196835]   HighMem  [mem 0x0000000036bfe000-0x000000003ffdffff]
+[    0.196886] Movable zone start for each node
+[    0.196967] Early memory node ranges
+[    0.197073]   node   0: [mem 0x0000000000001000-0x000000000009efff]
+[    0.197196]   node   0: [mem 0x0000000000100000-0x000000003ffdffff]
+[    0.197606] Initmem setup node 0 [mem 0x0000000000001000-0x000000003ffdffff]
+[    0.200743] On node 0, zone DMA: 1 pages in unavailable ranges
+[    0.201633] On node 0, zone DMA: 97 pages in unavailable ranges
+[    0.237639] Using APIC driver default
+[    0.238573] ACPI: PM-Timer IO Port: 0x608
+[    0.239849] ACPI: LAPIC_NMI (acpi_id[0xff] dfl dfl lint[0x1])
+[    0.240723] IOAPIC[0]: apic_id 0, version 32, address 0xfec00000, GSI 0-23
+[    0.241155] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 dfl dfl)
+[    0.242491] ACPI: INT_SRC_OVR (bus 0 bus_irq 5 global_irq 5 high level)
+[    0.242765] ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 high level)
+[    0.243266] ACPI: INT_SRC_OVR (bus 0 bus_irq 10 global_irq 10 high level)
+[    0.243300] ACPI: INT_SRC_OVR (bus 0 bus_irq 11 global_irq 11 high level)
+[    0.243776] ACPI: Using ACPI (MADT) for SMP configuration information
+[    0.243908] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[    0.245200] smpboot: Allowing 1 CPUs, 0 hotplug CPUs
+[    0.248260] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.248379] PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+[    0.248802] [mem 0x40000000-0xfffbffff] available for PCI devices
+[    0.248907] Booting paravirtualized kernel on bare hardware
+[    0.250478] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645519600211568 ns
+[    0.251874] setup_percpu: NR_CPUS:32 nr_cpumask_bits:1 nr_cpu_ids:1 nr_node_ids:1
+[    0.254734] percpu: Embedded 33 pages/cpu s103316 r0 d31852 u135168
+[    0.260341] Built 1 zonelists, mobility grouping on.  Total pages: 259824
+[    0.260853] Kernel command line: console=ttyS0 lumentest
+[    0.263329] Unknown kernel command line parameters "lumentest", will be passed to user space.
+[    0.265693] Dentry cache hash table entries: 131072 (order: 7, 524288 bytes, linear)
+[    0.266638] Inode-cache hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.269612] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.270080] Initializing HighMem for node 0 (00036bfe:0003ffe0)
+[    0.360142] Initializing Movable for node 0 (00000000:00000000)
+[    0.369791] Checking if this processor honours the WP bit even in supervisor mode...Ok.
+[    0.373539] Memory: 1002160K/1048056K available (9327K kernel code, 1246K rwdata, 3188K rodata, 912K init, 464K bss, 45896K reserved, 0K cma-reserved, 151432K highmem)
+[    0.394304] SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.401613] ftrace: allocating 36953 entries in 73 pages
+[    0.449805] ftrace: allocated 73 pages with 3 groups
+[    0.457805] trace event string verifier disabled
+[    0.471001] Dynamic Preempt: voluntary
+[    0.478170] rcu: Preemptible hierarchical RCU implementation.
+[    0.478240] rcu: 	RCU restricting CPUs from NR_CPUS=32 to nr_cpu_ids=1.
+[    0.478506] 	Trampoline variant of Tasks RCU enabled.
+[    0.478537] 	Rude variant of Tasks RCU enabled.
+[    0.478555] 	Tracing variant of Tasks RCU enabled.
+[    0.478849] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.478945] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.566495] NR_IRQS: 2304, nr_irqs: 256, preallocated irqs: 16
+[    0.576109] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.595298] Console: colour VGA+ 80x25
+[    0.637855] printk: console [ttyS0] enabled
+[    0.639080] ACPI: Core revision 20220331
+[    0.653680] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604467 ns
+[    0.666210] APIC: Switch to symmetric I/O mode setup
+[    0.666747] Enabling APIC mode:  Flat.  Using 1 I/O APICs
+[    0.676248] ..TIMER: vector=0x30 apic1=0 pin1=2 apic2=-1 pin2=-1
+[    0.695513] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x2135f03f510, max_idle_ns: 440795242567 ns
+[    0.698432] Calibrating delay loop (skipped), value calculated using timer frequency.. 4607.98 BogoMIPS (lpj=9215968)
+[    0.708901] Last level iTLB entries: 4KB 0, 2MB 0, 4MB 0
+[    0.709287] Last level dTLB entries: 4KB 0, 2MB 0, 4MB 0, 1GB 0
+[    0.709825] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.710218] Spectre V2 : Mitigation: Retpolines
+[    0.710563] Spectre V2 : Spectre v2 / SpectreRSB: Filling RSB on context switch and VMEXIT
+[    0.711185] Speculative Store Bypass: Vulnerable
+[    0.711638] L1TF: Kernel not compiled for PAE. No mitigation for L1TF
+[    0.712564] MDS: Vulnerable: Clear CPU buffers attempted, no microcode
+[    0.713550] MMIO Stale Data: Unknown: No mitigations
+[    0.714476] ITS: Vulnerable
+[    0.723298] x86/fpu: x87 FPU will use FXSAVE
+[    1.328339] Freeing SMP alternatives memory: 32K
+[    1.329825] pid_max: default: 32768 minimum: 301
+[    1.350940] LSM: Security Framework initializing
+[    1.356642] landlock: Up and running.
+[    1.357094] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    1.372262] AppArmor: AppArmor initialized
+[    1.374039] TOMOYO Linux initialized
+[    1.376456] LSM support for eBPF active
+[    1.385825] Mount-cache hash table entries: 2048 (order: 1, 8192 bytes, linear)
+[    1.386565] Mountpoint-cache hash table entries: 2048 (order: 1, 8192 bytes, linear)
+[    1.616766] smpboot: CPU0: Intel QEMU Virtual CPU version 2.5+ (family: 0x6, model: 0x6, stepping: 0x3)
+[    1.643981] cblist_init_generic: Setting adjustable number of callback queues.
+[    1.644623] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    1.645825] cblist_init_generic: Setting adjustable number of callback queues.
+[    1.645825] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    1.647168] cblist_init_generic: Setting adjustable number of callback queues.
+[    1.647898] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    1.649998] Performance Events: PMU not available due to virtualization, using software events only.
+[    1.656421] signal: max sigframe size: 1440
+[    1.663074] rcu: Hierarchical SRCU implementation.
+[    1.664342] rcu: 	Max phase no-delay instances is 1000.
+[    1.687739] NMI watchdog: Perf NMI watchdog permanently disabled
+[    1.707715] smp: Bringing up secondary CPUs ...
+[    1.708322] smp: Brought up 1 node, 1 CPU
+[    1.708773] smpboot: Max logical packages: 1
+[    1.709547] smpboot: Total of 1 processors activated (4607.98 BogoMIPS)
+[    1.770232] devtmpfs: initialized
+[    1.797210] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    1.799675] futex hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    1.809348] pinctrl core: initialized pinctrl subsystem
+[    1.862803] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    1.874504] audit: initializing netlink subsys (disabled)
+[    1.887294] audit: type=2000 audit(1791073147.220:1): state=initialized audit_enabled=0 res=1
+[    1.914829] thermal_sys: Registered thermal governor 'fair_share'
+[    1.915121] thermal_sys: Registered thermal governor 'bang_bang'
+[    1.916159] thermal_sys: Registered thermal governor 'step_wise'
+[    1.917196] thermal_sys: Registered thermal governor 'user_space'
+[    1.917825] thermal_sys: Registered thermal governor 'power_allocator'
+[    1.924329] cpuidle: using governor ladder
+[    1.930707] acpiphp: ACPI Hot Plug PCI Controller Driver version: 0.5
+[    1.942730] PCI: PCI BIOS revision 2.10 entry at 0xfd1e1, last bus=0
+[    1.944213] PCI: Using configuration type 1 for base access
+[    2.000417] kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+[    2.205603] HugeTLB: registered 4.00 MiB page size, pre-allocated 0 pages
+[    2.205930] HugeTLB: 0 KiB vmemmap can be freed for a 4.00 MiB page
+[    2.253005] ACPI: Added _OSI(Module Device)
+[    2.253422] ACPI: Added _OSI(Processor Device)
+[    2.253756] ACPI: Added _OSI(Processor Aggregator Device)
+[    2.329825] ACPI: 1 ACPI AML tables successfully acquired and loaded
+[    2.371608] ACPI: Interpreter enabled
+[    2.374445] ACPI: PM: (supports S0 S3 S4 S5)
+[    2.374896] ACPI: Using IOAPIC for interrupt routing
+[    2.376360] PCI: Using host bridge windows from ACPI; if necessary, use "pci=nocrs" and report a bug
+[    2.377067] PCI: Using E820 reservations for host bridge windows
+[    2.381825] ACPI: Enabled 2 GPEs in block 00 to 0F
+[    2.487460] ACPI: PCI Root Bridge [PCI0] (domain 0000 [bus 00-ff])
+[    2.490071] acpi PNP0A03:00: _OSC: OS supports [ASPM ClockPM Segments MSI HPX-Type3]
+[    2.491132] acpi PNP0A03:00: _OSC: not requesting OS control; OS requires [ExtendedConfig ASPM ClockPM MSI]
+[    2.493250] acpi PNP0A03:00: fail to add MMCONFIG information, can't access extended PCI configuration space under this bridge.
+[    2.495701] acpi resource window ([0x100000000-0x17fffffff] ignored, not CPU addressable)
+[    2.516213] acpiphp: Slot [3] registered
+[    2.516804] acpiphp: Slot [4] registered
+[    2.517334] acpiphp: Slot [5] registered
+[    2.517776] acpiphp: Slot [6] registered
+[    2.517825] acpiphp: Slot [7] registered
+[    2.518043] acpiphp: Slot [8] registered
+[    2.518484] acpiphp: Slot [9] registered
+[    2.518981] acpiphp: Slot [10] registered
+[    2.519423] acpiphp: Slot [11] registered
+[    2.519873] acpiphp: Slot [12] registered
+[    2.520304] acpiphp: Slot [13] registered
+[    2.520769] acpiphp: Slot [14] registered
+[    2.521198] acpiphp: Slot [15] registered
+[    2.521825] acpiphp: Slot [16] registered
+[    2.522124] acpiphp: Slot [17] registered
+[    2.522574] acpiphp: Slot [18] registered
+[    2.523011] acpiphp: Slot [19] registered
+[    2.523522] acpiphp: Slot [20] registered
+[    2.523968] acpiphp: Slot [21] registered
+[    2.524397] acpiphp: Slot [22] registered
+[    2.526035] acpiphp: Slot [23] registered
+[    2.526470] acpiphp: Slot [24] registered
+[    2.526898] acpiphp: Slot [25] registered
+[    2.527386] acpiphp: Slot [26] registered
+[    2.527840] acpiphp: Slot [27] registered
+[    2.528269] acpiphp: Slot [28] registered
+[    2.528697] acpiphp: Slot [29] registered
+[    2.529124] acpiphp: Slot [30] registered
+[    2.529630] acpiphp: Slot [31] registered
+[    2.530638] PCI host bridge to bus 0000:00
+[    2.531508] pci_bus 0000:00: root bus resource [io  0x0000-0x0cf7 window]
+[    2.532233] pci_bus 0000:00: root bus resource [io  0x0d00-0xffff window]
+[    2.532686] pci_bus 0000:00: root bus resource [mem 0x000a0000-0x000bffff window]
+[    2.533293] pci_bus 0000:00: root bus resource [mem 0x40000000-0xfebfffff window]
+[    2.533825] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    2.539494] pci 0000:00:00.0: [8086:1237] type 00 class 0x060000
+[    2.555727] pci 0000:00:01.0: [8086:7000] type 00 class 0x060100
+[    2.557636] pci 0000:00:01.1: [8086:7010] type 00 class 0x010180
+[    2.559910] pci 0000:00:01.1: BAR 4 [io  0xc040-0xc04f]
+[    2.562457] pci 0000:00:01.1: BAR 0 [io  0x01f0-0x01f7]: legacy IDE quirk
+[    2.563084] pci 0000:00:01.1: BAR 1 [io  0x03f6]: legacy IDE quirk
+[    2.563606] pci 0000:00:01.1: BAR 2 [io  0x0170-0x0177]: legacy IDE quirk
+[    2.564084] pci 0000:00:01.1: BAR 3 [io  0x0376]: legacy IDE quirk
+[    2.566464] pci 0000:00:01.3: [8086:7113] type 00 class 0x068000
+[    2.567885] pci 0000:00:01.3: quirk: [io  0x0600-0x063f] claimed by PIIX4 ACPI
+[    2.568566] pci 0000:00:01.3: quirk: [io  0x0700-0x070f] claimed by PIIX4 SMB
+[    2.571799] pci 0000:00:02.0: [1234:1111] type 00 class 0x030000
+[    2.574585] pci 0000:00:02.0: BAR 0 [mem 0xfd000000-0xfdffffff pref]
+[    2.576959] pci 0000:00:02.0: BAR 2 [mem 0xfebf0000-0xfebf0fff]
+[    2.580674] pci 0000:00:02.0: ROM [mem 0xfebe0000-0xfebeffff pref]
+[    2.581825] pci 0000:00:02.0: Video device with shadowed ROM at [mem 0x000c0000-0x000dffff]
+[    2.583163] pci 0000:00:03.0: [8086:100e] type 00 class 0x020000
+[    2.585825] pci 0000:00:03.0: BAR 0 [mem 0xfebc0000-0xfebdffff]
+[    2.586895] pci 0000:00:03.0: BAR 1 [io  0xc000-0xc03f]
+[    2.589825] pci 0000:00:03.0: ROM [mem 0xfeb80000-0xfebbffff pref]
+[    2.617110] ACPI: PCI: Interrupt link LNKA configured for IRQ 10
+[    2.618654] ACPI: PCI: Interrupt link LNKB configured for IRQ 10
+[    2.619886] ACPI: PCI: Interrupt link LNKC configured for IRQ 11
+[    2.621201] ACPI: PCI: Interrupt link LNKD configured for IRQ 11
+[    2.622261] ACPI: PCI: Interrupt link LNKS configured for IRQ 9
+[    2.630603] iommu: Default domain type: Translated 
+[    2.631671] iommu: DMA domain TLB invalidation policy: lazy mode 
+[    2.636773] pps_core: LinuxPPS API ver. 1 registered
+[    2.637214] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    2.638157] PTP clock support registered
+[    2.639151] EDAC MC: Ver: 3.0.0
+[    2.664467] NetLabel: Initializing
+[    2.664907] NetLabel:  domain hash size = 128
+[    2.665282] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    2.668446] NetLabel:  unlabeled traffic allowed by default
+[    2.669038] PCI: Using ACPI for IRQ routing
+[    2.683124] pci 0000:00:02.0: vgaarb: setting as boot VGA device
+[    2.683693] pci 0000:00:02.0: vgaarb: bridge control possible
+[    2.684202] pci 0000:00:02.0: vgaarb: VGA device added: decodes=io+mem,owns=io+mem,locks=none
+[    2.684772] vgaarb: loaded
+[    2.686114] hpet: 3 channels of 0 reserved for per-cpu timers
+[    2.687163] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0
+[    2.687788] hpet0: 3 comparators, 64-bit 100.000000 MHz counter
+[    2.699629] clocksource: Switched to clocksource tsc-early
+[    2.905881] VFS: Disk quotas dquot_6.6.0
+[    2.906622] VFS: Dquot-cache hash table entries: 1024 (order 0, 4096 bytes)
+[    2.925389] AppArmor: AppArmor Filesystem Enabled
+[    2.926432] pnp: PnP ACPI init
+[    2.936169] ACPI: IRQ 4 override to edge(!), high(!)
+[    2.939255] pnp: PnP ACPI: found 6 devices
+[    2.939728] PnPBIOS: Disabled
+[    3.020032] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    3.023357] NET: Registered PF_INET protocol family
+[    3.026931] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    3.047567] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    3.048471] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    3.049148] TCP established hash table entries: 8192 (order: 3, 32768 bytes, linear)
+[    3.050189] TCP bind hash table entries: 8192 (order: 5, 131072 bytes, linear)
+[    3.050948] TCP: Hash tables configured (established 8192 bind 8192)
+[    3.055331] MPTCP token hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    3.056388] UDP hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    3.057328] UDP-Lite hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    3.061053] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    3.062350] NET: Registered PF_XDP protocol family
+[    3.064836] pci_bus 0000:00: resource 4 [io  0x0000-0x0cf7 window]
+[    3.065281] pci_bus 0000:00: resource 5 [io  0x0d00-0xffff window]
+[    3.065638] pci_bus 0000:00: resource 6 [mem 0x000a0000-0x000bffff window]
+[    3.066045] pci_bus 0000:00: resource 7 [mem 0x40000000-0xfebfffff window]
+[    3.068275] pci 0000:00:01.0: PIIX3: Enabling Passive Release
+[    3.069707] pci 0000:00:00.0: Limiting direct PCI/PCI transfers
+[    3.070575] pci 0000:00:01.0: Activating ISA DMA hang workarounds
+[    3.071417] PCI: CLS 0 bytes, default 32
+[    3.091611] Trying to unpack rootfs image as initramfs...
+[    3.104516] Initialise system trusted keyrings
+[    3.109033] Key type blacklist registered
+[    3.119293] workingset: timestamp_bits=14 max_order=18 bucket_order=4
+[    3.158207] zbud: loaded
+[    3.186437] integrity: Platform Keyring initialized
+[    3.187465] integrity: Machine keyring initialized
+[    3.187806] Key type asymmetric registered
+[    3.188250] Asymmetric key parser 'x509' registered
+[    4.085573] tsc: Refined TSC clocksource calibration: 2304.008 MHz
+[    4.086991] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x2135ff989ae, max_idle_ns: 440795290363 ns
+[    4.087743] clocksource: Switched to clocksource tsc
+[    5.349894] Freeing initrd memory: 18332K
+[    5.435553] alg: self-tests for CTR-KDF (hmac(sha256)) passed
+[    5.437474] bounce: pool size: 64 pages
+[    5.438601] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 249)
+[    5.440445] io scheduler mq-deadline registered
+[    5.464729] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[    5.473827] isapnp: Scanning for PnP cards...
+[    5.838530] isapnp: No Plug & Play device found
+[    5.840830] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    5.846831] 00:04: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
+[    5.865193] Linux agpgart interface v0.103
+[    5.876687] i8042: PNP: PS/2 Controller [PNP0303:KBD,PNP0f13:MOU] at 0x60,0x64 irq 1,12
+[    5.888458] serio: i8042 KBD port at 0x60,0x64 irq 1
+[    5.889284] serio: i8042 AUX port at 0x60,0x64 irq 12
+[    5.894109] mousedev: PS/2 mouse device common for all mice
+[    5.902342] rtc_cmos 00:05: RTC can wake from S4
+[    5.905522] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input0
+[    5.922411] rtc_cmos 00:05: registered as rtc0
+[    5.924404] rtc_cmos 00:05: setting system clock to 2026-10-04T00:19:11 UTC (1791073151)
+[    5.928879] rtc_cmos 00:05: alarms up to one day, y3k, 242 bytes nvram, hpet irqs
+[    5.929939] intel_pstate: CPU model not supported
+[    5.931046] ledtrig-cpu: registered to indicate activity on CPUs
+[    5.936730] NET: Registered PF_INET6 protocol family
+[    5.967449] Segment Routing with IPv6
+[    5.968468] In-situ OAM (IOAM) with IPv6
+[    5.969630] mip6: Mobile IPv6
+[    5.970388] NET: Registered PF_PACKET protocol family
+[    5.971464] mpls_gso: MPLS GSO support
+[    5.973157] mce: Unable to init MCE device (rc: -5)
+[    5.977417] IPI shorthand broadcast: enabled
+[    5.979224] sched_clock: Marking stable (5896507171, 80162387)->(5995645252, -18975694)
+[    5.984625] registered taskstats version 1
+[    5.985466] Loading compiled-in X.509 certificates
+[    6.466465] Loaded X.509 cert 'Build time autogenerated kernel key: ebef2ccea7182744ded45aafffd7e338a5cf412d'
+[    6.482084] zswap: loaded using pool lzo/zbud
+[    6.486367] Key type .fscrypt registered
+[    6.486677] Key type fscrypt-provisioning registered
+[    6.524202] Key type encrypted registered
+[    6.524916] AppArmor: AppArmor sha1 policy hashing enabled
+[    6.526313] ima: No TPM chip found, activating TPM-bypass!
+[    6.526735] ima: Allocated hash algorithm: sha256
+[    6.531121] ima: No architecture policies found
+[    6.532838] evm: Initialising EVM extended attributes:
+[    6.533170] evm: security.selinux
+[    6.533446] evm: security.SMACK64 (disabled)
+[    6.533685] evm: security.SMACK64EXEC (disabled)
+[    6.533934] evm: security.SMACK64TRANSMUTE (disabled)
+[    6.534210] evm: security.SMACK64MMAP (disabled)
+[    6.534533] evm: security.apparmor
+[    6.534760] evm: security.ima
+[    6.534947] evm: security.capability
+[    6.535319] evm: HMAC attrs: 0x1
+[    9.238495] clk: Disabling unused clocks
+[    9.470321] Freeing unused kernel image (initmem) memory: 912K
+[    9.471883] Write protecting kernel text and read-only data: 12516k
+[    9.472962] Run /init as init process
+
+LUMEN OS v0.1.25 - el init ha empezado a ejecutarse
+LUMEN: los mensajes del init salen por /dev/tty0 (la pantalla)
+LUMEN: /var/run/wpa_supplicant listo (el socket de wpa)
+LUMEN: applets instalados en /bin
+LUMEN: applets tambien en /sbin (autoload del kernel OK)
+LUMEN: /proc /sys /dev montados
+[teclado] mapa 'es' aplicado (asi se escriben ^ y % bien)
+LUMEN: kernel 6.1.0-50-686 · /proc/modules: 0 lineas
+
+  ╔═══════════════════════════════════════════════════╗
+  ║            L U M E N   O S   ·   v 0 . 1 . 9      ║
+  ║   el nodo despierta — kernel 6.1.0-50-686
+  ╚═══════════════════════════════════════════════════╝
+
+[   11.874872] SCSI subsystem initialized
+[   12.236543] ACPI: bus type USB registered
+[   12.237711] usbcore: registered new interface driver usbfs
+[   12.238338] usbcore: registered new interface driver hub
+[   12.238952] usbcore: registered new device driver usb
+[   12.684954] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+[   12.689864] cfg80211: Loaded X.509 cert 'benh@debian.org: 577e021cb980e0e820821ba7b54b4961b8b4fadf'
+[   12.696270] cfg80211: Loaded X.509 cert 'romain.perier@gmail.com: 3abbc6ec146e09d1b6016ab9d6cf71dd233f0328'
+[   12.703491] cfg80211: Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[   12.707758] cfg80211: Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[   12.712437] platform regulatory.0: firmware: direct-loading firmware regulatory.db
+[   12.714932] platform regulatory.0: firmware: direct-loading firmware regulatory.db.p7s
+[   13.696065] usbcore: registered new interface driver cdc_ether
+[   14.302900] ACPI: bus type drm_connector registered
+[   14.916013] hid: raw HID events driver (C) Jiri Kosina
+[   15.148372] lib80211: common routines for IEEE802.11 drivers
+[   15.198137] libipw: 802.11 data/management/control stack, git-1.1.13
+[   15.199270] libipw: Copyright (C) 2004-2005 Intel Corporation <jketreno@linux.intel.com>
+[   15.402744] Intel(R) Wireless WiFi driver for Linux
+[   16.283380] e100: Intel(R) PRO/100 Network Driver
+[   16.283784] e100: Copyright(c) 1999-2006 Intel Corporation
+[   16.671782] sis900.c: v1.08.10 Apr. 2 2006
+[   16.717972] 8139too: 8139too Fast Ethernet driver 0.9.28
+[   16.924127] sky2: driver version 1.30
+[hardware] cargando drivers base (USB · teclado · red · SATA)…
+[   17.190640] usbcore: registered new interface driver usb-storage
+[   17.265020] usbcore: registered new interface driver usbhid
+[   17.265756] usbhid: USB HID core driver
+[   17.461793] scsi host0: ata_piix
+[   17.471059] scsi host1: ata_piix
+[   17.472577] ata1: PATA max MWDMA2 cmd 0x1f0 ctl 0x3f6 bmdma 0xc040 irq 14
+[   17.474242] ata2: PATA max MWDMA2 cmd 0x170 ctl 0x376 bmdma 0xc048 irq 15
+[   17.646316] ata2: found unknown device (class 0)
+[   17.665269] ata2.00: ATAPI: QEMU DVD-ROM, 2.5+, max UDMA/100
+[   17.705903] scsi 1:0:0:0: CD-ROM            QEMU     QEMU DVD-ROM     2.5+ PQ: 0 ANSI: 5
+[   17.984867] sr 1:0:0:0: [sr0] scsi3-mmc drive: 4x/4x cd/rw xa/form2 tray
+[   18.058788] cdrom: Uniform CD-ROM driver Revision: 3.20
+[   18.327796] e1000: Intel(R) PRO/1000 Network Driver
+[   18.328296] e1000: Copyright (c) 1999-2006 Intel Corporation.
+[   18.356579] ACPI: \_SB_.LNKC: Enabled at IRQ 11
+[   18.715777] e1000 0000:00:03.0 eth0: (PCI:33MHz:32-bit) 52:54:00:12:34:56
+[   18.717523] e1000 0000:00:03.0 eth0: Intel(R) PRO/1000 Network Connection
+[   18.835130] e1000e: Intel(R) PRO/1000 Network Driver
+[   18.835549] e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+[hardware] /sbin/modprobe OK -> el kernel puede cargar drivers solo
+[hardware] base OK · cargando red inalambrica y cable…
+[red] af_packet cargado (/proc/net/packet existe)
+[   19.305888] iwl3945: Intel(R) PRO/Wireless 3945ABG/BG Network Connection driver for Linux, in-tree:s
+[   19.306676] iwl3945: Copyright(c) 2003-2011 Intel Corporation
+[   19.307054] iwl3945: hw_scan is disabled
+[   19.373355] iwl4965: Intel(R) Wireless WiFi 4965 driver for Linux, in-tree:
+[   19.373862] iwl4965: Copyright(c) 2003-2011 Intel Corporation
+[   19.531949] usbcore: registered new interface driver ath9k_htc
+[   19.759038] usbcore: registered new interface driver brcmfmac
+[   19.926279] Broadcom 43xx driver loaded [ Features: PNLS ]
+[   19.990507] Broadcom 43xx-legacy driver loaded [ Features: PLID ]
+[   20.180821] usbcore: registered new interface driver rtl8187
+[   20.255820] ipw2200: Intel(R) PRO/Wireless 2200/2915 Network Driver, 1.2.2kmprq
+[   20.256617] ipw2200: Copyright(c) 2003-2006 Intel Corporation
+[   20.307488] ipw2100: Intel(R) PRO/Wireless 2100 Network Driver, git-1.2.2
+[   20.307928] ipw2100: Copyright(c) 2003-2006 Intel Corporation
+[   20.365008] usbcore: registered new interface driver rtl8xxxu
+[   20.418026] usbcore: registered new interface driver rtl8192cu
+[   20.524438] usbcore: registered new interface driver rt2800usb
+[   20.569646] usbcore: registered new interface driver rt73usb
+[   20.617657] usbcore: registered new interface driver zd1211rw
+[   20.970346] usbcore: registered new interface driver rndis_host
+[wifi] ath5k cargado con nohwcrypt=1 (cifrado por software)
+[hardware] /proc/modules: 129 lineas
+[hardware] sin errores de simbolos: todos los modulos cargados estan completos
+[hw] cpu: QEMU Virtual CPU version 2.5+ · 1 nucleo(s) · NX/XD: no · virt: no
+[hw] ram: 997 MB (libres 838 MB)
+[hw] discos: ninguno
+[red] buscando interfaz de cable (carrier=1)…
+[   21.280126] e1000: eth0 NIC Link is Up 1000 Mbps Full Duplex, Flow Control: RX
+[   21.302777] IPv6: ADDRCONF(NETDEV_CHANGE): eth0: link becomes ready
+[red] interfaces: eth0 · cable con portadora: eth0 (tras 0s)
+[red] probando eth0 (up)…
+[wifi] sin tarjeta inalambrica detectada
+[red] eth0 · 10.0.2.15 · gw 10.0.2.2
+[pdb] base en RAM (12288 bytes)
+[ddp] hub configurado: 192.168.1.10
+[ddp] hub 192.168.1.10:8081 - credenciales cargadas
+[   24.257596] random: crng init done
+[ddp] nodo configurado para hablar DDP (peer + clave)
+[ddp] [rutina EBVEC_LOAD <- /opt/mvm/routines/ebvec_load.m]
+[rutina NAS <- /opt/mvm/routines/NAS.m]
+[rutina %ZTEST <- /opt/mvm/routines/%ZTEST.m]
+[rutina %Z <- /opt/mvm/routines/%Z.m]
+[rutina %WR <- /opt/mvm/routines/%WR.m]
+[rutina %WIFI <- /opt/mvm/routines/%WIFI.m]
+[rutina %WD <- /opt/mvm/routines/%WD.m]
+[rutina %WB <- /opt/mvm/routines/%WB.m]
+[rutina %UTL <- /opt/mvm/routines/%UTL.m]
+[rutina %USU <- /opt/mvm/routines/%USU.m]
+[rutina %TT2 <- /opt/mvm/routines/%TT2.m]
+[rutina %TT <- /opt/mvm/routines/%TT.m]
+[rutina %TGL <- /opt/mvm/routines/%TGL.m]
+[rutina %TBAT1 <- /opt/mvm/routines/%TBAT1.m]
+[rutina %T <- /opt/mvm/routines/%T.m]
+[rutina %SY <- /opt/mvm/routines/%SY.m]
+[rutina %SS <- /opt/mvm/routines/%SS.m]
+[rutina %SKICK <- /opt/mvm/routines/%SKICK.m]
+[rutina %SH <- /opt/mvm/routines/%SH.m]
+[rutina %SELF <- /opt/mvm/routines/%SELF.m]
+[rutina %RZ <- /opt/mvm/routines/%RZ.m]
+[rutina %RC <- /opt/mvm/routines/%RC.m]
+[rutina %RB <- /opt/mvm/routines/%RB.m]
+[rutina %RAG <- /opt/mvm/routines/%RAG.m]
+[rutina %PTEST <- /opt/mvm/routines/%PTEST.m]
+[rutina %PRB4 <- /opt/mvm/routines/%PRB4.m]
+[rutina %PRB3 <- /opt/mvm/routines/%PRB3.m]
+[rutina %PRB2 <- /opt/mvm/routines/%PRB2.m]
+[rutina %PRB <- /opt/mvm/routines/%PRB.m]
+[rutina %PAGE <- /opt/mvm/routines/%PAGE.m]
+[rutina %OIDO <- /opt/mvm/routines/%OIDO.m]
+[rutina %NR <- /opt/mvm/routines/%NR.m]
+[rutina %NM <- /opt/mvm/routines/%NM.m]
+[rutina %NET <- /opt/mvm/routines/%NET.m]
+[rutina %NA <- /opt/mvm/routines/%NA.m]
+[rutina %MR <- /opt/mvm/routines/%MR.m]
+[rutina %ML <- /opt/mvm/routines/%ML.m]
+[rutina %ME <- /opt/mvm/routines/%ME.m]
+[rutina %LVEL <- /opt/mvm/routines/%LVEL.m]
+[rutina %LVC <- /opt/mvm/routines/%LVC.m]
+[rutina %LV5 <- /opt/mvm/routines/%LV5.m]
+[rutina %LV4 <- /opt/mvm/routines/%LV4.m]
+[rutina %LV3 <- /opt/mvm/routines/%LV3.m]
+[rutina %LSV4 <- /opt/mvm/routines/%LSV4.m]
+[rutina %LS5 <- /opt/mvm/routines/%LS5.m]
+[rutina %LMB <- /opt/mvm/routines/%LMB.m]
+[rutina %LLT <- /opt/mvm/routines/%LLT.m]
+[rutina %LJV <- /opt/mvm/routines/%LJV.m]
+[rutina %LFT <- /opt/mvm/routines/%LFT.m]
+[rutina %LFM <- /opt/mvm/routines/%LFM.m]
+[rutina %LEVREF <- /opt/mvm/routines/%LEVREF.m]
+[rutina %LEVAL <- /opt/mvm/routines/%LEVAL.m]
+[rutina %LE5 <- /opt/mvm/routines/%LE5.m]
+[rutina %LDISC <- /opt/mvm/routines/%LDISC.m]
+[rutina %LCOGSX <- /opt/mvm/routines/%LCOGSX.m]
+[rutina %LCOGS <- /opt/mvm/routines/%LCOGS.m]
+[rutina %LCOG <- /opt/mvm/routines/%LCOG.m]
+[rutina %LCHK <- /opt/mvm/routines/%LCHK.m]
+[rutina %LAPL <- /opt/mvm/routines/%LAPL.m]
+[rutina %LA <- /opt/mvm/routines/%LA.m]
+[rutina %KPIPC5 <- /opt/mvm/routines/%KPIPC5.m]
+[rutina %KPIPC4 <- /opt/mvm/routines/%KPIPC4.m]
+[rutina %KPIPC3 <- /opt/mvm/routines/%KPIPC3.m]
+[rutina %KPIPC2 <- /opt/mvm/routines/%KPIPC2.m]
+[rutina %KPIPC <- /opt/mvm/routines/%KPIPC.m]
+[rutina %JEV <- /opt/mvm/routines/%JEV.m]
+[rutina %HELP <- /opt/mvm/routines/%HELP.m]
+[rutina %HB <- /opt/mvm/routines/%HB.m]
+[rutina %GUIA <- /opt/mvm/routines/%GUIA.m]
+[rutina %GS <- /opt/mvm/routines/%GS.m]
+[rutina %GL <- /opt/mvm/routines/%GL.m]
+[rutina %GD <- /opt/mvm/routines/%GD.m]
+[rutina %G <- /opt/mvm/routines/%G.m]
+[rutina %FF3 <- /opt/mvm/routines/%FF3.m]
+[rutina %FC2 <- /opt/mvm/routines/%FC2.m]
+[rutina %F5 <- /opt/mvm/routines/%F5.m]
+[rutina %F4 <- /opt/mvm/routines/%F4.m]
+[rutina %E <- /opt/mvm/routines/%E.m]
+[rutina %DS <- /opt/mvm/routines/%DS.m]
+[rutina %DM <- /opt/mvm/routines/%DM.m]
+[rutina %DIAG2 <- /opt/mvm/routines/%DIAG2.m]
+[rutina %DIAG <- /opt/mvm/routines/%DIAG.m]
+[rutina %D <- /opt/mvm/routines/%D.m]
+[rutina %CRON <- /opt/mvm/routines/%CRON.m]
+[rutina %CONF <- /opt/mvm/routines/%CONF.m]
+[rutina %COGMIG <- /opt/mvm/routines/%COGMIG.m]
+[rutina %COGEV <- /opt/mvm/routines/%COGEV.m]
+[rutina %B5SEED <- /opt/mvm/routines/%B5SEED.m]
+[rutina %B4SEED <- /opt/mvm/routines/%B4SEED.m]
+[rutina %B3SEED <- /opt/mvm/routines/%B3SEED.m]
+[rutina %AV <- /opt/mvm/routines/%AV.m]
+[rutina %AUTO <- /opt/mvm/routines/%AUTO.m]
+[rutina %ARB <- /opt/mvm/routines/%ARB.m]
+[rutina %AGENTE <- /opt/mvm/routines/%AGENTE.m]
+[rutina %AG <- /opt/mvm/routines/%AG.m]
+[95 rutina(s) cargada(s) de /opt/mvm/routines]
+registrado: NAS02-DS216se (10.0.2.15)
+hub: {"success":true,"enviadas":5,"total":5}
+[completed · 5775.2 ms]
+[ddp] [rutina EBVEC_LOAD <- /opt/mvm/routines/ebvec_load.m]
+[rutina NAS <- /opt/mvm/routines/NAS.m]
+[rutina %ZTEST <- /opt/mvm/routines/%ZTEST.m]
+[rutina %Z <- /opt/mvm/routines/%Z.m]
+[rutina %WR <- /opt/mvm/routines/%WR.m]
+[rutina %WIFI <- /opt/mvm/routines/%WIFI.m]
+[rutina %WD <- /opt/mvm/routines/%WD.m]
+[rutina %WB <- /opt/mvm/routines/%WB.m]
+[rutina %UTL <- /opt/mvm/routines/%UTL.m]
+[rutina %USU <- /opt/mvm/routines/%USU.m]
+[rutina %TT2 <- /opt/mvm/routines/%TT2.m]
+[rutina %TT <- /opt/mvm/routines/%TT.m]
+[rutina %TGL <- /opt/mvm/routines/%TGL.m]
+[rutina %TBAT1 <- /opt/mvm/routines/%TBAT1.m]
+[rutina %T <- /opt/mvm/routines/%T.m]
+[rutina %SY <- /opt/mvm/routines/%SY.m]
+[rutina %SS <- /opt/mvm/routines/%SS.m]
+[rutina %SKICK <- /opt/mvm/routines/%SKICK.m]
+[rutina %SH <- /opt/mvm/routines/%SH.m]
+[rutina %SELF <- /opt/mvm/routines/%SELF.m]
+[rutina %RZ <- /opt/mvm/routines/%RZ.m]
+[rutina %RC <- /opt/mvm/routines/%RC.m]
+[rutina %RB <- /opt/mvm/routines/%RB.m]
+[rutina %RAG <- /opt/mvm/routines/%RAG.m]
+[rutina %PTEST <- /opt/mvm/routines/%PTEST.m]
+[rutina %PRB4 <- /opt/mvm/routines/%PRB4.m]
+[rutina %PRB3 <- /opt/mvm/routines/%PRB3.m]
+[rutina %PRB2 <- /opt/mvm/routines/%PRB2.m]
+[rutina %PRB <- /opt/mvm/routines/%PRB.m]
+[rutina %PAGE <- /opt/mvm/routines/%PAGE.m]
+[rutina %OIDO <- /opt/mvm/routines/%OIDO.m]
+[rutina %NR <- /opt/mvm/routines/%NR.m]
+[rutina %NM <- /opt/mvm/routines/%NM.m]
+[rutina %NET <- /opt/mvm/routines/%NET.m]
+[rutina %NA <- /opt/mvm/routines/%NA.m]
+[rutina %MR <- /opt/mvm/routines/%MR.m]
+[rutina %ML <- /opt/mvm/routines/%ML.m]
+[rutina %ME <- /opt/mvm/routines/%ME.m]
+[rutina %LVEL <- /opt/mvm/routines/%LVEL.m]
+[rutina %LVC <- /opt/mvm/routines/%LVC.m]
+[rutina %LV5 <- /opt/mvm/routines/%LV5.m]
+[rutina %LV4 <- /opt/mvm/routines/%LV4.m]
+[rutina %LV3 <- /opt/mvm/routines/%LV3.m]
+[rutina %LSV4 <- /opt/mvm/routines/%LSV4.m]
+[rutina %LS5 <- /opt/mvm/routines/%LS5.m]
+[rutina %LMB <- /opt/mvm/routines/%LMB.m]
+[rutina %LLT <- /opt/mvm/routines/%LLT.m]
+[rutina %LJV <- /opt/mvm/routines/%LJV.m]
+[rutina %LFT <- /opt/mvm/routines/%LFT.m]
+[rutina %LFM <- /opt/mvm/routines/%LFM.m]
+[rutina %LEVREF <- /opt/mvm/routines/%LEVREF.m]
+[rutina %LEVAL <- /opt/mvm/routines/%LEVAL.m]
+[rutina %LE5 <- /opt/mvm/routines/%LE5.m]
+[rutina %LDISC <- /opt/mvm/routines/%LDISC.m]
+[rutina %LCOGSX <- /opt/mvm/routines/%LCOGSX.m]
+[rutina %LCOGS <- /opt/mvm/routines/%LCOGS.m]
+[rutina %LCOG <- /opt/mvm/routines/%LCOG.m]
+[rutina %LCHK <- /opt/mvm/routines/%LCHK.m]
+[rutina %LAPL <- /opt/mvm/routines/%LAPL.m]
+[rutina %LA <- /opt/mvm/routines/%LA.m]
+[rutina %KPIPC5 <- /opt/mvm/routines/%KPIPC5.m]
+[rutina %KPIPC4 <- /opt/mvm/routines/%KPIPC4.m]
+[rutina %KPIPC3 <- /opt/mvm/routines/%KPIPC3.m]
+[rutina %KPIPC2 <- /opt/mvm/routines/%KPIPC2.m]
+[rutina %KPIPC <- /opt/mvm/routines/%KPIPC.m]
+[rutina %JEV <- /opt/mvm/routines/%JEV.m]
+[rutina %HELP <- /opt/mvm/routines/%HELP.m]
+[rutina %HB <- /opt/mvm/routines/%HB.m]
+[rutina %GUIA <- /opt/mvm/routines/%GUIA.m]
+[rutina %GS <- /opt/mvm/routines/%GS.m]
+[rutina %GL <- /opt/mvm/routines/%GL.m]
+[rutina %GD <- /opt/mvm/routines/%GD.m]
+[rutina %G <- /opt/mvm/routines/%G.m]
+[rutina %FF3 <- /opt/mvm/routines/%FF3.m]
+[rutina %FC2 <- /opt/mvm/routines/%FC2.m]
+[rutina %F5 <- /opt/mvm/routines/%F5.m]
+[rutina %F4 <- /opt/mvm/routines/%F4.m]
+[rutina %E <- /opt/mvm/routines/%E.m]
+[rutina %DS <- /opt/mvm/routines/%DS.m]
+[rutina %DM <- /opt/mvm/routines/%DM.m]
+[rutina %DIAG2 <- /opt/mvm/routines/%DIAG2.m]
+[rutina %DIAG <- /opt/mvm/routines/%DIAG.m]
+[rutina %D <- /opt/mvm/routines/%D.m]
+[rutina %CRON <- /opt/mvm/routines/%CRON.m]
+[rutina %CONF <- /opt/mvm/routines/%CONF.m]
+[rutina %COGMIG <- /opt/mvm/routines/%COGMIG.m]
+[rutina %COGEV <- /opt/mvm/routines/%COGEV.m]
+[rutina %B5SEED <- /opt/mvm/routines/%B5SEED.m]
+[rutina %B4SEED <- /opt/mvm/routines/%B4SEED.m]
+[rutina %B3SEED <- /opt/mvm/routines/%B3SEED.m]
+[rutina %AV <- /opt/mvm/routines/%AV.m]
+[rutina %AUTO <- /opt/mvm/routines/%AUTO.m]
+[rutina %ARB <- /opt/mvm/routines/%ARB.m]
+[rutina %AGENTE <- /opt/mvm/routines/%AGENTE.m]
+[rutina %AG <- /opt/mvm/routines/%AG.m]
+[95 rutina(s) cargada(s) de /opt/mvm/routines]
+memoria: restaurando NAS02-DS216se del hub...
+  4 aplicadas (skip 0) · hub: 4 entradas
+  mem_creada = 67846,82307
+  mem_iso = 192.168.1.10
+  mem_nombre = NAS02 (DS216se)
+  mem_ultima = 67846,83953
+memoria: RECUPERADA (4 claves) - creada el 67846,82307
+[completed · 92.4 ms]
+[grafica] modprobe i915 pedido · i915 en /proc/modules: si
+[grafica] !! SIN fb0 tras 20s. Lo que hay:
+        i915 2191360 0 - Live 0xf82b6000
+        video 57344 1 i915, Live 0xf796f000
+        ttm 57344 1 i915, Live 0xf794d000
+        i2c_algo_bit 16384 1 i915, Live 0xf7932000
+        drm_display_helper 106496 1 i915, Live 0xf7722000
+        driver en el arbol PCI: i915
+[capacidad] peldaño 2 - LLM gratis por red
+[capacidad] wifi: no · pantalla: no
+
+[LUMEN OS] init completado. Entrando en el nodo…
+
+[sonda] probando el nodo…
+[rutina EBVEC_LOAD <- /opt/mvm/routines/ebvec_load.m]
+[rutina NAS <- /opt/mvm/routines/NAS.m]
+[rutina %ZTEST <- /opt/mvm/routines/%ZTEST.m]
+[rutina %Z <- /opt/mvm/routines/%Z.m]
+[rutina %WR <- /opt/mvm/routines/%WR.m]
+[rutina %WIFI <- /opt/mvm/routines/%WIFI.m]
+[rutina %WD <- /opt/mvm/routines/%WD.m]
+[rutina %WB <- /opt/mvm/routines/%WB.m]
+[rutina %UTL <- /opt/mvm/routines/%UTL.m]
+[rutina %USU <- /opt/mvm/routines/%USU.m]
+[rutina %TT2 <- /opt/mvm/routines/%TT2.m]
+[rutina %TT <- /opt/mvm/routines/%TT.m]
+[rutina %TGL <- /opt/mvm/routines/%TGL.m]
+[rutina %TBAT1 <- /opt/mvm/routines/%TBAT1.m]
+[rutina %T <- /opt/mvm/routines/%T.m]
+[rutina %SY <- /opt/mvm/routines/%SY.m]
+[rutina %SS <- /opt/mvm/routines/%SS.m]
+[rutina %SKICK <- /opt/mvm/routines/%SKICK.m]
+[rutina %SH <- /opt/mvm/routines/%SH.m]
+[rutina %SELF <- /opt/mvm/routines/%SELF.m]
+[rutina %RZ <- /opt/mvm/routines/%RZ.m]
+[rutina %RC <- /opt/mvm/routines/%RC.m]
+[rutina %RB <- /opt/mvm/routines/%RB.m]
+[rutina %RAG <- /opt/mvm/routines/%RAG.m]
+[rutina %PTEST <- /opt/mvm/routines/%PTEST.m]
+[rutina %PRB4 <- /opt/mvm/routines/%PRB4.m]
+[rutina %PRB3 <- /opt/mvm/routines/%PRB3.m]
+[rutina %PRB2 <- /opt/mvm/routines/%PRB2.m]
+[rutina %PRB <- /opt/mvm/routines/%PRB.m]
+[rutina %PAGE <- /opt/mvm/routines/%PAGE.m]
+[rutina %OIDO <- /opt/mvm/routines/%OIDO.m]
+[rutina %NR <- /opt/mvm/routines/%NR.m]
+[rutina %NM <- /opt/mvm/routines/%NM.m]
+[rutina %NET <- /opt/mvm/routines/%NET.m]
+[rutina %NA <- /opt/mvm/routines/%NA.m]
+[rutina %MR <- /opt/mvm/routines/%MR.m]
+[rutina %ML <- /opt/mvm/routines/%ML.m]
+[rutina %ME <- /opt/mvm/routines/%ME.m]
+[rutina %LVEL <- /opt/mvm/routines/%LVEL.m]
+[rutina %LVC <- /opt/mvm/routines/%LVC.m]
+[rutina %LV5 <- /opt/mvm/routines/%LV5.m]
+[rutina %LV4 <- /opt/mvm/routines/%LV4.m]
+[rutina %LV3 <- /opt/mvm/routines/%LV3.m]
+[rutina %LSV4 <- /opt/mvm/routines/%LSV4.m]
+[rutina %LS5 <- /opt/mvm/routines/%LS5.m]
+[rutina %LMB <- /opt/mvm/routines/%LMB.m]
+[rutina %LLT <- /opt/mvm/routines/%LLT.m]
+[rutina %LJV <- /opt/mvm/routines/%LJV.m]
+[rutina %LFT <- /opt/mvm/routines/%LFT.m]
+[rutina %LFM <- /opt/mvm/routines/%LFM.m]
+[rutina %LEVREF <- /opt/mvm/routines/%LEVREF.m]
+[rutina %LEVAL <- /opt/mvm/routines/%LEVAL.m]
+[rutina %LE5 <- /opt/mvm/routines/%LE5.m]
+[rutina %LDISC <- /opt/mvm/routines/%LDISC.m]
+[rutina %LCOGSX <- /opt/mvm/routines/%LCOGSX.m]
+[rutina %LCOGS <- /opt/mvm/routines/%LCOGS.m]
+[rutina %LCOG <- /opt/mvm/routines/%LCOG.m]
+[rutina %LCHK <- /opt/mvm/routines/%LCHK.m]
+[rutina %LAPL <- /opt/mvm/routines/%LAPL.m]
+[rutina %LA <- /opt/mvm/routines/%LA.m]
+[rutina %KPIPC5 <- /opt/mvm/routines/%KPIPC5.m]
+[rutina %KPIPC4 <- /opt/mvm/routines/%KPIPC4.m]
+[rutina %KPIPC3 <- /opt/mvm/routines/%KPIPC3.m]
+[rutina %KPIPC2 <- /opt/mvm/routines/%KPIPC2.m]
+[rutina %KPIPC <- /opt/mvm/routines/%KPIPC.m]
+[rutina %JEV <- /opt/mvm/routines/%JEV.m]
+[rutina %HELP <- /opt/mvm/routines/%HELP.m]
+[rutina %HB <- /opt/mvm/routines/%HB.m]
+[rutina %GUIA <- /opt/mvm/routines/%GUIA.m]
+[rutina %GS <- /opt/mvm/routines/%GS.m]
+[rutina %GL <- /opt/mvm/routines/%GL.m]
+[rutina %GD <- /opt/mvm/routines/%GD.m]
+[rutina %G <- /opt/mvm/routines/%G.m]
+[rutina %FF3 <- /opt/mvm/routines/%FF3.m]
+[rutina %FC2 <- /opt/mvm/routines/%FC2.m]
+[rutina %F5 <- /opt/mvm/routines/%F5.m]
+[rutina %F4 <- /opt/mvm/routines/%F4.m]
+[rutina %E <- /opt/mvm/routines/%E.m]
+[rutina %DS <- /opt/mvm/routines/%DS.m]
+[rutina %DM <- /opt/mvm/routines/%DM.m]
+[rutina %DIAG2 <- /opt/mvm/routines/%DIAG2.m]
+[rutina %DIAG <- /opt/mvm/routines/%DIAG.m]
+[rutina %D <- /opt/mvm/routines/%D.m]
+[rutina %CRON <- /opt/mvm/routines/%CRON.m]
+[rutina %CONF <- /opt/mvm/routines/%CONF.m]
+[rutina %COGMIG <- /opt/mvm/routines/%COGMIG.m]
+[rutina %COGEV <- /opt/mvm/routines/%COGEV.m]
+[rutina %B5SEED <- /opt/mvm/routines/%B5SEED.m]
+[rutina %B4SEED <- /opt/mvm/routines/%B4SEED.m]
+[rutina %B3SEED <- /opt/mvm/routines/%B3SEED.m]
+[rutina %AV <- /opt/mvm/routines/%AV.m]
+[rutina %AUTO <- /opt/mvm/routines/%AUTO.m]
+[rutina %ARB <- /opt/mvm/routines/%ARB.m]
+[rutina %AGENTE <- /opt/mvm/routines/%AGENTE.m]
+[rutina %AG <- /opt/mvm/routines/%AG.m]
+[95 rutina(s) cargada(s) de /opt/mvm/routines]
+Hola desde NAS02 (DS216se)    M-Light 3.0.0-rust
+POLI: Sigo aquí. 25 megas bastan.
+ - t1: Probar MVM en la NAS [in_progress]
+ - t2: Medir RSS real en destino [backlog]
+tareas: 2
+[completed · 5.1 ms]
+[pico RSS: 5.2 MB]
+[rutina EBVEC_LOAD <- /opt/mvm/routines/ebvec_load.m]
+[rutina NAS <- /opt/mvm/routines/NAS.m]
+[rutina %ZTEST <- /opt/mvm/routines/%ZTEST.m]
+[rutina %Z <- /opt/mvm/routines/%Z.m]
+[rutina %WR <- /opt/mvm/routines/%WR.m]
+[rutina %WIFI <- /opt/mvm/routines/%WIFI.m]
+[rutina %WD <- /opt/mvm/routines/%WD.m]
+[rutina %WB <- /opt/mvm/routines/%WB.m]
+[rutina %UTL <- /opt/mvm/routines/%UTL.m]
+[rutina %USU <- /opt/mvm/routines/%USU.m]
+[rutina %TT2 <- /opt/mvm/routines/%TT2.m]
+[rutina %TT <- /opt/mvm/routines/%TT.m]
+[rutina %TGL <- /opt/mvm/routines/%TGL.m]
+[rutina %TBAT1 <- /opt/mvm/routines/%TBAT1.m]
+[rutina %T <- /opt/mvm/routines/%T.m]
+[rutina %SY <- /opt/mvm/routines/%SY.m]
+[rutina %SS <- /opt/mvm/routines/%SS.m]
+[rutina %SKICK <- /opt/mvm/routines/%SKICK.m]
+[rutina %SH <- /opt/mvm/routines/%SH.m]
+[rutina %SELF <- /opt/mvm/routines/%SELF.m]
+[rutina %RZ <- /opt/mvm/routines/%RZ.m]
+[rutina %RC <- /opt/mvm/routines/%RC.m]
+[rutina %RB <- /opt/mvm/routines/%RB.m]
+[rutina %RAG <- /opt/mvm/routines/%RAG.m]
+[rutina %PTEST <- /opt/mvm/routines/%PTEST.m]
+[rutina %PRB4 <- /opt/mvm/routines/%PRB4.m]
+[rutina %PRB3 <- /opt/mvm/routines/%PRB3.m]
+[rutina %PRB2 <- /opt/mvm/routines/%PRB2.m]
+[rutina %PRB <- /opt/mvm/routines/%PRB.m]
+[rutina %PAGE <- /opt/mvm/routines/%PAGE.m]
+[rutina %OIDO <- /opt/mvm/routines/%OIDO.m]
+[rutina %NR <- /opt/mvm/routines/%NR.m]
+[rutina %NM <- /opt/mvm/routines/%NM.m]
+[rutina %NET <- /opt/mvm/routines/%NET.m]
+[rutina %NA <- /opt/mvm/routines/%NA.m]
+[rutina %MR <- /opt/mvm/routines/%MR.m]
+[rutina %ML <- /opt/mvm/routines/%ML.m]
+[rutina %ME <- /opt/mvm/routines/%ME.m]
+[rutina %LVEL <- /opt/mvm/routines/%LVEL.m]
+[rutina %LVC <- /opt/mvm/routines/%LVC.m]
+[rutina %LV5 <- /opt/mvm/routines/%LV5.m]
+[rutina %LV4 <- /opt/mvm/routines/%LV4.m]
+[rutina %LV3 <- /opt/mvm/routines/%LV3.m]
+[rutina %LSV4 <- /opt/mvm/routines/%LSV4.m]
+[rutina %LS5 <- /opt/mvm/routines/%LS5.m]
+[rutina %LMB <- /opt/mvm/routines/%LMB.m]
+[rutina %LLT <- /opt/mvm/routines/%LLT.m]
+[rutina %LJV <- /opt/mvm/routines/%LJV.m]
+[rutina %LFT <- /opt/mvm/routines/%LFT.m]
+[rutina %LFM <- /opt/mvm/routines/%LFM.m]
+[rutina %LEVREF <- /opt/mvm/routines/%LEVREF.m]
+[rutina %LEVAL <- /opt/mvm/routines/%LEVAL.m]
+[rutina %LE5 <- /opt/mvm/routines/%LE5.m]
+[rutina %LDISC <- /opt/mvm/routines/%LDISC.m]
+[rutina %LCOGSX <- /opt/mvm/routines/%LCOGSX.m]
+[rutina %LCOGS <- /opt/mvm/routines/%LCOGS.m]
+[rutina %LCOG <- /opt/mvm/routines/%LCOG.m]
+[rutina %LCHK <- /opt/mvm/routines/%LCHK.m]
+[rutina %LAPL <- /opt/mvm/routines/%LAPL.m]
+[rutina %LA <- /opt/mvm/routines/%LA.m]
+[rutina %KPIPC5 <- /opt/mvm/routines/%KPIPC5.m]
+[rutina %KPIPC4 <- /opt/mvm/routines/%KPIPC4.m]
+[rutina %KPIPC3 <- /opt/mvm/routines/%KPIPC3.m]
+[rutina %KPIPC2 <- /opt/mvm/routines/%KPIPC2.m]
+[rutina %KPIPC <- /opt/mvm/routines/%KPIPC.m]
+[rutina %JEV <- /opt/mvm/routines/%JEV.m]
+[rutina %HELP <- /opt/mvm/routines/%HELP.m]
+[rutina %HB <- /opt/mvm/routines/%HB.m]
+[rutina %GUIA <- /opt/mvm/routines/%GUIA.m]
+[rutina %GS <- /opt/mvm/routines/%GS.m]
+[rutina %GL <- /opt/mvm/routines/%GL.m]
+[rutina %GD <- /opt/mvm/routines/%GD.m]
+[rutina %G <- /opt/mvm/routines/%G.m]
+[rutina %FF3 <- /opt/mvm/routines/%FF3.m]
+[rutina %FC2 <- /opt/mvm/routines/%FC2.m]
+[rutina %F5 <- /opt/mvm/routines/%F5.m]
+[rutina %F4 <- /opt/mvm/routines/%F4.m]
+[rutina %E <- /opt/mvm/routines/%E.m]
+[rutina %DS <- /opt/mvm/routines/%DS.m]
+[rutina %DM <- /opt/mvm/routines/%DM.m]
+[rutina %DIAG2 <- /opt/mvm/routines/%DIAG2.m]
+[rutina %DIAG <- /opt/mvm/routines/%DIAG.m]
+[rutina %D <- /opt/mvm/routines/%D.m]
+[rutina %CRON <- /opt/mvm/routines/%CRON.m]
+[rutina %CONF <- /opt/mvm/routines/%CONF.m]
+[rutina %COGMIG <- /opt/mvm/routines/%COGMIG.m]
+[rutina %COGEV <- /opt/mvm/routines/%COGEV.m]
+[rutina %B5SEED <- /opt/mvm/routines/%B5SEED.m]
+[rutina %B4SEED <- /opt/mvm/routines/%B4SEED.m]
+[rutina %B3SEED <- /opt/mvm/routines/%B3SEED.m]
+[rutina %AV <- /opt/mvm/routines/%AV.m]
+[rutina %AUTO <- /opt/mvm/routines/%AUTO.m]
+[rutina %ARB <- /opt/mvm/routines/%ARB.m]
+[rutina %AGENTE <- /opt/mvm/routines/%AGENTE.m]
+[rutina %AG <- /opt/mvm/routines/%AG.m]
+[95 rutina(s) cargada(s) de /opt/mvm/routines]
+[cron] ^CRON vacío — siembra automática (latido/salud/cronica)
+[cron] once (vencidos y sale) · tick 30s · pdb /tmp/pdb.db
+[nodo] ^CONFIG(ddp_hmac_key) manda sobre DDP_HMAC_KEY del entorno
+[cron] cronica → ok · 37ms
+sync: TNODO + CRONICA -> hub
+push ^TNODO -> hub...
+{"success":true,"enviadas":0,"total":0}
+sync hecho
+[cron] latido → ok · 22033ms
+push ^TNODO -> hub...
+{"success":true,"enviadas":3,"total":3}
+memoria: guardando NAS02-DS216se en el hub...
+  {"success":true,"enviadas":4,"total":4}
+latido 67847,1199 -> hub
+[cron] salud → ok · 5ms
+salud: pico 3.3 MB    38 filas
+[cron] once: 3 job(s) ejecutado(s)
+[rutina EBVEC_LOAD <- /opt/mvm/routines/ebvec_load.m]
+[rutina NAS <- /opt/mvm/routines/NAS.m]
+[rutina %ZTEST <- /opt/mvm/routines/%ZTEST.m]
+[rutina %Z <- /opt/mvm/routines/%Z.m]
+[rutina %WR <- /opt/mvm/routines/%WR.m]
+[rutina %WIFI <- /opt/mvm/routines/%WIFI.m]
+[rutina %WD <- /opt/mvm/routines/%WD.m]
+[rutina %WB <- /opt/mvm/routines/%WB.m]
+[rutina %UTL <- /opt/mvm/routines/%UTL.m]
+[rutina %USU <- /opt/mvm/routines/%USU.m]
+[rutina %TT2 <- /opt/mvm/routines/%TT2.m]
+[rutina %TT <- /opt/mvm/routines/%TT.m]
+[rutina %TGL <- /opt/mvm/routines/%TGL.m]
+[rutina %TBAT1 <- /opt/mvm/routines/%TBAT1.m]
+[rutina %T <- /opt/mvm/routines/%T.m]
+[rutina %SY <- /opt/mvm/routines/%SY.m]
+[rutina %SS <- /opt/mvm/routines/%SS.m]
+[rutina %SKICK <- /opt/mvm/routines/%SKICK.m]
+[rutina %SH <- /opt/mvm/routines/%SH.m]
+[rutina %SELF <- /opt/mvm/routines/%SELF.m]
+[rutina %RZ <- /opt/mvm/routines/%RZ.m]
+[rutina %RC <- /opt/mvm/routines/%RC.m]
+[rutina %RB <- /opt/mvm/routines/%RB.m]
+[rutina %RAG <- /opt/mvm/routines/%RAG.m]
+[rutina %PTEST <- /opt/mvm/routines/%PTEST.m]
+[rutina %PRB4 <- /opt/mvm/routines/%PRB4.m]
+[rutina %PRB3 <- /opt/mvm/routines/%PRB3.m]
+[rutina %PRB2 <- /opt/mvm/routines/%PRB2.m]
+[rutina %PRB <- /opt/mvm/routines/%PRB.m]
+[rutina %PAGE <- /opt/mvm/routines/%PAGE.m]
+[rutina %OIDO <- /opt/mvm/routines/%OIDO.m]
+[rutina %NR <- /opt/mvm/routines/%NR.m]
+[rutina %NM <- /opt/mvm/routines/%NM.m]
+[rutina %NET <- /opt/mvm/routines/%NET.m]
+[rutina %NA <- /opt/mvm/routines/%NA.m]
+[rutina %MR <- /opt/mvm/routines/%MR.m]
+[rutina %ML <- /opt/mvm/routines/%ML.m]
+[rutina %ME <- /opt/mvm/routines/%ME.m]
+[rutina %LVEL <- /opt/mvm/routines/%LVEL.m]
+[rutina %LVC <- /opt/mvm/routines/%LVC.m]
+[rutina %LV5 <- /opt/mvm/routines/%LV5.m]
+[rutina %LV4 <- /opt/mvm/routines/%LV4.m]
+[rutina %LV3 <- /opt/mvm/routines/%LV3.m]
+[rutina %LSV4 <- /opt/mvm/routines/%LSV4.m]
+[rutina %LS5 <- /opt/mvm/routines/%LS5.m]
+[rutina %LMB <- /opt/mvm/routines/%LMB.m]
+[rutina %LLT <- /opt/mvm/routines/%LLT.m]
+[rutina %LJV <- /opt/mvm/routines/%LJV.m]
+[rutina %LFT <- /opt/mvm/routines/%LFT.m]
+[rutina %LFM <- /opt/mvm/routines/%LFM.m]
+[rutina %LEVREF <- /opt/mvm/routines/%LEVREF.m]
+[rutina %LEVAL <- /opt/mvm/routines/%LEVAL.m]
+[rutina %LE5 <- /opt/mvm/routines/%LE5.m]
+[rutina %LDISC <- /opt/mvm/routines/%LDISC.m]
+[rutina %LCOGSX <- /opt/mvm/routines/%LCOGSX.m]
+[rutina %LCOGS <- /opt/mvm/routines/%LCOGS.m]
+[rutina %LCOG <- /opt/mvm/routines/%LCOG.m]
+[rutina %LCHK <- /opt/mvm/routines/%LCHK.m]
+[rutina %LAPL <- /opt/mvm/routines/%LAPL.m]
+[rutina %LA <- /opt/mvm/routines/%LA.m]
+[rutina %KPIPC5 <- /opt/mvm/routines/%KPIPC5.m]
+[rutina %KPIPC4 <- /opt/mvm/routines/%KPIPC4.m]
+[rutina %KPIPC3 <- /opt/mvm/routines/%KPIPC3.m]
+[rutina %KPIPC2 <- /opt/mvm/routines/%KPIPC2.m]
+[rutina %KPIPC <- /opt/mvm/routines/%KPIPC.m]
+[rutina %JEV <- /opt/mvm/routines/%JEV.m]
+[rutina %HELP <- /opt/mvm/routines/%HELP.m]
+[rutina %HB <- /opt/mvm/routines/%HB.m]
+[rutina %GUIA <- /opt/mvm/routines/%GUIA.m]
+[rutina %GS <- /opt/mvm/routines/%GS.m]
+[rutina %GL <- /opt/mvm/routines/%GL.m]
+[rutina %GD <- /opt/mvm/routines/%GD.m]
+[rutina %G <- /opt/mvm/routines/%G.m]
+[rutina %FF3 <- /opt/mvm/routines/%FF3.m]
+[rutina %FC2 <- /opt/mvm/routines/%FC2.m]
+[rutina %F5 <- /opt/mvm/routines/%F5.m]
+[rutina %F4 <- /opt/mvm/routines/%F4.m]
+[rutina %E <- /opt/mvm/routines/%E.m]
+[rutina %DS <- /opt/mvm/routines/%DS.m]
+[rutina %DM <- /opt/mvm/routines/%DM.m]
+[rutina %DIAG2 <- /opt/mvm/routines/%DIAG2.m]
+[rutina %DIAG <- /opt/mvm/routines/%DIAG.m]
+[rutina %D <- /opt/mvm/routines/%D.m]
+[rutina %CRON <- /opt/mvm/routines/%CRON.m]
+[rutina %CONF <- /opt/mvm/routines/%CONF.m]
+[rutina %COGMIG <- /opt/mvm/routines/%COGMIG.m]
+[rutina %COGEV <- /opt/mvm/routines/%COGEV.m]
+[rutina %B5SEED <- /opt/mvm/routines/%B5SEED.m]
+[rutina %B4SEED <- /opt/mvm/routines/%B4SEED.m]
+[rutina %B3SEED <- /opt/mvm/routines/%B3SEED.m]
+[rutina %AV <- /opt/mvm/routines/%AV.m]
+[rutina %AUTO <- /opt/mvm/routines/%AUTO.m]
+[rutina %ARB <- /opt/mvm/routines/%ARB.m]
+[rutina %AGENTE <- /opt/mvm/routines/%AGENTE.m]
+[rutina %AG <- /opt/mvm/routines/%AG.m]
+[95 rutina(s) cargada(s) de /opt/mvm/routines]
+
+========== SYSTEM STATUS ==========
+nodo: NAS02 (DS216se)
+fecha: --04   hora: 00::
+------------------------------------------------------------------------------NODO ..... NAS02 (DS216se)   v?
+origen ... NAS02 (DS216se)
+HORA ..... 67847,1221   vivos=0
+-- PROCESO (motor) --
+  pid ...... 370   uptime n/d s
+  RSS ...... 5300 KB   pico 5300 KB
+  CPU ...... n/d %
+  threads .. 2   fds 7
+-- SISTEMA (Linux) --
+  RAM ...... 852720 KB libres de 1021436 KB
+  load ..... 0.21 0.09 0.03
+-- PROCESOS M (job | est | seg | QID | device | rutina | resultado) --
+  (ninguno vivo)
+-- PROCESOS DEL OS (pid|comm|rss|estado|ticks) --
+  370|mvm-nas|5988|R|41
+  1|init|1608|S|294
+  2|kthreadd||S|4
+  3|rcu_gp||I|0
+  4|rcu_par_gp||I|0
+  5|slub_flushwq||I|0
+  6|netns||I|0
+  7|kworker/0:0-events||I|28
+  8|kworker/0:0H-events_highpri||I|0
+  9|kworker/u2:0-events_unbound||I|255
+  10|mm_percpu_wq||I|0
+  11|rcu_tasks_kthread||I|0
+-- QID (por que espera un job) --
+  Running .. ejecutando ahora
+  LLM:prov . esperando respuesta del modelo (prov = deepseek...)
+  USER ..... esperando al humano ($DEVICE("user:ask"))
+  IO ....... esperando entrada (R)
+  Gas ...... reanudando (agoto el slice, sigue solo)
+  Done ..... termino
+-- PDB (contado en vivo) --
+  base ..... /tmp/pdb.db
+  ^SYS ..... 0 claves
+  ^CONFIG .. 0 claves
+  ^NODOS ... 0 nodos registrados
+  ^NODO .... 0 nodos con memoria propia
+  ^TNODO ... 0 claves (latido)
+  ^CRON .... 0 jobs
+  ^AGENTES . 0 agentes
+  ^HELP .... 0 entradas de ayuda
+-- RED / DDP --
+  peer ..... http://192.168.1.10:8081
+  wifi ..... red=eth0 wifi=no
+  hub ...... 192.168.1.10 clave=si
+-- JOBS DEL NODO --
+  salud ....  MB pico, filas 
+  latido ... 67847,1199 -> hub
+  cron ..... activo @1791073199
+-- AGENTES --
+  enrutados 2 (D ^%AG para la lista)
+-- CONTROL (jobs) --
+  ver ....... D ^%SS("M")     los procesos M vivos
+  matar ..... S R=$DEVICE("kill",ID)
+  matar todo  S R=$DEVICE("kill","all")
+[completed · 291.2 ms]
+[pico RSS: 5.9 MB]
+── DRIVERS EN /proc/modules ──
+  CARGADO  iwlwifi
+  CARGADO  iwl3945
+  CARGADO  iwlmvm
+  CARGADO  ath9k
+  CARGADO  brcmfmac
+  CARGADO  b43
+  CARGADO  rtl8xxxu
+  CARGADO  r8169
+  CARGADO  atl1c
+  CARGADO  e1000e
+[sonda] OK · apagando
+[   76.551517] sysrq: Power Off
+[   76.625840] ACPI: PM: Preparing to enter system sleep state S5
+[   76.627330] reboot: Power down

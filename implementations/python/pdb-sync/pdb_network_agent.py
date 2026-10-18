@@ -26,7 +26,17 @@ import sys, os, time, hashlib, hmac
 import _paths  # rutas repo-relativas
 from datetime import datetime, timezone, timedelta
 
-NET_SECRET = "pdb-net-agent-2026"  # HMAC key
+# Clave HMAC del agente de red. NUNCA hardcodeada: este repo es publico y una
+# clave en el codigo es una clave filtrada. Se lee del entorno; si falta, el
+# agente arranca en modo degradado (sin firmar) en vez de usar un default
+# conocido por cualquiera que lea el repo.
+NET_SECRET = os.environ.get("PDB_NET_SECRET", "")
+
+if not NET_SECRET:
+    print("[pdb_network_agent] PDB_NET_SECRET no definida: modo sin firma. "
+          "Define la variable con la clave compartida del ecosistema.",
+          file=sys.stderr)
+    NET_SECRET = None
 
 def _get_tools():
     pdb_dir = _paths.PDB_DIR_S
@@ -41,12 +51,16 @@ def _now_iso():
 
 def net_nonce(agent_id):
     """Generar nonce HMAC para un agente."""
+    if not NET_SECRET:
+        raise RuntimeError("PDB_NET_SECRET no definida: no se puede firmar el nonce")
     ts = _now_iso()
     msg = f"{agent_id}:{ts}:{NET_SECRET}"
     return hmac.new(NET_SECRET.encode(), msg.encode(), hashlib.sha256).hexdigest()[:16]
 
 def net_verify(agent_id, nonce, ts):
     """Verificar nonce HMAC."""
+    if not NET_SECRET:
+        return False   # sin clave no se puede verificar: rechazar, no aceptar
     msg = f"{agent_id}:{ts}:{NET_SECRET}"
     expected = hmac.new(NET_SECRET.encode(), msg.encode(), hashlib.sha256).hexdigest()[:16]
     return hmac.compare_digest(expected, nonce)

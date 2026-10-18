@@ -116,3 +116,12 @@ implementations/rust/lumen-m-light/target-mcp/
 *.iso
 build-iso-i686/initramfs*/
 *.cpio*
+# Scripts de captura/config de dispositivos de la LAN: llevan IPs privadas
+# (192.168.x.x) de hardware real. El directorio tiene 3 ficheros trackeados
+# que son generadores puros; el resto es operativo y no debe publicarse.
+build-iso-i686/arregla_*.py
+build-iso-i686/asocia_*.py
+build-iso-i686/asus_*.py
+build-iso-i686/cap_*.py
+build-iso-i686/*_cap.py
+build-iso-i686/*_cfg.py

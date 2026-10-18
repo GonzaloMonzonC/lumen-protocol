@@ -1,0 +1,24 @@
+=== BUILD lumen-m-light i686-unknown-linux-musl ===
+warning: function `decode_first_sub` is never used
+    --> src\host.rs:4082:4
+     |
+4082 | fn decode_first_sub(subkey: &[u8]) -> Option<Subscript> {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `extract_sub_at_level` is never used
+    --> src\host.rs:4087:4
+     |
+4087 | fn extract_sub_at_level(subkey: &[u8], level: usize) -> Option<Subscript> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `cut_after_range` is never used
+    --> src\vm.rs:3226:8
+     |
+3226 |     fn cut_after_range(arg: &str) -> (&str, &str) {
+     |        ^^^^^^^^^^^^^^^
+
+warning: `lumen-m-light` (lib) generated 30 warnings (run `cargo fix --lib -p lumen-m-light` to apply 24 suggestions)
+    Finished `release` profile [optimized] target(s) in 1m 49s
+=== ARTEFACTOS ===
+-rw-r--r-- 2 gonzalo 197121 6,3M oct.  2 00:55 implementations/rust/lumen-m-light/target/i686-unknown-linux-musl/release/liblumen_mlight.rlib
+(sin .so)

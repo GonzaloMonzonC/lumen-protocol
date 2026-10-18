@@ -1,0 +1,2 @@
+# specific documentation for the contents of this directory
+isolinux: package-contains-documentation-outside-usr-share-doc [usr/lib/ISOLINUX/extra/README]

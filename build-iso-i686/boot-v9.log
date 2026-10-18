@@ -1,0 +1,13 @@
+c[?7l[2J[0mSeaBIOS (version rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:03.0 CA00 PCI2.10 PnP PMM+3EFD1F90+3EF31F90 CA00
+Press Ctrl-B to configure iPXE (PCI 00:03.0)...                                                                               
+
+
+Booting from DVD/CD...
+
+ISOLINUX 6.04 20250811 ETCD Copyright (C) 1994-201[10;50H[10;51H5 H. Peter Anvin et al
+Loading /vmlinuz-i686... ok
+Loading /initramfs-lumenos-i686.gz...ok
+Probing EDD (edd=off to disable)... oc[?7l[2J

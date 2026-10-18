@@ -1,0 +1,13 @@
+# bootloader modules are useful on all architectures
+syslinux-common: arch-independent-package-contains-binary-or-object [usr/lib/syslinux/modules/*]
+# bootloader modules are intentionally not linked against libc
+syslinux-common: library-not-linked-against-libc [usr/lib/syslinux/modules/*]
+# bootloder modules need zlib and libpng
+syslinux-common: embedded-library libpng [usr/lib/syslinux/modules/*]
+syslinux-common: embedded-library zlib [usr/lib/syslinux/modules/*]
+# bootloader modules are not loaded by the runtime linker; missing depends is a
+# false positive and the executable stack is intentional
+syslinux-common: missing-depends-line
+syslinux-common: shlib-with-executable-stack [usr/lib/syslinux/modules/*]
+# specific documentation for the contents of these directories
+syslinux-common: package-contains-documentation-outside-usr-share-doc [usr/lib/syslinux/mbr/*/README]

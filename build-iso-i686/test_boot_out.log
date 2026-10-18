@@ -1,0 +1,11 @@
+=== TEST 1: initramfs directo (sonda lumentest, consola serie) ===
+  qemu exit=124 (esperado 0; poweroff limpio)
+=== evidencia (lineas clave) ===
+[    5.370676] Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0)
+[    5.380190] ---[ end Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0) ]---
+=== GPU/apagado ===
+
+=== TEST 2: la ISO (isolinux + isohybrid) ===
+  qemu exit=124
+ISOLINUX 6.04 20250811 ETCD Copyright (C) 1994-2015 H. Peter Anvin et al
+Loading /initramfs-lumenos-i686.gz...ok

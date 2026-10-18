@@ -13,16 +13,40 @@ Uso:
     if journal_on("FACTS"): ...
 """
 import os
+import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for p in (_HERE, os.path.dirname(_HERE),
-          r"C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\mcp-servers\pdb"):
+          os.path.join(os.path.dirname(os.path.dirname(_HERE)), "mcp-servers", "pdb")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 import _paths  # noqa: E402,F401
 from pdb_tools import tool_get, tool_order  # noqa: E402
+
+_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand(valor):
+    """Resuelve ${VAR} y ${VAR:-default} contra el entorno.
+
+    ddp.json se publica con marcadores en vez de IPs internas (el repo es
+    publico). Sin esto, el hub apuntaria literalmente a '${DDP_HUB_HOST:-...}'.
+    Si la variable falta y no hay default, se deja el marcador tal cual para que
+    el fallo sea visible en vez de silencioso.
+    """
+    if not isinstance(valor, str) or "${" not in valor:
+        return valor
+
+    def _sub(m):
+        nombre, default = m.group(1), m.group(2)
+        v = os.environ.get(nombre)
+        if v:
+            return v
+        return default if default is not None else m.group(0)
+
+    return _VAR.sub(_sub, valor)
 
 
 def _get(ns, subs, default=None):
@@ -42,13 +66,13 @@ def config():
 def edge_url():
     """URL del edge CF (fallback a env / default)."""
     cfg = config().get("edge", {}) or {}
-    return (cfg.get("url")
+    return (_expand(cfg.get("url"))
             or os.environ.get("PDB_EDGE_URL")
-            or "https://pdb-edge.gonzalomonzonc.workers.dev")
+            or "https://pdb-edge.example.workers.dev")
 
 
 def hub_url():
-    return (config().get("hub", {}) or {}).get("url", "")
+    return _expand((config().get("hub", {}) or {}).get("url", ""))
 
 
 def sync_config():

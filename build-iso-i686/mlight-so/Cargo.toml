@@ -1,0 +1,12 @@
+[package]
+name = "mlight-so"
+version = "0.1.0"
+edition = "2021"
+description = "Envoltorio cdylib de lumen-m-light para producir liblumen_mlight.so (i686)"
+
+[lib]
+name = "lumen_mlight"
+crate-type = ["cdylib"]
+
+[dependencies]
+lumen-m-light = { path = "../../implementations/rust/lumen-m-light" }
