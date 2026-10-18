@@ -142,6 +142,18 @@ def pdb_connect(readonly: bool = False, timeout: float = 5.0, path: str = None) 
     _apply_pragmas(c, busy_timeout=int(timeout * 1000))
     if readonly:
         c.execute("PRAGMA query_only=ON")
+    else:
+        # H7 (hallazgo colateral): una PDB NUEVA se abria sin esquema. Todos los
+        # saves fallaban con "no such table: _globals" dentro de un
+        # `except: _safe_print(...)`, asi que el servidor parecia funcionar y no
+        # persistia NADA. Solo se notaba al reiniciar y ver el estado vacio.
+        # _init_schema usa CREATE TABLE IF NOT EXISTS: en una PDB existente es
+        # un no-op barato.
+        try:
+            _init_schema(c)
+            c.commit()
+        except Exception as _e_schema:
+            _safe_log(f"[pdb] no pude inicializar el esquema: {_e_schema}")
     c.row_factory = sqlite3.Row
     return c
 
