@@ -3,8 +3,14 @@ import sys, json, os
 
 # Stick to ASCII to avoid any encoding issues
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pdb_tools import TOOLS, HANDLERS
+from pdb_tools import TOOLS, HANDLERS, tools_for_profile, resolve_profile
 from lumen_mcp_stdio import read_message, write_message
+
+# H6: dos perfiles. 'agente' por defecto (catálogo corto); 'admin' opt-in con
+# --profile admin o LUMEN_PDB_PROFILE=admin. El admin no se activa solo.
+PROFILE = resolve_profile(sys.argv)
+EXPOSED = tools_for_profile(PROFILE)
+_EXPOSED_NAMES = {t["name"] for t in EXPOSED}
 
 while True:
     try:
@@ -23,10 +29,21 @@ while True:
     elif method == "notifications/initialized":
         pass  # notification: sin respuesta
     elif method == "tools/list":
-        write_message({"jsonrpc":"2.0","id":mid,"result":{"tools":TOOLS}})
+        write_message({"jsonrpc":"2.0","id":mid,"result":{"tools":EXPOSED}})
     elif method == "tools/call":
         p = msg.get("params",{})
-        h = HANDLERS.get(p.get("name",""))
+        nombre = p.get("name","")
+        # H6: en perfil agente, una tool de admin existe en HANDLERS pero no se
+        # sirve. El error lo dice y nombra la salida, en vez de "Unknown tool".
+        if nombre not in _EXPOSED_NAMES:
+            if nombre in HANDLERS:
+                write_message({"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":(
+                    f"Tool '{nombre}' existe pero no esta en el perfil '{PROFILE}'. "
+                    f"Arranca el server con --profile admin o LUMEN_PDB_PROFILE=admin.")}})
+            else:
+                write_message({"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":f"Unknown tool: {nombre}"}})
+            continue
+        h = HANDLERS.get(nombre)
         if h:
             try:
                 r = h(p.get("arguments",{}))
