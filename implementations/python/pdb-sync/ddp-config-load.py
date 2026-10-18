@@ -27,6 +27,7 @@ Licencia: MIT (lumen-protocol)
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -57,7 +58,38 @@ def _load(path: str) -> dict:
     for req in ("edge", "namespaces"):
         if req not in cfg:
             raise ValueError(f"Falta la sección obligatoria: '{req}'")
-    return cfg
+    # ddp.json se publica con marcadores ${VAR} en vez de IPs internas (el repo
+    # es publico). Se resuelven al cargar en la PDB, para que lo que se guarde
+    # sea el valor real del nodo y no la plantilla.
+    return _expand_tree(cfg)
+
+
+_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand(valor):
+    if not isinstance(valor, str) or "${" not in valor:
+        return valor
+
+    def _sub(m):
+        nombre, default = m.group(1), m.group(2)
+        v = os.environ.get(nombre)
+        if v:
+            return v
+        return default if default is not None else m.group(0)
+
+    return _VAR.sub(_sub, valor)
+
+
+def _expand_tree(obj):
+    """Recorre la config y resuelve ${VAR} en todas las cadenas."""
+    if isinstance(obj, str):
+        return _expand(obj)
+    if isinstance(obj, list):
+        return [_expand_tree(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _expand_tree(v) for k, v in obj.items()}
+    return obj
 
 
 def _plan(cfg: dict) -> list[tuple]:

@@ -24,7 +24,7 @@ sys.path.insert(0, HERE)
 #    (load Y save) va a la PDB REAL — incidente 16-sep-2026, ver cleanup).
 SRC = (os.environ.get("LUMEN_TEST_SRC_PDB")
        or os.environ.get("PDB_PATH")
-       or r"C:/Users/gonzalo/pdb-data/lumen-pdb.db")
+       or os.path.join(os.path.expanduser("~"), "pdb-data", "lumen-pdb.db"))
 
 # 2) copia temporal CONSISTENTE — backup API (incluye el WAL; shutil.copyfile
 #    NO lo copia y la copia sale VIEJA — detectado 16-sep-2026: el test veia

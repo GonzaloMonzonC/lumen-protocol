@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Construye liblumen_m_light.so para i686 (32 bits) — el MOTOR M-Light como .so
+# lumen-m-light usa minreq (HTTP puro Rust) => SIN OpenSSL.
+# rusqlite "bundled" necesita CC/AR: se usan los wrappers zig.
+set -u
+cd /c/Users/gonzalo/Documents/GitHub/lumen-protocol || exit 1
+
+WRAP="C:/Users/gonzalo/Documents/GitHub/lumen-protocol/build-iso-i686"
+export ZIG_GLOBAL_CACHE_DIR="C:/Users/gonzalo/.zig-cache-global"
+export ZIG_LOCAL_CACHE_DIR="C:/tmp/ziglocal"
+export CC_i686_unknown_linux_musl="$WRAP/zigcc-i686.exe"
+export CXX_i686_unknown_linux_musl="$WRAP/zigcc-i686.exe"
+export AR_i686_unknown_linux_musl="$WRAP/zigar-i686.exe"
+export CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER="$WRAP/zigcc-i686.exe"
+
+echo "=== BUILD lumen-m-light i686-unknown-linux-musl ==="
+cargo build --release --target i686-unknown-linux-musl \
+  --manifest-path implementations/rust/lumen-m-light/Cargo.toml 2>&1 | tail -20
+
+echo "=== ARTEFACTOS ==="
+ls -lh implementations/rust/lumen-m-light/target/i686-unknown-linux-musl/release/*.so \
+       implementations/rust/lumen-m-light/target/i686-unknown-linux-musl/release/*.rlib 2>/dev/null || echo "(sin .so)"

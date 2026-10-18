@@ -3,13 +3,13 @@
   "version": "1.0",
 
   "edge": {
-    "url": "https://pdb-edge.example.workers.dev",
+    "url": "${DDP_EDGE_URL:-https://pdb-edge.example.workers.dev}",
     "user_agent": "Mozilla/5.0 DDPClient/0.2",
     "timeout": 60
   },
 
   "hub": {
-    "url": "http://TU-HUB:8081",
+    "url": "http://${DDP_HUB_HOST:-127.0.0.1}:8081",
     "protocol": "ddp",
     "role": "hub-local"
   },
@@ -53,15 +53,15 @@
     },
     "neferu": {
       "hostname": "neferu-llm.cadences.app",
-      "ip": "TU-NAS",
+      "ip": "${DDP_NEFERU_IP:-127.0.0.1}",
       "port": 8140,
       "role": "nodo-llm",
       "arch": "armv7l",
       "capabilities": ["llm", "pdb", "cron"]
     },
     "hub": {
-      "hostname": "TU-HUB",
-      "ip": "TU-HUB",
+      "hostname": "${DDP_HUB_HOST:-127.0.0.1}",
+      "ip": "${DDP_HUB_HOST:-127.0.0.1}",
       "port": 8081,
       "role": "hub-ddp",
       "arch": "x86_64",
@@ -71,21 +71,21 @@
 
   "links": {
     "edge": {
-      "target": "https://pdb-edge.example.workers.dev",
+      "target": "${DDP_EDGE_URL:-https://pdb-edge.example.workers.dev}",
       "type": "http",
       "timeout": 60
     },
     "hub": {
-      "target": "http://TU-HUB:8081",
+      "target": "http://${DDP_HUB_HOST:-127.0.0.1}:8081",
       "type": "http",
-      "ip": "TU-HUB",
+      "ip": "${DDP_HUB_HOST:-127.0.0.1}",
       "port": 8081,
       "timeout": 30
     },
     "neferu": {
       "target": "https://neferu-llm.cadences.app",
       "type": "http",
-      "ip": "TU-NAS",
+      "ip": "${DDP_NEFERU_IP:-127.0.0.1}",
       "port": 8140,
       "timeout": 30
     }

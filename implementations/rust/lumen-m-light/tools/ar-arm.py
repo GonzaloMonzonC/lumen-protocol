@@ -9,6 +9,6 @@ import os
 import subprocess
 import sys
 
-ZIG = os.environ.get("ZIGCC_ZIG", r"C:/Users/gonzalo/tools/zig-x86_64-windows-0.16.0/zig.exe")
+ZIG = os.environ.get("ZIGCC_ZIG", os.path.expanduser("~/tools/zig/zig.exe"))
 
 sys.exit(subprocess.call([ZIG, "ar"] + sys.argv[1:]))

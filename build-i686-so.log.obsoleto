@@ -1,0 +1,28 @@
+=== BUILD i686-unknown-linux-musl (zig wrap) ===
+  PKG_CONFIG environment variable.
+
+  cargo:warning=Could not find directory of OpenSSL installation, and this `-sys` crate cannot proceed without this knowledge. If OpenSSL is installed and this crate had trouble finding it,  you can set the `OPENSSL_DIR` environment variable for the compilation process. See stderr section below for further information.
+
+  --- stderr
+
+
+  Could not find directory of OpenSSL installation, and this `-sys` crate cannot
+  proceed without this knowledge. If OpenSSL is installed and this crate had
+  trouble finding it,  you can set the `OPENSSL_DIR` environment variable for the
+  compilation process.
+
+  Make sure you also have the development packages of openssl installed.
+  For example, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora.
+
+  If you're in a situation where you think the directory *should* be found
+  automatically, please open a bug at https://github.com/rust-openssl/rust-openssl
+  and include information about your system as well as this message.
+
+  $HOST = x86_64-pc-windows-msvc
+  $TARGET = i686-unknown-linux-musl
+  openssl-sys = 0.9.117
+
+
+warning: build failed, waiting for other jobs to finish...
+=== ARTEFACTOS i686 ===
+(sin .so/.rlib)
