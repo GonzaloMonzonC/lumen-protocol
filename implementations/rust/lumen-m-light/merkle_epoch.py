@@ -182,7 +182,23 @@ def verificar_inclusion(prueba: dict, root_esperado: str | None = None) -> bool:
 
 
 def epoch_de_pdb(pdb, ns: str | None = None) -> dict:
-    """Calcula el epoch de una PDB real (o de un namespace concreto)."""
+    """Calcula el epoch de una PDB real (o de un namespace concreto).
+
+    Usa el recorrido por RANGO en SQL (una query por namespace) en vez del
+    recorrido por `$ORDER` (una llamada al MCP por nodo). El de $ORDER sigue en
+    `_leer_ns` como referencia y para PDBs raras (particionadas sin SQL directo).
+    """
+    try:
+        from lectura_rango import leer_ns_rango, listar_namespaces
+        nombres = [ns] if ns else listar_namespaces(pdb)
+        globs = []
+        for n in nombres or []:
+            globs.extend(leer_ns_rango(pdb, n))
+        return root_de_epoch(globs)
+    except Exception:
+        # fallback: recorrido clásico
+        pass
+
     globs = []
     ns_list = [ns] if ns else None
     if ns_list is None:
