@@ -59,11 +59,26 @@ def _save_checkpoint(cp):
 # ── VERIFY checks (Zalo) ────────────────────────────────────────────
 
 def check_integrity(entry):
-    """Check 1: old_value y new_value deben ser JSON válidos."""
+    """Check 1: old_value y new_value deben ser JSON válidos.
+
+    ANTES: solo se comprobaba el TIPO EXTERIOR (`isinstance(val, dict)`), así que
+    un `{'x': object()}` pasaba el check y luego fallaba al escribirlo en la PDB
+    (que guarda JSON). El entry corrupto entraba y reventaba más tarde, lejos del
+    punto donde se podía diagnosticar.
+
+    AHORA: se comprueba que **serializa de verdad**. Es la única prueba que
+    garantiza que lo que se escribe en la PDB se va a poder leer.
+    """
     for key in ("old_value", "new_value"):
         val = entry.get(key)
-        if val is not None and not isinstance(val, (dict, list, str, int, float, bool)):
+        if val is None:
+            continue
+        if not isinstance(val, (dict, list, str, int, float, bool)):
             return False, f"invalid type for {key}: {type(val).__name__}"
+        try:
+            json.dumps(val, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            return False, f"{key} no serializa a JSON: {type(exc).__name__}: {exc}"
     return True, None
 
 def check_timestamp(entry, checkpoint):
