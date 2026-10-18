@@ -34,6 +34,17 @@ if hasattr(sys.stdout, "reconfigure"):
 _cache: dict = {}       # query → (timestamp, results)
 _CACHE_TTL = 300         # 5 minutes
 
+# Extractor de contenido disponible (H5). None = aun no comprobado.
+_EXTRACTOR = None
+
+
+def _log(msg: str) -> None:
+    """Log a stderr: stdout es el canal JSON-RPC del MCP."""
+    try:
+        print(msg, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
 
 def _cached(key: str, fetcher, ttl: int = _CACHE_TTL):
     """Cache-aware fetch. Returns cached result if fresh."""
@@ -337,54 +348,151 @@ def _safe_fetch(url: str, max_bytes: int = _MAX_RESPONSE_BYTES, timeout: int = 2
     raise urllib.error.URLError(f"Too many redirects (>{_MAX_REDIRECTS})")
 
 
+def _safe_fetch_typed(url: str, max_bytes: int = _MAX_RESPONSE_BYTES,
+                      timeout: int = 20) -> tuple[bytes, str]:
+    """Igual que _safe_fetch pero devuelve (bytes, Content-Type).
+
+    H5: el extractor asumia "text/html" sin mirar la cabecera, asi que un JSON
+    o un PDF se "extraian" como si fueran HTML.
+    """
+    current_url = url
+    for _ in range(_MAX_REDIRECTS + 1):
+        _is_safe_url(current_url)
+        req = urllib.request.Request(current_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if 300 <= resp.status < 400:
+                    loc = resp.headers.get("Location", "")
+                    if not loc:
+                        raise urllib.error.URLError("Redirect without Location header")
+                    current_url = urllib.parse.urljoin(current_url, loc)
+                    continue
+                ctype = resp.headers.get("Content-Type", "") or ""
+                chunks = []
+                total = 0
+                while total < max_bytes:
+                    chunk = resp.read(min(8192, max_bytes - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                return b"".join(chunks), ctype
+        except urllib.error.HTTPError:
+            raise
+    raise urllib.error.URLError(f"Too many redirects (>{_MAX_REDIRECTS})")
+
+
+def _extractor_status() -> dict:
+    """Qué extractor hay disponible. Cacheado; una sola importación por proceso."""
+    global _EXTRACTOR
+    if _EXTRACTOR is None:
+        try:
+            import trafilatura  # noqa: F401
+            _EXTRACTOR = {"name": "trafilatura", "detail": None}
+        except ImportError as e:
+            _EXTRACTOR = {"name": "regex", "detail": f"trafilatura no instalada ({e})"}
+    return _EXTRACTOR
+
+
 def _extract_page(url: str, max_chars: int = 5000) -> dict:
-    """Extract a web page as simplified markdown text."""
+    """Extract a web page as simplified markdown text.
+
+    H5: antes quitaba tags con regex y buscaba el <title> DESPUES de haberlos
+    borrado, asi que `title` caia siempre al URL. Ademas asumia text/html sin
+    mirar el Content-Type. Resultado medido en un repo de GitHub: 4.051 palabras
+    de menus ("Skip to content", "Branches / Tags") donde habia ~400 utiles.
+    """
     try:
         _is_safe_url(url)
     except SSRFError as e:
         return {"url": url, "content": f"[SSRF blocked: {e}]", "error": str(e)}
     try:
-        raw_bytes = _safe_fetch(url)
-        content_type = "text/html"  # assumed
+        raw_bytes, ctype = _safe_fetch_typed(url)
         raw = raw_bytes.decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         return {"url": url, "content": f"[HTTP {e.code}: {e.reason}]", "error": str(e)}
     except Exception as e:
         return {"url": url, "content": f"[Error: {e}]", "error": str(e)}
-    
-    # Simple HTML-to-text (strip tags, normalize whitespace)
+
+    ctype_l = (ctype or "").lower()
+
+    # ── Respetar el Content-Type real (H5) ──
+    if "application/json" in ctype_l:
+        # JSON: devolverlo tal cual, sin "extraer" HTML que no existe.
+        return {"url": url, "title": url, "content": raw[:max_chars],
+                "content_type": ctype, "extractor": "raw-json",
+                "word_count": len(raw.split()),
+                "truncated": len(raw) > max_chars}
+    if "application/pdf" in ctype_l or "application/octet-stream" in ctype_l:
+        return {"url": url, "title": url, "content": "",
+                "content_type": ctype, "extractor": "none",
+                "error": f"Tipo no soportado: {ctype}. Se necesita un parser de PDF."}
+
     import re as _re
-    # Remove scripts, styles, nav
-    for tag in ['script', 'style', 'nav', 'header', 'footer']:
-        raw = _re.sub(f'<{tag}[^>]*>.*?</{tag}>', '', raw, flags=_re.DOTALL | _re.IGNORECASE)
-    
-    # Convert block elements to newlines
-    for tag in ['p', 'div', 'article', 'section', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr']:
-        raw = _re.sub(f'<{tag}[^>]*>', '\n', raw, flags=_re.IGNORECASE)
-    
-    # Remove remaining tags
-    text = _re.sub(r'<[^>]+>', ' ', raw)
-    
-    # Normalize whitespace
-    text = _re.sub(r'[ \t]+', ' ', text)
-    text = _re.sub(r'\n{3,}', '\n\n', text)
+
+    # ── Título y <html lang> ANTES de mutar el HTML (H5) ──
+    title_match = _re.search(r"<title[^>]*>(.*?)</title>", raw, _re.IGNORECASE | _re.DOTALL)
+    title = url
+    if title_match:
+        t = _re.sub(r"<[^>]+>", "", title_match.group(1))
+        t = _re.sub(r"\s+", " ", t).strip()
+        if t:
+            title = t
+
+    # ── Cuerpo: trafilatura si está, regex como fallback ──
+    ex = _extractor_status()
+    text = None
+    if ex["name"] == "trafilatura":
+        try:
+            import trafilatura
+            text = trafilatura.extract(
+                raw,
+                include_comments=False,
+                include_tables=True,
+                favor_recall=True,   # preferimos algo de ruido a perder el contenido
+                url=url,
+            )
+        except Exception as _te:
+            text = None
+            _log(f"[web] trafilatura fallo, uso regex: {_te}")
+
+    if not text:
+        # Fallback regex: aísla <body>, quita lo obvio y luego los tags.
+        body = raw
+        bm = _re.search(r"<body[^>]*>(.*?)</body>", raw, _re.IGNORECASE | _re.DOTALL)
+        if bm:
+            body = bm.group(1)
+        # Comentarios HTML: si no se quitan, su texto acaba en el contenido.
+        body = _re.sub(r"<!--.*?-->", " ", body, flags=_re.DOTALL)
+        for tag in ("script", "style", "nav", "header", "footer", "aside", "noscript",
+                    "form", "svg", "iframe"):
+            body = _re.sub(f"<{tag}[^>]*>.*?</{tag}>", " ", body,
+                           flags=_re.DOTALL | _re.IGNORECASE)
+        for tag in ("p", "div", "article", "section", "li",
+                    "h1", "h2", "h3", "h4", "h5", "h6", "tr", "br"):
+            body = _re.sub(f"<{tag}[^>]*>", "\n", body, flags=_re.IGNORECASE)
+        text = _re.sub(r"<[^>]+>", " ", body)
+
+    # Normalizar
+    text = _re.sub(r"[ \t]+", " ", text or "")
+    text = _re.sub(r"\n{3,}", "\n\n", text)
     text = text.strip()
-    
-    # Extract metadata
-    title_match = _re.search(r'<title[^>]*>(.*?)</title>', raw, _re.IGNORECASE)
-    title = _re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else url
-    
+
     word_count = len(text.split())
-    
-    # Truncate
+    truncated = len(text) > max_chars
     text = text[:max_chars]
-    
+
     return {
         "url": url,
         "title": title[:200],
         "content": text,
+        "content_type": ctype,
+        "extractor": "trafilatura" if (ex["name"] == "trafilatura") else "regex",
         "word_count": word_count,
-        "truncated": len(text) >= max_chars
+        "truncated": truncated,
     }
 
 

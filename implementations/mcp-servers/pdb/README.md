@@ -168,7 +168,28 @@ pdb_embed_search(query="busqueda semantica", limit=5)
 # → [{"text": "...", "score": 0.86, "source": "wiki"}, ...]
 ```
 
-Requires: `pip install fastembed numpy`
+Requires the `[rag]` extra — **`fastembed`, `sqlite-vec` and `numpy`**:
+
+```bash
+pip install -r ../requirements-mcp.txt
+```
+
+`sqlite-vec` is **not optional in practice**: without it the `vec0` tables are never
+created and `pdb_vec_search` has nothing to query. Without `fastembed` there is no
+embedder, so nothing can be indexed either.
+
+`fastembed` also needs a compatible **Pillow** (`>=10.3,<13`) — installing a newer
+Pillow silently breaks the import with `No module named 'PIL'`.
+
+If the subsystem is unavailable, `pdb_vec_search` returns
+`{"success": false, "reason": "...", "fix": "..."}` instead of raising — so a caller
+can degrade gracefully. The reason codes are `sqlite_vec_missing`,
+`vec0_tables_failed`, `fastembed_missing` and `vec_search_failed`.
+
+> First call downloads the ONNX model (~80MB). If a previous download was interrupted
+> the snapshot directory can exist but be empty, and every call then fails with
+> `NO_SUCHFILE ... model.onnx`. Fix: delete the cache dir
+> (`%TEMP%\fastembed_cache` on Windows) and retry.
 
 **Limitations:**
 - `all-MiniLM-L6-v2` is English-optimized; Spanish queries work but a multilingual model would improve precision.
@@ -184,7 +205,7 @@ Requires: `pip install fastembed numpy`
 
 ## Changelog (2026-06-27)
 
-- **Embedding/RAG**: `pdb_embed` and `pdb_embed_search` via fastembed + numpy
+- **Embedding/RAG**: `pdb_embed` and `pdb_vec_search` via fastembed + sqlite-vec (extra `[rag]`)
 - **M-Light fix**: commands (FOR, SET, KILL) now work via `pdb_m_eval`
 - **Subkey fix**: empty strings no longer break multi-level subkeys
 - **Arithmetic**: compound expressions (`T+$G(^X(I))`) now evaluate correctly

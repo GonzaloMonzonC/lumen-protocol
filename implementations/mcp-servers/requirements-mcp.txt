@@ -1,0 +1,23 @@
+# Dependencias de los MCP de LUMEN
+#
+# ── Base ───────────────────────────────────────────────────────────────
+# El core del PDB y de thinking no necesita nada externo: usan solo stdlib
+# (sqlite3, json, ast). Lo que sigue es para capacidades opcionales.
+#
+# ── Extra [rag] — búsqueda semántica ───────────────────────────────────
+# Sin esto pdb_vec_search responde {success:false, reason:"sqlite_vec_missing"}
+# y pdb_embed falla al generar el embedding. La búsqueda por texto (pdb_fts_search)
+# sigue funcionando sin ello.
+#
+# Verificado con wheels para Python 3.11 y 3.14 (win/linux/mac):
+#   fastembed-0.9.0 · onnxruntime-1.31.0 · numpy-2.5.4
+fastembed>=0.9.0
+sqlite-vec>=0.1.6
+numpy>=1.26
+
+# ── Extra [web] — extracción de contenido legible ──────────────────────
+# Usado por el server `web` para quitar navegación y boilerplate del HTML.
+# Sin esto cae al extractor por regex, que en páginas modernas deja 10x más
+# ruido que contenido (medido: 4.051 palabras de menú donde había ~400 útiles).
+trafilatura>=1.12
+beautifulsoup4>=4.12
