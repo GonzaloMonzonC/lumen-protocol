@@ -53,6 +53,52 @@ if hasattr(sys.stdout, "reconfigure"):
 # ── Lazy embedding model for hybrid pattern_suggest ──
 _embedder = None
 
+# ── Session tool budget (H2) ──
+# El presupuesto protege de un bucle desbocado DENTRO de un proceso. Persistirlo
+# no protege de nada y en cambio brickea la sesión para siempre: una sesión que
+# llegó al tope sigue en el tope tras reiniciar el server o el equipo, y ni las
+# tools de solo lectura responden. De ahí: configurable, no persistido como
+# condena, y las lecturas nunca cuentan.
+_DEFAULT_MAX_CALLS = 100
+
+# Tools que NO consumen presupuesto: son de lectura/diagnóstico. Si se quedan sin
+# ellas, el agente no puede ni averiguar por qué está bloqueado.
+_READONLY_TOOLS = frozenset({
+    "state_snapshot", "state_feeling", "session_list", "session_init", "session_end",
+    "context_estimate", "context_check", "work_log", "decision_list",
+    "list_assumptions", "pattern_match", "pattern_suggest", "model_stats",
+    "model_query", "model_map", "model_scan", "wiki_list", "wiki_read",
+    "thought_similarity", "thought_summarize", "chain_diff", "collision_check",
+    "cognitive_pulse", "cognitive_integrity", "agent_inbox", "tool_cache",
+    "kanban_stats", "task_list", "task_search", "niche_list", "objective_status",
+    "checklist", "pdb_list_watches", "pdb_notifications_pending",
+    "pdb_check_notifications", "file_snapshots_list", "search_files_fuzzy",
+    "search_files_content_fuzzy",
+})
+
+
+def _budget_default() -> int:
+    """Tope de llamadas por sesión. LUMEN_THINKING_MAX_CALLS lo sobreescribe.
+
+    Un valor inválido o <= 0 cae al default con aviso en stderr: nunca deja el
+    server sin límite por un typo en el entorno.
+    """
+    raw = os.environ.get("LUMEN_THINKING_MAX_CALLS", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_CALLS
+    try:
+        val = int(raw)
+    except ValueError:
+        _safe_print(f"[lumen-thinking] LUMEN_THINKING_MAX_CALLS={raw!r} no es un entero; "
+                    f"uso {_DEFAULT_MAX_CALLS}")
+        return _DEFAULT_MAX_CALLS
+    if val <= 0:
+        _safe_print(f"[lumen-thinking] LUMEN_THINKING_MAX_CALLS={val} <= 0; "
+                    f"uso {_DEFAULT_MAX_CALLS}")
+        return _DEFAULT_MAX_CALLS
+    return val
+
+
 
 def _safe_print(msg: str) -> None:
     """Print to stderr so it doesn't interfere with JSON-RPC on stdout."""
@@ -83,7 +129,7 @@ class Session:
         self.wiki: dict[str, dict] = {}  # named wiki pages: title → {content, created_at, updated_at, author}
         self.model_name: str = ""  # LLM model used in this session
         self.tool_calls = 0
-        self.max_tool_calls = 100  # hard budget per session, prevents runaway tool loops
+        self.max_tool_calls = _budget_default()  # per-session budget, prevents runaway tool loops
         self.created_at = time.time()
         self.updated_at = time.time()
         self.feeling = None  # Last state_feeling record
@@ -784,6 +830,22 @@ def _load_state() -> bool:
                 globals()["_next_work_id"] = _mx_work + 1
         except Exception as _we:
             _safe_print(f"[lumen-thinking] Work-ID self-heal omitido: {_we}")
+        # Budget self-heal (H2): una sesión persistida en el tope se rescata al arrancar.
+        # El presupuesto protege de un bucle dentro del proceso; persistido solo consigue
+        # que la sesión quede muda para siempre, incluso tras reiniciar el equipo. Las
+        # cadenas y el resto del estado NO se tocan: solo el contador vuelve a 0.
+        try:
+            _rescued = []
+            for _sid, _s in _sessions.items():
+                if _s.max_tool_calls and _s.tool_calls >= _s.max_tool_calls:
+                    _rescued.append(f"{_sid}({_s.tool_calls}/{_s.max_tool_calls})")
+                    _s.tool_calls = 0
+                _s.max_tool_calls = _budget_default()
+            if _rescued:
+                _safe_print(f"[lumen-thinking] Budget self-heal: contador a 0 en "
+                            f"{len(_rescued)} sesion(es) al tope -> {', '.join(_rescued)}")
+        except Exception as _be:
+            _safe_print(f"[lumen-thinking] Budget self-heal omitido: {_be}")
         return True
 
     _safe_print("[lumen-thinking] No saved state found — starting fresh.")
@@ -1222,7 +1284,8 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "label": {"type": "string", "description": "Human-friendly session label (e.g. 'agent-a', 'code-review')"},
-                "session_id": {"type": "string", "description": "Existing session ID to resume. Creates a new one if omitted."}
+                "session_id": {"type": "string", "description": "Existing session ID to resume. Creates a new one if omitted."},
+                "max_calls": {"type": "integer", "description": "Tool-call budget for this session (default: LUMEN_THINKING_MAX_CALLS or 100). Read-only tools never count against it.", "minimum": 1}
             }
         }
     },
@@ -2782,16 +2845,24 @@ def tool_session_init(args: dict) -> dict:
     global _next_session_num
     label = args.get("label", "")
     sid = args.get("session_id")
+    # H2: tope por sesión; sin argumento, el del entorno (o el default).
+    try:
+        req_max = int(args.get("max_calls") or 0)
+    except (TypeError, ValueError):
+        req_max = 0
+    max_calls = req_max if req_max > 0 else _budget_default()
 
     if sid and sid in _sessions:
         session = _sessions[sid]
         action = "resumed"
+        session.max_tool_calls = max_calls
     else:
         if not sid:
             sid = f"session_{_next_session_num}"
             _next_session_num += 1
         _sessions[sid] = Session(label=label or sid)
         session = _sessions[sid]
+        session.max_tool_calls = max_calls
         action = "created"
 
     return {"content": [{"type": "text", "text": (
@@ -2801,6 +2872,7 @@ def tool_session_init(args: dict) -> dict:
         f"   Assumptions: {len(session.assumptions)}\n"
         f"   Model files: {len(session.model)}\n"
         f"   Works: {len(session.works)}\n"
+        f"   Budget: {session.tool_calls}/{session.max_tool_calls} tool calls\n"
         f"   Use session_id='{sid}' in subsequent tool calls to keep state isolated."
     )}]}
 
@@ -3671,6 +3743,12 @@ def tool_session_end(args: dict) -> dict:
     _save_state()
     lines.append(f"  State snapshot saved.")
 
+    # H2: cerrar sesión libera el presupuesto. Sin esto, una sesión que terminó
+    # limpia seguía contando y moría en la siguiente ronda de trabajo.
+    usado, tope = session.tool_calls, session.max_tool_calls
+    session.tool_calls = 0
+    lines.append(f"  Budget reset: {usado}/{tope} → 0/{tope} tool calls.")
+
     summary = f" Session End: {warnings} item(s) need attention" if warnings else " Session End: clean"
     lines.insert(0, summary)
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
@@ -3934,11 +4012,18 @@ def handle_message(msg: dict) -> None:
         if handler:
             try:
                 # ── Budget check: prevent runaway tool loops ──
+                # Las tools de solo lectura nunca se bloquean: si se quedan mudas,
+                # el agente no puede ni diagnosticar por qué está bloqueado.
                 sid = tool_args.get("session_id", _DEFAULT_SESSION)
                 sess = _sessions.get(sid)
                 budget_msg = ""
-                if sess and sess.tool_calls >= sess.max_tool_calls:
-                    send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32001, "message": f"Budget exceeded: {sess.tool_calls}/{sess.max_tool_calls} tool calls. Session limit reached."}})
+                if sess and tool_name not in _READONLY_TOOLS and sess.tool_calls >= sess.max_tool_calls:
+                    send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32001, "message": (
+                        f"Budget exceeded: {sess.tool_calls}/{sess.max_tool_calls} tool calls "
+                        f"en la sesión '{sid}'. Salidas: (1) session_init(label=...) para una "
+                        f"sesión nueva, (2) session_end(session_id='{sid}') para resetear el "
+                        f"contador, (3) arrancar el server con LUMEN_THINKING_MAX_CALLS=<n>. "
+                        f"Las tools de solo lectura siguen disponibles.")}})
                     return
                 elif sess and sess.tool_calls >= sess.max_tool_calls * 0.95:
                     budget_msg = f"\n[BUDGET CRITICAL: {sess.tool_calls}/{sess.max_tool_calls} tools used. Reduce calls immediately or restart session.]"
