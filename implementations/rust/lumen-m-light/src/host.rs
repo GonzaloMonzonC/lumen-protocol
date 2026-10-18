@@ -1208,8 +1208,14 @@ impl FiberBgPool {
     }
 
     /// Variante sin LMDB (builds sin la feature): el job siempre corre en copia.
+    ///
+    /// La firma es IDENTICA a la variante con feature, incluido el quinto
+    /// argumento, porque el llamador (host.rs:3512) se lo pasa siempre. Antes
+    /// esta variante tenia 4 parametros y el build por defecto no compilaba
+    /// (E0061). El tipo viene del alias `LmdbStoreRef`, que existe con y sin
+    /// la feature.
     #[cfg(not(feature = "lmdb"))]
-    pub fn spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>) -> u64 {
+    pub fn spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], api_keys: &HashMap<String, String>, _lmdb_store: crate::LmdbStoreRef<'_>) -> u64 {
         self.spawn_inner(source, globals, routines, api_keys)
     }
 

@@ -12,6 +12,16 @@ pub mod ffi;
 pub mod host;
 #[cfg(feature = "lmdb")]
 pub mod lmdb_store;
+/// Alias estable del store LMDB para las firmas de `spawn`.
+///
+/// Las dos variantes de `FiberBgPool::spawn` (con y sin la feature `lmdb`) deben
+/// tener la MISMA firma, porque el unico llamador (host.rs:3512) pasa siempre el
+/// quinto argumento. Sin este alias, la variante sin feature no podia nombrar el
+/// tipo (`crate::lmdb_store` no existe) y el build por defecto fallaba con E0061.
+#[cfg(feature = "lmdb")]
+pub type LmdbStoreRef<'a> = Option<&'a lmdb_store::LmdbStore>;
+#[cfg(not(feature = "lmdb"))]
+pub type LmdbStoreRef<'a> = Option<&'a ()>;
 pub mod smith;
 #[cfg(feature = "ssh")]
 pub mod ssh;
