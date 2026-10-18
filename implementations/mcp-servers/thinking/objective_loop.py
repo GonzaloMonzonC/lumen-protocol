@@ -381,6 +381,11 @@ def tool_objective_status(args: dict) -> dict:
 
 
 
+def _checklist_session(args: dict) -> str:
+    """Session de la checklist: session_id gana, 'session' queda como alias legacy."""
+    return args.get("session_id") or args.get("session") or "default"
+
+
 def tool_checklist(args: dict) -> dict:
     """Pilot checklist: retrieve, mark, or check status of task-type checklists."""
     action = args.get("action", "get")
@@ -404,7 +409,7 @@ def tool_checklist(args: dict) -> dict:
             items = _j.loads(rows[0][0])
 
             # Get session usage
-            session_id = args.get("session", "default")
+            session_id = _checklist_session(args)
             used_rows = conn.execute(
                 "SELECT subkey FROM _globals WHERE ns='CHECKLIST' AND subkey LIKE ?",
                 (f'session:{session_id}:{task_type}:%',)).fetchall()
@@ -434,7 +439,7 @@ def tool_checklist(args: dict) -> dict:
             if not item_tool:
                 conn.close()
                 return {"content": [{"type": "text", "text": "tool required for mark action."}]}
-            session_id = args.get("session", "default")
+            session_id = _checklist_session(args)
             subkey = f'session:{session_id}:{task_type}:{item_tool}:{int(_t.time())}'
             conn.execute("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)",
                         ('CHECKLIST', subkey.encode(), _j.dumps({"tool": item_tool, "ts": _t.time()}).encode()))
@@ -443,7 +448,7 @@ def tool_checklist(args: dict) -> dict:
             return {"content": [{"type": "text", "text": f'Marked {item_tool} as done for {task_type}.'}]}
 
         elif action == "status":
-            session_id = args.get("session", "default")
+            session_id = _checklist_session(args)
             rows = conn.execute(
                 "SELECT subkey FROM _globals WHERE ns='CHECKLIST' AND subkey LIKE ? ORDER BY subkey",
                 (f'session:{session_id}:%',)).fetchall()
@@ -628,7 +633,8 @@ OBJECTIVE_SCHEMAS = [
                 "action": {"type": "string", "enum": ["get", "mark", "status"], "description": "get, mark, or status"},
                 "task_type": {"type": "string", "description": "Task type: bug_fix, feature, research, audit"},
                 "tool": {"type": "string", "description": "Tool name to mark as done (for action=mark)"},
-                "session": {"type": "string", "description": "Session identifier (default: default)"}
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default'). Preferred over the legacy 'session' alias."},
+                "session": {"type": "string", "description": "DEPRECATED alias of session_id (default: default)"}
             },
             "required": ["action"]
         }
