@@ -942,6 +942,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "thought": {"type": "string", "description": "The current thinking step"},
                 "nextThoughtNeeded": {"type": "boolean", "description": "Whether another thought step is needed after this one"},
                 "thoughtNumber": {"type": "integer", "description": "Current thought number (1-based). Auto-generated if not provided.", "minimum": 1},
@@ -964,6 +965,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain ID to search in"},
                 "thought": {"type": "string", "description": "Thought to find similar matches for"},
                 "topN": {"type": "integer", "description": "Number of similar thoughts to return (default: 3)", "default": 3, "maximum": 10},
@@ -978,6 +980,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain ID to check"},
                 "thought": {"type": "string", "description": "Thought to check for contradictions against"}
             },
@@ -990,6 +993,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain ID to summarize"},
                 "maxClusters": {"type": "integer", "description": "Max number of theme clusters (default: 5)", "default": 5, "maximum": 10}
             },
@@ -1002,6 +1006,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain ID to convert into a plan"},
                 "format": {"type": "string", "enum": ["markdown", "json"], "description": "Output format (default: markdown)", "default": "markdown"}
             },
@@ -1014,6 +1019,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain ID containing the thought"},
                 "thoughtNumber": {"type": "integer", "description": "Thought number to evaluate", "minimum": 1}
             },
@@ -1026,6 +1032,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "thought": {"type": "string", "description": "Thought to find cross-chain connections for"},
                 "topN": {"type": "integer", "description": "Max cross-chain connections (default: 3)", "default": 3, "maximum": 5}
             }
@@ -1037,6 +1044,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "statement": {"type": "string", "description": "The assumption you are making (e.g. 'the bug is in auth.py')"},
                 "category": {"type": "string", "description": "Category: 'bug_location', 'user_env', 'dependency', 'performance', 'security', 'design', 'other'", "default": "other"},
                 "confidence_note": {"type": "string", "description": "Why you think this might be true (e.g. 'based on error trace', 'user mentioned Windows')"}
@@ -1050,6 +1058,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "status": {"type": "string", "enum": ["all", "unverified", "confirmed", "refuted"], "description": "Filter by status (default: unverified)", "default": "unverified"},
                 "category": {"type": "string", "description": "Filter by category"}
             }
@@ -1061,6 +1070,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "assumption_id": {"type": "integer", "description": "ID of the assumption to check"},
                 "outcome": {"type": "string", "enum": ["confirmed", "refuted"], "description": "Was the assumption correct?"},
                 "evidence": {"type": "string", "description": "What evidence confirmed or refuted it"}
@@ -1074,6 +1084,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "path": {"type": "string", "description": "File or directory path (relative to project root)"},
                 "role": {"type": "string", "description": "What this file does: 'authentication', 'database', 'config', 'api', 'model', 'test', 'util', 'entry_point', 'other'"},
                 "deps": {"type": "array", "items": {"type": "string"}, "description": "List of files this depends on"},
@@ -1088,6 +1099,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "query": {"type": "string", "description": "What to ask: 'deps of <path>', 'dependents of <path>', 'role=<role>', 'impact of <path>', 'all'"},
                 "target": {"type": "string", "description": "File path or role name to query about"}
             },
@@ -1099,7 +1111,9 @@ TOOLS = [
         "description": "Get statistics about the project mental model: how many files are mapped, what roles exist, dependency density.",
         "inputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"}
+            }
         }
     },
     {
@@ -1108,6 +1122,8 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "root_path": {"type": "string", "description": "Root directory to start the map from (default: project root)", "default": "."},
                 "max_depth": {"type": "integer", "description": "Max depth to show (default: 3)", "default": 3, "maximum": 5}
             }
@@ -1119,6 +1135,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "path": {"type": "string", "description": "File path to remove from the model"}
             },
             "required": ["path"]
@@ -1130,6 +1147,7 @@ TOOLS = [
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                     "root_dir": {"type": "string", "description": "Directory to scan (default: current working directory)", "default": "."},
                     "max_depth": {"type": "integer", "description": "Max directory depth (default: 2, max: 4)", "default": 2, "maximum": 4},
                     "file_glob": {"type": "string", "description": "File pattern to match (default: '*.py')", "default": "*.py"},
@@ -1166,6 +1184,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "item": {"type": "string", "description": "What you're working on (e.g. 'fix auth bug #42')"},
                 "category": {"type": "string", "description": "Category: 'bug', 'feature', 'refactor', 'docs', 'review', 'other'", "default": "other"}
             },
@@ -1178,6 +1197,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "work_id": {"type": "integer", "description": "ID of the work item to mark as blocked"},
                 "reason": {"type": "string", "description": "Why it's blocked (e.g. 'waiting for PR review from Nous')"}
             },
@@ -1190,6 +1210,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "work_id": {"type": "integer", "description": "ID of the work item to mark as done"},
                 "result": {"type": "string", "description": "What was the outcome? (e.g. 'PR merged', 'bug fixed in commit abc123')"}
             },
@@ -1202,6 +1223,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "status": {"type": "string", "enum": ["all", "in_progress", "blocked", "done"], "description": "Filter by status (default: all)", "default": "all"},
                 "limit": {"type": "integer", "description": "Max items to show (default: 20)", "default": 20}
             }
@@ -1212,7 +1234,9 @@ TOOLS = [
         "description": "Estimate how much context is being used and suggest what to externalize. Based on session activity: tool call count, response sizes, task complexity. Does NOT measure actual tokens — this is a heuristic. Helps the agent be proactive about offloading before context compression hits.",
         "inputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"}
+            }
         }
     },
     {
@@ -1221,6 +1245,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "label": {"type": "string", "description": "Human-friendly session label (e.g. 'agent-a', 'code-review')"},
                 "session_id": {"type": "string", "description": "Existing session ID to resume. Creates a new one if omitted."}
             }
@@ -1231,7 +1256,9 @@ TOOLS = [
         "description": "List all active sessions with their stats (chains, assumptions, model size, tool calls).",
         "inputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"}
+            }
         }
     },
     {
@@ -1240,6 +1267,8 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "to_session": {"type": "string", "description": "Target session ID or label to send message to"},
                 "content": {"type": "string", "description": "Message content to send"},
                 "priority": {"type": "string", "description": "Message priority: 'normal', 'high', 'urgent'", "default": "normal"}
@@ -1253,6 +1282,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "limit": {"type": "integer", "description": "Max messages to return (default: 20, max: 50)", "default": 20},
                 "unread_only": {"type": "boolean", "description": "Only return unread messages", "default": False}
             }
@@ -1264,6 +1294,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "window_seconds": {"type": "integer", "description": "Time window in seconds (default: 300)", "default": 300}
             }
         }
@@ -1274,6 +1305,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "pattern_name": {"type": "string", "description": "Short name (e.g. 'null-check-in-async-callback')"},
                 "description": {"type": "string", "description": "What the pattern looks like and why it's a problem"},
                 "code_snippet": {"type": "string", "description": "Example code showing the pattern (optional)"},
@@ -1290,6 +1322,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "description": {"type": "string", "description": "Problem description or code snippet to match against patterns"},
                 "category": {"type": "string", "description": "Filter by category"},
                 "min_score": {"type": "number", "description": "Minimum similarity score 0-1 (default: 0.1)", "default": 0.1},
@@ -1304,6 +1337,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "decision": {"type": "string", "description": "What was decided (e.g. 'Use SQLite instead of PostgreSQL for local cache')"},
                 "rationale": {"type": "string", "description": "Why this decision (e.g. 'Zero setup for users, no Docker dependency')"},
                 "alternatives": {"type": "array", "items": {"type": "string"}, "description": "Alternatives considered and why rejected"},
@@ -1320,6 +1354,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "category": {"type": "string", "description": "Filter by category"}
             }
         }
@@ -1335,6 +1370,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain to compress"},
                 "targetThoughts": {"type": "integer", "default": 3, "maximum": 10}
             },
@@ -1347,6 +1383,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "chainId": {"type": "string", "description": "Chain to diff"},
                 "from": {"type": "integer", "default": 1},
                 "to": {"type": "integer"}
@@ -1360,6 +1397,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "key": {"type": "string", "description": "Cache key"},
                 "value": {"type": "string", "description": "Value to cache (SET mode)"},
                 "ttl": {"type": "integer", "default": 300}
@@ -1384,6 +1422,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "title": {"type": "string", "description": "Wiki page title"},
                 "content": {"type": "string", "description": "Markdown content"},
                 "author": {"type": "string", "description": "Author identifier (default: agent)"}
@@ -1397,6 +1436,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "title": {"type": "string", "description": "Wiki page title to read"}
             },
             "required": ["title"]
@@ -1408,6 +1448,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "title": {"type": "string", "description": "Wiki page title"},
                 "content": {"type": "string", "description": "Content to write or append"},
                 "mode": {"type": "string", "enum": ["replace", "append"], "description": "Replace full content or append (default: replace)"},
@@ -1422,6 +1463,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "title": {"type": "string", "description": "Wiki page title to delete"}
             },
             "required": ["title"]
@@ -1432,7 +1474,9 @@ TOOLS = [
         "description": "List all wiki pages with metadata (chars, author, last update).",
         "inputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"}
+            }
         }
     },
     {
@@ -1441,6 +1485,8 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
+                "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"},
                 "mood": {
                     "type": "string",
                     "enum": ["focused", "frustrated", "stuck", "tired", "confident", "curious", "overwhelmed", "neutral"],
