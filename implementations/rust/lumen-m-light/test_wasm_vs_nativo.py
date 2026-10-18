@@ -30,6 +30,26 @@ import lumen_mlight as L  # noqa: E402
 from digest_canonico import digest_de_globals  # noqa: E402
 
 WASM_SCRIPT = os.path.join(_MVM, "wasm_digest.mjs")
+PKG_JS = os.path.join(_MVM, "pkg", "lumen_mlight.js")
+
+
+def _pkg_construido() -> str | None:
+    """Comprueba que el paquete wasm existe ANTES de comparar nada.
+
+    Sin esto, cada caso acaba en ERR_MODULE_NOT_FOUND y el test lo cuenta como
+    "digest distinto": reporta 11 divergencias de determinismo cuando el
+    problema real es que no se construyó `pkg/`. Un falso rojo que asusta y
+    desinforma (el mensaje llegaba a decir "WASM y nativo NO son
+    intercambiables", que es falso).
+
+    Devuelve None si está todo, o el motivo si falta algo.
+    """
+    if not os.path.exists(WASM_SCRIPT):
+        return f"falta {os.path.basename(WASM_SCRIPT)}"
+    if not os.path.exists(PKG_JS):
+        return ("pkg/ no construido (falta pkg/lumen_mlight.js). "
+                "Ejecuta: bash scripts/build_wasm.sh")
+    return None
 
 
 def nativo(prog):
@@ -71,16 +91,28 @@ CASOS = [
 
 def main():
     print(f"repo: {_REPO}\n")
+
+    # Antes de comparar: ¿está el paquete wasm? Sin esto se reportan 11
+    # "divergencias de determinismo" que en realidad son un módulo ausente.
+    falta = _pkg_construido()
+    if falta:
+        print(f"NO EJECUTABLE: {falta}")
+        print("Esto NO es una divergencia de determinismo: falta el artefacto.")
+        sys.exit(2)
+
     print(f"{'caso':<20} {'nativo':<18} {'wasm':<18} {'globals':<9} veredicto")
     print("-" * 78)
 
     fallos = []
+    errores = []
     for nombre, prog in CASOS:
         dn, nn = nativo(prog)
         dw, nw, err = wasm(prog)
         if err:
             print(f"{nombre:<20} {dn[:16]:<18} {'ERROR':<18} {'-':<9} {err[:30]}")
-            fallos.append(nombre)
+            # ERROR de ejecución != digest distinto: se separan para que el
+            # mensaje final diga la verdad (antes ambos contaban como divergir)
+            errores.append(nombre)
             continue
         igual = dn == dw
         ng = f"{nn}/{nw}"
@@ -89,9 +121,14 @@ def main():
             fallos.append(nombre)
 
     print()
+    if errores:
+        print(f"ERROR DE EJECUCIÓN en {len(errores)} caso(s): {', '.join(errores)}")
+        print("       No es un problema de determinismo: el wasm no llegó a ejecutar.")
+        print("       Revisa que pkg/ esté al día para el wasm compilado.")
     if fallos:
-        print(f"FALLO: {len(fallos)} caso(s) divergen -> {', '.join(fallos)}")
+        print(f"FALLO: {len(fallos)} caso(s) con digest DISTINTO -> {', '.join(fallos)}")
         print("       WASM y nativo NO son intercambiables en esos casos.")
+    if errores or fallos:
         sys.exit(1)
     print(f"PASS: {len(CASOS)} casos, WASM y nativo dan el MISMO digest")
     print("      -> 'un solo codigo cliente y servidor' se sostiene en estos casos")

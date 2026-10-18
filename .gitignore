@@ -65,6 +65,7 @@ scripts/*
 # ...except the official Hermes MCP setup scripts
 !scripts/setup_hermes_mcp.sh
 !scripts/setup_hermes_mcp.bat
+!scripts/build_wasm.sh
 *.tgz
 *.tmp
 
@@ -133,3 +134,6 @@ build-iso-i686/
 # Pruebas de anclaje OpenTimestamps generadas en runtime
 implementations/rust/lumen-m-light/ots/
 anclajes.jsonl
+
+# Paquete wasm generado por scripts/build_wasm.sh (artefacto de build)
+implementations/rust/lumen-m-light/pkg/
