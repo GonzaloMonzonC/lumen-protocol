@@ -33,6 +33,14 @@ implementations/php/bench_*.txt
 # Work log (runtime artifact)
 implementations/mcp-servers/thinking/.work_log.json
 implementations/mcp-servers/thinking/.thinking_state.json
+# Estado de ejecucion del thinking server: NUNCA al repo.
+# - .thinking_state.<pid>.json lo escribe cada proceso (H7)
+# - .thinking-latest.json es el snapshot que lee el dashboard
+# - .thinking_state.owner es el lock de PID
+# Los tests dejaban ficheros con el PID del proceso y acabaron trackeados.
+implementations/mcp-servers/thinking/.thinking_state.*.json
+implementations/mcp-servers/thinking/.thinking-latest.json
+implementations/mcp-servers/thinking/.thinking_state.owner
 
 .vscode/
 .idea/
