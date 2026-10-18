@@ -129,3 +129,7 @@ implementations/rust/lumen-m-light/target-mcp/
 # No es codigo del producto: nadie que clone el repo lo necesita y publicaba la
 # topologia de la red interna. Los generadores viven fuera o se documentan.
 build-iso-i686/
+
+# Pruebas de anclaje OpenTimestamps generadas en runtime
+implementations/rust/lumen-m-light/ots/
+anclajes.jsonl

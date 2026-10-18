@@ -103,6 +103,21 @@ def sellar_epoch(pdb, ns: str, publicar: str = "fichero",
             f.write(json.dumps(sello, sort_keys=True, ensure_ascii=False) + "\n")
         publicado = True
         sello["publicado_en"] = str(ruta)
+    elif publicar == "ots":
+        # Anclaje REAL en Bitcoin via OpenTimestamps (sin el cliente `ots`,
+        # que no funciona en Windows). Ver publicar_ots.py.
+        try:
+            from publicar_ots import sellar_en_ots
+            ancla = sellar_en_ots(e["root"])
+            sello["ots"] = ancla
+            if ancla.get("ok"):
+                publicado = True
+                sello["publicado_en"] = ancla.get("calendar")
+                # dejar tambien constancia en la PDB
+                pdb.tool_set({"ns": "AUDIT", "subs": [ns, epoch, "ots_digest"],
+                              "value": ancla["digest"]})
+        except Exception as ex:
+            sello["ots_error"] = f"{type(ex).__name__}: {str(ex)[:120]}"
     elif publicar == "http" and url:
         # gancho: cada comprador pide su log de transparencia
         sello["publicado_en"] = url
