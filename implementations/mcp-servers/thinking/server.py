@@ -484,10 +484,16 @@ def _pdb_save_all() -> None:
             conn.execute("DELETE FROM _globals WHERE ns='KANBAN'")
             k_pairs = []
             # Compute stats
-            by_status = {"backlog": 0, "in_progress": 0, "done": 0}
+            # FIX 04-10-2026: los status reales son nombres de columna CON ESPACIO
+            # ("in progress", "review"). Sembrando claves snake_case, el .get(s,0)+1
+            # de mas abajo creaba claves nuevas y by_status["in_progress"] jamas se
+            # incrementaba -> el meta ^KANBAN publicaba in_progress=0 para siempre
+            # (7 tareas invisibles: 4 in progress + 3 review; 18 dias de desync con
+            # Zalo). Se siembra "review" y se normaliza con .replace(" ","_").
+            by_status = {"backlog": 0, "in_progress": 0, "done": 0, "review": 0}
             by_priority = {"critical": 0, "high": 0, "medium": 0, "low": 0}
             for ttid, tt in _tasks.items():
-                s = tt.get("status", "backlog")
+                s = (tt.get("status") or "backlog").replace(" ", "_")  # FIX 04-10-2026: "in progress" -> in_progress
                 by_status[s] = by_status.get(s, 0) + 1
                 p = tt.get("priority", "medium")
                 by_priority[p] = by_priority.get(p, 0) + 1
@@ -495,6 +501,7 @@ def _pdb_save_all() -> None:
             meta_kanban = {"total": len(_tasks), "niches": len(_niches),
                            "done": by_status.get("done", 0), "backlog": by_status.get("backlog", 0),
                            "in_progress": by_status.get("in_progress", 0),
+                           "review": by_status.get("review", 0),  # FIX 04-10-2026: nunca se publicaba
                            "critical": by_priority.get("critical", 0), "high": by_priority.get("high", 0),
                            "medium": by_priority.get("medium", 0), "low": by_priority.get("low", 0),
                            "saved_at": time.time()}
