@@ -885,7 +885,7 @@ def encode_subkey(subs: list) -> bytes:
         elif sub == "":  # empty string — encode as zero-length string,
             parts.append(b'\x02\xff')  # not as \x00 sentinel which breaks $ORDER
         elif isinstance(sub, (int, float)):
-            parts.append(b'\x01' + _double_to_sortable(float(sub)) + b'\xff')
+            parts.append(_encode_numeric(sub))
         elif isinstance(sub, str):
             data = sub.encode('utf-8')
             parts.append(b'\x02' + data + b'\xff')
@@ -911,7 +911,7 @@ def decode_subkey(blob: bytes) -> list:
         if typ == 0x00:  # null sentinel (backward compat)
             subs.append(None)
             break  # sentinel is always last
-        elif typ == 0x01:  # numeric — DOS codificaciones conviven en la PDB
+        elif typ == 0x01:  # numeric — DOS o TRES codificaciones conviven en la PDB
             # (a) LEGACY ASCII: 0x01 + digitos ASCII + 0xff.  Ej: 01 31 ff -> 1
             #     Escrito por herramientas antiguas. Si se leyera como f64 de 8
             #     bytes el cursor se DESALINEA y acaba leyendo una letra como
@@ -924,16 +924,27 @@ def decode_subkey(blob: bytes) -> list:
                 subs.append(float(txt) if ('.' in txt or 'e' in txt.lower()) else int(txt))
                 i = j + 1
             else:
-                # (b) CANONICO: f64 big-endian 8 bytes (+ 0xff opcional)
+                # (b) CRUDO: f64 big-endian sin transformar (motor Rust).
+                #     L-02/L-07: antes se decodificaba como SORTABLE y cada lado
+                #     leia mal los bytes del otro: 1.0 -> -3.9999..., 0.0 -> nan,
+                #     y pdb_get devolvia found:false sobre datos que existian.
                 #     OJO: un f64 legitimo PUEDE contener 0xff en sus bytes, asi
                 #     que no se puede usar "contiene 0xff" como heuristica.
                 if i + 8 > n:
                     subs.append(None)  # truncado: no hay mas datos utiles
                     break
-                subs.append(_sortable_to_double(blob[i:i + 8]))
+                subs.append(_decode_numeric(SUBKEY_NUMERIC_RAW, blob[i:i + 8]))
                 i += 8
                 if i < n and blob[i] == 0xff:
                     i += 1  # separador/terminador
+        elif typ == 0x03:  # numeric SORTABLE (discriminante explicito, Opcion D)
+            if i + 8 > n:
+                subs.append(None)
+                break
+            subs.append(_decode_numeric(SUBKEY_NUMERIC_SORTABLE, blob[i:i + 8]))
+            i += 8
+            if i < n and blob[i] == 0xff:
+                i += 1
         elif typ == 0x02:  # string
             end = blob.find(b'\xff', i)
             if end == -1:
@@ -998,6 +1009,58 @@ def _sortable_to_double(data: bytes) -> float:
     else:  # original was negative
         raw = bytes(b ^ 0xFF for b in data)
     return struct.unpack('>d', raw)[0]
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Formato canonico de subkey numerico (L-02 / L-07) — Opcion D
+# ───────────────────────────────────────────────────────────────────────────
+# Hay DOS convenciones incompatibles para los 8 bytes de un f64:
+#
+#   0x01 = CRUDO (raw IEEE big-endian). Lo escribe el motor Rust.
+#          `f64::to_be_bytes` / `f64::from_be_bytes`.  1.0 = 3F F0 00...
+#   0x03 = SORTABLE (flip del bit de signo). Lo escribe este modulo.
+#          Ordena bien por memcmp, negativos incluidos. 1.0 = BF F0 00...
+#
+# El byte de tipo ES el discriminante: no hay que adivinar. Un lector que ve
+# 0x01 sabe que son 8 bytes crudos; si ve 0x03, sortables.
+#
+# Por que 0x01 = crudo y no al reves: el censo de produccion (L13,
+# 18-oct-2026) da 26.275 subkeys numericos, TODOS crudos, y CERO sortables.
+# Asi 0x01 sigue significando lo que ya significa en disco -> coste de
+# migracion CERO. Los datos existentes no se tocan.
+#
+# Por que no se deja 0x01 = sortable como estaba: el motor y el MCP se leian
+# mal entre si y el fallo era MUDO (`found:false` en pdb_get, `nan` y
+# `-3.9999...` en el pull). Con discriminante, un lector ya no puede
+# equivocarse de convencion: la lee del byte.
+#
+# Escritura por defecto: SUBKEY_NUMERIC_FORMAT (env), 'raw' o 'sortable'.
+# Default 'raw' porque es lo que el motor lee (el unico lado hoy consistente)
+# y lo que hay en produccion.
+
+SUBKEY_NUMERIC_RAW = 0x01
+SUBKEY_NUMERIC_SORTABLE = 0x03
+
+
+def _numeric_format() -> str:
+    """Formato de escritura para numericos nuevos: 'raw' (default) o 'sortable'."""
+    v = (os.environ.get("SUBKEY_NUMERIC_FORMAT", "") or "").strip().lower()
+    return "sortable" if v == "sortable" else "raw"
+
+
+def _encode_numeric(value: float, fmt: str | None = None) -> bytes:
+    """Codifica un numerico con el discriminante explicito."""
+    fmt = fmt or _numeric_format()
+    if fmt == "sortable":
+        return bytes([SUBKEY_NUMERIC_SORTABLE]) + _double_to_sortable(float(value)) + b'\xff'
+    return bytes([SUBKEY_NUMERIC_RAW]) + struct.pack('>d', float(value)) + b'\xff'
+
+
+def _decode_numeric(typ: int, payload: bytes) -> float:
+    """Decodifica 8 bytes segun el byte de tipo. Sin heuristica, sin adivinar."""
+    if typ == SUBKEY_NUMERIC_SORTABLE:
+        return _sortable_to_double(payload)
+    return struct.unpack('>d', payload)[0]
 
 # ---------------------------------------------------------------------------
 # Value encoding — store as JSON text for SQL compatibility
