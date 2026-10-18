@@ -114,14 +114,10 @@ implementations/rust/lumen-m-light/target-mcp/
 # Imágenes de arranque (LUMEN OS) — artefactos de build, nunca al repo OSS.
 # Se generan con build-iso-i686/build_iso_i686.py; el árbol entero es local.
 *.iso
-build-iso-i686/initramfs*/
 *.cpio*
-# Scripts de captura/config de dispositivos de la LAN: llevan IPs privadas
-# (192.168.x.x) de hardware real. El directorio tiene 3 ficheros trackeados
-# que son generadores puros; el resto es operativo y no debe publicarse.
-build-iso-i686/arregla_*.py
-build-iso-i686/asocia_*.py
-build-iso-i686/asus_*.py
-build-iso-i686/cap_*.py
-build-iso-i686/*_cap.py
-build-iso-i686/*_cfg.py
+# El taller de build ENTERO queda fuera: 5.871 ficheros / 869 MB de artefactos
+# (modulos de kernel .ko, .rlib/.rmeta de Rust, simbolos .pdb, .c32 de firmware)
+# mas scripts operativos con IPs privadas de hardware real (192.168.x.x).
+# No es codigo del producto: nadie que clone el repo lo necesita y publicaba la
+# topologia de la red interna. Los generadores viven fuera o se documentan.
+build-iso-i686/

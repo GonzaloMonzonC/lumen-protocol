@@ -226,12 +226,14 @@ mod tests {
 
     #[test]
     fn con_config_localhost_y_lista() {
-        let h = host_with_allow("nasdedavid@TU-NAS, root@10.0.0.2");
+        // Hosts de ejemplo: el repo es publico y este test no debe publicar la
+        // topologia real de la red. La logica es la misma con cualquier nombre.
+        let h = host_with_allow("user@host.example, root@other.example");
         assert!(matches!(allow_state(&h, "nasdedavid@localhost"), AllowState::Ok));
         assert!(matches!(allow_state(&h, "user@127.0.0.1"), AllowState::Ok));
-        assert!(matches!(allow_state(&h, "nasdedavid@TU-NAS"), AllowState::Ok));
-        assert!(matches!(allow_state(&h, "root@10.0.0.2"), AllowState::Ok));
-        assert!(matches!(allow_state(&h, "root@10.0.0.3"), AllowState::Denied));
+        assert!(matches!(allow_state(&h, "alguien@host.example"), AllowState::Ok));
+        assert!(matches!(allow_state(&h, "root@other.example"), AllowState::Ok));
+        assert!(matches!(allow_state(&h, "root@not-listed.example"), AllowState::Denied));
     }
 
     #[test]
