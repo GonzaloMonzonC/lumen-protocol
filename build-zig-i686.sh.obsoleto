@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Cross-build lumen-mvm para i686 (32-bit) usando wrappers zig (cc/ar)
+# IMPORTANTE: paths en formato Windows (C:/...) — cc-rs no resuelve /c/...
+set -u
+cd /c/Users/gonzalo/Documents/GitHub/lumen-protocol || exit 1
+
+WRAP="C:/Users/gonzalo/Documents/GitHub/lumen-protocol/build-iso-i686"
+export ZIG_GLOBAL_CACHE_DIR="C:/Users/gonzalo/.zig-cache-global"
+export ZIG_LOCAL_CACHE_DIR="C:/tmp/ziglocal"
+
+export CC_i686_unknown_linux_musl="$WRAP/zigcc-i686.exe"
+export CXX_i686_unknown_linux_musl="$WRAP/zigcc-i686.exe"
+export AR_i686_unknown_linux_musl="$WRAP/zigar-i686.exe"
+export CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER="$WRAP/zigcc-i686.exe"
+
+echo "=== BUILD i686-unknown-linux-musl (zig wrap) ==="
+cargo build --release --target i686-unknown-linux-musl \
+  --manifest-path implementations/rust/lumen-mvm/Cargo.toml 2>&1 | tail -25
+
+echo "=== ARTEFACTOS i686 ==="
+ls -lh implementations/rust/lumen-mvm/target/i686-unknown-linux-musl/release/*.so \
+       implementations/rust/lumen-mvm/target/i686-unknown-linux-musl/release/*.rlib 2>/dev/null || echo "(sin .so/.rlib)"

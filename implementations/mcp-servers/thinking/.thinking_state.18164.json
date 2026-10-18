@@ -1,0 +1,95 @@
+{
+  "sessions": {
+    "default": {
+      "label": "default",
+      "chains": {},
+      "assumptions": [],
+      "next_assumption_id": 1,
+      "model": {},
+      "works": [],
+      "next_work_id": 1,
+      "patterns": [],
+      "next_pattern_id": 1,
+      "decisions": [],
+      "next_decision_id": 1,
+      "bridges": [],
+      "wiki": {},
+      "model_name": "",
+      "tool_calls": 1,
+      "created_at": 1792300502.814183,
+      "updated_at": 1792300502.814183,
+      "feeling": null
+    },
+    "sessB": {
+      "label": "B",
+      "chains": {
+        "chain_1_1792300502": {
+          "thoughts": [
+            {
+              "number": 1,
+              "thought": "cadena EXCLUSIVA de B",
+              "totalThoughts": 1,
+              "nextThoughtNeeded": false,
+              "isRevision": false,
+              "revisesThought": null,
+              "branchFromThought": null,
+              "branchId": null,
+              "timestamp": 1792300502.8314047,
+              "provenance": [],
+              "score": 3.0
+            }
+          ],
+          "created_at": 1792300502.8314047,
+          "updated_at": 1792300502.8314047,
+          "version": 2
+        }
+      },
+      "assumptions": [],
+      "next_assumption_id": 1,
+      "model": {},
+      "works": [],
+      "next_work_id": 1,
+      "patterns": [],
+      "next_pattern_id": 1,
+      "decisions": [],
+      "next_decision_id": 1,
+      "bridges": [],
+      "wiki": {},
+      "model_name": "",
+      "tool_calls": 3,
+      "created_at": 1792300502.830389,
+      "updated_at": 1792300502.8381116,
+      "feeling": null
+    }
+  },
+  "next_session_num": 1,
+  "preserved": [],
+  "timeline": [
+    {
+      "hour": 497861,
+      "ts": 1792300502.839109,
+      "calls": 4,
+      "delta": 4
+    }
+  ],
+  "presence": {
+    "default": {
+      "pid": 18164,
+      "last_seen": 1792300502.839109,
+      "tool_calls": 1,
+      "model": "unknown"
+    },
+    "sessB": {
+      "pid": 18164,
+      "last_seen": 1792300502.839109,
+      "tool_calls": 3,
+      "model": "unknown"
+    }
+  },
+  "niches": {},
+  "tasks": {},
+  "next_niche_id": 1,
+  "next_task_id": 1,
+  "pid": 18164,
+  "saved_at": 1792300502.839109
+}

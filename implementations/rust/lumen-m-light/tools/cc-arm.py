@@ -6,13 +6,13 @@
 #   2) cc-rs añade -march=armv7-a / -mcpu / -mfloat-abi / -mfpu -> zig tampoco los
 #      acepta así; el default del target es suficiente (el bench compiló sin ellos
 #      y corre en la DS216se). Se filtran.
-# Uso: CC_armv7_unknown_linux_musleabi="python C:/Users/gonzalo/lmdb-test/tools/cc-arm.py"
+# Uso: CC_armv7_unknown_linux_musleabi="python <repo>/tools/cc-arm.py"
 #      ZIGCC_TARGET opcional (default arm-linux-musleabi; p.ej. aarch64-linux-musl).
 import os
 import subprocess
 import sys
 
-ZIG = os.environ.get("ZIGCC_ZIG", r"C:/Users/gonzalo/tools/zig-x86_64-windows-0.16.0/zig.exe")
+ZIG = os.environ.get("ZIGCC_ZIG", os.path.expanduser("~/tools/zig/zig.exe"))
 TARGET = os.environ.get("ZIGCC_TARGET", "arm-linux-musleabi")
 
 out = []

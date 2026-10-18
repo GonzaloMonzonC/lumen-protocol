@@ -1,0 +1,18 @@
+=== BUILD mlight-so (cdylib) i686-unknown-linux-gnu ===
+warning: function `extract_sub_at_level` is never used
+    --> C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\host.rs:4087:4
+     |
+4087 | fn extract_sub_at_level(subkey: &[u8], level: usize) -> Option<Subscript> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `cut_after_range` is never used
+    --> C:\Users\gonzalo\Documents\GitHub\lumen-protocol\implementations\rust\lumen-m-light\src\vm.rs:3226:8
+     |
+3226 |     fn cut_after_range(arg: &str) -> (&str, &str) {
+     |        ^^^^^^^^^^^^^^^
+
+warning: `lumen-m-light` (lib) generated 29 warnings (run `cargo fix --lib -p lumen-m-light` to apply 24 suggestions)
+   Compiling mlight-so v0.1.0 (C:\Users\gonzalo\Documents\GitHub\lumen-protocol\build-iso-i686\mlight-so)
+    Finished `release` profile [optimized] target(s) in 1m 51s
+=== ARTEFACTO ===
+-rw-r--r-- 2 gonzalo 197121 4,6M oct.  2 00:58 build-iso-i686/mlight-so/target/i686-unknown-linux-gnu/release/liblumen_mlight.so

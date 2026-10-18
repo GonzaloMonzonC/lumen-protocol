@@ -41,7 +41,11 @@ G G1`);
 let _sessionGlobals = [];
 let _ddpGlobals = [];
 let _currentNS = "*";
-const BASE = "http://TU-HUB-ALT:8081";
+// Host del hub DDP. Configurable por query (?base=) o por el propio origen.
+// No se publica una IP interna en el repo: usa ?base=http://TU-HUB:8081
+const BASE = new URLSearchParams(location.search).get("base")
+          || localStorage.getItem("lumen_base")
+          || location.origin;
 
 // UI
 const out = document.getElementById("out");
