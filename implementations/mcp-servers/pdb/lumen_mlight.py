@@ -118,13 +118,28 @@ def execute(
     globals_: list[dict] | None = None,
     routines: dict | None = None,
     input_: list[str] | None = None,
-    gas_limit: int = 1000,
+    gas_limit: int | None = None,
+    gas_level: str | None = None,
     gas_budget: int = 0,
     slice_gas: int | None = None,
     llm_api_keys: dict[str, str] | None = None,
     sqlite_path: str | None = None,
     sandbox: bool = False,
 ) -> dict:
+    # Gas por NIVELES (ver gas.py). Dos preguntas separadas:
+    #   turno  = cuanto puede costar UN turno (el slice)  -> gas_limit
+    #   budget = cuanto la operacion ENTERA (0 = sin tope) -> gas_budget
+    # Asi un import de un millon de registros corre en muchos turnos sin agotar
+    # nada. Antes gas_limit era 1000 y a las ~250 escrituras cortaba, devolviendo
+    # execution="completed" con el estado a medias.
+    try:
+        from gas import resolver as _gas_resolver
+        _g = _gas_resolver(gas_level, gas_limit, gas_budget if gas_budget else None)
+        _gas_turno, _gas_turnos = _g["turno"], _g["turnos"]
+        _gas_budget, _gas_nivel = _g["budget"], _g["nivel"]
+    except Exception:
+        _gas_turno = gas_limit if gas_limit is not None else 10_000_000
+        _gas_turnos, _gas_budget, _gas_nivel = None, gas_budget, "normal"
     if llm_api_keys is None:
         import os as _os
         llm_api_keys = {}
@@ -141,8 +156,8 @@ def execute(
         "globals": globals_ or [],
         "routines": routines or {},
         "input": input_ or [],
-        "gas_limit": gas_limit,
-        "gas_budget": gas_budget,
+        "gas_limit": _gas_turno,
+        "gas_budget": _gas_budget,
         "llm_api_keys": llm_api_keys,
         "sqlite_path": sqlite_path,
         "sandbox": sandbox,
@@ -150,18 +165,45 @@ def execute(
     if slice_gas is not None:
         request["slice_gas"] = slice_gas
     response = _call("lm_execute_json", json.dumps(request, ensure_ascii=False))
-    # Auto-resume on yield: loop until completed or error
-    max_loops = 2400  # ~240s max (llm:call con prompts largos tarda más; el 504/503 del server venía de cortar a 60s; subido a 240s para modelos reasoning con system prompts largos)
+    # Auto-reanudacion: el motor devuelve `yielded` al agotar el TURNO (o al
+    # esperar un device). Se reanuda hasta terminar o hasta agotar los turnos
+    # del nivel. Esto es lo que permite operaciones de millones de registros:
+    # el coste no tiene que caber en un solo numero, se paga en turnos.
+    #
+    # El sleep de 0.1s solo tiene sentido cuando se espera un device (LLM); si
+    # es por gas, reanudar de inmediato es correcto y 100x mas rapido.
+    max_loops = _gas_turnos if _gas_turnos is not None else 10_000
     loop_count = 0
     import time as _time
-    while response.get("execution") == "yielded" and loop_count < max_loops:
+    while str(response.get("execution") or "") == "yielded" and loop_count < max_loops:
         loop_count += 1
-        _time.sleep(0.1)  # Give LLM thread time to resolve
-        request["state"] = response.get("state", {})
-        request["gas_limit"] = gas_limit
+        st = response.get("state") or {}
+        # ¿espera un device o es corte de gas? last_open_device != 0 -> device
+        if st.get("last_open_device"):
+            _time.sleep(0.1)  # dar tiempo al hilo del LLM
+        request["state"] = st
+        request["gas_limit"] = _gas_turno
+        if _gas_budget:
+            request["gas_budget"] = _gas_budget
         response = _call("lm_execute_json", json.dumps(request, ensure_ascii=False))
+        # tope total acumulado: si se paso, parar
+        if _gas_budget and (response.get("state") or {}).get("gas_used", 0) >= _gas_budget:
+            break
+    response["_turnos_usados"] = loop_count
     if not response.get("ok") and response.get("execution") != "error":
         raise RuntimeError(response.get("error", "Rust M-Light execution failed"))
+
+    # Nunca devolver "completed" con el estado a medias: el motor senala el
+    # agotamiento de gas con `yielded`, no con error. Si el consumidor no lo
+    # reanuda, el resultado se reporta como out_of_gas + globals_complete=False.
+    try:
+        from gas import clasificar_resultado as _gas_clasificar
+        response = _gas_clasificar(response)
+        response["gas_level"] = _gas_nivel
+        response["gas_limit"] = _gas_turno
+        response["gas_turnos_usados"] = loop_count
+    except Exception:
+        pass
     return response
 
 
