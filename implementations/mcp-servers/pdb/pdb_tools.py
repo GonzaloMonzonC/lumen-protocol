@@ -2590,15 +2590,53 @@ _EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 _EMBED_MATRIX = None  # numpy array cache
 _EMBED_HASHES = None  # list of hash strings
 _vec_initialized = False
+_VEC_STATUS = None  # dict cacheado de _init_vec(); None = aun no se ha intentado
 
 
-def _init_vec():
-    """One-time init of sqlite-vec extension and vec0 tables."""
-    global _vec_initialized
+def _safe_log(msg: str) -> None:
+    """Log a stderr. Nunca a stdout: stdout es el canal JSON-RPC del MCP."""
+    try:
+        import sys as _sys
+        print(msg, file=_sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def _vec_status() -> dict:
+    """Estado de disponibilidad del subsistema vectorial, cacheado.
+
+    'ready'        -> sqlite_vec cargado y tablas vec0 creadas
+    'no_sqlite_vec'-> falta el modulo sqlite_vec
+    'no_tables'    -> sqlite_vec esta pero las tablas vec0 no se pudieron crear
+    'error'        -> cualquier otro fallo (se guarda el mensaje)
+    """
+    global _VEC_STATUS
+    if _VEC_STATUS is None:
+        _VEC_STATUS = _init_vec()
+    return _VEC_STATUS
+
+
+def _init_vec() -> dict:
+    """Init de sqlite-vec y tablas vec0. Devuelve un status, nunca se lo traga.
+
+    H1: antes era `except Exception: pass  # graceful fallback`, que no era
+    gracioso: era un no-op invisible. Sin sqlite_vec no se creaban las tablas
+    vec0, y `pdb_vec_search` consultaba tablas inexistentes -> el error subia
+    como -32603 (error JSON-RPC) en vez de un resultado con success:false.
+    Un agente no puede degradar con elegancia ante un error de transporte.
+    """
+    global _vec_initialized, _VEC_STATUS
     if _vec_initialized:
-        return
+        return _VEC_STATUS or {"status": "ready", "reason": None, "detail": None}
     try:
         import sqlite_vec
+    except ImportError as e:
+        _VEC_STATUS = {"status": "no_sqlite_vec", "reason": "sqlite_vec_missing",
+                       "detail": f"{e}",
+                       "fix": "pip install sqlite-vec (extra [rag] de requirements-mcp.txt)"}
+        _safe_log(f"[pdb] RAG no disponible: falta sqlite_vec ({e})")
+        return _VEC_STATUS
+    try:
         c = _get_conn()
         c.enable_load_extension(True)
         sqlite_vec.load(c)
@@ -2618,8 +2656,13 @@ def _init_vec():
             source text +
         )""")
         _vec_initialized = True
-    except Exception:
-        pass  # graceful fallback if sqlite-vec not installed
+        _VEC_STATUS = {"status": "ready", "reason": None, "detail": None}
+        return _VEC_STATUS
+    except Exception as e:
+        _VEC_STATUS = {"status": "no_tables", "reason": "vec0_tables_failed",
+                       "detail": f"{type(e).__name__}: {e}"}
+        _safe_log(f"[pdb] RAG no disponible: no se pudieron crear las tablas vec0 ({e})")
+        return _VEC_STATUS
 
 def _get_embedder():
     global _EMBED_MODEL
@@ -2627,8 +2670,11 @@ def _get_embedder():
         try:
             from fastembed import TextEmbedding
             _EMBED_MODEL = TextEmbedding(_EMBED_MODEL_NAME)
-        except ImportError:
-            raise ImportError("fastembed not installed. Run: pip install fastembed")
+        except ImportError as e:
+            raise ImportError(
+                f"fastembed no instalado ({e}). "
+                f"Instala el extra RAG: pip install -r requirements-mcp.txt"
+            ) from e
     return _EMBED_MODEL
 
 def tool_embed(args: dict) -> dict:
@@ -2770,8 +2816,20 @@ def tool_vec_search(args: dict) -> dict:
     path = args.get("path", "")
     if not query:
         return {"success": False, "error": "query required"}
+
+    # H1: comprobar el subsistema ANTES de intentar, y devolver un resultado
+    # estructurado. Antes cualquier excepcion caia en `tool_embed_search`, que
+    # vuelve a llamar a _get_embedder() y lanza otra vez -> el error subia al
+    # cliente como -32603 (error JSON-RPC) en vez de success:false. Un agente
+    # no puede degradar con elegancia ante un error de transporte.
+    st = _vec_status()
+    if st["status"] != "ready":
+        return {"success": False, "reason": st["reason"], "error": st["detail"],
+                "fix": st.get("fix", "pip install -r requirements-mcp.txt"),
+                "hint": "Sin indice vectorial. Usa pdb_embed para indexar o "
+                        "pdb_fts_search para busqueda por texto."}
+
     try:
-        _init_vec()
         import math, json as _vj
         model = _get_embedder()
         q_emb = list(model.embed([query]))[0]
@@ -2814,9 +2872,13 @@ def tool_vec_search(args: dict) -> dict:
                 "source": r["source"],
             })
         return {"success": True, "results": results, "count": len(results)}
+    except ImportError as e:
+        # El embedder falta aunque sqlite_vec este: error del cliente, no del server.
+        return {"success": False, "reason": "fastembed_missing", "error": str(e),
+                "fix": "pip install -r requirements-mcp.txt"}
     except Exception as e:
-        # Fallback to numpy-based search
-        return tool_embed_search(args)
+        return {"success": False, "reason": "vec_search_failed",
+                "error": f"{type(e).__name__}: {e}"}
 
 
 
@@ -3208,8 +3270,17 @@ def tool_mvm_promote(args: dict) -> dict:
 
 TOOLS = [
     {
+        "name": "pdb_embed",
+        "description": "Index text(s) into the vector store (embeddings). The write half of the RAG pipeline: without it pdb_vec_search has nothing to return. Requires the [rag] extra (fastembed).",
+        "inputSchema": {"type": "object", "properties": {
+            "texts": {"type": "array", "items": {"type": "string"}, "description": "Texts to embed and store"},
+            "text": {"type": "string", "description": "Single text (alias of texts)"},
+            "source": {"type": "string", "description": "Provenance label for these texts"}
+        }}
+    },
+    {
         "name": "pdb_vec_search",
-        "description": "KNN vector search with hierarchical path filtering",
+        "description": "KNN vector search with hierarchical path filtering. Returns {success:false, reason} if the RAG subsystem is unavailable (never a JSON-RPC error). Index first with pdb_embed.",
         "inputSchema": {"type": "object", "properties": {
             "query": {"type": "string"},
             "limit": {"type": "integer", "default": 5},
