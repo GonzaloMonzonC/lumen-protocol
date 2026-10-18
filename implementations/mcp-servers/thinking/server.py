@@ -1424,7 +1424,17 @@ TOOLS = [
     },
     {
         "name": "state_snapshot",
-        "description": "Ultra-compact system health: returns chain count, thought count, avg score, pattern count, work count, and total tool calls in ONE line. No detail.",
+        "description": "Ultra-compact SESSION health (1 line): chains, thoughts, avg score, patterns, works, tool calls of THIS session only. Without session_id it reports the 'default' session. For the aggregate across all sessions use state_global.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID to report on (optional; default = 'default'). Never aggregates other sessions."}
+            }
+        }
+    },
+    {
+        "name": "state_global",
+        "description": "Ultra-compact GLOBAL health (1 line): aggregate across ALL sessions in the process — sessions, chains, thoughts, avg score, patterns, works, and the monotonic process-wide tool counter. Use when you need the whole picture, not your own session.",
         "inputSchema": {"type": "object", "properties": {}}
     },
     {
@@ -3311,27 +3321,37 @@ def tool_wiki_list(args: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def tool_state_snapshot(args: dict) -> dict:
-    """Ultra-compact system health: 1 line of output, all data in state file."""
-    total_thoughts = sum(len(c.get("thoughts", [])) for s in _sessions.values() for c in s.chains.values())
-    total_chains = sum(len(s.chains) for s in _sessions.values())
-    total_patterns = sum(len(s.patterns) for s in _sessions.values())
-    total_works = sum(len(s.works) for s in _sessions.values())
-    total_calls = _global_tool_calls  # monotonic counter, survives session pruning
-    scored = sum(1 for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score"))
-    avg_score = round(sum(t.get("score", 0) for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score")) / max(scored, 1), 1)
-    # Proactive: find works that have been active >30min
+    """Ultra-compact session health: 1 line, SOLO de esta sesión.
+
+    H4: antes sumaba todas las sesiones y usaba `_global_tool_calls` (contador
+    del proceso), así que un agente en una sesión vacía veía chains y llamadas
+    de otro. La tool se documenta como "system health" y se lee como salud
+    propia: en un server compartido el engaño era sistemático.
+    Sin `session_id` cuenta como 'default' (no agrega): para el agregado está
+    `state_global`.
+    """
+    session = _get_session(args.get("session_id"))
+    sid = args.get("session_id") or _DEFAULT_SESSION
+
+    total_thoughts = sum(len(c.get("thoughts", [])) for c in session.chains.values())
+    total_chains = len(session.chains)
+    total_patterns = len(session.patterns)
+    total_works = len(session.works)
+    total_calls = session.tool_calls
+    scored = sum(1 for c in session.chains.values() for t in c.get("thoughts", []) if t.get("score"))
+    avg_score = round(sum(t.get("score", 0) for c in session.chains.values() for t in c.get("thoughts", []) if t.get("score")) / max(scored, 1), 1)
+
+    # Proactive: works activos >30min
     now = time.time()
-    overdue_works = []
-    for s in _sessions.values():
-        for w in s.works:
-            if w["status"] == "in_progress" and w.get("started_at") and (now - w["started_at"]) > 1800:
-                overdue_works.append(w["item"])
-    # Proactive: suggest patterns based on chain keywords
+    overdue_works = [w["item"] for w in session.works
+                     if w.get("status") == "in_progress" and w.get("started_at")
+                     and (now - w["started_at"]) > 1800]
+
+    # Proactive: patrones sugeridos por keywords de esta sesión
     active_thoughts = []
-    for s in _sessions.values():
-        for c in s.chains.values():
-            for t in c.get("thoughts", [])[-3:]:
-                active_thoughts.append(t.get("thought", ""))
+    for c in session.chains.values():
+        for t in c.get("thoughts", [])[-3:]:
+            active_thoughts.append(t.get("thought", ""))
     all_text = " ".join(active_thoughts)
     kw_active = set(all_text.lower().split()[:30]) if all_text else set()
     suggested_patterns = []
@@ -3341,13 +3361,39 @@ def tool_state_snapshot(args: dict) -> dict:
             overlap = len(kw_active & kw_p) / max(len(kw_active | kw_p), 1)
             if overlap > 0.25:
                 suggested_patterns.append(p["pattern_name"][:30])
+
     extras = ""
     if overdue_works:
         extras += f" ⏰ {len(overdue_works)} works >30min"
     if suggested_patterns:
         extras += f" 💡 {len(suggested_patterns)} pattern suggestions"
+    budget = f" · {total_calls}/{session.max_tool_calls}" if session.max_tool_calls else ""
     return {
-        "content": [{"type": "text", "text": f"⚡ {total_chains}c · {total_thoughts}t · {avg_score}★ · {total_patterns}p · {total_works}w · {total_calls} calls{extras}"}]
+        "content": [{"type": "text", "text": (
+            f"⚡ [{sid}] {total_chains}c · {total_thoughts}t · {avg_score}★ · "
+            f"{total_patterns}p · {total_works}w · {total_calls} calls{budget}{extras}")}]
+    }
+
+
+def tool_state_global(args: dict) -> dict:
+    """Ultra-compact GLOBAL health: agregado de TODAS las sesiones del proceso.
+
+    H4: es el agregado que antes devolvía `state_snapshot` sin avisar. Ahora es
+    una tool aparte y lo dice en la salida (`scope:"global"`).
+    """
+    total_thoughts = sum(len(c.get("thoughts", [])) for s in _sessions.values() for c in s.chains.values())
+    total_chains = sum(len(s.chains) for s in _sessions.values())
+    total_patterns = sum(len(s.patterns) for s in _sessions.values())
+    total_works = sum(len(s.works) for s in _sessions.values())
+    totals = sum(s.tool_calls for s in _sessions.values())
+    total_calls = _global_tool_calls  # monotónico del proceso; puede superar `totals` si se podaron sesiones
+    scored = sum(1 for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score"))
+    avg_score = round(sum(t.get("score", 0) for s in _sessions.values() for c in s.chains.values() for t in c.get("thoughts", []) if t.get("score")) / max(scored, 1), 1)
+    return {
+        "content": [{"type": "text", "text": (
+            f"⚡ [global] {len(_sessions)} sessions · {total_chains}c · {total_thoughts}t · "
+            f"{avg_score}★ · {total_patterns}p · {total_works}w · {total_calls} calls "
+            f"(suma por sesión: {totals})")}]
     }
 
 def tool_thought_compress(args: dict) -> dict:
@@ -3977,6 +4023,7 @@ HANDLERS = {
     "wiki_delete": tool_wiki_delete,
     "wiki_list": tool_wiki_list,
     "state_snapshot": tool_state_snapshot,
+    "state_global": tool_state_global,
     "thought_compress": tool_thought_compress,
     "chain_diff": tool_chain_diff,
     "tool_cache": tool_tool_cache,
