@@ -1,0 +1,87 @@
+# Catalogo del MCP PDB — lista blanca versionada (H6)
+#
+# Este fichero es la verdad sobre QUE ve cada perfil. El test
+# test_pdb_catalog_allowlist.py falla si TOOLS o HANDLERS cambian sin que cambie
+# este fichero. Asi la curaduria deja de ser un accidente.
+#
+# Formato: <perfil> <nombre>
+#   agente = visible sin argumentos (perfil por defecto)
+#   admin  = solo con --profile admin / LUMEN_PDB_PROFILE=admin
+#
+# El perfil admin incluye TAMBIEN las del agente (es un superconjunto): aqui
+# solo se listan las que son EXCLUSIVAS de admin. El test comprueba
+# automaticamente que admin == agente + exclusivas, y que cubre los 66 handlers.
+
+# ── perfil AGENTE (20) ────────────────────────────────────────────────
+# Las 19 de siempre + pdb_embed. NO se amplia mas: abrir tools "porque parecen
+# inofensivas" repite el juicio de la curaduria original sin haberlo medido.
+agente pdb_context_gc
+agente pdb_embed
+agente pdb_event_route_define
+agente pdb_event_route_list
+agente pdb_event_route_remove
+agente pdb_get
+agente pdb_has
+agente pdb_mvm_app_define
+agente pdb_mvm_app_generate
+agente pdb_mvm_app_list
+agente pdb_mvm_app_run
+agente pdb_mvm_diff
+agente pdb_mvm_fork
+agente pdb_mvm_promote
+agente pdb_mvm_state_export
+agente pdb_mvm_state_import
+agente pdb_mvm_state_restore
+agente pdb_mvm_state_save
+agente pdb_set
+agente pdb_vec_search
+
+# ── solo en ADMIN (46) ────────────────────────────────────────────────
+# Operaciones de operador: DDL, ciclo de vida MVM, locks, backup, M repl,
+# escritura masiva, scratch compartido y mapa mental.
+admin pdb_backup
+admin pdb_batch_set
+admin pdb_data
+admin pdb_dbfix
+admin pdb_embed_search
+admin pdb_fts_search
+admin pdb_incr
+admin pdb_index_define
+admin pdb_index_drop
+admin pdb_index_list
+admin pdb_kill
+admin pdb_lock
+admin pdb_m_eval
+admin pdb_m_repl
+admin pdb_map_drop
+admin pdb_map_get
+admin pdb_map_list
+admin pdb_map_set
+admin pdb_merge
+admin pdb_mvm_kill
+admin pdb_mvm_list
+admin pdb_mvm_mailbox_read
+admin pdb_mvm_mailbox_send
+admin pdb_mvm_outbox
+admin pdb_mvm_outbox_ack
+admin pdb_mvm_outbox_cleanup
+admin pdb_mvm_outbox_send
+admin pdb_mvm_schedule_list
+admin pdb_mvm_sleep
+admin pdb_mvm_spawn
+admin pdb_mvm_tick
+admin pdb_mvm_wake
+admin pdb_order
+admin pdb_partition_define
+admin pdb_partition_drop
+admin pdb_partition_list
+admin pdb_query
+admin pdb_schema
+admin pdb_scratch_del
+admin pdb_scratch_get
+admin pdb_scratch_set
+admin pdb_trigger
+admin pdb_trigger_define
+admin pdb_trigger_drop
+admin pdb_trigger_list
+admin pdb_unlock
