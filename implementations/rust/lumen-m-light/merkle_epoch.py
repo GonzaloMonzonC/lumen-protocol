@@ -48,6 +48,15 @@ from typing import Iterable
 
 from digest_canonico import proyeccion
 
+# `encode_subkey` es el orden canónico real de la PDB. Si no está disponible
+# (p.ej. test que solo importa merkle_epoch), se cae a ordenar por la línea
+# canónica — que NO es equivalente para subkeys numéricos, pero permite que el
+# módulo se importe en contextos sin pdb_tools.
+try:
+    from pdb_tools import encode_subkey as _encode_subkey
+except Exception:                                    # pragma: no cover
+    _encode_subkey = None
+
 VERSION = "1"
 
 
@@ -79,7 +88,24 @@ def root_de_epoch(globals_: Iterable[dict]) -> dict:
     Un conjunto vacío tiene root definido (sha256 del marcador vacío), no None:
     un epoch sin datos también necesita prueba de que estaba vacío.
     """
-    lineas = sorted(proyeccion(globals_))     # orden canónico
+    # ORDEN CANÓNICO: por el SUBKEY codificado, NO por el string de la línea.
+    #
+    # Ordenar por string rompe con subkeys numéricos: '10' < '2' en ASCII, así
+    # que el árbol salía distinto del que construye el motor/SQLite (que ordena
+    # por el BLOB). Es el mismo problema que las subkeys: dos convenciones, cero
+    # errores visibles. Aquí se ordena por `encode_subkey(subs)`, que es el
+    # orden real de la PDB.
+    def _clave_orden(g: dict):
+        if _encode_subkey is not None:
+            try:
+                return _encode_subkey(g.get("subs") or [])
+            except Exception:
+                pass
+        return proyeccion([g])[0].encode("utf-8")
+
+    ordenados = sorted(list(globals_), key=_clave_orden) if not isinstance(globals_, list) \
+        else sorted(globals_, key=_clave_orden)
+    lineas = [proyeccion([g])[0] for g in ordenados]
     if not lineas:
         return {
             "root": _h(f"v{VERSION}\x1eepoch_vacio".encode()).hex(),
@@ -189,15 +215,25 @@ def epoch_de_pdb(pdb, ns: str | None = None) -> dict:
     `_leer_ns` como referencia y para PDBs raras (particionadas sin SQL directo).
     """
     try:
-        from lectura_rango import leer_ns_rango, listar_namespaces
-        nombres = [ns] if ns else listar_namespaces(pdb)
-        globs = []
-        for n in nombres or []:
-            globs.extend(leer_ns_rango(pdb, n))
-        return root_de_epoch(globs)
+        from merkle_stream import root_stream_ns
+        nombres = [ns] if ns else None
+        if nombres is None:
+            from lectura_rango import listar_namespaces
+            nombres = listar_namespaces(pdb)
+        if len(nombres) == 1:
+            return root_stream_ns(pdb, nombres[0])
+        # varios namespaces: concatenar en orden de ns
+        from merkle_stream import root_stream_filas
+        def filas():
+            for n in nombres:
+                from lectura_rango import leer_ns_rango
+                for f in leer_ns_rango(pdb, n):
+                    yield f
+        return root_stream_filas(filas())
     except Exception:
-        # fallback: recorrido clásico
         pass
+
+    # fallback: recorrido por $ORDER
 
     globs = []
     ns_list = [ns] if ns else None
