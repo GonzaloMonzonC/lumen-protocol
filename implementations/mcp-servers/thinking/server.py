@@ -187,6 +187,12 @@ _next_session_num = 1
 # ═══════════════════════════════════════════════════════════════════════
 
 _STATE_FILE = Path(__file__).parent / ".thinking_state.json"
+# H7: snapshots JSON por proceso + un unico "latest" con lock de PID. Antes
+# todos los procesos escribian _STATE_FILE entero (last-writer-wins sin lock).
+_PER_PROC_STATE_FILE = _STATE_FILE.parent / f".thinking_state.{os.getpid()}.json"
+_LATEST_STATE_FILE = _STATE_FILE.parent / ".thinking-latest.json"
+_OWNER_LOCK_FILE = _STATE_FILE.parent / ".thinking_state.owner"
+_IS_LATEST_OWNER = None  # None = aun no decidido
 import _pdb
 _PDB_PATH = Path(_pdb.PDB_PATH)  # shared PDB database (env-aware, contrato Fase 1b)
 _SAVE_INTERVAL = 50  # auto-save every N tool calls (was 10 — saves were bottlenecking SHM)
@@ -265,7 +271,17 @@ def _sync_counter_from_pdb(kind: str) -> None:
 
 
 def _json_snapshot() -> None:
-    """Periodic JSON snapshot for cross-process sync (dashboard)."""
+    """Snapshot JSON DERIVADO, por proceso, para que el dashboard lea estado.
+
+    H7: antes todos los procesos escribian el MISMO `.thinking_state.json` con su
+    estado completo -> last-writer-wins sin lock, sin error y sin aviso. Con dos
+    procesos abiertos (Hermes + un script, o Hermes + un bench) una sesion podia
+    perder su cadena sin que nadie viera nada.
+
+    Ahora: cada proceso escribe el suyo (`thinking-<pid>.json`) y ademas
+    `thinking-latest.json` solo si es el proceso "dueno". La PDB sigue siendo la
+    unica fuente de verdad (el JSON no se lee al arrancar).
+    """
     import shutil
     try:
         state = {
@@ -273,28 +289,91 @@ def _json_snapshot() -> None:
             "next_session_num": _next_session_num,
             "preserved": _preserved,
             "timeline": _call_timeline,
-            "presence": {sid: {"pid": 0, "last_seen": time.time(), "tool_calls": s.tool_calls, "model": s.model_name or "unknown"} for sid, s in _sessions.items()},
+            "presence": {sid: {"pid": os.getpid(), "last_seen": time.time(), "tool_calls": s.tool_calls, "model": s.model_name or "unknown"} for sid, s in _sessions.items()},
             "niches": {nid: n for nid, n in _niches.items()},
             "tasks": {tid: t for tid, t in _tasks.items()},
             "next_niche_id": _next_niche_id,
             "next_task_id": _next_task_id,
+            "pid": os.getpid(),
             "saved_at": time.time(),
         }
-        tmp = str(_STATE_FILE) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
-        if os.path.exists(tmp):
-            for attempt in range(5):
-                try:
-                    shutil.move(tmp, str(_STATE_FILE))
-                    return
-                except (OSError, PermissionError):
-                    if attempt < 4:
-                        time.sleep(0.2)
-                    else:
-                        pass  # silently skip — next snapshot will retry
+        # 1. siempre: el fichero propio de este proceso (sin colision posible)
+        _atomic_write_json(_PER_PROC_STATE_FILE, state)
+        # 2. solo el proceso dueno escribe el "latest" que lee el dashboard
+        if _owns_latest():
+            _atomic_write_json(_LATEST_STATE_FILE, state)
+        # 3. compat: mantener _STATE_FILE solo si nadie mas lo reclama
+        if _owns_latest():
+            _atomic_write_json(_STATE_FILE, state)
     except Exception as e:
         _safe_print(f"[lumen] JSON snapshot failed: {e}")
+
+
+def _atomic_write_json(path, state) -> bool:
+    """Escribe un JSON de forma atomica (tmp + rename). False si no se pudo."""
+    import shutil
+    tmp = str(path) + f".{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2, default=str)
+        for attempt in range(5):
+            try:
+                shutil.move(tmp, str(path))
+                return True
+            except (OSError, PermissionError):
+                if attempt < 4:
+                    time.sleep(0.2)
+    except Exception as e:
+        _safe_print(f"[lumen] no pude escribir {path}: {e}")
+    try:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    except Exception:
+        pass
+    return False
+
+
+def _owns_latest() -> bool:
+    """True si este proceso es el escritor de `thinking-latest.json`.
+
+    El dueno se decide por lock de fichero con PID: el primero que llega se
+    queda; los demas escriben solo su fichero por PID. Asi dos procesos no se
+    pisan el estado, que era el defecto de H7.
+    """
+    global _IS_LATEST_OWNER
+    if _IS_LATEST_OWNER is not None:
+        return _IS_LATEST_OWNER
+    try:
+        if _OWNER_LOCK_FILE.exists():
+            info = json.loads(_OWNER_LOCK_FILE.read_text(encoding="utf-8") or "{}")
+            pid = info.get("pid")
+            if pid and pid != os.getpid() and _pid_alive(pid):
+                _IS_LATEST_OWNER = False
+                return False
+        _OWNER_LOCK_FILE.write_text(json.dumps({"pid": os.getpid(),
+                                                "ts": time.time()}), encoding="utf-8")
+        _IS_LATEST_OWNER = True
+    except Exception:
+        _IS_LATEST_OWNER = True   # ante la duda, escribir: nunca dejar sin snapshot
+    return _IS_LATEST_OWNER
+
+
+def _pid_alive(pid: int) -> bool:
+    """¿Sigue vivo ese PID? En Windows no hay os.kill(pid, 0) fiable."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED
+            if not h:
+                return False
+            ctypes.windll.kernel32.CloseHandle(h)
+            return True
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+    except Exception:
+        return False
 
 # ── Memory leak prevention ──
 def _prune_sessions() -> None:
@@ -441,6 +520,76 @@ def _pdb_save_all() -> None:
                         pass
         except Exception as _e_merge:
             _safe_print(f"[lumen-thinking] merge tareas: aviso {_e_merge}")
+        # ── MERGE del resto del estado (H7) ────────────────────────────────
+        # El merge de arriba solo cubria tareas. Chains, assumptions, model,
+        # works, patterns, decisions y wiki se borraban y se reescribian con lo
+        # que esta instancia conocia -> un segundo proceso (Hermes + script, o
+        # Hermes + bench) hacia desaparecer el trabajo del otro sin un solo error.
+        # Se rescata por id cualquier registro persistido que esta instancia no
+        # tenga, con el mismo patron que las tareas.
+        _tipos_merge = (
+            ("chain", "chains", None),
+            ("assumption", "assumptions", None),
+            ("decision", "decisions", None),
+        )
+        # H7: el DELETE borra el namespace ENTERO, incluidas las sesiones que
+        # este proceso NO conoce (las creo otro). Rescatamos esas filas tal
+        # cual, sin materializar la sesion en memoria, para reinsertarlas
+        # despues del DELETE. Sin esto, el proceso B borraba la sesion de A.
+        _ajenas = []
+        try:
+            _sids_locales = set(_sessions)
+            for _r_sk, _r_sv in conn.execute(
+                "SELECT subkey, value FROM _globals WHERE ns='STATE'"
+            ).fetchall():
+                _k = _r_sk.decode("utf-8", "replace") if isinstance(_r_sk, (bytes, bytearray)) else str(_r_sk)
+                if not _k.startswith("session:"):
+                    continue
+                _p = _k.split(":")
+                if len(_p) >= 2 and _p[1] not in _sids_locales:
+                    _ajenas.append((_r_sk, _r_sv))
+            if _ajenas:
+                _safe_print(f"[lumen-thinking] merge: se rescatan {len(_ajenas)} filas "
+                            f"de sesiones que no conoce este proceso")
+        except Exception as _e_aj:
+            _safe_print(f"[lumen-thinking] merge sesiones ajenas: aviso {_e_aj}")
+        try:
+            for _r_sk, _r_sv in conn.execute(
+                "SELECT subkey, value FROM _globals WHERE ns='STATE' AND subkey LIKE 'session:%'"
+            ).fetchall():
+                _k = _r_sk.decode("utf-8", "replace") if isinstance(_r_sk, (bytes, bytearray)) else str(_r_sk)
+                if not _k.startswith("session:"):
+                    continue
+                _partes = _k.split(":")
+                if len(_partes) < 4:
+                    continue
+                _sid, _tipo, _rid = _partes[1], _partes[2], ":".join(_partes[3:])
+                try:
+                    _obj = json.loads(_r_sv)
+                except Exception:
+                    continue
+                if _tipo == "chain":
+                    _sess = _sessions.get(_sid)
+                    if _sess is not None and _rid not in _sess.chains:
+                        _sess.chains[_rid] = _obj
+                elif _tipo == "assumption":
+                    _sess = _sessions.get(_sid)
+                    if _sess is not None:
+                        _ids = {a.get("id") for a in _sess.assumptions}
+                        if _obj.get("id") not in _ids:
+                            _sess.assumptions.append(_obj)
+                elif _tipo == "decision":
+                    _sess = _sessions.get(_sid)
+                    if _sess is not None:
+                        _ids = {d.get("id") for d in _sess.decisions}
+                        if _obj.get("id") not in _ids:
+                            _sess.decisions.append(_obj)
+                elif _tipo == "wiki":
+                    _sess = _sessions.get(_sid)
+                    if _sess is not None and _rid not in _sess.wiki:
+                        _sess.wiki[_rid] = _obj
+        except Exception as _e_merge2:
+            _safe_print(f"[lumen-thinking] merge estado: aviso {_e_merge2}")
         conn.execute("DELETE FROM _globals WHERE ns='STATE'")
         pairs = []
         for sid, sess in _sessions.items():
@@ -674,6 +823,16 @@ def _pdb_save_all() -> None:
             except Exception as _e_del:
                 _safe_print(f"[lumen-thinking] borrado de tareas: aviso {_e_del}")
         conn.executemany("INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES (?, ?, ?)", pairs)
+        # Reinsertar las filas de sesiones que este proceso no conoce (H7).
+        # INSERT OR REPLACE: si por carrera ya estan, no duplica.
+        if _ajenas:
+            try:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO _globals (ns, subkey, value) VALUES ('STATE', ?, ?)",
+                    _ajenas,
+                )
+            except Exception as _e_re:
+                _safe_print(f"[lumen-thinking] reinsertar sesiones ajenas: aviso {_e_re}")
         conn.commit()
         conn.close()
     except Exception as e:
