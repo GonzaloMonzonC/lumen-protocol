@@ -1,12 +1,37 @@
 name: LUMEN CI
 
+# DESACTIVADO 18-oct-2026.
+#
+# Motivo: la cuenta tiene un bloqueo de facturacion de GitHub Actions. Todos los
+# jobs fallaban en 3 s sin arrancar con:
+#   "The job was not started because your account is locked due to a billing issue."
+#
+# Un check que falla siempre sin ejecutar nada es peor que no tener check: da la
+# falsa senal de que "la CI esta en rojo" cuando en realidad no se ha ejecutado
+# ni una linea. Se dejan los disparadores vacios para no gastar minutos de cola
+# ni ensuciar cada PR con checks fantasma.
+#
+# PARA REACTIVAR: restaurar los disparadores de abajo y resolver la facturacion.
+#   on:
+#     push:
+#       branches: [main]
+#       paths-ignore: ['**.md', 'LICENSE']
+#     pull_request:
+#       branches: [main]
+#       paths-ignore: ['**.md', 'LICENSE']
+#
+# Mientras tanto la verificacion es manual; los tests que deberia correr esta CI:
+#   implementations/mcp-servers/thinking/test_*.py
+#   implementations/mcp-servers/pdb/test_*.py
+#   implementations/mcp-servers/web/test_*.py
+# (todos autononos, con PDB temporal y sin red)
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['**.md', 'LICENSE']
-  pull_request:
-    branches: [main]
-    paths-ignore: ['**.md', 'LICENSE']
+  workflow_dispatch:
+    inputs:
+      forzar:
+        description: 'Ejecutar igualmente (la cuenta puede seguir bloqueada)'
+        required: false
+        default: 'no'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
