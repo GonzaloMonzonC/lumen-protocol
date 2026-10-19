@@ -774,6 +774,17 @@ def _pdb_save_all() -> None:
             pairs.append(("STATE", f"global:niche:{nid}".encode(), json.dumps(niche).encode()))
         for tid, task in _tasks.items():
             pairs.append(("STATE", f"global:task:{tid}".encode(), json.dumps(task).encode()))
+        # ── CONTRATOS DE TAREA (colaboración multi-nodo, 2026-10-19) ────────
+        # Se persisten como global:contract:<id>. Sin esto, dos Hermes solo
+        # pueden colaborar mientras el proceso viva: al reiniciar, el contrato
+        # desaparece y el otro nodo no sabe quién tenía qué.
+        try:
+            from task_contract import _store as _contract_store
+            for _cid, _ctr in _contract_store().items():
+                pairs.append(("STATE", f"global:contract:{_cid}".encode(),
+                              json.dumps(_ctr, ensure_ascii=False).encode()))
+        except Exception as _e_ctr:
+            _safe_print(f"[lumen-thinking] persistir contratos: aviso {_e_ctr}")
         try:
             from objective_loop import _objectives, _next_objective_id
             for gid, obj in _objectives.items():
@@ -1066,6 +1077,19 @@ def _pdb_load_all() -> bool:
         _qa_pairs = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:qa:")}
         _niches = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:niche:")}
         _tasks = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:task:")}
+        # ── CONTRATOS DE TAREA (colaboración multi-nodo, 2026-10-19) ────────
+        # Se cargan antes que los objetivos para que estén disponibles desde la
+        # primera tool call tras un reinicio.
+        try:
+            from task_contract import _store as _contract_store
+            _cs = _contract_store()
+            for _k, _v in globals_data.items():
+                if _k.startswith("global:contract:") and isinstance(_v, dict):
+                    _cs[_k.split(":", 2)[2]] = _v
+            if _cs:
+                _safe_print(f"[lumen-thinking] contratos restaurados: {len(_cs)}")
+        except Exception as _e_ctr:
+            _safe_print(f"[lumen-thinking] cargar contratos: aviso {_e_ctr}")
         objectives = {}
         obj_meta = {}
         for k, v in globals_data.items():
