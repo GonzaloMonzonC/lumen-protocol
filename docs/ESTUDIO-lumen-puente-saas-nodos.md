@@ -1,5 +1,11 @@
 # Estudio — LUMEN como puente entre SaaS organizacional y nodos autónomos
 
+> ⚠️ **REVISADO 2026-10-19 tras validación con Zalo y Poli.** Este estudio tiene un error de fondo que
+> invalida su primera versión: **"subir solo el índice" NO preserva la soberanía** (el índice es contenido y,
+> sin aislamiento por `org_id`, filtra entre organizaciones). Y el orden de pasos estaba invertido: el
+> aislamiento va ANTES de `org_nodes`. Ver `VALIDACION-puente-saas-nodos.md` para las correcciones y el orden
+> correcto. Lo que sigue siendo válido: la infraestructura SaaS ya existe y el concepto de "nodo como miembro".
+
 **Fecha:** 2026-10-19 · **Estado:** estudio, sin código
 **Origen:** idea de Gonzalo — *"comercializar LUMEN como un puente entre organización SaaS y nodos autónomos,
 donde los agentes pivoten sobre cadences.app o sus subredes pero con respaldo a cadences"*
@@ -157,7 +163,6 @@ Un servidor MCP, `lumen-org`, con un catálogo pequeño — coherencia con P0-1:
 ---
 
 ## Primer paso: `org_nodes`
-
 ```sql
 CREATE TABLE IF NOT EXISTS org_nodes (
   id            TEXT PRIMARY KEY,        -- node_<uuid>
