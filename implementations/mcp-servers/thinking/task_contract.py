@@ -143,6 +143,30 @@ def _fmt(ts) -> str:
     return time.strftime("%H:%M:%S", time.localtime(ts))
 
 
+def _persist() -> None:
+    """Persiste el estado de forma SÍNCRONA tras mutar un contrato.
+
+    Por qué no basta _save_state(): lanza _pdb_save_all en un Thread daemon
+    ("never block a handler"). Para un autosave periódico eso está bien, pero
+    para una mutación de contrato es un fallo silencioso: el proceso puede
+    terminar, el hilo puede no llegar a escribir, y el otro nodo NO ve el
+    contrato. Comprobado 2026-10-19: llamando _pdb_save_all() directo el
+    contrato aparece en disco; vía _save_state() no siempre.
+
+    Un contrato es una operación puntual (no un autosave cada 10s), así que
+    pagar ~decenas de ms aquí es correcto: la corrección vale más que la latencia.
+    """
+    try:
+        import server as _srv
+        _srv._pdb_save_all()          # síncrono: garantiza escritura
+    except Exception as _e:
+        try:
+            import sys as _s
+            _s.stderr.write(f"[lumen] contract persist: {_e}\n")
+        except Exception:
+            pass
+
+
 # ── Handlers MCP ─────────────────────────────────────────────────────────
 
 def tool_contract_create(args: dict) -> dict:
@@ -161,6 +185,7 @@ def tool_contract_create(args: dict) -> dict:
                 "contract": c, "valid": False}
     store = _store()
     store[c["contract_id"]] = c
+    _persist()
     return {"content": [{"type": "text", "text": "✅ Contrato creado\n\n" + format_contract(c)}],
             "contract": c, "valid": True}
 
@@ -177,6 +202,8 @@ def tool_contract_claim(args: dict) -> dict:
     if not c:
         return {"content": [{"type": "text", "text": "Contrato no encontrado."}]}
     ok, msg = claim(c, args.get("node", ""))
+    if ok:
+        _persist()
     return {"content": [{"type": "text", "text": ("✅ " if ok else "❌ ") + msg +
                          "\n\n" + format_contract(c)}], "ok": ok, "contract": c}
 
@@ -188,6 +215,8 @@ def tool_contract_handoff(args: dict) -> dict:
     ok, msg = release(c, args.get("node", ""),
                       outcome=args.get("outcome", CLAIM_FREE),
                       checkpoint=args.get("checkpoint", ""))
+    if ok:
+        _persist()
     return {"content": [{"type": "text", "text": ("✅ " if ok else "❌ ") + msg +
                          "\n\n" + format_contract(c)}], "ok": ok, "contract": c}
 
