@@ -39,7 +39,7 @@ from fuzzy_search import FUZZY_SEARCH_SCHEMAS, FUZZY_SEARCH_HANDLERS
 from objective_loop import (OBJECTIVE_HANDLERS, OBJECTIVE_SCHEMAS, get_objective_state, load_objective_state)
 from kanban import KANBAN_HANDLERS, KANBAN_SCHEMAS
 from pdb_ns import PDB_NS_HANDLERS, PDB_NS_SCHEMAS
-from collections import defaultdict, Counter
+from collections import defaultdict, Counter, deque as _deque
 from pathlib import Path
 from typing import Any
 import sqlite3
@@ -64,7 +64,7 @@ _DEFAULT_MAX_CALLS = 100
 # Tools que NO consumen presupuesto: son de lectura/diagnóstico. Si se quedan sin
 # ellas, el agente no puede ni averiguar por qué está bloqueado.
 _READONLY_TOOLS = frozenset({
-    "state_snapshot", "state_feeling", "session_list", "session_init", "session_end",
+    "state_snapshot", "state_feeling", "server_stats", "session_list", "session_init", "session_end",
     "context_estimate", "context_check", "work_log", "decision_list",
     "list_assumptions", "pattern_match", "pattern_suggest", "model_stats",
     "model_query", "model_map", "model_scan", "wiki_list", "wiki_read",
@@ -205,6 +205,121 @@ _loaded_from_disk = False
 _call_timeline: list[dict] = []
 _tool_recent: dict[str, list] = {}  # session_id → [(tool, action_summary, ts), ...]
 _global_tool_calls = 0  # monotonic counter, never decreases (avoids negative deltas from session pruning)
+
+# ── P0-2: telemetría por tool (2026-10-19) ────────────────────────────────────
+# {tool: {"calls": int, "errors": int, "times_ms": deque(maxlen=_TOOL_STATS_SAMPLES)}}
+# Vive fuera del estado (no toca _save_state): el volcado es propio y perezoso,
+# porque meterlo en _auto_save serializaría 18 KB en cada llamada (defecto D4).
+_TOOL_STATS_SAMPLES = 200          # ventana deslizante: p50 estable, memoria acotada
+_TOOL_STATS_FLUSH_CALLS = 50       # volcar cada N llamadas
+_TOOL_STATS_FLUSH_SECS = 60.0      # ... o cada N segundos, lo que llegue antes
+_tool_stats: dict = {}
+_tool_stats_dirty = 0
+_tool_stats_last_flush = 0.0
+_tool_stats_since = time.time()
+
+
+def _tool_stats_path() -> str:
+    """Ruta del fichero de telemetría FUERA del árbol del repo (evita P1-5).
+
+    LUMEN_STATE_DIR si está definido; si no, %LOCALAPPDATA%/lumen/thinking en
+    Windows y ~/.local/state/lumen/thinking en el resto.
+    """
+    base = os.environ.get("LUMEN_STATE_DIR", "")
+    if not base:
+        local = os.environ.get("LOCALAPPDATA", "")
+        if local:
+            base = os.path.join(local, "lumen", "thinking")
+        else:
+            base = os.path.join(os.path.expanduser("~"), ".local", "state", "lumen", "thinking")
+    return os.path.join(base, "tool_stats.json")
+
+
+def _record_tool(tool: str, ms: float, ok: bool) -> None:
+    """Anota una llamada. Solo toca memoria (~µs): nunca escribe a disco aquí."""
+    global _tool_stats_dirty
+    st = _tool_stats.get(tool)
+    if st is None:
+        st = {"calls": 0, "errors": 0, "times_ms": _deque(maxlen=_TOOL_STATS_SAMPLES)}
+        _tool_stats[tool] = st
+    st["calls"] += 1
+    if not ok:
+        st["errors"] += 1
+    st["times_ms"].append(ms)
+    _tool_stats_dirty += 1
+    _maybe_flush_tool_stats()
+
+
+def _maybe_flush_tool_stats(force: bool = False) -> None:
+    """Volcado perezoso por umbral. Fuera del camino crítico de la llamada."""
+    global _tool_stats_dirty, _tool_stats_last_flush
+    now = time.time()
+    if not force and _tool_stats_dirty < _TOOL_STATS_FLUSH_CALLS \
+            and (now - _tool_stats_last_flush) < _TOOL_STATS_FLUSH_SECS:
+        return
+    if _tool_stats_dirty == 0:
+        return
+    try:
+        path = _tool_stats_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        payload = {"since": _tool_stats_since, "stats": {
+            t: {"calls": s["calls"], "errors": s["errors"], "times_ms": list(s["times_ms"])}
+            for t, s in _tool_stats.items()
+        }}
+        # Escritura ATÓMICA con tmp único por pid+uuid (bug P1-5: dos procesos
+        # compitiendo por el mismo .tmp → EACCES silencioso al renombrar).
+        import uuid as _uuid
+        tmp = f"{path}.{os.getpid()}.{_uuid.uuid4().hex[:8]}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp, path)
+        _tool_stats_dirty = 0
+        _tool_stats_last_flush = now
+    except Exception as e:
+        try:
+            import sys as _s
+            _s.stderr.write(f"[lumen] tool_stats: no pude escribir: {e}\n")
+        except Exception:
+            pass
+
+
+def _load_tool_stats() -> None:
+    """Carga la telemetría previa. Sobrevivir al reinicio es el criterio de P0-2."""
+    global _tool_stats, _tool_stats_since
+    try:
+        path = _tool_stats_path()
+        if not os.path.exists(path):
+            return
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        _tool_stats_since = payload.get("since", time.time())
+        for tool, s in (payload.get("stats") or {}).items():
+            _tool_stats[tool] = {
+                "calls": int(s.get("calls", 0)),
+                "errors": int(s.get("errors", 0)),
+                "times_ms": _deque(s.get("times_ms") or [], maxlen=_TOOL_STATS_SAMPLES),
+            }
+    except Exception as e:
+        try:
+            sys.stderr.write(f"[lumen] tool_stats: no pude cargar: {e}\n")
+        except Exception:
+            pass
+
+
+def _tool_stats_report() -> dict:
+    """Desglose para server_stats. p50_ms None = NUNCA llamada (≠ 'llamada y rápida')."""
+    import statistics as _st
+    out = {}
+    for t, s in sorted(_tool_stats.items()):
+        times = list(s["times_ms"])
+        out[t] = {
+            "calls": s["calls"],
+            "errors": s["errors"],
+            "p50_ms": round(_st.median(times), 3) if times else None,
+        }
+    return out
+# ── fin P0-2 ──────────────────────────────────────────────────────────────────
+
 _pdb_save_lock = threading.Lock()  # prevents concurrent PDB writes from racing
 _lumen_ws = None  # LUMEN WebSocket server instance
 _session_presence: dict = {}
@@ -1708,6 +1823,16 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "session_id": {"type": "string", "description": "Session ID for isolation (optional; default = 'default')"}
+            }
+        }
+    },
+    {
+        "name": "server_stats",
+        "description": "Telemetría por tool: llamadas, errores y p50 por herramienta, más la lista de tools nunca usadas. p50 null = nunca llamada. Es el inventario que hace falsificable la poda del catálogo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID (optional; lectura, no consume presupuesto)"}
             }
         }
     },
@@ -3877,6 +4002,36 @@ def tool_cognitive_integrity(args: dict) -> dict:
 
 
 
+def tool_server_stats(args: dict) -> dict:
+    """P0-2: qué tools se usan de verdad, cuánto tardan y cuánto fallan.
+
+    p50_ms = null significa NUNCA llamada — distinto de 'llamada y rápida'.
+    Este es el inventario que hace falsificable la poda del catálogo.
+    """
+    _maybe_flush_tool_stats(force=True)
+    report = _tool_stats_report()
+    never = sorted(n for n in HANDLERS if n not in _tool_stats)
+    total_calls = sum(v["calls"] for v in report.values())
+    total_errors = sum(v["errors"] for v in report.values())
+    lines = [
+        f"📊 Telemetría por tool (desde {time.strftime('%Y-%m-%d %H:%M', time.localtime(_tool_stats_since))})",
+        f"   {len(report)} tools usadas · {len(never)} nunca llamadas · {len(HANDLERS)} en total",
+        f"   {total_calls} llamadas · {total_errors} errores",
+        "",
+    ]
+    for t, v in sorted(report.items(), key=lambda kv: -kv[1]["calls"]):
+        p50 = f"{v['p50_ms']:.2f} ms" if v["p50_ms"] is not None else "—"
+        err = f" · {v['errors']} err" if v["errors"] else ""
+        lines.append(f"   {v['calls']:6d}  {p50:>10}  {t}{err}")
+    if never:
+        lines.append("")
+        lines.append(f"   NUNCA usadas ({len(never)}): " + ", ".join(never[:40])
+                     + (" …" if len(never) > 40 else ""))
+    return {"content": [{"type": "text", "text": "\n".join(lines)}],
+            "tool_stats": report, "never_called": never,
+            "since": _tool_stats_since, "persisted_at": _tool_stats_path()}
+
+
 def tool_state_feeling(args: dict) -> dict:
     """Externalize current cognitive state."""
     session = _get_session(args.get("session_id"))
@@ -4195,6 +4350,7 @@ HANDLERS = {
     "unified_search": tool_unified_search,
     "cognitive_integrity": tool_cognitive_integrity,
     "state_feeling": tool_state_feeling,
+    "server_stats": tool_server_stats,
     "cognitive_pulse": tool_cognitive_pulse,
     "session_end": tool_session_end,
     "pattern_suggest": tool_pattern_suggest,
@@ -4262,6 +4418,7 @@ def handle_message(msg: dict) -> None:
                 sess.model_name = model
         handler = HANDLERS.get(tool_name)
         if handler:
+            _t_tool_start = time.perf_counter()
             try:
                 # ── Budget check: prevent runaway tool loops ──
                 # Las tools de solo lectura nunca se bloquean: si se quedan mudas,
@@ -4283,6 +4440,10 @@ def handle_message(msg: dict) -> None:
                     budget_msg = f"\n[BUDGET WARNING: {sess.tool_calls}/{sess.max_tool_calls} tools used. Consider optimizing.]"
 
                 result = handler(tool_args)
+                try:
+                    _record_tool(tool_name, (time.perf_counter() - _t_tool_start) * 1000, True)
+                except Exception:
+                    pass
                 if budget_msg and isinstance(result, dict) and "content" in result:
                     # Append budget warning to the tool result text
                     for item in result["content"]:
@@ -4292,6 +4453,10 @@ def handle_message(msg: dict) -> None:
                 send({"jsonrpc": "2.0", "id": req_id, "result": result})
                 _auto_save()
             except Exception as e:
+                try:
+                    _record_tool(tool_name, (time.perf_counter() - _t_tool_start) * 1000, False)
+                except Exception:
+                    pass
                 send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32000, "message": f"Tool error: {e}"}})
         else:
             send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}})
@@ -4305,9 +4470,11 @@ def main() -> None:
     global _start_time
     _start_time = time.time()
     _load_state()
+    _load_tool_stats()
     # Save on graceful shutdown
     import atexit
     atexit.register(_save_state)
+    atexit.register(lambda: _maybe_flush_tool_stats(force=True))
     
     # Dashboard HTTP server (optional — pass --dashboard [port])
     if "--dashboard" in sys.argv:
