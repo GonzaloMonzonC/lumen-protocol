@@ -68,10 +68,17 @@ if __name__ == "__main__":
         print("[lumen-shm] Shutdown complete.")
     else:
         # MCP mode: run SHM server loop (reads stdin for MCP JSON-RPC)
+        # P0-2: ShmNativeServer ejecuta HANDLERS por su cuenta (no pasa por
+        # handle_message de server.py), así que la telemetría se engancha AQUÍ
+        # envolviendo el dict. Sin esto, las tools servidas por SHM no cuentan
+        # — que es la vía real de esta máquina.
+        _instrumented = {}
+        for _name, _fn in HANDLERS.items():
+            _instrumented[_name] = _telemetry_wrap(_name, _fn)
         server = ShmNativeServer(
             f"lumen-thinking-shm-{os.getpid()}",
             TOOLS,
-            HANDLERS,
+            _instrumented,
             shm_size=1024 * 1024,  # 1 MiB for large chains
         )
         try:

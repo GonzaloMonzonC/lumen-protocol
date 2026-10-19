@@ -1,31 +1,64 @@
-# P0-2 — Resultado medido: telemetría por tool en producción
+# P0-2 — Resultado: telemetría por tool
 
-**Fecha:** 2026-10-19 · **Repo:** `lumen-protocol` · **Commit:** pendiente
-**Estado:** implementado y **verificado** (9/9 checks). Sin desplegar todavía.
+**Fecha:** 2026-10-19 · **Repo:** `lumen-protocol` (`46602785`) + plugin de Hermes
+**Estado:** implementado y probado (14/14 checks). **El camino real de esta máquina es el plugin** (ver §5).
+
+---
+
+## ⚠️ Lo más importante de este documento: hay TRES caminos de dispatch
+
+Se implementó la telemetría en `thinking/server.py`, se probó (9/9) y **no escribía nada**. La causa es
+estructural y conviene tenerla escrita:
+
+```
+Hermes  →  plugin lumen-shm-bridge  →  conn.call_tool()  →  JSON-RPC "tools/call" por SHM
+                                                                     ↓
+                                                        ShmNativeServer.run()
+                                                        (SU PROPIO dispatch)
+                                                                     ↓
+                                                        self.handlers[tool](args)
+```
+
+| Camino | Dónde está el dispatch | ¿Activo en esta máquina? |
+|---|---|---|
+| **stdio** | `thinking/server.py` → `handle_message()` | ❌ no (aunque los procesos sean `server.py`) |
+| **SHM nativo** | `shm_native_server.py` → `ShmNativeServer.run()` | ✅ **SÍ — es el real** |
+| **plugin** | `plugins/lumen-shm-bridge/__init__.py` → `call_tool()` | ✅ **es el punto de paso de todas las llamadas** |
+
+**Consecuencia:** la instrumentación de `thinking/server.py` es correcta para instalaciones stdio, pero **en
+esta máquina no mide nada**. El punto que ve **todas** las llamadas es `call_tool()` del plugin.
 
 ---
 
 ## Qué se ha construido
 
-Telemetría por tool en `thinking/server.py`, en el **punto único de dispatch** (`tools/call`), que cubre
-las 89 handlers sin tocar ninguno.
+### 1. En `thinking/server.py` (camino stdio, para portabilidad)
 
 | Pieza | Qué hace |
 |---|---|
 | `_tool_stats` | `{tool: {calls, errors, times_ms}}` en memoria |
 | `_record_tool()` | +1 llamada, +1 error si falla, muestra de tiempo |
-| `_maybe_flush_tool_stats()` | Volcado **perezoso**: cada 50 llamadas o 60 s, fuera del handler |
-| `_load_tool_stats()` | Carga al arrancar → **sobrevive al reinicio** |
+| `_maybe_flush_tool_stats()` | Volcado **perezoso**: cada 50 llamadas o 60 s |
+| `_load_tool_stats()` | Carga al arrancar → sobrevive al reinicio |
 | `tool_server_stats()` | Tool nueva: desglose + lista de **nunca usadas** |
-| `atexit` | Volcado forzado al cerrar |
+| `_telemetry_wrap()` | Envuelve handlers para el camino `ShmNativeServer` |
 
-**Fichero:** `LUMEN_STATE_DIR/tool_stats.json` — **fuera del árbol del repo** (evita añadir otro `.thinking*`
-al problema P1-5). Escritura atómica con `tmp` único por `pid+uuid`.
+### 2. En el plugin de Hermes (camino REAL de esta máquina)
+
+`plugins/lumen-shm-bridge/__init__.py` → `call_tool()` instrumentado (10 líneas) +
+`_telemetry_record()` / `_telemetry_flush()` / `telemetry_report()`.
+
+**Backup antes de tocar** (el plugin no es repo git): `__init__.py.bak-20261019-195820`.
+
+**Fichero:** `LUMEN_STATE_DIR/tool_stats.json` (default `%LOCALAPPDATA%/lumen/thinking/`) — **fuera del árbol
+del repo** (no añade otro `.thinking*` al problema P1-5). Escritura atómica con `tmp` único por `pid+uuid`.
+Clave por servidor: `"thinking/assume"`, `"filesystem/read_file"`.
 
 ---
 
-## Criterio de aceptación — 9/9 PASA
+## Criterio de aceptación — 14/14
 
+**Camino stdio (9):**
 ```
 PASA   P0-2a telemetria registra llamadas
 PASA   P0-2b p50 calculado
@@ -36,68 +69,91 @@ PASA   P1-5  fichero FUERA del repo
 PASA   P0-2f sobrevive a reinicio (recarga)
 PASA   P0-2g cuenta errores
 PASA   P0-2h server_stats tool registrada
-
-9 checks · 9 PASA · 0 FALLA
 ```
 
-**Nota de método:** el test llama por el **dispatch real** (JSON-RPC), no a los handlers sueltos. Llamar al
-handler directo **salta la telemetría por diseño** — la primera versión del test daba 4 fallos falsos por eso.
+**Camino SHM/plugin (5):**
+```
+PASA   SHM-1 el camino SHM registra llamadas
+PASA   SHM-2 p50 presente
+PASA   SHM-3 error por camino SHM cuenta
+PASA   SHM-4 el wrapper no altera el resultado
+PASA   SHM-5 volcado a disco
+```
+
+**Bug encontrado y corregido en el plugin:** el merge con lo ya volcado sumaba `calls` entero en cada volcado
+→ 55 llamadas aparecían como 107. Ahora lleva **delta** por clave: `55 + 40 = 95` (verificado).
 
 ---
 
-## La medición que me corrige a mí mismo
+## Estado de despliegue: pendiente de reinicio de Hermes
+
+El plugin se carga **dentro del proceso del gateway** (`slash_worker`). Python leyó `__init__.py` al iniciar
+la sesión, así que **el cambio en disco no se aplica hasta reiniciar**.
+
+| Paso | Estado |
+|---|---|
+| Código escrito y probado | ✅ |
+| Backup del plugin original | ✅ `__init__.py.bak-20261019-195820` |
+| Backup del `server.py` original | ✅ en git (`46602785`) |
+| **Datos reales acumulándose** | ❌ **falta reiniciar gateway + UI** |
+
+**Tras reiniciar**, verificar:
+```bash
+ls -la "$LOCALAPPDATA/lumen/thinking/tool_stats.json"
+```
+
+---
+
+## La medición que me corrigió a mí mismo
 
 Mi diseño advertía: *"si `work_start` sube, el diseño está mal"*. Lo medí, subió de 6,4 → 8,2 ms, y **fui a
-buscar la causa**. La causa no era mi código:
+buscar la causa**:
 
 | Medición | Resultado |
 |---|---|
 | `work_start` con telemetría | **8,32 ms** |
-| `work_start` **con la telemetría desactivada** (lambda no-op) | **15,57 ms** |
+| `work_start` **con la telemetría desactivada** | **15,57 ms** |
 | Coste de `_record_tool` | **0,7 µs** |
 
-> **La variación es del entorno (caché de disco, carga), no de la instrumentación.** Desactivar la telemetría
-> da un número *peor*. El "baseline 6,4 ms" era una medición con otra caché.
+> La variación era del entorno (caché de disco), no de la instrumentación. Desactivar la telemetría da un
+> número *peor*. El "baseline 6,4 ms" era de otra caché.
 
-**Lección aplicada:** no dar por buena una regresión de 1,5 ms sin aislar la variable. Si hubiera confiado en
-la primera medición, habría "arreglado" un problema inexistente y probablemente roto algo.
-
----
-
-## Lo que esto desbloquea
-
-Con esta telemetría, la pregunta que bloqueaba P0-1 **ya tiene respuesta medible**:
-
-```python
-server_stats()
-# → 42 tools usadas · 47 nunca llamadas · 89 en total
-# → NUNCA usadas (47): pattern_record, model_add, objective_create, ...
-```
-
-**La poda deja de ser un acto de fe.** Pero — y esto es importante — **no la autoriza todavía**:
-
-- Una sesión de trabajo real da **una** muestra. Astrid pedía inventario, Smith pedía **grafo de tareas**.
-- `pattern_record` sin usar **hoy** no significa inútil: significa que el flujo que la justifica aún no se ha
-  probado (el propio estudio del Asus lo dice).
-- **Falta acumular uso real** (días, no una sesión) antes de podar.
+**Lección:** no dar por buena una regresión de 1,5 ms sin aislar la variable.
 
 ---
 
-## Lo que NO se ha hecho (deliberadamente)
+## Lo que esto desbloquea — y lo que NO autoriza
+
+`server_stats()` / `telemetry_report()` responden *"¿se ha usado `pattern_record`?"* con un número.
+**La poda deja de ser un acto de fe.** Pero **no la autoriza**:
+
+- Una sesión da **una** muestra. Astrid pedía inventario; Smith pedía **grafo de tareas**.
+- `pattern_record` sin usar hoy no significa inútil: el flujo que la justifica aún no se ha probado.
+- **Hay que acumular días de uso real** antes de decidir.
+
+---
+
+## Pendiente
 
 | Pendiente | Por qué |
 |---|---|
-| **filesystem / pdb / web** | Fase 2. `filesystem` ya tiene `_tool_usage`; falta persistir. No bloquea nada |
-| **Arreglar los 35 ficheros `.thinking*`** | P1-5 propio. Este trabajo **no añade uno más**, pero no limpia los viejos |
-| **Desplegar** | Requiere reinicio del server; se decide tras tu revisión |
-| **Podar** | Es P0-1, y va **después** de acumular uso |
+| **Reiniciar Hermes** (gateway + UI) | único paso para empezar a acumular |
+| filesystem / pdb / web | el plugin ya los cubre al instrumentar `call_tool()` (clave por servidor) |
+| Arreglar los 35 ficheros `.thinking*` | P1-5 propio; este trabajo no añade uno más |
+| Decidir si el plugin pasa a repo git | hoy vive en `AppData/` sin control de versiones |
 
 ---
 
 ## Riesgo residual
 
-**El estado se pierde si el proceso muere sin `atexit`** (kill -9). Mitigación actual: volcado cada 50 llamadas
-o 60 s. Pérdida máxima: 49 llamadas. **Aceptable** para el propósito (decidir qué podar), no para facturación.
+**El estado se pierde si el proceso muere sin volcado** (kill -9). Mitigación: volcado cada 50 llamadas o 60 s.
+Pérdida máxima: 49 llamadas. **Aceptable** para decidir qué podar, no para facturación.
 
-**`_maybe_flush_tool_stats` se llama en cada `_record_tool`** — comprueba dos contadores, ~0,1 µs. No escribe.
-El volcado real ocurre 1 de cada 50 llamadas.
+**Varios procesos escriben el mismo fichero** (varios `slash_worker`, servidores MCP). El volcado hace *merge*
+con lo que ya hay en disco y lleva delta por clave, pero **no hay lock entre procesos**: dos volcados
+simultáneos pueden perder el delta de uno. Con volcados cada 60 s y escritura atómica (`os.replace`), el
+impacto es una muestra perdida, no corrupción. Si se quiere exactitud, el siguiente paso es un lock de fichero.
+
+**El plugin no está en git.** Cualquier cambio ahí se pierde si se reinstala Hermes. El backup
+`__init__.py.bak-20261019-195820` está al lado, pero **conviene llevarlo a un repo**.
+

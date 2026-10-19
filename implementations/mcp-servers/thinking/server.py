@@ -283,6 +283,36 @@ def _maybe_flush_tool_stats(force: bool = False) -> None:
             pass
 
 
+def _telemetry_wrap(tool_name: str, fn):
+    """Envuelve un handler para que su ejecución quede en la telemetría.
+
+    Necesario porque hay DOS caminos de dispatch:
+      - server.py handle_message  → ya instrumentado explícitamente
+      - ShmNativeServer.run       → ejecuta HANDLERS[tool](args) por su cuenta
+    Sin este wrapper, las tools servidas por SHM (la vía real en esta máquina)
+    no contarían en absoluto.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def _wrapped(args=None, *a, **kw):
+        t0 = time.perf_counter()
+        try:
+            r = fn(args, *a, **kw)
+        except Exception:
+            try:
+                _record_tool(tool_name, (time.perf_counter() - t0) * 1000, False)
+            except Exception:
+                pass
+            raise
+        try:
+            _record_tool(tool_name, (time.perf_counter() - t0) * 1000, True)
+        except Exception:
+            pass
+        return r
+    return _wrapped
+
+
 def _load_tool_stats() -> None:
     """Carga la telemetría previa. Sobrevivir al reinicio es el criterio de P0-2."""
     global _tool_stats, _tool_stats_since
