@@ -39,6 +39,7 @@ from fuzzy_search import FUZZY_SEARCH_SCHEMAS, FUZZY_SEARCH_HANDLERS
 from objective_loop import (OBJECTIVE_HANDLERS, OBJECTIVE_SCHEMAS, get_objective_state, load_objective_state)
 from kanban import KANBAN_HANDLERS, KANBAN_SCHEMAS
 from task_contract import CONTRACT_HANDLERS, CONTRACT_SCHEMAS
+from team_session import SESSION_HANDLERS, SESSION_SCHEMAS
 from pdb_ns import PDB_NS_HANDLERS, PDB_NS_SCHEMAS
 from collections import defaultdict, Counter, deque as _deque
 from pathlib import Path
@@ -785,6 +786,16 @@ def _pdb_save_all() -> None:
                               json.dumps(_ctr, ensure_ascii=False).encode()))
         except Exception as _e_ctr:
             _safe_print(f"[lumen-thinking] persistir contratos: aviso {_e_ctr}")
+        # ── SESIONES DE EQUIPO (turnos multi-nodo, 2026-10-19) ──────────────
+        # Envoltorio del contrato: la sesion solo añade dotacion y apunta al
+        # contrato. Se persiste entera porque el contrato va dentro.
+        try:
+            from team_session import _store as _session_store
+            for _sid, _ses in _session_store().items():
+                pairs.append(("STATE", f"global:teamsession:{_sid}".encode(),
+                              json.dumps(_ses, ensure_ascii=False).encode()))
+        except Exception as _e_ses:
+            _safe_print(f"[lumen-thinking] persistir sesiones: aviso {_e_ses}")
         try:
             from objective_loop import _objectives, _next_objective_id
             for gid, obj in _objectives.items():
@@ -1090,6 +1101,13 @@ def _pdb_load_all() -> bool:
                 _safe_print(f"[lumen-thinking] contratos restaurados: {len(_cs)}")
         except Exception as _e_ctr:
             _safe_print(f"[lumen-thinking] cargar contratos: aviso {_e_ctr}")
+        try:
+            from team_session import _load_from_globals as _load_sessions
+            _n_ses = _load_sessions(globals_data)
+            if _n_ses:
+                _safe_print(f"[lumen-thinking] turnos restaurados: {_n_ses}")
+        except Exception as _e_ses:
+            _safe_print(f"[lumen-thinking] cargar turnos: aviso {_e_ses}")
         objectives = {}
         obj_meta = {}
         for k, v in globals_data.items():
@@ -1957,7 +1975,7 @@ TOOLS = [
             }
         }
     }
-] + FILE_TOOL_SCHEMAS + PDB_WATCH_SCHEMAS + FUZZY_SEARCH_SCHEMAS + OBJECTIVE_SCHEMAS + KANBAN_SCHEMAS + PDB_NS_SCHEMAS + CONTRACT_SCHEMAS
+] + FILE_TOOL_SCHEMAS + PDB_WATCH_SCHEMAS + FUZZY_SEARCH_SCHEMAS + OBJECTIVE_SCHEMAS + KANBAN_SCHEMAS + PDB_NS_SCHEMAS + CONTRACT_SCHEMAS + SESSION_SCHEMAS
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -4412,6 +4430,7 @@ HANDLERS = {
     "pattern_purge": tool_pattern_purge,
         **KANBAN_HANDLERS,
     **CONTRACT_HANDLERS,
+    **SESSION_HANDLERS,
     **PDB_NS_HANDLERS,
     **FILE_TOOL_HANDLERS,
     **PDB_WATCH_HANDLERS,
