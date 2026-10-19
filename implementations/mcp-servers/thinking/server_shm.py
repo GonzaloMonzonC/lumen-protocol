@@ -74,7 +74,7 @@ if __name__ == "__main__":
         # — que es la vía real de esta máquina.
         _instrumented = {}
         for _name, _fn in HANDLERS.items():
-            _instrumented[_name] = _telemetry_wrap(_name, _fn)
+            _instrumented[_name] = _server._telemetry_wrap(_name, _fn)
         server = ShmNativeServer(
             f"lumen-thinking-shm-{os.getpid()}",
             TOOLS,
