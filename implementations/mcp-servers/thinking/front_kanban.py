@@ -95,6 +95,49 @@ def _req(method, path, body=None, idem=None):
         raise RuntimeError(f"{type(e).__name__}: {e}")
 
 
+INV_ESTADO = {"por hacer": "Backlog", "en progreso": "In Progress",
+              "completado": "Done", "cancelada": "Cancelled"}
+INV_PRIO = {"high": "high", "medium": "medium", "low": "low"}
+
+
+def listar_tareas(niche_id):
+    """Lee las tareas del proyecto mapeado en cadences.app.
+
+    Devuelve None si el nicho no tiene proyecto (-> el llamante usa la PDB).
+    """
+    pid = proyecto_de(niche_id)
+    if not pid:
+        return None
+    d = _req("GET", "/tasks?projectId=%s&limit=500" % pid)
+    filas = d.get("tasks") or d.get("data") or []
+    ahora = time.time()
+    out = []
+    for i, t in enumerate(filas):
+        tags = t.get("tags")
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags)
+            except Exception:
+                tags = []
+        tags = tags or []
+        ext = next((str(x)[4:] for x in tags if str(x).startswith(("ext:", "pdb:"))), t.get("id"))
+        out.append({
+            "id": ext,
+            "front_id": t.get("id"),
+            "niche_id": niche_id,
+            "title": t.get("title") or "",
+            "desc": t.get("description") or "",
+            "column": INV_ESTADO.get(str(t.get("status") or "").lower(), t.get("status") or "Backlog"),
+            "priority": INV_PRIO.get(str(t.get("priority") or "").lower(), "medium"),
+            "tags": [x for x in tags if not str(x).startswith(("ext:", "agent:", "pdb-niche:", "pdb:"))],
+            "assignee": t.get("assignedTo") or "",
+            "references": {},
+            "created_at": ahora - i,
+            "updated_at": ahora - i,
+        })
+    return out
+
+
 def crear_tarea(task_local: dict) -> str:
     """Crea la tarea en la app. Devuelve el id del front."""
     pid = proyecto_de(task_local.get("niche_id", ""))

@@ -209,6 +209,20 @@ def kanban_tool_task_list(args: dict) -> dict:
     search = args.get("search", "").lower()
     limit = args.get("limit", 50)
     items = _tasks.values()
+    # ADR-002: si el nicho tiene proyecto en cadences.app, la app es la VERDAD
+    # (asi el agente ve los cambios que Gonzalo hace desde la app).
+    fuente = "PDB local"
+    aviso_src = ""
+    if nid:
+        try:
+            import front_kanban
+            ft = front_kanban.listar_tareas(nid)
+        except Exception as _e:
+            ft = None
+            aviso_src = f"\n⚠️ no pude leer de cadences.app ({_e}); muestro la copia local"
+        if ft is not None:
+            items = ft
+            fuente = "cadences.app"
     if nid:
         items = [t for t in items if t.get("niche_id") == nid]
     if status:
@@ -220,8 +234,8 @@ def kanban_tool_task_list(args: dict) -> dict:
         items = [t for t in items if search in t.get("title", "").lower() or search in t.get("desc", "").lower()]
     items = sorted(items, key=lambda t: t.get("created_at", 0), reverse=True)[:limit]
     if not items:
-        return {"content": [{"type": "text", "text": "No tasks found."}]}
-    lines = [f"📋 Tasks ({len(items)} shown, {len(_tasks)} total):"]
+        return {"content": [{"type": "text", "text": "No tasks found." + aviso_src}]}
+    lines = [f"📋 Tasks ({len(items)} shown · fuente: {fuente}):"]
     prio_icons = {"critical": "🔴", "high": "▲", "medium": "◇", "low": "▽"}
     col_icons = {"backlog": "📥", "in progress": "🔧", "review": "👁", "done": "✅", "blocked": "🚫"}
     for t in items:
@@ -234,7 +248,7 @@ def kanban_tool_task_list(args: dict) -> dict:
         if r.get("patterns"): refs += f" 🐞{len(r['patterns'])}"
         tag_str = f" [{', '.join(t.get('tags',[]))}]" if t.get("tags") else ""
         lines.append(f"  {pi} {ci} #{t['id']} [{niche_name}] {t.get('title','?')[:50]}{tag_str}{refs}")
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    return {"content": [{"type": "text", "text": "\n".join(lines) + aviso_src}]}
 
 
 def kanban_tool_task_delete(args: dict) -> dict:
