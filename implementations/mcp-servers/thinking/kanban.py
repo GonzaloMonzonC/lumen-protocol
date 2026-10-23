@@ -133,8 +133,19 @@ def kanban_tool_task_create(args: dict) -> dict:
             "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
             "urls": [], "created_at": time.time(), "updated_at": time.time(),
         }
+        # ADR-002: la app es la verdad visible; la PDB queda como espejo local.
+        # Si la app falla, se avisa en voz alta (nunca exito silencioso).
+        aviso_front = ""
+        try:
+            import front_kanban
+            server._tasks[tid]["front_id"] = front_kanban.crear_tarea(server._tasks[tid])
+        except Exception as e:
+            aviso_front = f"\n⚠️ NO creada en cadences.app: {e}"
         server._save_state()
-        return {"content": [{"type": "text", "text": f"✅ Task created: {title} (ID: {tid}) in '{server._niches[nid]['name']}'"}]}
+        txt = f"✅ Task created: {title} (ID: {tid}) in '{server._niches[nid]['name']}'"
+        if server._tasks[tid].get("front_id"):
+            txt += f"\n↗ cadences.app: {server._tasks[tid]['front_id']}"
+        return {"content": [{"type": "text", "text": txt + aviso_front}]}
     finally:
         _pdb_save_lock.release()
 
@@ -173,12 +184,21 @@ def kanban_tool_task_move(args: dict) -> dict:
             t[k] = args[k]
     t["updated_at"] = time.time()
     _save_state()
+    # ADR-002: reflejar el cambio en cadences.app (la app manda)
+    aviso_front = ""
+    if "to_column" in args or any(k in args for k in ("title", "desc", "priority")):
+        try:
+            import front_kanban
+            front_kanban.mover_tarea(t.get("front_id", ""), t.get("column"), extra=t)
+            aviso_front = "\n↗ reflejado en cadences.app"
+        except Exception as e:
+            aviso_front = f"\n⚠️ NO reflejado en cadences.app: {e}"
     txt = f"✅ Task '{tid}' actualizada."
     if "to_column" in args:
         txt = f"✅ Task '{tid}' movida a '{t.get('column')}' (status: {t.get('status')})."
     if avisos:
         txt += "\n⚠️ " + "; ".join(avisos)
-    return {"content": [{"type": "text", "text": txt}]}
+    return {"content": [{"type": "text", "text": txt + aviso_front}]}
 
 
 def kanban_tool_task_list(args: dict) -> dict:
@@ -223,6 +243,7 @@ def kanban_tool_task_delete(args: dict) -> dict:
     tid = args.get("task_id", "")
     if tid not in _tasks:
         return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+    fid = _tasks[tid].get("front_id", "")
     del _tasks[tid]
     # Tombstone: el save hace MERGE de las tareas persistidas para no perder
     # las de otras instancias, asi que hay que marcar explicitamente esta como
@@ -232,7 +253,16 @@ def kanban_tool_task_delete(args: dict) -> dict:
     except Exception:
         pass
     _save_state()
-    return {"content": [{"type": "text", "text": f"🗑️ Task '{tid}' deleted."}]}
+    # ADR-002: borrar tambien en cadences.app (o avisar en voz alta)
+    aviso = ""
+    if fid:
+        try:
+            import front_kanban
+            front_kanban.borrar_tarea(fid)
+            aviso = "\n↗ borrada tambien en cadences.app"
+        except Exception as e:
+            aviso = f"\n⚠️ NO borrada en cadences.app: {e}"
+    return {"content": [{"type": "text", "text": f"🗑️ Task '{tid}' deleted.{aviso}"}]}
 
 
 def kanban_tool_task_search(args: dict) -> dict:
