@@ -57,12 +57,26 @@ def proyecto_de(niche_id):
     return (cfg.get("project_map") or {}).get(niche_id) or cfg.get("default_project_id") or ""
 
 
+def _token():
+    """Token del agente desde ~/AppData/Local/hermes/agent_tokens.json (fuera de git)."""
+    path = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
+                        "hermes", "agent_tokens.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get(_cfg().get("agent_id", "hermes"), "")
+    except Exception:
+        return ""
+
+
 def _req(method, path, body=None, idem=None):
     cfg = _cfg()
     if not cfg.get("customer_id"):
         raise RuntimeError("cadences.app no configurado (falta cadences_agent.json o CADENCES_CUSTOMER_ID)")
     h = {"X-Customer-ID": cfg["customer_id"], "X-Agent-Id": cfg.get("agent_id", "hermes"),
          "User-Agent": "lumen-thinking/1.0"}
+    tok = _token()
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
     if cfg.get("organization_id"):
         h["X-Organization-ID"] = cfg["organization_id"]
     data = None
