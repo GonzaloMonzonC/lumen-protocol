@@ -737,6 +737,19 @@ def _pdb_save_all() -> None:
                         _sess.wiki[_rid] = _obj
         except Exception as _e_merge2:
             _safe_print(f"[lumen-thinking] merge estado: aviso {_e_merge2}")
+        # FIX 23-oct-2026: NUNCA borrar de STATE nichos que no tenemos cargados.
+        # El save vacía el namespace entero y reinserta lo que hay en memoria; si
+        # `_niches` viene vacío por una carga incompleta, los nichos desaparecen de
+        # STATE para siempre (SPACES los conserva). Se rehabilitan antes del DELETE.
+        if not _niches:
+            try:
+                _rec_n = _niches_from_spaces(conn)
+                if _rec_n:
+                    _niches.update(_rec_n)
+                    _safe_print(f"[lumen-thinking] save: {len(_rec_n)} nichos "
+                                f"rehabilitados desde SPACES antes de reescribir STATE")
+            except Exception as _e_nr:
+                _safe_print(f"[lumen-thinking] save: rehabilitar nichos: aviso {_e_nr}")
         conn.execute("DELETE FROM _globals WHERE ns='STATE'")
         pairs = []
         for sid, sess in _sessions.items():
@@ -1009,6 +1022,35 @@ def _pdb_save_all() -> None:
         _pdb_save_lock.release()
 
 
+def _niches_from_spaces(conn) -> dict:
+    """Nichos vivos en SPACES (`space|niches|niche_N`) → {id: niche}.
+
+    FIX 23-oct-2026. `_save_state()` hace `DELETE FROM _globals WHERE ns='STATE'`
+    y reinserta SOLO lo que hay en memoria: cualquier instancia del server con
+    `_niches` vacío (carga incompleta, arranque viejo) borraba los nichos de
+    STATE, que es el ÚNICO sitio del que los lee `_pdb_load_all()`. SPACES
+    conserva la copia buena porque se escribe con upsert desde `_niches` y no se
+    vacía nunca. Resultado observado: `niche_list` → "No niches defined" y
+    `task_move` convertido en no-op silencioso (valida la columna contra el nicho).
+    """
+    from pdb_tools import decode_subkey as _dec_sub
+    out: dict = {}
+    for _sk, _val in conn.execute("SELECT subkey, value FROM _globals WHERE ns='SPACES'"):
+        try:
+            _subs = _dec_sub(_sk)
+        except Exception:
+            continue
+        if len(_subs) != 3 or _subs[1] != "niches":
+            continue
+        try:
+            _n = json.loads(_val.decode() if isinstance(_val, bytes) else _val)
+        except Exception:
+            continue
+        if isinstance(_n, dict) and _n.get("id"):
+            out[_n["id"]] = _n
+    return out
+
+
 def _pdb_load_all() -> bool:
     """Load ALL state from PDB. Returns True if state was loaded."""
     global _sessions, _next_session_num, _preserved, _call_timeline, _global_tool_calls
@@ -1087,6 +1129,20 @@ def _pdb_load_all() -> bool:
         _web_snapshots = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:web_snapshot:")}
         _qa_pairs = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:qa:")}
         _niches = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:niche:")}
+        # FIX 23-oct-2026: los nichos pueden haberse perdido de STATE (ver
+        # `_niches_from_spaces`). Fallback a SPACES: es la copia que nunca se vacía.
+        if not _niches:
+            try:
+                _conn_nf = _pdb.pdb_connect()
+                try:
+                    _niches = _niches_from_spaces(_conn_nf)
+                finally:
+                    _conn_nf.close()
+                if _niches:
+                    _safe_print(f"[lumen-thinking] nichos recuperados de SPACES: "
+                                f"{len(_niches)} (STATE venía vacío)")
+            except Exception as _e_nf:
+                _safe_print(f"[lumen-thinking] fallback nichos SPACES: aviso {_e_nf}")
         _tasks = {k.split(":", 2)[2]: v for k, v in globals_data.items() if k.startswith("global:task:")}
         # ── CONTRATOS DE TAREA (colaboración multi-nodo, 2026-10-19) ────────
         # Se cargan antes que los objetivos para que estén disponibles desde la

@@ -67,15 +67,16 @@ def kanban_tool_niche_create(args: dict) -> dict:
 
 
 def kanban_tool_niche_list(args: dict) -> dict:
-    from server import _niches
+    from server import _niches, _tasks   # FIX 23-oct-2026: antes `'_tasks' in dir()`
+    # daba siempre False -> el conteo de tareas por nicho salía "?" siempre.
     if not _niches:
         return {"content": [{"type": "text", "text": "No niches defined. Use niche_create."}]}
     lines = [f"📋 Niches ({len(_niches)}):"]
     for nid, n in _niches.items():
         archived = " 📦" if n.get("archived") else ""
-        tc = sum(1 for t in _tasks.values() if t.get("niche_id") == nid) if '_tasks' in dir() else "?"
-        lines.append(f"  • {n['name']} (ID: {nid}){archived}")
-        lines.append(f"    Color: {n.get('color','#?')} · Columns: {len(n.get('columns',[]))} · Tasks: {tc}")
+        tc = sum(1 for t in _tasks.values() if t.get("niche_id") == nid)
+        lines.append(f"  • {n['name']} (ID: {nid}){archived} · {tc} tareas")
+        lines.append(f"    Color: {n.get('color','#?')} · Columns: {len(n.get('columns',[]))}")
         if n.get("desc"):
             lines.append(f"    {n['desc'][:80]}")
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
@@ -144,18 +145,40 @@ def kanban_tool_task_move(args: dict) -> dict:
     if tid not in _tasks:
         return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
     t = _tasks[tid]
+    avisos = []
     if "to_column" in args:
-        col = args["to_column"]
+        col = str(args["to_column"]).strip()
         niche = _niches.get(t.get("niche_id", ""))
-        if niche and col in niche.get("columns", []):
-            t["column"] = col
-            t["status"] = str(col).lower()   # mismo dato: no dejar `status` atras
+        cols = [str(c) for c in (niche or {}).get("columns", [])]
+        # FIX 23-oct-2026: antes esto era `if niche and col in niche["columns"]`.
+        # Con `_niches` vacío (nichos perdidos de STATE) la condición era False,
+        # el movimiento se saltaba EN SILENCIO y la tool devolvía "✅ updated"
+        # igual -> task_move congelado para las 256 tareas. Ahora:
+        #   - columna válida: se aplica (match case-insensitive: done == Done)
+        #   - nicho desconocido: se aplica y se avisa
+        #   - columna inválida con nicho conocido: se rechaza en voz alta
+        match = next((c for c in cols if c.lower() == col.lower()), None)
+        if match is None and niche is None:
+            avisos.append(f"nicho '{t.get('niche_id', '')}' desconocido: "
+                          f"aplico columna '{col}' sin validar contra el nicho")
+            match = col
+        elif match is None:
+            return {"content": [{"type": "text", "text":
+                    f"❌ Columna '{col}' no existe en el nicho '{niche.get('id')}' "
+                    f"(columnas: {', '.join(cols)}). '{tid}' NO se ha movido."}]}
+        t["column"] = match
+        t["status"] = str(match).lower()   # mismo dato: no dejar `status` atras
     for k in ("title", "desc", "priority", "tags", "assignee"):
         if k in args and args[k] is not None:
             t[k] = args[k]
     t["updated_at"] = time.time()
     _save_state()
-    return {"content": [{"type": "text", "text": f"✅ Task '{tid}' updated."}]}
+    txt = f"✅ Task '{tid}' actualizada."
+    if "to_column" in args:
+        txt = f"✅ Task '{tid}' movida a '{t.get('column')}' (status: {t.get('status')})."
+    if avisos:
+        txt += "\n⚠️ " + "; ".join(avisos)
+    return {"content": [{"type": "text", "text": txt}]}
 
 
 def kanban_tool_task_list(args: dict) -> dict:
