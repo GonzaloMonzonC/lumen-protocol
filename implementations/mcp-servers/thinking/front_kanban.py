@@ -138,6 +138,47 @@ def listar_tareas(niche_id):
     return out
 
 
+def todas_las_tareas():
+    """Todas las tareas de los proyectos mapeados, en forma local.
+
+    Se usa cuando el espejo del PDB esta vacio (F3): la app es la verdad.
+    """
+    cfg = _cfg()
+    proyectos = sorted(set((cfg.get("project_map") or {}).values()))
+    if not proyectos:
+        return []
+    vistos, out = set(), []
+    ahora = time.time()
+    for pid in proyectos:
+        try:
+            d = _req("GET", "/tasks?projectId=%s&limit=500" % pid)
+        except Exception:
+            continue
+        for t in (d.get("tasks") or []):
+            if t.get("id") in vistos:
+                continue
+            vistos.add(t.get("id"))
+            tags = t.get("tags")
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except Exception:
+                    tags = []
+            tags = [str(x) for x in (tags or [])]
+            ext = next((x[4:] for x in tags if x.startswith(("ext:", "pdb:"))), t.get("id"))
+            niche = next((x.split(":", 1)[1] for x in tags if x.startswith("pdb-niche:")), "")
+            out.append({
+                "id": ext, "front_id": t.get("id"), "niche_id": niche,
+                "title": t.get("title") or "", "desc": t.get("description") or "",
+                "column": INV_ESTADO.get(str(t.get("status") or "").lower(), t.get("status") or "Backlog"),
+                "priority": INV_PRIO.get(str(t.get("priority") or "").lower(), "medium"),
+                "tags": [x for x in tags if not x.startswith(("ext:", "agent:", "pdb-niche:", "pdb:"))],
+                "assignee": t.get("assignedTo") or "", "references": {},
+                "created_at": ahora, "updated_at": ahora,
+            })
+    return out
+
+
 def crear_tarea(task_local: dict) -> str:
     """Crea la tarea en la app. Devuelve el id del front."""
     pid = proyecto_de(task_local.get("niche_id", ""))

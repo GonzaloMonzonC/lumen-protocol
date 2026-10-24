@@ -287,7 +287,14 @@ def kanban_tool_task_search(args: dict) -> dict:
     priority = args.get("priority")
     tag = args.get("tag")
     limit = args.get("limit", 20)
-    items = _tasks.values()
+    items = list(_tasks.values())
+    if not items:
+        # F3: sin espejo en el PDB -> buscar en la app
+        try:
+            import front_kanban
+            items = front_kanban.todas_las_tareas()
+        except Exception:
+            items = []
     if nid: items = [t for t in items if t.get("niche_id") == nid]
     if status:
         _want = str(status).lower()
@@ -340,7 +347,17 @@ def kanban_tool_task_link_url(args: dict) -> dict:
 def kanban_tool_kanban_stats(args: dict) -> dict:
     from server import _tasks, _niches
     nid = args.get("niche_id")
-    items = _tasks.values()
+    items = list(_tasks.values())
+    fuente = "PDB local"
+    if not items:
+        # F3: el espejo del PDB ya no guarda tareas -> la app es la fuente
+        try:
+            import front_kanban
+            items = front_kanban.todas_las_tareas()
+            fuente = "cadences.app"
+        except Exception:
+            items = []
+            fuente = "PDB local (vacio)"
     if nid: items = [t for t in items if t.get("niche_id") == nid]
     total = len(items)
     by_column = {}
@@ -350,7 +367,7 @@ def kanban_tool_kanban_stats(args: dict) -> dict:
         by_column[col] = by_column.get(col, 0) + 1
         prio = t.get("priority", "medium")
         if prio in by_priority: by_priority[prio] += 1
-    lines = [f"📊 Kanban Stats{' for ' + str(nid) if nid else ''}:",
+    lines = [f"📊 Kanban Stats{' for ' + str(nid) if nid else ''} (fuente: {fuente}):",
              f"  Total tasks: {total}"]
     if by_column:
         lines.append(f"  By column: {', '.join(f'{k}: {v}' for k, v in sorted(by_column.items()))}")
