@@ -9,7 +9,7 @@ Reglas (ADR-002 v1.1):
   - errores RUIDOSOS: nunca devolver exito si la app fallo
   - idempotencia: tag 'ext:<id_local>' (el id de la PDB) para no duplicar
 """
-import json, os, time, urllib.request, urllib.error, uuid
+import json, os, re, time, urllib.request, urllib.error, uuid
 
 _CFG_CACHE = None
 
@@ -186,8 +186,10 @@ def crear_tarea(task_local: dict) -> str:
         raise RuntimeError("sin proyecto destino (project_map/default_project_id vacio)")
     tid = f"task_{int(time.time()*1000)}_{uuid.uuid4().hex[:9]}"
     ahora = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
-    tags = [f"agent:{_cfg().get('agent_id','hermes')}", f"pdb-niche:{task_local.get('niche_id','')}",
-            f"ext:{task_local.get('id','')}"] + [str(t) for t in (task_local.get("tags") or [])]
+    tags = [f"agent:{_cfg().get('agent_id','hermes')}", f"pdb-niche:{task_local.get('niche_id','')}"]
+    if task_local.get("id"):
+        tags.append(f"ext:{task_local['id']}")
+    tags += [str(t) for t in (task_local.get("tags") or [])]
     body = {"id": tid, "projectId": pid, "customerId": _cfg()["customer_id"],
             "assignedTo": f"user_{_cfg().get('agent_id','hermes')}",
             "title": (task_local.get("title") or "")[:250],
@@ -202,7 +204,9 @@ def crear_tarea(task_local: dict) -> str:
 
 
 def mover_tarea(front_id: str, columna: str, extra: dict = None):
-    body = {"status": estado_de(columna)}
+    body = {}
+    if columna:
+        body["status"] = estado_de(columna)
     if extra:
         if extra.get("title"):
             body["title"] = extra["title"][:250]
@@ -219,3 +223,32 @@ def borrar_tarea(front_id: str):
     if not front_id:
         raise RuntimeError("la tarea local no tiene front_id")
     return _req("DELETE", f"/tasks/{front_id}")
+
+
+def resolver(tid: str):
+    """front_id de una tarea, aceptando tanto un id del front como uno local (ext:/pdb:)."""
+    if not tid:
+        return None
+    if re.match(r"^task_\d{12,}_", tid):
+        return tid                       # ya es un id del front
+    for t in todas_las_tareas():
+        if t.get("id") == tid or t.get("front_id") == tid:
+            return t.get("front_id")
+    return None
+
+
+def anadir_tags(front_id: str, nuevas):
+    """Añade etiquetas a una tarea existente (para task_link / task_link_url)."""
+    d = _req("GET", f"/tasks/{front_id}")
+    t = d.get("task") or d.get("data") or {}
+    tags = t.get("tags")
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except Exception:
+            tags = []
+    tags = [str(x) for x in (tags or [])]
+    for x in nuevas:
+        if x and x not in tags:
+            tags.append(x)
+    return _req("PUT", f"/tasks/{front_id}", {"tags": tags})

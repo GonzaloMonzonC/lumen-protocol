@@ -71,10 +71,21 @@ def kanban_tool_niche_list(args: dict) -> dict:
     # daba siempre False -> el conteo de tareas por nicho salía "?" siempre.
     if not _niches:
         return {"content": [{"type": "text", "text": "No niches defined. Use niche_create."}]}
+    # F3: los conteos vienen de la app cuando el espejo local está vacío
+    conteo = None
+    if not _tasks:
+        try:
+            import front_kanban
+            conteo = {}
+            for t in front_kanban.todas_las_tareas():
+                n = t.get("niche_id") or ""
+                conteo[n] = conteo.get(n, 0) + 1
+        except Exception:
+            conteo = None
     lines = [f"📋 Niches ({len(_niches)}):"]
     for nid, n in _niches.items():
         archived = " 📦" if n.get("archived") else ""
-        tc = sum(1 for t in _tasks.values() if t.get("niche_id") == nid)
+        tc = conteo.get(nid, 0) if conteo is not None else sum(1 for t in _tasks.values() if t.get("niche_id") == nid)
         lines.append(f"  • {n['name']} (ID: {nid}){archived} · {tc} tareas")
         lines.append(f"    Color: {n.get('color','#?')} · Columns: {len(n.get('columns',[]))}")
         if n.get("desc"):
@@ -102,59 +113,48 @@ def kanban_tool_niche_update(args: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def kanban_tool_task_create(args: dict) -> dict:
+    """F3: la tarea se crea SOLO en cadences.app (la app es la verdad, sin espejo)."""
     import server
-    _pdb_save_lock = server._pdb_save_lock
-    _pdb_save_lock.acquire()
+    nid = args.get("niche_id", "")
+    title = args.get("title", "").strip()
+    if not nid or not title:
+        return {"content": [{"type": "text", "text": "Error: 'niche_id' and 'title' required."}]}
+    niche = server._niches.get(nid)
+    if server._niches and nid not in server._niches:
+        return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
+    columna = (niche or {}).get("columns", ["Backlog"])[0]
     try:
-        nid = args.get("niche_id", "")
-        title = args.get("title", "").strip()
-        if not nid or not title:
-            return {"content": [{"type": "text", "text": "Error: 'niche_id' and 'title' required."}]}
-        if nid not in server._niches:
-            return {"content": [{"type": "text", "text": f"Niche '{nid}' not found."}]}
-        # Fix incidente 6 (16-sep-2026): el guard `while tid in _tasks` solo ve
-        # la memoria de ESTA instancia; una instancia stale puede asignar un id
-        # ya ocupado por otra (caso real: task_175 «mesh mvm-nas» pisada).
-        # Releer el max persistido (STATE+SPACES) antes de asignar.
-        server._sync_counter_from_pdb("task")
-        tid = f"task_{server._next_task_id}"
-        # FIX bug kanban (3 incidentes 2026-09-09): el contador en memoria puede
-        # quedar desincronizado del estado persistido y PISAR ids existentes.
-        # Nunca asignar un id ya ocupado: saltar hasta el primer hueco libre.
-        while tid in server._tasks:
-            server._next_task_id += 1
-            tid = f"task_{server._next_task_id}"
-        server._next_task_id += 1
-        server._tasks[tid] = {
-            "id": tid, "niche_id": nid, "title": title,
+        import front_kanban
+        fid = front_kanban.crear_tarea({
+            "id": "", "niche_id": nid, "title": title,
             "desc": args.get("desc", ""), "priority": args.get("priority", "medium"),
-            "status": str(server._niches[nid]["columns"][0]).lower(), "column": server._niches[nid]["columns"][0],
-            "tags": args.get("tags", []), "assignee": args.get("assignee", ""),
-            "references": {"chains": [], "patterns": [], "decisions": [], "wikis": []},
-            "urls": [], "created_at": time.time(), "updated_at": time.time(),
-        }
-        # ADR-002: la app es la verdad visible; la PDB queda como espejo local.
-        # Si la app falla, se avisa en voz alta (nunca exito silencioso).
-        aviso_front = ""
-        try:
-            import front_kanban
-            server._tasks[tid]["front_id"] = front_kanban.crear_tarea(server._tasks[tid])
-        except Exception as e:
-            aviso_front = f"\n⚠️ NO creada en cadences.app: {e}"
-        server._save_state()
-        txt = f"✅ Task created: {title} (ID: {tid}) in '{server._niches[nid]['name']}'"
-        if server._tasks[tid].get("front_id"):
-            txt += f"\n↗ cadences.app: {server._tasks[tid]['front_id']}"
-        return {"content": [{"type": "text", "text": txt + aviso_front}]}
-    finally:
-        _pdb_save_lock.release()
+            "column": columna, "tags": args.get("tags", []),
+            "assignee": args.get("assignee", "")})
+    except Exception as e:
+        return {"content": [{"type": "text", "text":
+                f"❌ NO creada: la app es la fuente y falló ({e}). Nada se ha guardado en local."}]}
+    nombre = (niche or {}).get("name", nid)
+    return {"content": [{"type": "text", "text":
+            f"✅ Task created: {title} (ID: {fid}) in '{nombre}' · cadences.app"}]}
 
 
 def kanban_tool_task_move(args: dict) -> dict:
     from server import _tasks, _niches, _save_state
     tid = args.get("task_id", "")
     if tid not in _tasks:
-        return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+        # F3: la tarea vive SOLO en la app
+        try:
+            import front_kanban
+            fid = front_kanban.resolver(tid)
+            if not fid:
+                return {"content": [{"type": "text", "text": f"Task '{tid}' not found (ni en local ni en la app)."}]}
+            col = args.get("to_column", "")
+            extra = {k: args[k] for k in ("title", "desc", "priority") if k in args and args[k] is not None}
+            front_kanban.mover_tarea(fid, col, extra=extra)
+            hecho = f"movida a '{col}'" if col else "actualizada"
+            return {"content": [{"type": "text", "text": f"✅ Task '{tid}' {hecho} en cadences.app ({fid})."}]}
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"❌ NO se pudo actualizar en la app: {e}"}]}
     t = _tasks[tid]
     avisos = []
     if "to_column" in args:
@@ -256,7 +256,16 @@ def kanban_tool_task_delete(args: dict) -> dict:
     _tasks, _save_state = server._tasks, server._save_state
     tid = args.get("task_id", "")
     if tid not in _tasks:
-        return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+        # F3: borrar en la app
+        try:
+            import front_kanban
+            fid = front_kanban.resolver(tid)
+            if not fid:
+                return {"content": [{"type": "text", "text": f"Task '{tid}' not found (ni en local ni en la app)."}]}
+            front_kanban.borrar_tarea(fid)
+            return {"content": [{"type": "text", "text": f"🗑️ Task '{tid}' borrada en cadences.app ({fid})."}]}
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"❌ NO se pudo borrar en la app: {e}"}]}
     fid = _tasks[tid].get("front_id", "")
     del _tasks[tid]
     # Tombstone: el save hace MERGE de las tareas persistidas para no perder
@@ -320,7 +329,18 @@ def kanban_tool_task_link(args: dict) -> dict:
     from server import _tasks, _save_state
     tid = args.get("task_id", "")
     if tid not in _tasks:
-        return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+        # F3: los vinculos van como etiquetas en la app
+        try:
+            import front_kanban
+            fid = front_kanban.resolver(tid)
+            if not fid:
+                return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+            nuevas = [f"ref:{k[:-3]}:{args[k]}" for k in ("chain_id", "pattern_id", "decision_id", "wiki_id")
+                      if args.get(k)]
+            front_kanban.anadir_tags(fid, nuevas)
+            return {"content": [{"type": "text", "text": f"✅ Vinculos añadidos como etiquetas en la app ({fid})."}]}
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"❌ NO se pudo vincular en la app: {e}"}]}
     t = _tasks[tid]
     refs = t.setdefault("references", {"chains": [], "patterns": [], "decisions": [], "wikis": []})
     for k in ("chain_id", "pattern_id", "decision_id", "wiki_id"):
@@ -336,7 +356,15 @@ def kanban_tool_task_link_url(args: dict) -> dict:
     tid = args.get("task_id", "")
     url = args.get("url", "")
     if tid not in _tasks:
-        return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+        try:
+            import front_kanban
+            fid = front_kanban.resolver(tid)
+            if not fid:
+                return {"content": [{"type": "text", "text": f"Task '{tid}' not found."}]}
+            front_kanban.anadir_tags(fid, [f"url:{url}"] if url else [])
+            return {"content": [{"type": "text", "text": f"✅ URL añadida como etiqueta en la app ({fid})."}]}
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"❌ NO se pudo añadir la URL en la app: {e}"}]}
     urls = _tasks[tid].setdefault("urls", [])
     if url not in urls:
         urls.append(url)
