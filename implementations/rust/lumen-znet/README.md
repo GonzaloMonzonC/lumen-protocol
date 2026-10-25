@@ -76,7 +76,7 @@ crudo — pero a cambio gana Hyb128, diccionario y capacidad de multiplexación.
 
 ## Qué está probado
 
-**14 tests, todos pasan.**
+**22 tests, todos pasan.**
 
 ### Unitarios (10) — el mapeo es reversible
 
@@ -103,19 +103,58 @@ Estos son los que importan. No usan mi codec contra sí mismo: usan `lumen::fram
 - **`muchos_mensajes_seguidos_se_parsean_uno_a_uno`** — 50 mensajes en un stream, leídos frame a
   frame usando `consumed`. Es el bucle de `DDPSRV`: recv, actuar, responder, repetir
 
+### E2E sobre QUIC real (2)
+
+- **`un_mensaje_ddp_viaja_por_quic_de_verdad`** — servidor y cliente QUIC de verdad, mensaje DDP
+  de ida y ACK de vuelta, campos comprobados en ambos extremos
+- **`el_backend_generico_funciona_sobre_un_vec`** — el backend funciona sobre cualquier
+  `Transport`
+
 ```
-running 10 tests ... test result: ok. 10 passed; 0 failed
+running 16 tests ... test result: ok. 16 passed; 0 failed
 running 4 tests  ... test result: ok. 4 passed; 0 failed
+running 2 tests  ... test result: ok. 2 passed; 0 failed
 ```
+
+**Y los 176 tests de `lumen` siguen pasando** tras corregir `quic.rs`.
+
+## Transporte QUIC
+
+`src/quic_backend.rs` conecta la cola en memoria con un stream real. `QuicZnet<S: Transport>`:
+
+| Método | Qué hace |
+|---|---|
+| `flush()` | saca los replies de la cola de circuitos y los escribe como frames LUMEN |
+| `poll()` | lee del stream, parte en frames con `frame::parse` usando `consumed` |
+| `pump()` | las dos cosas: el cuerpo del bucle de `DDPSRV` |
+
+Usa el trait `lumen::transport::Transport`, no `std::io::Read + Write`: sirve sobre QUIC, TCP o
+stdio sin cambiar nada, y se puede probar con un buffer en memoria.
+
+**Verificado sobre QUIC real** — servidor y cliente, handshake TLS, ida y vuelta:
+
+
+
+### Dos bugs encontrados en `QuicTransport` de LUMEN
+
+Al escribir el E2E aparecieron dos fallos en `src/quic.rs`, **no en este crate**:
+
+1. **`read` bloqueaba hasta EOF.** Usaba `recv.read_to_end(65536)`, que espera a que el par cierre
+   el stream. Inutilizable para petición/respuesta: el receptor no ve bytes hasta que el emisor
+   termina, y el emisor no termina porque espera respuesta. Deadlock. Síntoma: 30 s exactos de
+   espera y el servidor aceptaba sin leer nunca.
+2. **El buffer de lectura tenía capacidad 0.** `Vec::new()` pasado como slice a `recv.read`
+   devuelve 0 bytes, indistinguible de un cierre limpio. El cliente leía 0 y creía que el stream
+   estaba cerrado.
+
+Los dos pasaban desapercibidos porque los tests existentes de `quic.rs` usan los streams de quinn
+directamente, no el trait `Transport`. Ambos corregidos.
 
 ## Qué NO está hecho
 
-Esto es el **codec y la máquina de estados**. No es el transporte.
-
-- ❌ **No hay sockets.** `recv()` es no bloqueante y lee de una cola en memoria. Falta conectar
-  esa cola a un transporte LUMEN real (QUIC Level 4, o TCP Level 1).
-- ❌ **No hay backend QUIC implementado**, aunque la feature `quic` compila. Está declarada y
-  arrastra las dependencias, pero no hay código de conexión.
+- ❌ **No está probado contra el MSM original.** El formato de mensaje se dedujo de la rama 12 de
+  `DDPSRV`, que **está comentada en el original**. Los 22 tests construyen los mensajes con este
+  mismo código: prueban coherencia interna, **no compatibilidad con el MSM**.
 - ❌ **No está probado contra el MSM original.** El formato se dedujo leyendo `DDPSRV`, `STUDDP` y
   `WSAGENT` extraídos de `DATABASE.MSM`. La deducción es coherente con el uso, pero **no hay
   documentación oficial de `$ZNET` en la máquina**.
@@ -150,6 +189,7 @@ while let Some(msg) = z.recv() {            // $ZNET(8)
 | Codec DDP ↔ LUMEN | ✅ hecho, 14 tests |
 | Las 6 funciones | ✅ hechas |
 | Compatibilidad con codec LUMEN real | ✅ verificada por tests de integración |
-| Transporte de red | ❌ no implementado |
+| Transporte de red | ✅ QUIC, verificado E2E |
+| Validación del certificado del par | ❌ expuesto pero no validado |
 | Probado contra MSM original | ❌ no |
 | Auditoría de seguridad | ✅ `cargo audit` → 0 |
