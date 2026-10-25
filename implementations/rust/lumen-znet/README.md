@@ -133,8 +133,12 @@ stdio sin cambiar nada, y se puede probar con un buffer en memoria.
 
 **Verificado sobre QUIC real** — servidor y cliente, handshake TLS, ida y vuelta:
 
+```text
+[srv] frame DDP recibido: num1=300 num2=7 body="^SYS(\"JOURNAL\",1)=p1^p2"
+[srv] ACK enviado (8 bytes)
+```
 
-
+`num1=300` es `0x012C` intacto, y la carga útil llega sin tocar.
 ### Dos bugs encontrados en `QuicTransport` de LUMEN
 
 Al escribir el E2E aparecieron dos fallos en `src/quic.rs`, **no en este crate**:
