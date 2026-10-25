@@ -80,8 +80,50 @@ pub enum ZnetReply {
     Failure,
     /// `$ZNET(9, "")` — vacío.
     Empty,
-    /// `$ZNET(9, $ZCHAR(...))` — datos binarios (4 bytes big-endian en el original).
+    /// `$ZNET(9, $ZCHAR(...))` — datos binarios en crudo.
     Data(Vec<u8>),
+}
+
+// ── El empaquetado base-100 de MSM ──────────────────────────────────────────
+
+/// Empaqueta un número como lo hace `DDPSRV` al responder.
+///
+/// `DDPSRV` construye la respuesta con:
+///
+/// ```text
+/// $ZCHAR($ZB#100, $ZB@#100, $ZB@00#100, $ZB@0000)
+/// ```
+///
+/// Es decir: **no es un entero binario de 32 bits, son cuatro dígitos decimales
+/// empaquetados en base 100**, del menos significativo al más significativo.
+///
+/// Para un id pequeño (< 100) el resultado coincide con un `u32` little-endian;
+/// a partir de 100 divergen por completo. Un `u32` big-endian nunca coincide.
+///
+/// ```
+/// # use lumen_znet::{empaqueta_base100, desempaqueta_base100};
+/// assert_eq!(empaqueta_base100(42), [42, 0, 0, 0]);
+/// assert_eq!(empaqueta_base100(12345), [45, 23, 1, 0]);
+/// assert_eq!(desempaqueta_base100(&[45, 23, 1, 0]), 12345);
+/// ```
+pub fn empaqueta_base100(n: u32) -> [u8; 4] {
+    [
+        (n % 100) as u8,
+        ((n / 100) % 100) as u8,
+        ((n / 10_000) % 100) as u8,
+        (n / 1_000_000) as u8,
+    ]
+}
+
+/// Deshace el empaquetado base-100. Es la inversa exacta de [`empaqueta_base100`].
+pub fn desempaqueta_base100(bytes: &[u8]) -> u32 {
+    if bytes.len() < 4 {
+        return 0;
+    }
+    bytes[0] as u32
+        + (bytes[1] as u32) * 100
+        + (bytes[2] as u32) * 10_000
+        + (bytes[3] as u32) * 1_000_000
 }
 
 // ── Errores ─────────────────────────────────────────────────────────────────
@@ -434,6 +476,55 @@ mod tests {
         let msg = z.recv_circuit().unwrap().1;
         assert_eq!(msg.kind, msg_type::DATA);
         assert_eq!(msg.body, datos);
+    }
+
+    #[test]
+    fn base100_ida_y_vuelta() {
+        for n in [0u32, 1, 42, 99, 100, 9999, 12345, 999999, 12_345_678] {
+            let p = empaqueta_base100(n);
+            assert_eq!(desempaqueta_base100(&p), n, "fallo con {n} -> {p:?}");
+        }
+    }
+
+    #[test]
+    fn base100_coincide_con_ddpsrv() {
+        // $ZCHAR($ZB#100, $ZB@#100, $ZB@00#100, $ZB@0000)
+        assert_eq!(empaqueta_base100(0), [0, 0, 0, 0]);
+        assert_eq!(empaqueta_base100(42), [42, 0, 0, 0]);
+        assert_eq!(empaqueta_base100(99), [99, 0, 0, 0]);
+        assert_eq!(empaqueta_base100(100), [0, 1, 0, 0]);
+        assert_eq!(empaqueta_base100(12345), [45, 23, 1, 0]);
+        assert_eq!(empaqueta_base100(12_345_678), [78, 56, 34, 12]);
+    }
+
+    #[test]
+    fn base100_no_es_un_entero_binario() {
+        // Este es el error que se colo en la primera version: creer que los 4 bytes
+        // eran un u32 big-endian. Para 42 divergen.
+        let n = 42u32;
+        assert_eq!(empaqueta_base100(n), [42, 0, 0, 0]);
+        assert_eq!(n.to_be_bytes(), [0, 0, 0, 42], "un u32 BE no es lo mismo");
+        // Y para 12345 divergen por completo.
+        assert_eq!(empaqueta_base100(12345), [45, 23, 1, 0]);
+        assert_eq!(12345u32.to_be_bytes(), [0, 0, 48, 57]);
+    }
+
+    #[test]
+    fn cabecera_es_de_seis_bytes_y_la_carga_empieza_en_el_siete_mumps() {
+        // $E(M,7,999) en MUMPS = offset 6 en base 0.
+        assert_eq!(DDP_HEADER_LEN, 6);
+        let msg = DdpMessage::new(msg_type::DATA, 1, 2, 3, b"abc".to_vec());
+        let bytes = msg.encode();
+        assert_eq!(&bytes[6..], b"abc", "la carga debe empezar en el byte 7 de MUMPS");
+    }
+
+    #[test]
+    fn los_numeros_de_cabecera_son_little_endian() {
+        // $ZAS(M,3)*256 + $ZAS(M,2) -> M[2] es el menos significativo.
+        let msg = DdpMessage::new(msg_type::DATA, 0x012C, 7, 0, Vec::new());
+        let b = msg.encode();
+        assert_eq!((b[1], b[2]), (0x2C, 0x01), "num1 little-endian");
+        assert_eq!((b[3], b[4]), (0x07, 0x00), "num2 little-endian");
     }
 
     #[test]
