@@ -338,15 +338,32 @@ impl crate::transport::Transport for QuicTransport {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "recv stream closed"))?;
 
         self.runtime_handle.block_on(async {
-            match recv.read_to_end(65536).await {
-                Ok(data) if data.is_empty() => Ok(0),
-                Ok(data) => {
-                    self.read_buffer = data;
-                    let n = self.read_buffer.len().min(buf.len());
-                    buf[..n].copy_from_slice(&self.read_buffer[..n]);
-                    self.read_pos = n;
-                    Ok(n)
+            // Leer UN chunk, no el stream entero.
+            //
+            // Antes esto era `recv.read_to_end(65536)`, que bloquea hasta que el par cierra el
+            // stream. Eso hace inutilizable el transporte para cualquier protocolo con
+            // peticion/respuesta: el receptor nunca ve los bytes hasta que el emisor termina,
+            // y el emisor nunca termina porque espera la respuesta. Deadlock.
+            //
+            // LUMEN tiene framing propio (Hyb128 + tipo + flags), asi que no necesita el EOF
+            // para saber donde acaba un frame: `frame::parse` se lo dice. Leer por chunks es
+            // lo correcto aqui.
+            //
+            // El buffer tiene que tener capacidad: `recv.read` con un slice vacio devuelve 0
+            // y se confundiria con un cierre limpio del stream.
+            if self.read_buffer.is_empty() {
+                self.read_buffer.resize(65536, 0);
+            }
+            match recv.read(&mut self.read_buffer[..]).await {
+                Ok(Some(n)) if n > 0 => {
+                    self.read_pos = 0;
+                    let copiar = n.min(buf.len());
+                    buf[..copiar].copy_from_slice(&self.read_buffer[..copiar]);
+                    self.read_pos = copiar;
+                    Ok(copiar)
                 }
+                Ok(Some(_)) => Ok(0),
+                Ok(None) => Ok(0),
                 Err(e) => Err(io::Error::new(
                     io::ErrorKind::ConnectionReset,
                     format!("QUIC read: {e}"),

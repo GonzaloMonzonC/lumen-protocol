@@ -48,6 +48,10 @@
 use std::collections::VecDeque;
 use std::fmt;
 
+pub mod quic_backend;
+
+pub use quic_backend::{QuicZnet, QuicZnetError};
+
 // ── Constantes del protocolo DDP ────────────────────────────────────────────
 
 /// Tamaño de la cabecera fija de un mensaje DDP: tipo(1) + num1(2) + num2(2) + flag(1).
