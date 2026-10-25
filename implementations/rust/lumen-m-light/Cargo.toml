@@ -17,7 +17,7 @@ hmac = "0.12"
 hex = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 ureq = { version = "3", optional = true }
-minreq = { version = "2", optional = true, features = ["json-using-serde", "https-rustls"] }
+minreq = { version = "3", optional = true, features = ["json-using-serde", "https-rustls-probe"] }
 wasm-bindgen = { version = "0.2", optional = true }
 libloading = { version = "0.8", optional = true }
 # Backend LMDB (feature "lmdb") — motor directo mmap para nodos. Cross-builds
