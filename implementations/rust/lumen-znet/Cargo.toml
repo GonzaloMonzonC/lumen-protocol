@@ -1,0 +1,21 @@
+[package]
+name = "lumen-znet"
+version = "0.1.0"
+edition = "2021"
+description = "ZNET — reimplementación de la primitiva de red $ZNET de MSM sobre LUMEN"
+license = "MIT"
+
+[lib]
+name = "lumen_znet"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lumen = { path = ".." }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+default = []
+# Transporte QUIC (Level 4 de LUMEN). Sin esta feature solo existe el codec y el
+# backend en memoria, que sirven para tests y para el puente journal->DDP.
+quic = ["lumen/quic"]
