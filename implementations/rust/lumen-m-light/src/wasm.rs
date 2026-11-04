@@ -97,8 +97,8 @@ pub fn m_llm_pending() -> String {
     let jobs = crate::host::wasm_llm_pending();
     let arr: Vec<serde_json::Value> = jobs
         .into_iter()
-        .map(|(id, p, m, s)| {
-            serde_json::json!([id, p, m, s])
+        .map(|(id, p, m, s, sys)| {
+            serde_json::json!([id, p, m, s, sys])
         })
         .collect();
     serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())

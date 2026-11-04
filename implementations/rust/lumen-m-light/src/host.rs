@@ -128,11 +128,11 @@ pub fn wasm_llm_fork(provider: &str, model: &str, prompt: &str, system: &str) ->
 }
 
 #[cfg(feature = "wasm")]
-pub fn wasm_llm_pending() -> Vec<(u64, String, String, String)> {
+pub fn wasm_llm_pending() -> Vec<(u64, String, String, String, String)> {
     let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
     let mut guard = p.lock().unwrap();
     let jobs = std::mem::take(&mut *guard);
-    jobs.into_iter().map(|(id, _p, _m, _s, _sys)| (id, _p, _m, _s)).collect()
+    jobs.into_iter().collect()
 }
 
 #[cfg(feature = "wasm")]
