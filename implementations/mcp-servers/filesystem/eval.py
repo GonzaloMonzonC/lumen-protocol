@@ -1,10 +1,19 @@
 """
 LUMEN Filesystem — Objective Tool Evaluation (9 tools, 28 tests).
-Inline LUMEN frames, no subprocess. Uses same roundtrip as test_roundtrip.py.
+
+El eval original importaba `server_native.py` y llamaba a `process_message()`,
+una funcion interna que dejo de existir cuando el server se refactorizo a SHM
+(ahora `server_native.py` solo expone `main()` -> ShmNativeServer). El eval
+quedaba roto con `AttributeError`.
+
+Se usa el mismo patron que `web/eval.py` y `thinking/eval.py`, que SI pasan:
+lanzar `server.py` como SUBPROCESO y hablar JSON-RPC por stdin/stdout. Asi se
+prueba el servidor de verdad por su interfaz publica, no una funcion interna
+que puede cambiar (o desaparecer) sin avisar.
 """
 
 from __future__ import annotations
-import sys, os, json, tempfile, shutil
+import sys, os, json, tempfile, shutil, subprocess
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from eval_framework import MCPTestRunner
@@ -13,51 +22,36 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')
 sys.path.insert(0, os.path.join(ROOT, 'implementations', 'python', 'src'))
 sys.path.insert(0, os.path.join(ROOT, 'implementations', 'mcp-servers', 'filesystem'))
 
-from lumen import (build_frame, parse_frame, compress_value, decompress_value,
-                   ParseComplete, TYPE_REQUEST, TYPE_RESPONSE, FLAG_COMPRESSED, build_size)
-
-import importlib.util
-spec = importlib.util.spec_from_file_location(
-    "server_native", os.path.join(ROOT, 'implementations', 'mcp-servers', 'filesystem', 'server_native.py'))
-server = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(server)
-
 runner = MCPTestRunner("FILESYSTEM (9 tools)")
 
-def roundtrip(msg_dict):
-    """Exact clone of test_roundtrip.py roundtrip function."""
-    payload = compress_value(msg_dict)
-    buf = bytearray(build_size(len(payload)))
-    build_frame(TYPE_REQUEST, FLAG_COMPRESSED, payload, buf, 0)
-    result = parse_frame(buf, 0)
-    assert isinstance(result, ParseComplete), f"Parse failed: {type(result).__name__}"
-    frame = result.frame
-    srv_payload = frame.payload
-    if frame.flags & FLAG_COMPRESSED:
-        srv_payload = decompress_value(srv_payload)
-    response = server.process_message(srv_payload)
-    if response is None:
-        return None
-    resp_payload = compress_value(response)
-    rb = bytearray(build_size(len(resp_payload)))
-    build_frame(TYPE_RESPONSE, FLAG_COMPRESSED, resp_payload, rb, 0)
-    rr = parse_frame(rb, 0)
-    assert isinstance(rr, ParseComplete)
-    rf = rr.frame
-    rd = rf.payload
-    if rf.flags & FLAG_COMPRESSED:
-        rd = decompress_value(rd)
-    return rd
+# ── Servidor como subproceso ──
+# OJO CON EL ORDEN: ALLOWED_ROOTS lo lee el servidor AL IMPORTAR. Si se define
+# despues del Popen, el hijo arranca sin raices permitidas y todas las tools
+# devuelven error -> el eval petaba con KeyError 'result' en el primer read_file.
+os.environ["ALLOWED_ROOTS"] = tempfile.gettempdir()
+
+python = sys.executable
+server_path = os.path.join(os.path.dirname(__file__), 'server.py')
+proc = subprocess.Popen(
+    [python, "-u", server_path],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True,
+)
+
+def rpc(method: str, **params):
+    msg = {"jsonrpc": "2.0", "id": 1, "method": method}
+    if params:
+        msg["params"] = params
+    proc.stdin.write(json.dumps(msg) + "\n")
+    proc.stdin.flush()
+    return json.loads(proc.stdout.readline())
 
 def call_tool(name: str, args: dict) -> dict | None:
-    return roundtrip({"jsonrpc": "2.0", "id": 99, "method": "tools/call",
-                      "params": {"name": name, "arguments": args}})
+    return rpc("tools/call", name=name, arguments=args)
 
 # ── Init ──
-# Set ALLOWED_ROOTS for testing (allows temp dir operations)
-os.environ["ALLOWED_ROOTS"] = tempfile.gettempdir()
-_ = roundtrip({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-    "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "eval", "version": "1.0"}}})
+_ = rpc("initialize", protocolVersion="2025-03-26", capabilities={},
+        clientInfo={"name": "eval", "version": "1.0"})
 
 # ── Test data ──
 td = tempfile.mkdtemp()

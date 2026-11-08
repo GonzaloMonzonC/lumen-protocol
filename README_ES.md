@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>Este repo es el metal abierto de LUMEN:</strong> protocolo binario, transporte zero-copy, estado cognitivo PDB/MVM, 115 herramientas MCP.
+  <strong>Este repo es el metal abierto de LUMEN:</strong> protocolo binario, transporte zero-copy, estado cognitivo PDB/MVM, 129 herramientas MCP.
   <br>
   <a href="QUICKSTART_ES.md"><strong>🚀 Empezar aquí</strong></a> · <a href="QUICKSTART.md">Quickstart (EN)</a> · <a href="https://lumen.cadences.app"><strong>🌐 Web</strong></a> &nbsp;|&nbsp;
   <a href="INSTALL.md"><strong>🚀 Instalar en Hermes Agent</strong></a> &nbsp;|&nbsp;
@@ -40,7 +40,7 @@ Tres apuestas. Tres muros con los que la industria va a chocar:
 |------|--------|----------------|
 | Protocolo LUMEN + transportes | Wire binario (Hyb128), SHM zero-copy, datagram, QUIC, ChaCha20-Poly1305, macaroons | ✅ **Este repo (MIT)** |
 | PDB + M-Light + MVM | Estado cognitivo jerárquico, evaluador M, procesos M autónomos | ✅ **Este repo** |
-| Servidores MCP (115 tools) | Filesystem, web, thinking, PDB — listos para Hermes Agent | ✅ **Este repo** |
+| Servidores MCP (129 tools) | Filesystem, web, thinking, PDB — listos para Hermes Agent | ✅ **Este repo** |
 | **La tríada A·I·E** — [Astrid](https://github.com/GonzaloMonzonC/astrid) · [Iris](https://github.com/GonzaloMonzonC/iris) · [Elena](https://github.com/GonzaloMonzonC/elena) | Tres agentes MIT, un protocolo: Astrid audita y ancla (*¿es verdad?*) · Iris propone hipótesis falsables (*¿y si…?*) · Elena firma decision cards (*¿y ahora qué?*). Clona los tres: una sociedad de investigación funcionando | ✅ Repos propios (MIT) |
 | Orquestación ECOS | Equipos multi-agente, consolidación de memoria, voz, Lab | 🔒 Capa propietaria |
 
@@ -76,7 +76,7 @@ cd implementations/typescript && npm install && npm run build && cd ../..
 # Rust
 cd implementations/rust && cargo test && cargo bench && cd ../..
 
-# Registrar los 4 servidores MCP en Hermes Agent (115 tools):
+# Registrar los 4 servidores MCP en Hermes Agent (129 tools):
 bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 ```
 
@@ -84,7 +84,7 @@ bash scripts/setup_hermes_mcp.sh    # Windows: scripts\setup_hermes_mcp.bat
 
 ## Estado y hoja de ruta (resumen)
 
-✅ **Construido y funcionando**: framing Hyb128 (1/3/5B), diccionario estático 128 keys, diccionario de sesión LRU, compresión binaria, **115 tools MCP**, **SHM zero-copy Nivel 2**, plugin `lumen-shm-bridge` para Hermes, **M-Light** (evaluador M, ~70% MSM STU), **MVM** (procesos M autónomos), cifrado ChaCha20-Poly1305, X25519, macaroons, canales MUX, **QUIC (L4)**, objetivo WASM (22 KB gzipped), Cognitive OS Rust (loop de agente, PdbHost nativo redb, HttpLlmEngine, persistencia `^PROCESSES`, 15/15 tests).
+✅ **Construido y funcionando**: framing Hyb128 (1/3/5B), diccionario estático 128 keys, diccionario de sesión LRU, compresión binaria, **129 tools MCP**, **SHM zero-copy Nivel 2**, plugin `lumen-shm-bridge` para Hermes, **M-Light** (evaluador M, ~70% MSM STU), **MVM** (procesos M autónomos), cifrado ChaCha20-Poly1305, X25519, macaroons, canales MUX, **QUIC (L4)**, objetivo WASM (22 KB gzipped), Cognitive OS Rust (loop de agente, PdbHost nativo redb, HttpLlmEngine, persistencia `^PROCESSES`, 15/15 tests).
 
 🚧 **En desarrollo**: mesh multi-máquina LUMEN-over-WebSocket en Cloudflare (Fase E), publicar el protocolo como estándar abierto universal.
 
@@ -98,7 +98,7 @@ La tabla completa (incluyendo los 12 spec/code mismatches, todos resueltos salvo
 |-----|-----------|
 | [docs/INDEX.md](docs/INDEX.md) | 📍 Mapa de documentación — empieza aquí |
 | [docs/SSOT_ARQUITECTURA.md](docs/SSOT_ARQUITECTURA.md) | 🔀 Fuente de Verdad Única: dónde vive cada dato, wire DDP, jerarquía MVM |
-| [docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md) | Arquitectura del Cognitive OS, referencia de 115 tools |
+| [docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md) | Arquitectura del Cognitive OS, referencia de 129 tools |
 | [docs/PLAN_EVOLUCION.md](docs/PLAN_EVOLUCION.md) | Plan de evolución PDB + M-Light + MVM por ROI |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Benchmarks consolidados (3.407 llamadas/seg) |
 | [RFC_LUMEN.md](RFC_LUMEN.md) | RFC del protocolo en formato IETF |
