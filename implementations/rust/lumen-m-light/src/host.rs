@@ -3860,6 +3860,35 @@ impl Host for MemoryHost {
                     _ => Err(format!("Unknown JSON action: {action} (get|count)")),
                 }
             }
+            // ── 04-nov-2026: SQL externo (SOLO LECTURA por defecto) ──
+            // Conexiones declaradas en ^CONFIG("sql",<nombre>,url[|mode]).
+            //   $DEVICE("sql:query","ventas","SELECT ...")  → {columns,rows,count}
+            //   $DEVICE("sql:exec","ventas","INSERT ...")   → exige mode="rw"
+            // El MVM no lleva driver por motor: solo SQLite (rusqlite ya
+            // compilado). Postgres/Mongo/Redis van por http:* o MCP.
+            "sql" => {
+                let nombre = args.first().map(|v| v.as_string()).unwrap_or_default();
+                if nombre.trim().is_empty() {
+                    return Err(
+                        "uso: $DEVICE(\"sql:query\",\"<conexion>\",\"<SQL>\")".to_string()
+                    );
+                }
+                let sql = args.get(1).map(|v| v.as_string()).unwrap_or_default();
+                let write = match action {
+                    "query" => false,
+                    "exec" => true,
+                    _ => {
+                        return Err(format!(
+                            "Unknown SQL action: {action} (query|exec)"
+                        ))
+                    }
+                };
+                let max_rows = args.get(2).map(|v| v.as_number() as usize).unwrap_or(100);
+                match crate::sql_device::run_query(self, &nombre, &sql, write, max_rows) {
+                    Ok(j) => Ok(Value::String(j.to_string())),
+                    Err(e) => Err(e),
+                }
+            }
             #[cfg(feature = "minreq")]
             "search" => {
                 // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
