@@ -1925,6 +1925,156 @@ fn rag_stats(host: &MemoryHost, args: &[Value]) -> String {
     format!("docs={};chars={}", docs.len(), chars)
 }
 
+/// ── 21-nov-2026: RAG VECTORIAL — $DEVICE("rag:embed") ─────────────────────
+///
+/// POR QUE NO HAY MODELO AQUI: el motor corre en WASM y en nodos de 32 bits;
+/// meter un modelo de embeddings (aunque sea de 120 MB) dentro del interprete
+/// seria inviable. Los vectores se calculan FUERA (Python, offline) y se
+/// cargan como DATOS en la misma global que los textos:
+///
+///     ^RAG("doc",id,"texto")     el trozo, como siempre
+///     ^RAG("doc",id,"vec")       el vector, coma-separado y normalizado L2
+///     ^RAG("qvec",sha1(pregunta)) el vector de la pregunta, precargado
+///
+/// El motor solo hace un producto escalar. Es lo que ya sabe hacer bien.
+///
+/// La pregunta llega por `sha1` porque el motor no puede calcular embeddings:
+/// el proxy calcula el vector de la pregunta, lo guarda en ^RAG("qvec",hash) y
+/// pide la busqueda por hash. Asi el motor sigue siendo autonomo y determinista.
+///
+///     $DEVICE("rag:embed","<sha1>",[ns],[k],[filtro]) → "— [id] (s=0.83) texto…"
+///     $DEVICE("rag:embed:stats",[ns])                 → "vecs=N;dim=D"
+fn rag_vec_de(host: &MemoryHost, ns: &str, id: &str) -> Vec<f64> {
+    let sub = [
+        Subscript::String("doc".to_string()),
+        Subscript::String(id.to_string()),
+        Subscript::String("vec".to_string()),
+    ];
+    let clave: Vec<Subscript> = sub.to_vec();
+    match host.values.get(&(ns.to_string(), clave)) {
+        Some(v) => v
+            .as_string()
+            .split(',')
+            .filter_map(|x| x.trim().parse::<f64>().ok())
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+fn rag_embed(host: &MemoryHost, args: &[Value]) -> String {
+    let hash = args.first().map(|v| v.as_string()).unwrap_or_default();
+    if hash.trim().is_empty() {
+        return "uso: $DEVICE(\"rag:embed\",\"<sha1>\",[ns],[k],[filtro])".to_string();
+    }
+    let ns = args
+        .get(1)
+        .map(|v| v.as_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "RAG".to_string());
+    let k = args
+        .get(2)
+        .map(|v| v.as_number() as usize)
+        .unwrap_or(4)
+        .clamp(1, 20);
+    let filtro = args.get(3).map(|v| v.as_string()).unwrap_or_default();
+
+    // vector de la pregunta, precargado por el proxy
+    let sub = [
+        Subscript::String("qvec".to_string()),
+        Subscript::String(hash.trim().to_lowercase()),
+    ];
+    let qv: Vec<f64> = match host.values.get(&(ns.clone(), sub.to_vec())) {
+        Some(v) => v
+            .as_string()
+            .split(',')
+            .filter_map(|x| x.trim().parse::<f64>().ok())
+            .collect(),
+        None => return String::new(),
+    };
+    if qv.is_empty() {
+        return String::new();
+    }
+
+    let filtros: Vec<&str> = filtro.split('|').filter(|s| !s.trim().is_empty()).collect();
+
+    // recorrer los documentos con vector y puntuar por producto escalar
+    let mut scored: Vec<(f64, String, String)> = Vec::new();
+    for ((n, subs), v) in host.values.iter() {
+        if n.as_str() != ns || subs.len() != 3 {
+            continue;
+        }
+        let es_doc = matches!(&subs[0], Subscript::String(x) if x.as_str() == "doc");
+        let es_vec = matches!(&subs[2], Subscript::String(x) if x.as_str() == "vec");
+        if !(es_doc && es_vec) {
+            continue;
+        }
+        let id = rag_sub_text(&subs[1]);
+        if !filtros.is_empty() && !filtros.iter().any(|f| id.starts_with(*f)) {
+            continue;
+        }
+        let dv: Vec<f64> = v
+            .as_string()
+            .split(',')
+            .filter_map(|x| x.trim().parse::<f64>().ok())
+            .collect();
+        if dv.len() != qv.len() {
+            continue;
+        }
+        // ambos normalizados L2 -> producto escalar = coseno
+        let cos: f64 = qv.iter().zip(dv.iter()).map(|(a, b)| a * b).sum();
+        scored.push((cos, id, String::new()));
+    }
+
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut out = String::new();
+    for (score, id, _) in scored.iter().take(k) {
+        // traer el texto del trozo para devolverlo junto al score
+        let s2 = [
+            Subscript::String("doc".to_string()),
+            Subscript::String(id.clone()),
+            Subscript::String("texto".to_string()),
+        ];
+        let txt = host
+            .values
+            .get(&(ns.clone(), s2.to_vec()))
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        let short: String = txt.chars().take(280).collect();
+        out.push_str(&format!(
+            "— [{}] (s={:.3}) {}\n",
+            id,
+            score,
+            short.replace(['\n', '\r'], " ")
+        ));
+    }
+    out.trim_end().to_string()
+}
+
+fn rag_embed_stats(host: &MemoryHost, args: &[Value]) -> String {
+    let ns = args
+        .first()
+        .map(|v| v.as_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "RAG".to_string());
+    let mut n = 0usize;
+    let mut dim = 0usize;
+    for ((nm, subs), v) in host.values.iter() {
+        if nm.as_str() != ns || subs.len() != 3 {
+            continue;
+        }
+        let es_doc = matches!(&subs[0], Subscript::String(x) if x.as_str() == "doc");
+        let es_vec = matches!(&subs[2], Subscript::String(x) if x.as_str() == "vec");
+        if es_doc && es_vec {
+            n += 1;
+            if dim == 0 {
+                dim = v.as_string().split(',').count();
+            }
+        }
+    }
+    format!("vecs={};dim={}", n, dim)
+}
+
 /// 04-oct-2026: CATALOGO DE TOOLS (DISENO-4). Devuelve "nombre|descripcion" por
 /// tool, una por linea. La fuente es el global ^TOOLS (datos -> ampliable sin
 /// recompilar), con esta forma:
@@ -3611,6 +3761,10 @@ impl Host for MemoryHost {
                 match action {
                     "query" => Ok(Value::String(rag_query(self, &args))),
                     "stats" => Ok(Value::String(rag_stats(self, &args))),
+                    // 21-nov-2026: busqueda VECTORIAL (coseno sobre vectores
+                    // precalculados fuera del motor y cargados como datos)
+                    "embed" => Ok(Value::String(rag_embed(self, &args))),
+                    "embed:stats" => Ok(Value::String(rag_embed_stats(self, &args))),
                     _ => Err(format!("Unknown RAG action: {action}")),
                 }
             }
