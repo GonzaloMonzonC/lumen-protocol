@@ -15,6 +15,9 @@ serde_json = "1"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+# NFKD real para $DEVICE("text:normalize"): resuelve NFC vs NFD,
+# que una tabla de reemplazo a mano no atrapa. Sin deps transitivas.
+unicode-normalization = "0.1"
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 ureq = { version = "3", optional = true }
 minreq = { version = "3", optional = true, features = ["json-using-serde", "https-rustls-probe"] }

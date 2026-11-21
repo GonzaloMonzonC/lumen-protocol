@@ -1566,6 +1566,8 @@ pub const DEVICE_CATALOG: &[&str] = &[
     // Catálogo de tools
     "tool:list",
     "tool:describe",
+    // Texto
+    "text:normalize",
     // Sistema
     "sys:top",
     "sys:stat",
@@ -2220,6 +2222,57 @@ fn tools_describe(host: &MemoryHost, args: &[Value]) -> String {
 /// arrays se devuelven como JSON). Cadena vacía si la ruta no existe.
 ///   $DEVICE("json:get",JSON,"kind")
 ///   $DEVICE("json:get",JSON,"calls[0].name")
+// Bloque de text:ascii para insertar en host.rs junto a los helpers JSON.
+// Se escribe como fichero aparte y se inserta por script (el JSON de la tool
+// y las comillas anidadas rompen los patches inline).
+
+
+// Bloque text:normalize CORRECTO (reemplaza la tabla a mano).
+// NFKD + eliminacion de marcas combinantes. Resuelve NFC vs NFD, que es el
+// problema real: "ó" puede llegar como U+00F3 (NFC) o como o + U+0301 (NFD),
+// y una tabla de reemplazo solo atrapa la primera forma.
+
+// text:normalize — NFKD + descarte de no-ASCII + lower opcional.
+//
+// Equivalencia EXACTA con la referencia Python que usa poli_server.py:
+//     unicodedata.normalize("NFKD", s.lower()).encode("ascii","ignore").decode()
+//
+// Dos pasos distintos, y ambos hacen falta:
+//   1. NFKD + quitar marcas combinantes  -> resuelve NFC vs NFD
+//      ("ó" puede llegar como U+00F3 o como o + U+0301)
+//   2. DESCARTAR lo que no sea ASCII     -> quita ¿¡ «» ß € etc.
+//      Ojo: `ß` NO se expande a "ss" con NFKD (no tiene descomposicion
+//      canonica), se descarta. Es lo que hace .encode("ascii","ignore"), y
+//      coincidir con la referencia importa mas que la elegancia.
+//
+// La version anterior de esta funcion solo hacia el paso 1 y dejaba
+// "¿que tal? ¡bien!" — el test contra Python lo cazo.
+
+use unicode_normalization::UnicodeNormalization;
+
+/// `$DEVICE("text:normalize", S, ["lower"])`
+fn text_normalize(args: &[Value]) -> String {
+    let s = args.first().map(|v| v.as_string()).unwrap_or_default();
+    // El 2o argumento es opcional. Acepta "1"/"true" (lower) y "", "0",
+    // "false" (conservar mayusculas). Por defecto conserva: bajar a minusculas
+    // es una decision del llamante, no un efecto colateral de normalizar.
+    let lower = args
+        .get(1)
+        .map(|v| {
+            let f = v.as_string().to_ascii_lowercase();
+            !(f.is_empty() || f == "0" || f == "false")
+        })
+        .unwrap_or(false);
+
+    let base = if lower { s.to_lowercase() } else { s };
+
+    base.nfkd()
+        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+        .filter(|c| c.is_ascii())
+        .collect()
+}
+
+
 fn json_get(args: &[Value]) -> String {
     let raw = args.first().map(|v| v.as_string()).unwrap_or_default();
     let path = args.get(1).map(|v| v.as_string()).unwrap_or_default();
@@ -3931,6 +3984,17 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
             //   $DEVICE("json:get",JSON,"calls[0].args")   -> sus argumentos (string)
             //   $DEVICE("json:get",JSON,"content")         -> el texto
             //   $DEVICE("json:count",JSON,"calls")         -> cuantas tools pide
+            // ── 04-nov-2026: TEXTO — normalización que M no puede hacer sola ──
+            //   $DEVICE("text:ascii","Análisis de Mercado") -> "analisis de mercado"
+            // Quita diacríticos latinos y baja a minúsculas. Lo necesita la
+            // detección de dominios de Smith (equivalente a unicodedata.NFKD,
+            // que M-Light no tiene) y sirve para búsqueda y normalización.
+            "text" => {
+                match action {
+                    "normalize" | "ascii" => Ok(Value::String(text_normalize(&args))),
+                    _ => Err(format!("Unknown TEXT action: {action} (normalize)")),
+                }
+            }
             "json" => {
                 match action {
                     "get" => Ok(Value::String(json_get(&args))),
