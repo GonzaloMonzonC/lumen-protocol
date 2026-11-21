@@ -1520,6 +1520,61 @@ pub trait Host {
 
 }
 
+/// Catálogo de devices que este build implementa, en formato `device:accion`.
+///
+/// Se mantiene a mano junto al dispatcher porque es la lista que las rutinas M
+/// consultan para saber qué pueden hacer. Si se añade un device y no se anota
+/// aquí, `$DEVICE("sys:has",…)` dirá que no existe — de ahí que el catálogo
+/// viva pegado al `match` que lo implementa.
+///
+/// Es una lista de *capacidades compiladas*, no de permisos: los permisos son
+/// otra cosa (ver `mcp_server::DEVICE_BLACKLIST`).
+pub const DEVICE_CATALOG: &[&str] = &[
+    // Red y protocolo
+    "http:get",
+    "http:head",
+    "http:post",
+    "http:put",
+    "http:delete",
+    "ddp:health",
+    "ddp:pull",
+    "ddp:push",
+    "mcp:list",
+    "mcp:ping",
+    "mcp:tools",
+    "mcp:call",
+    // LLM
+    "llm:call",
+    "llm:fork",
+    "llm:poll",
+    "llm:cancel",
+    "llm:chain",
+    "llm:tools",
+    // Agentes / orquestación
+    "smith:orchestrate",
+    "smith:stream",
+    "smith:poll",
+    "smith:status",
+    "smith:collect",
+    "agent:call",
+    // Datos
+    "json:get",
+    "json:count",
+    "sql:query",
+    "sql:exec",
+    "rag:search",
+    // Catálogo de tools
+    "tool:list",
+    "tool:describe",
+    // Sistema
+    "sys:top",
+    "sys:stat",
+    "sys:ps",
+    "sys:devices",
+    "sys:has",
+];
+
+
 // ── MemoryHost ─────────────────────────────────────────────────────
 pub struct MemoryHost {
     pub values: BTreeMap<(String, Vec<Subscript>), Value>,
@@ -3679,7 +3734,8 @@ impl Host for MemoryHost {
         self.sandbox
     }
 
-    fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<Value, String> {
+
+fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<Value, String> {
         if self.sandbox {
             // Modo sandbox (endpoint público /vm/verify): sin devices.
             // Un script M arbitrario no debe poder hacer HTTP (SSRF/DoS al
@@ -3711,6 +3767,28 @@ impl Host for MemoryHost {
                 // threads, fds, cpu_ticks, cpu_pct, load1/5/15, mem_total_kb, mem_avail_kb.
                 match action {
                     "top" | "stat" => Ok(Value::String(sys_top())),
+                    // ── 04-nov-2026: $DEVICE("sys:devices") — ¿qué devices existen? ──
+                    //   $DEVICE("sys:devices")            -> "nombre:accion" por linea
+                    //   $DEVICE("sys:has","smith:stream") -> "1" | "0"
+                    //
+                    // Existe porque rutinas M preguntaban por un device con un
+                    // nombre inventado (SMITH.mac: $DEVICE("test","smith:stream"),
+                    // y el device "test" NUNCA existió en el MVM → Smith decía
+                    // siempre "no disponible"). Detectar capacidades es una
+                    // necesidad legítima; esto la resuelve de forma honesta y
+                    // extensible: la lista se mantiene junto al dispatcher.
+                    "devices" => Ok(Value::String(DEVICE_CATALOG.join("\n"))),
+                    "has" => {
+                        let want = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        let want = want.trim().to_ascii_lowercase();
+                        if want.is_empty() {
+                            return Err("uso: $DEVICE(\"sys:has\",\"device:accion\")".to_string());
+                        }
+                        let exists = DEVICE_CATALOG
+                            .iter()
+                            .any(|e| e.eq_ignore_ascii_case(&want));
+                        Ok(Value::String(if exists { "1".into() } else { "0".into() }))
+                    }
                     // 03-oct-2026: lista de procesos para el %SS (estilo MSM):
                     //   $DEVICE("sys:ps")        -> todos: pid|comm|rss|estado|ticks
                     //   $DEVICE("sys:ps","10")   -> los 10 que mas memoria usan
