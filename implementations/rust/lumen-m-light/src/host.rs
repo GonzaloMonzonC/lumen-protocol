@@ -3995,6 +3995,42 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
                     _ => Err(format!("Unknown TEXT action: {action} (normalize)")),
                 }
             }
+            // ── 04-nov-2026: FIBER await BLOQUEANTE (sin yield) ──
+            //   $DEVICE("fiber:await", id, [timeout_ms])       -> resultado | ""
+            //   $DEVICE("fiber:await_all", "id1,id2,...", [ms]) -> JSON con todos
+            //
+            // `$FIBER("join")` hace YIELD (suspende el VM y devuelve al host), asi
+            // que una rutina M no puede recoger sus propios fibers: no hay hilo
+            // donde reintentar. Este device espera BLOQUEANDO el hilo llamante, y
+            // es seguro porque los fibers corren en threads propios: bloquear aqui
+            // no impide que los workers resuelvan.
+            "fiber" => {
+                let timeout = args.get(1).map(|v| v.as_number() as u64).unwrap_or(120_000);
+                match action {
+                    "await" => {
+                        let id = args.first().map(|v| v.as_number() as u64).unwrap_or(0);
+                        match crate::fiber_await::await_fiber(self, id, timeout)? {
+                            Some(v) => Ok(Value::String(v)),
+                            None => Ok(Value::String(String::new())), // vencido
+                        }
+                    }
+                    "await_all" => {
+                        let lista = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        let ids: Vec<u64> = lista
+                            .split(',')
+                            .filter_map(|s| s.trim().parse::<u64>().ok())
+                            .collect();
+                        if ids.is_empty() {
+                            return Err(
+                                "uso: $DEVICE(\"fiber:await_all\",\"id1,id2,...\",[timeout_ms])"
+                                    .to_string(),
+                            );
+                        }
+                        Ok(Value::String(crate::fiber_await::await_many(self, &ids, timeout)?))
+                    }
+                    _ => Err(format!("Unknown FIBER action: {action} (await|await_all)")),
+                }
+            }
             "json" => {
                 match action {
                     "get" => Ok(Value::String(json_get(&args))),
