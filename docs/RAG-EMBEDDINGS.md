@@ -203,3 +203,116 @@ CPU). Alternativas evaluadas:
   del documento; sin eso, el modelo parafrasea y altera plazos y cifras.
 - **No filtra por umbral en el motor.** El motor devuelve los k mejores con su
   score; el umbral lo aplica quien llama, porque depende del corpus.
+
+---
+
+# Cómo montar un RAG sobre un manual: las tres decisiones que importan
+
+Guía práctica, con las cifras medidas sobre el Manual de Mesas Electorales
+(37 páginas, 235 trozos, 49 preguntas de evaluación). Si vas a montar un RAG
+sobre un documento normativo, estas son las tres palancas y el orden en que
+mueven el resultado.
+
+## 1. El troceado pesa más que el modelo
+
+Antes de elegir modelo, trocea bien. Sobre el mismo motor y el mismo
+recuperador, cambiar solo el troceado movió el acierto top-1 del **20 % al
+44 %**.
+
+Lo que funciona:
+
+- **Una unidad de sentido = un trozo.** Una regla, un requisito, un paso. Si el
+  texto trae una lista («solicitarán cualquiera de estos documentos: DNI,
+  pasaporte, carné»), la lista va **entera** con su frase introductoria. Cortar
+  una lista por la mitad produce trozos que empiezan a media idea y ningún
+  vector sabe de qué hablan.
+- **150-400 caracteres por trozo.** Suficiente contexto para que el vector
+  capture el tema, corto para que no lo diluya.
+- **Trozos con nombre.** Anteponer al texto un campo `tema` escrito con las
+  palabras que usaría quien pregunta —no con el título del documento— mejora
+  el emparejamiento. El índice no dice «Identificación de votantes»; dice
+  «DNI caducado fotocopia carné conducir pasaporte». Es el puente entre el
+  vocabulario del que pregunta y el del que redactó la norma.
+- **Descartar portada, índice y formularios.** Repiten todo el vocabulario y
+  ganan siempre en cualquier búsqueda léxica.
+
+Un LLM ayuda a trocear y a poner esos temas: es rápido, barato y respeta los
+límites de las ideas mejor que una regla. **Con una condición**: cada trozo
+devuelto se verifica como **substring literal** del original. Si parafrasea, se
+descarta. Sin esa puerta, entra texto inventado en el corpus de un documento
+oficial.
+
+## 2. El modelo se elige por idioma y por tarea, no por tamaño
+
+Sobre el mismo corpus y el mismo troceado, medido con 49 preguntas:
+
+| Modelo | Dims | Tamaño | Acierto top-3 |
+|---|---|---|---|
+| Genérico multilingüe pequeño | 384 | 220 MB | 70 % |
+| Genérico inglés grande | 1024 | 640 MB | 70 % |
+| **Especializado en español** | **768** | **640 MB** | **85 %** |
+
+**Cuatro veces más dimensiones no aportó nada** (el de 1024 dims empató con el
+de 384). El que ganó fue el **especializado en el idioma del documento**.
+
+Regla: si el corpus está en español, el modelo de embeddings también. El tamaño
+importa menos de lo que sugiere el marketing; el idioma y el entrenamiento para
+recuperación, mucho más.
+
+## 3. Calibra el umbral con un set etiquetado
+
+Sin umbral, el sistema responde a todo. Con umbral mal puesto, responde mal o
+se calla de más. El umbral **no se elige a ojo**: se calibra.
+
+**El método:**
+
+1. Escribe **34 preguntas legítimas** y **15 fuera de dominio**. Las de fuera no
+   son absurdas: son preguntas que alguien haría por error (otra
+   administración, otro trámite, otra materia).
+2. Anota a mano, para cada legítima, un fragmento que **debe** aparecer en el
+   trozo ganador. Se cuenta como acierto solo si aparece.
+3. Barre el umbral y, para cada valor, cuenta: cuántas preguntas legítimas
+   responde, y **cuántas de fuera responde también** (falsos positivos).
+4. Elige por **utilidad**, no por F1: `aciertos − 5 × falsos_positivos`.
+
+**Por qué el 5.** Un falso negativo molesta. Un falso positivo en un dominio
+normativo se **ejecuta**: alguien actúa según una respuesta equivocada. Pesa
+más.
+
+**Curva típica** (mismo sistema, distintos umbrales):
+
+| Umbral | Responde | Acierta de las que responde | Falsos+ |
+|---|---|---|---|
+| bajo | 34/34 | 91 % | 4 |
+| medio | 31/34 | 90 % | 2 |
+| alto | 20/34 | 95 % | 1 |
+| muy alto | 18/34 | 94 % | 0 |
+
+No hay un ganador único: **hay una elección de producto**. Cobertura o
+precisión. Se decide sabiendo el coste de cada lado.
+
+## Lo que no compensa
+
+Dos técnicas razonables que, medidas sobre este corpus, no mejoraron el
+resultado. Se apuntan para no repetir el camino:
+
+**Filtrar por sección antes de buscar.** La idea es buena: si la pregunta es
+sobre identificación, no debería ganar un párrafo sobre escrutinio. En la
+práctica **baja la utilidad** (de 21 a 17), porque el clasificador de sección
+falla justo en las preguntas ambiguas — y cuando falla, **excluye la respuesta
+correcta**. Buscar en todo el corpus y dejar que el ranking decida da mejor
+resultado.
+
+**Un trozo más grande para «dar contexto».** Anteponer el título de la sección
+al texto antes de vectorizar empeoró el acierto (66 % → 75 % al quitarlo). El
+prefijo mete ruido en el vector en vez de orientarlo; el contexto útil va en el
+campo `tema`, escrito con el vocabulario de quien pregunta.
+
+## Resumen
+
+1. Trocea por unidad de sentido, con un `tema` en palabras de quien pregunta.
+   Verifica que cada trozo es literal.
+2. Elige el modelo por idioma y por entrenamiento de recuperación. El tamaño,
+   después.
+3. Calibra el umbral con preguntas etiquetadas, pesando más los falsos
+   positivos. Y decide explícitamente entre cobertura y precisión.

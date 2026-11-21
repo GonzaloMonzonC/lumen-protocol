@@ -177,8 +177,31 @@ docker run --rm -v $PWD/datos:/datos:ro mi-mvm-native \
 import json,urllib.request
 print(json.loads(urllib.request.urlopen('http://127.0.0.1:8183/health').read()))
 "
-# → {"ok": true, "trozos": 341, "dim": 384, "error": null}
+# → {"ok": true, "trozos": 235, "dim": 768, "error": null}
 ```
 
 Si `ok` es `false` y `error` dice «esperaba N vecs, hay 0», el problema está en
 la carga (globals perdidos o gas insuficiente), no en el corpus.
+
+---
+
+## Qué le corresponde al motor y qué no
+
+El motor hace **una cosa bien**: dado un vector de pregunta y un corpus de
+vectores precargados, devuelve los k trozos más parecidos por producto escalar.
+Es la operación del bucle de búsqueda, y la hace sin modelo dentro, sin
+dependencias y en cualquier arquitectura donde Rust compile.
+
+Eso lo hace útil en sitios donde otros stacks no caben: un nodo de 32 bits, un
+contenedor mínimo, un servicio que debe arrancar en milisegundos.
+
+**Lo que no le corresponde** es decidir la calidad de la búsqueda. El troceado,
+la elección del modelo de embeddings y el umbral se deciden fuera, con datos, y
+se meten como datos. El motor no opina: ejecuta.
+
+Ese reparto tiene una ventaja práctica: mejorar el RAG **no exige recompilar el
+motor**. Se cambian los vectores y el corpus, y el motor sigue igual. Cambiar el
+troceado de un manual completo es regenerar un JSON, no tocar Rust.
+
+Ver [`RAG-EMBEDDINGS.md`](RAG-EMBEDDINGS.md) para las tres decisiones que sí
+determinan la calidad (troceado, modelo, umbral), con las cifras medidas.
