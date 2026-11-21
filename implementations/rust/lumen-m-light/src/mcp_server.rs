@@ -44,6 +44,7 @@
 
 use crate::compiler::Compiler;
 use crate::host::{GlobalEntry, Host, MemoryHost};
+use crate::mcp_auth::{self, AuthMode};
 use crate::value::{Subscript, Value};
 use crate::vm::{Execution, Vm};
 use serde_json::{json, Value as Json};
@@ -61,6 +62,8 @@ pub struct ServeConfig {
     pub timeout_secs: u64,
     pub server_name: String,
     pub server_version: String,
+    /// Clave HMAC del ecosistema. Vacía = modo lectura (solo loopback).
+    pub hmac_key: String,
 }
 
 impl Default for ServeConfig {
@@ -71,6 +74,7 @@ impl Default for ServeConfig {
             timeout_secs: 30,
             server_name: "lumen-mvm".to_string(),
             server_version: env!("CARGO_PKG_VERSION").to_string(),
+            hmac_key: String::new(),
         }
     }
 }
@@ -80,15 +84,33 @@ impl Default for ServeConfig {
 /// `entries` es el estado inicial de la PDB (se clona en cada petición, así cada
 /// llamada ve el mismo punto de partida y los cambios se persisten al final).
 pub fn serve(config: ServeConfig, entries: Vec<GlobalEntry>) -> std::io::Result<()> {
-    let addr = format!("{}:{}", config.host_addr, config.port);
+    let mode = AuthMode::from_key(&config.hmac_key);
+    // En modo lectura se fuerza loopback aunque se haya pedido 0.0.0.0: sin
+    // clave, el servidor no debe ser alcanzable desde la red.
+    let bind_host = mode.effective_bind(&config.host_addr);
+    let addr = format!("{}:{}", bind_host, config.port);
     let listener = TcpListener::bind(&addr)?;
     // Estado compartido: la PDB vive aquí y sobrevive entre peticiones.
     let state: Arc<Mutex<Vec<GlobalEntry>>> = Arc::new(Mutex::new(entries));
 
-    eprintln!(
-        "[mcp:serve] escuchando en http://{}  (tools desde ^TOOLS)",
-        addr
-    );
+    match mode {
+        AuthMode::Signed => eprintln!(
+            "[mcp:serve] escuchando en http://{}  (HMAC obligatorio · escritura permitida)",
+            addr
+        ),
+        AuthMode::ReadOnlyLocal => {
+            eprintln!(
+                "[mcp:serve] escuchando en http://{}  (SIN clave: solo lectura, solo loopback)",
+                addr
+            );
+            if bind_host != config.host_addr {
+                eprintln!(
+                    "[mcp:serve] aviso: se pidio {}, forzado 127.0.0.1 por no haber clave",
+                    config.host_addr
+                );
+            }
+        }
+    }
 
     for stream in listener.incoming() {
         let mut stream = match stream {
@@ -98,12 +120,25 @@ pub fn serve(config: ServeConfig, entries: Vec<GlobalEntry>) -> std::io::Result<
                 continue;
             }
         };
+        // Defensa en profundidad: aunque el bind sea loopback, se rechaza
+        // cualquier origen no local en modo lectura.
+        if mode == AuthMode::ReadOnlyLocal {
+            if let Ok(peer) = stream.peer_addr() {
+                if !mcp_auth::is_loopback(&peer.ip()) {
+                    eprintln!("[mcp:serve] rechazado origen no local {}", peer.ip());
+                    let _ = write_json(&mut stream, 403, &json!({
+                        "error": "sin clave configurada: solo acceso local"
+                    }));
+                    continue;
+                }
+            }
+        }
         // Un cliente por conexión, secuencial: el MVM no es thread-safe por
         // diseño (host único) y serializar evita carreras sobre la PDB.
         let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(
             config.timeout_secs.max(1),
         )));
-        if let Err(e) = handle_connection(&mut stream, &config, &state) {
+        if let Err(e) = handle_connection(&mut stream, &config, &mode, &state) {
             eprintln!("[mcp:serve] error atendiendo conexion: {e}");
         }
     }
@@ -114,6 +149,7 @@ pub fn serve(config: ServeConfig, entries: Vec<GlobalEntry>) -> std::io::Result<
 fn handle_connection(
     stream: &mut TcpStream,
     config: &ServeConfig,
+    mode: &AuthMode,
     state: &Arc<Mutex<Vec<GlobalEntry>>>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -129,6 +165,7 @@ fn handle_connection(
 
     // ── Cabeceras ──
     let mut content_length = 0usize;
+    let mut headers: Vec<(String, String)> = Vec::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -138,8 +175,12 @@ fn handle_connection(
         if t.is_empty() {
             break;
         }
-        if let Some(v) = t.to_ascii_lowercase().strip_prefix("content-length:") {
-            content_length = v.trim().parse().unwrap_or(0);
+        if let Some((k, v)) = t.split_once(':') {
+            let (k, v) = (k.trim().to_string(), v.trim().to_string());
+            if k.eq_ignore_ascii_case("content-length") {
+                content_length = v.parse().unwrap_or(0);
+            }
+            headers.push((k, v));
         }
     }
 
@@ -159,6 +200,21 @@ fn handle_connection(
     if content_length > 0 {
         reader.read_exact(&mut body)?;
     }
+    let raw_body = String::from_utf8_lossy(&body).to_string();
+
+    // ── Gate HMAC: con clave configurada, TODA petición POST debe ir firmada ──
+    // Se firma sobre el cuerpo CRUDO recibido, no sobre un JSON reserializado
+    // (reserializar cambia espacios y rompe la verificación).
+    if *mode == AuthMode::Signed {
+        if let Err(why) = mcp_auth::verify(&headers, &raw_body, &config.hmac_key) {
+            eprintln!("[mcp:serve] 401 {why}");
+            return write_json(stream, 401, &json!({
+                "jsonrpc": "2.0", "id": Json::Null,
+                "error": {"code": -32001, "message": format!("HMAC_INVALID: {why}")}
+            }));
+        }
+    }
+
     let req: Json = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
@@ -178,7 +234,7 @@ fn handle_connection(
         return write_json(stream, 200, &json!({}));
     }
 
-    let result = dispatch(method_name, &params, config, state);
+    let result = dispatch(method_name, &params, config, mode, state);
     let resp = match result {
         Ok(r) => json!({"jsonrpc": "2.0", "id": id, "result": r}),
         Err((code, msg)) => json!({
@@ -208,6 +264,7 @@ fn dispatch(
     method: &str,
     params: &Json,
     config: &ServeConfig,
+    mode: &AuthMode,
     state: &Arc<Mutex<Vec<GlobalEntry>>>,
 ) -> Result<Json, (i64, String)> {
     match method {
@@ -223,6 +280,16 @@ fn dispatch(
             Ok(json!({"tools": tools_from_pdb(&guard)}))
         }
         "tools/call" => {
+            // Tier escritura: sin clave no se ejecuta NADA. Leer el catálogo sí,
+            // ejecutar rutinas no — una rutina M puede escribir en la PDB.
+            if !mode.allows_write() {
+                return Err((
+                    -32003,
+                    "modo lectura: sin DDP_HMAC_KEY no se ejecutan rutinas. \
+                     Arranca con clave y firma la peticion."
+                        .to_string(),
+                ));
+            }
             let name = params
                 .get("name")
                 .and_then(|v| v.as_str())

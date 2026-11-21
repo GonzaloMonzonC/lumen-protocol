@@ -20,8 +20,19 @@ use lumen_mlight::value::{Subscript, Value};
 
 fn usage() -> ! {
     eprintln!(
-        "uso: mvm-mcp-serve --pdb <ruta.db> [--host 127.0.0.1] [--port 8790]\n\
-         \x20    mvm-mcp-serve --globals <globals.json> [--port 8790]"
+        "uso: mvm-mcp-serve --pdb <ruta.db> [opciones]\n\
+         \x20    mvm-mcp-serve --globals <globals.json> [opciones]\n\
+         \n\
+         opciones:\n\
+         \x20 --host <ip>        por defecto 127.0.0.1 (forzado a loopback sin clave)\n\
+         \x20 --port <n>         por defecto 8790\n\
+         \x20 --timeout <s>      por peticion, por defecto 30\n\
+         \x20 --hmac-key <k>     clave HMAC (mejor usar DDP_HMAC_KEY: no queda en `ps`)\n\
+         \x20 --read-only        forzar modo lectura (solo catalogar, no ejecutar)\n\
+         \x20 --no-key-lookup    no leer la clave de env/disco; solo --hmac-key\n\
+         \n\
+         Modos: sin clave -> solo 127.0.0.1 y solo lectura (tools/list).\n\
+         \x20      con clave -> HMAC obligatorio y tools/call habilitado."
     );
     std::process::exit(2)
 }
@@ -31,6 +42,8 @@ fn main() {
     let mut cfg = ServeConfig::default();
     let mut pdb: Option<String> = None;
     let mut globals_json: Option<String> = None;
+    let mut force_read_only = false;
+    let mut skip_key_lookup = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -61,6 +74,26 @@ fn main() {
                     cfg.timeout_secs = t;
                 }
             }
+            "--hmac-key" => {
+                // Preferir SIEMPRE la variable de entorno: un argumento de línea
+                // de comandos es visible en `ps` para cualquier usuario del host.
+                i += 1;
+                if let Some(k) = args.get(i) {
+                    cfg.hmac_key = k.clone();
+                }
+            }
+            "--read-only" => {
+                // Forzar modo lectura aunque haya clave en el entorno o en disco.
+                // Útil para publicar el catálogo sin permitir ejecución (y para
+                // tests que necesitan un modo determinista).
+                force_read_only = true;
+            }
+            "--no-key-lookup" => {
+                // No buscar la clave en env/disco: solo la que se pase por
+                // --hmac-key. Evita que un poli_config.json del host active el
+                // modo estricto cuando no se quiere.
+                skip_key_lookup = true;
+            }
             "-h" | "--help" => usage(),
             other => {
                 eprintln!("argumento desconocido: {other}");
@@ -68,6 +101,19 @@ fn main() {
             }
         }
         i += 1;
+    }
+
+    // Clave HMAC: argumento > DDP_HMAC_KEY > poli_config.json.
+    // Sin clave el servidor arranca en MODO LECTURA (solo loopback).
+    // `--no-key-lookup` ignora env/disco; `--read-only` fuerza lectura igualmente.
+    if !skip_key_lookup && cfg.hmac_key.trim().is_empty() {
+        cfg.hmac_key = std::env::var("DDP_HMAC_KEY").unwrap_or_default();
+    }
+    if !skip_key_lookup && cfg.hmac_key.trim().is_empty() {
+        cfg.hmac_key = key_from_config_file();
+    }
+    if force_read_only {
+        cfg.hmac_key.clear();
     }
 
     let entries: Vec<GlobalEntry> = if let Some(p) = pdb {
@@ -83,11 +129,46 @@ fn main() {
         entries.len(),
         count_tools(&entries)
     );
+    if cfg.hmac_key.trim().is_empty() {
+        println!(
+            "[mvm-mcp-serve] SIN CLAVE -> modo lectura, solo 127.0.0.1. \
+             Para escritura: export DDP_HMAC_KEY=... o --hmac-key"
+        );
+    } else {
+        println!("[mvm-mcp-serve] clave HMAC cargada -> escritura habilitada");
+    }
 
     if let Err(e) = serve(cfg, entries) {
         eprintln!("[mvm-mcp-serve] no se pudo arrancar: {e}");
         std::process::exit(1);
     }
+}
+
+/// Lee `ddp_hmac_key` de `~/AppData/Local/hermes/poli_config.json` (Windows) o
+/// `~/.config/hermes/poli_config.json`. Devuelve vacío si no existe.
+/// La clave NUNCA se registra en logs.
+fn key_from_config_file() -> String {
+    let home = match std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        Ok(h) => std::path::PathBuf::from(h),
+        Err(_) => return String::new(),
+    };
+    let candidates = [
+        home.join("AppData").join("Local").join("hermes").join("poli_config.json"),
+        home.join(".config").join("hermes").join("poli_config.json"),
+        home.join(".poli").join("config.json"),
+    ];
+    for path in candidates {
+        if let Ok(txt) = std::fs::read_to_string(&path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                if let Some(k) = v.get("ddp_hmac_key").and_then(|x| x.as_str()) {
+                    if !k.trim().is_empty() {
+                        return k.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+    String::new()
 }
 
 /// Cuenta las tools para el mensaje de arranque (feedback inmediato).

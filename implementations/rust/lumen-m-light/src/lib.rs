@@ -52,6 +52,10 @@ pub mod av;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mcp_server;
 
+/// Auth HMAC del servidor MCP (esquema DDP del ecosistema + política por tiers).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mcp_auth;
+
 pub use compiler::{Compiler, Instruction, Opcode, Program};
 pub use host::{GlobalEntry, Host, LlmCallStats, MemoryHost, llm_call_sync, llm_call_sync_json, llm_call_sync_json_stats, llm_pace_wait, ultimo_send_intentos};
 pub use value::{Subscript, Value};
