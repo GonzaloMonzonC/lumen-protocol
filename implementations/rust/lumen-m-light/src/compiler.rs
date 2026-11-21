@@ -327,12 +327,19 @@ fn split_label(line: &str) -> (Option<&str>, &str) {
     }
 }
 
+/// ¿Es un identificador M válido? (nombre de etiqueta o variable)
+///
+/// ⚠ Debe ir en paralelo con `vm::is_identifier`. Hubo una divergencia real:
+/// esta versión NO aceptaba `_` y la del VM sí → `SIN_GUION()` se compilaba
+/// como EXPR en vez de LABEL, la etiqueta no entraba en el mapa y cualquier
+/// `$$SIN_GUION^RUT()` daba "unknown label". Los guiones bajos son legítimos
+/// en MUMPS y los LLM los generan constantemente (snake_case).
 fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     chars
         .next()
         .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '%')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '%' || ch == '_')
 }
 
 /// Split leading dots from a line and return (dot_count, rest_without_dots)
