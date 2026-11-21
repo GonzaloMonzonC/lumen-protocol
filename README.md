@@ -367,6 +367,8 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |
 | **[HERMES_INTEGRATION.md](HERMES_INTEGRATION.md)** | Hermes Agent setup guide |
 | **[docs/COGNITIVE_OS.md](docs/COGNITIVE_OS.md)** | Cognitive OS architecture, 120 tool reference |
+| **[docs/RAG-EMBEDDINGS.md](docs/RAG-EMBEDDINGS.md)** | 🔍 **Semantic search in M-Light**: `$DEVICE("rag:embed")` — vectors as data, cosine in a 1.2 MB engine, measured thresholds and why chunking beats the model |
+| **[docs/RAG-MVM-NATIVA.md](docs/RAG-MVM-NATIVA.md)** | 🐧 Native MVM: the engine as a Linux `.so`, C API (`lm_compile_json`), WASM vs native trade-offs and the two differences that break a port |
 | **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** | Consolidated benchmarks (3,407 calls/sec) |
 | **[docs/enterprise-stress-testing-2026-06-20.md](docs/enterprise-stress-testing-2026-06-20.md)** | 6 enterprise scenarios, 20K calls/sec |
 | **[docs/token-efficient-tools-2026-06-20.md](docs/token-efficient-tools-2026-06-20.md)** | 5 token-efficient tools (90% output savings) |

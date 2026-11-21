@@ -51,7 +51,8 @@ Detalle por fecha en [`CHANGELOG.md`](../CHANGELOG.md).
 
 - **Devices**: `http`/`llm` (TLS nativo), `ddp:*` (health/pull/push/agent + refs
   por referencia), `ssh:exec` (fail-closed), `rag:query`/`rag:stats` (TF-IDF
-  local), `sys:top`, `zroutines` (ZS estilo MSM), `spawn:run`.
+  local), **`rag:embed`/`rag:embed:stats` (búsqueda vectorial por coseno)**,
+  `sys:top`, `zroutines` (ZS estilo MSM), `spawn:run`.
 - **Intérprete**: `D ^RUTINA` inline con yields reanudados (devices dentro de
   rutinas), etiquetas locales resueltas, `$L/$P/$E` clásicos (suite `%CONF`
   37/37), READ vivo en el REPL.

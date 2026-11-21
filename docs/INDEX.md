@@ -12,6 +12,8 @@
 | [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.3) | ✅ Vigente (v0.3 + addendum 2026-09-18) |
 | [CASOS_USO_AGENTES.md](CASOS_USO_AGENTES.md) | Casos A2A: Namespaces compartidos, hibernación y migración entre nodos | ✅ Vigente (2026-07-15) |
 | [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-09-18) |
+| [RAG-EMBEDDINGS.md](RAG-EMBEDDINGS.md) | Búsqueda vectorial en M-Light: `rag:embed`, vectores como datos, umbrales medidos | ✅ Vigente (2026-11-21) |
+| [RAG-MVM-NATIVA.md](RAG-MVM-NATIVA.md) | MVM nativa Linux: API C del `.so`, WASM vs nativa y sus diferencias | ✅ Vigente (2026-11-21) |
 | `ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
 
 | [COGNITIVE_OS.md](COGNITIVE_OS.md) | Arquitectura del OS cognitivo, referencia de tools | Revisar tool-counts |

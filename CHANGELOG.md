@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/). History predating this file
 lives in `git log` and the GitHub Releases.
 
+## [2026-11] — 2026-11-21
+
+### Added
+- **M-Light — `rag:embed` device: semantic search without a model inside the
+  engine.** The existing `rag:query` is lexical TF-IDF: it only matches *equal
+  words*. For "can someone vote with an expired ID" the manual says "identity
+  document **in force**" — no shared tokens, so TF-IDF returned an unrelated
+  form at score 0.12.
+
+  Design: **vectors are data, not code.** They are computed offline (fastembed)
+  and loaded into the same global as the text —
+  `^RAG("doc",id,"vec")` next to `^RAG("doc",id,"texto")`, with the question's
+  vector in `^RAG("qvec",sha1)`. Because both are L2-normalised, the dot
+  product *is* the cosine. A 1.2 MB engine does semantic search over 384 dims
+  and still fits in WASM, 32-bit nodes and the browser.
+
+  ```m
+  $DEVICE("rag:embed","<sha1>",[ns],[k],[filtro])
+  $DEVICE("rag:embed:stats",[ns])   → "vecs=341;dim=384"
+  ```
+
+  The `filtro` works like `rag:query`'s: id prefixes separated by `|`, so two
+  corpora can share one engine without contaminating each other.
+
+  **Measured** (25 in-domain / 15 out-of-domain questions): TF-IDF separation
+  1.45× · embeddings 2.06× · **hybrid RRF 2.17×**, which is what makes honest
+  abstention possible. Chunking by proposition (one rule = one chunk) raised
+  TF-IDF top-1 from 20% to 44% *before* touching the model — segmentation
+  matters more than the embedder. Full numbers, including the finding that
+  prefixing chunks with their section *hurts* (66% → 75% without it), in
+  [docs/RAG-EMBEDDINGS.md](docs/RAG-EMBEDDINGS.md).
+
+- **Native MVM: the engine as a Linux `.so`.** `liblumen_mlight.so` (6.5 MB,
+  x86_64) built inside the image; C API `lm_compile_json` / `lm_execute_json` /
+  `lm_string_free`. Verified differences against the WASM API, both of which
+  cost hours if unknown: the `W` output lives in **`state.output`**, not at the
+  root, and **`gas_limit` must be explicit** or the globals come back empty and
+  look like a missing corpus. Both APIs are stateless — globals must be passed
+  on every call. See [docs/RAG-MVM-NATIVA.md](docs/RAG-MVM-NATIVA.md).
+
+### Fixed
+- **`m-light` build with modern toolchains**: `rust:1.83` fails because
+  `zeroize 1.9.2` requires the `edition2024` feature; needs ≥ 1.85 (dev machine
+  is on 1.95).
+
 ## [2026-09] — 2026-09-18
 
 ### Added
