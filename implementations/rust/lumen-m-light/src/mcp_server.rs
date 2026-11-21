@@ -301,7 +301,7 @@ fn dispatch(
             let mut guard = state
                 .lock()
                 .map_err(|_| (-32603, "PDB bloqueada".to_string()))?;
-            call_tool(&mut guard, name, &args)
+            call_tool(&mut guard, name, &args, mode)
         }
         other => Err((-32601, format!("metodo no soportado: {other}"))),
     }
@@ -344,22 +344,43 @@ fn tools_from_pdb(entries: &[GlobalEntry]) -> Vec<Json> {
         let schema: Json = serde_json::from_str(&params).unwrap_or_else(|_| {
             json!({"type": "object", "additionalProperties": true})
         });
+        // El tier se anuncia: un cliente puede saber de antemano si la tool
+        // escribe (y por tanto si necesita credenciales de escritura).
+        let tier = host
+            .get("TOOLS", &[
+                Subscript::String(name.to_string()),
+                Subscript::String("tier".into()),
+            ])
+            .ok()
+            .flatten()
+            .map(|v| v.as_string())
+            .unwrap_or_default();
+        let tier_norm = if ToolTier::from_decl(&tier) == ToolTier::Write {
+            "write"
+        } else {
+            "read"
+        };
         out.push(json!({
             "name": name,
             "description": desc,
-            "inputSchema": schema
+            "inputSchema": schema,
+            "annotations": {"lumen/tier": tier_norm}
         }));
     }
     out
 }
 
-/// Ejecuta una tool: escribe los argumentos en `^MCPARGS` y corre su rutina M.
+/// Ejecuta una tool: escribe los argumentos en `^MCPARGS` y corre su rutina M,
+/// o despacha el device declarado en `kind`.
 fn call_tool(
     entries: &mut Vec<GlobalEntry>,
     name: &str,
     args: &Json,
+    mode: &AuthMode,
 ) -> Result<Json, (i64, String)> {
-    // 1) ¿Qué hay que ejecutar? `kind` = "m:%RUTINA" (o "d:dev:acc" en el futuro).
+    // 1) ¿Qué hay que ejecutar? `kind`:
+    //      "m:%RUTINA"      -> rutina M
+    //      "d:device:action" -> device del host (con tier)
     let mut probe = MemoryHost::from_entries(entries.clone());
     let kind = probe
         .get("TOOLS", &[
@@ -370,6 +391,39 @@ fn call_tool(
         .flatten()
         .map(|v| v.as_string())
         .unwrap_or_default();
+    let tier_raw = probe
+        .get("TOOLS", &[
+            Subscript::String(name.to_string()),
+            Subscript::String("tier".into()),
+        ])
+        .ok()
+        .flatten()
+        .map(|v| v.as_string())
+        .unwrap_or_default();
+    let tier = ToolTier::from_decl(&tier_raw);
+
+    // Tier write exige más que «estar autenticado»: en modo lectura no se pasa
+    // de aquí, y queda declarado en el error para que el cliente sepa por qué.
+    if tier == ToolTier::Write && !mode.allows_write() {
+        return Err((
+            -32003,
+            format!("tool '{name}' es de escritura y el servidor esta en modo lectura"),
+        ));
+    }
+
+    // Device: se despacha sin compilar M (device_call es del trait Host).
+    if let Some(rest) = kind.strip_prefix("d:") {
+        let mut it = rest.splitn(2, ':');
+        let device = it.next().unwrap_or("").trim();
+        let action = it.next().unwrap_or("").trim();
+        if device.is_empty() || action.is_empty() {
+            return Err((
+                -32603,
+                format!("tool '{name}': kind '{kind}' mal formado (esperado d:device:action)"),
+            ));
+        }
+        return call_device_tool(entries, name, device, action, args);
+    }
 
     let routine = match kind.strip_prefix("m:") {
         Some(r) => r.trim().trim_start_matches('%').to_string(),
@@ -382,7 +436,7 @@ fn call_tool(
             }
             return Err((
                 -32603,
-                format!("tool '{name}': kind '{kind}' aun no soportado (solo m:%RUTINA)"),
+                format!("tool '{name}': kind '{kind}' no soportado (m:%RUTINA | d:device:action)"),
             ));
         }
     };
@@ -475,6 +529,127 @@ fn call_tool(
         "isError": false
     }))
 }
+
+/// Tier de una tool: determina si basta con estar autenticado o si además hay
+/// que ser explícito sobre una operación sensible.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ToolTier {
+    /// Solo lectura: catálogo, consultas, estado.
+    Read,
+    /// Escritura: modifica la PDB, el mesh DDP, el sistema. Exige clave.
+    Write,
+}
+
+impl ToolTier {
+    /// Lee el tier declarado en `^TOOLS(nombre,"tier")`. Por defecto `Read`:
+    /// una tool sin tier declarado no puede escalar privilegios por omisión.
+    pub fn from_decl(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "write" | "w" => ToolTier::Write,
+            _ => ToolTier::Read,
+        }
+    }
+}
+
+/// Devices que NO se exponen por MCP bajo ninguna circunstancia.
+///
+/// No es una lista de «cosas que aún no he implementado»: es una decisión de
+/// seguridad. `spawn:run` ejecuta procesos del SO, `ssh:exec` es una shell
+/// remota y escribir hardware es irreversible. Si algún día hace falta algo
+/// así, se publica como **rutina M con nombre y contrato**, no como device
+/// crudo — para que quede auditado y acotado.
+const DEVICE_BLACKLIST: &[(&str, &str)] = &[
+    ("spawn", "*"),
+    ("ssh", "*"),
+    ("hw", "set"),
+    ("hw", "write"),
+    ("exec", "*"),
+];
+
+/// Comprueba si un device:action está prohibido en MCP.
+pub fn device_forbidden(device: &str, action: &str) -> Option<&'static str> {
+    let d = device.trim().to_ascii_lowercase();
+    let a = action.trim().to_ascii_lowercase();
+    for (bd, ba) in DEVICE_BLACKLIST {
+        if *bd == d && (*ba == "*" || *ba == a) {
+            return Some(match (*bd, *ba) {
+                ("spawn", _) => "spawn:run ejecuta procesos del SO",
+                ("ssh", _) => "ssh:exec es una shell remota",
+                ("hw", _) => "escritura de hardware es irreversible",
+                _ => "device prohibido en MCP",
+            });
+        }
+    }
+    None
+}
+
+/// Ejecuta una tool de tipo `d:device:action`.
+///
+/// Los argumentos posicionales salen de `^MCPARGS("_0")`, `_1`, … para que el
+/// cliente los pase por nombre en `arguments` y no dependa del orden exacto
+/// del device (que es un detalle interno del host).
+fn call_device_tool(
+    entries: &mut Vec<GlobalEntry>,
+    name: &str,
+    device: &str,
+    action: &str,
+    args: &Json,
+) -> Result<Json, (i64, String)> {
+    if let Some(why) = device_forbidden(device, action) {
+        return Err((
+            -32004,
+            format!("tool '{name}': device '{device}:{action}' no se expone por MCP ({why})"),
+        ));
+    }
+
+    // Mismo aislamiento que tools/call: limpiar argumentos de la llamada previa.
+    entries.retain(|e| e.ns != "MCPARGS");
+    let mut positional: Vec<Value> = Vec::new();
+    if let Some(obj) = args.as_object() {
+        for (k, v) in obj {
+            let sval = match v {
+                Json::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            // Nombre (para rutinas) y posición (para devices), a la vez.
+            if let Ok(idx) = k.parse::<usize>() {
+                while positional.len() < idx {
+                    positional.push(Value::String(String::new()));
+                }
+                positional.push(Value::String(sval.clone()));
+            }
+            entries.push(GlobalEntry {
+                ns: "MCPARGS".to_string(),
+                subs: vec![Subscript::String(k.clone())],
+                value: Value::String(sval),
+            });
+        }
+    }
+    // Los args posicionales también accesibles como _0.._n
+    for (i, v) in positional.iter().enumerate() {
+        entries.push(GlobalEntry {
+            ns: "MCPARGS".to_string(),
+            subs: vec![Subscript::String(format!("_{i}"))],
+            value: v.clone(),
+        });
+    }
+
+    let mut host = MemoryHost::from_entries(entries.clone());
+    let result = host.device_call(device, action, &positional);
+    *entries = host.entries();
+
+    match result {
+        Ok(v) => {
+            let text = v.as_string();
+            Ok(json!({
+                "content": [{"type": "text", "text": text}],
+                "isError": false
+            }))
+        }
+        Err(e) => Err((-32603, format!("device '{device}:{action}': {e}"))),
+    }
+}
+
 
 /// Extrae las rutinas de `^ROUTINE(nombre,linea) = "texto"` (mismo formato que
 /// usa el resto del motor para rutinas en caliente).
