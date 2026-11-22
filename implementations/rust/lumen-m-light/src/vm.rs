@@ -303,6 +303,11 @@ pub struct FuncCallFrame {
     /// camino (`reanudar_funcion`) que antes no los tenia.
     #[serde(default)]
     pub refs: Vec<(String, String)>,
+    /// ¿Ya se recogió el valor del device que cedió? Si es true, al reanudar
+    /// hay que SALTAR la instrucción del inner_ip en vez de re-ejecutarla —
+    /// re-ejecutarla vuelve a llamar al LLM (medido: síntesis 2 veces).
+    #[serde(default)]
+    pub recogido: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -730,8 +735,16 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             if self.state.yield_requested {
                 if let Some(f) = self.state.func_frames.last_mut() {
                     f.inner_ip = i;
+                    f.recogido = false;
                 }
                 return Err(());
+            }
+            // No cedió: el device de esta instrucción ya se resolvió. Marcarlo
+            // en el frame por si esta función vuelve a entrar (el llamador
+            // también reanuda y podría re-disparar el device).
+            if let Some(f) = self.state.func_frames.last_mut() {
+                f.recogido = true;
+                f.inner_ip = i;
             }
             match ctrl {
                 Control::Continue => i += 1,
@@ -2641,9 +2654,16 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         let system = call_args.get(1).map(|v| v.as_string()).unwrap_or_default();
                         let provider = call_args.get(2).map(|v| v.as_string()).unwrap_or_else(|| "deepseek".to_string());
                         let model = call_args.get(3).map(|v| v.as_string()).unwrap_or_else(|| "deepseek-v4-flash".to_string());
-                        // Reuse stored future ID if resuming from a yield
+                        // Reuse stored future ID if resuming from a yield.
+                        //
+                        // `take()` borraba el id y, si el poll devolvia None, se
+                        // volvia a guardar — pero cualquier otra capa que limpiara
+                        // yield_future hacia que el siguiente resume creara un fork
+                        // NUEVO (device disparado 2 veces: 4 llamadas al LLM donde
+                        // tocan 3). Se usa `clone`: el id sobrevive hasta que
+                        // llm_poll resuelve, y el que resuelve lo limpia.
                         let id = if act == "call" {
-                            if let Some(fid) = self.state.yield_future.take() {
+                            if let Some(fid) = self.state.yield_future {
                                 fid
                             } else {
                                 self.host.llm_fork(&provider, &model, &prompt, &system)
@@ -2659,8 +2679,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
                                 Some(r) => {
                                     // El future se completó: limpiar el flag de
-                                    // yield pendiente (podía venir de un resume).
+                                    // yield pendiente. El id TAMBIÉN se limpia
+                                    // aquí, pero solo tras haber consumido el
+                                    // valor: la instrucción NO se re-ejecuta
+                                    // porque el retorno es Ok (el bucle de
+                                    // run_slice avanza el ip).
                                     self.state.yield_requested = false;
+                                    self.state.yield_future = None;
                                     self.state.wait_reason.clear();
                                     Ok(Value::String(r))
                                 }
@@ -3025,6 +3050,21 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     }
                     _ => start_ip,
                 };
+                // Si el frame recuerda que YA recogio el valor del device que
+                // cedio, saltar esa instruccion en vez de re-ejecutarla: volver
+                // a ejecutar el llm:call crea un fork NUEVO (medido: la sintesis
+                // se disparaba dos veces).
+                if let Some(f) = self.state.func_frames.last() {
+                    if f.recogido
+                        && f.label.eq_ignore_ascii_case(&label_upper)
+                        && f.inner_ip == i
+                    {
+                        i = i.saturating_add(1);
+                        if let Some(fm) = self.state.func_frames.last_mut() {
+                            fm.recogido = false;
+                        }
+                    }
+                }
                 while i < program.instructions.len() {
                     self.charge(line)?;
                     let ctrl = self.execute_instruction(&program.instructions[i])?;
@@ -3038,6 +3078,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             inner_ip: i,
                             scope_base,
                             refs: refs.clone(),
+                            recogido: false,
                         });
                         #[cfg(not(target_arch = "wasm32"))]
                         if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
