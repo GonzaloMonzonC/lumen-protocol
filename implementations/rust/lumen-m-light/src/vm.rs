@@ -452,10 +452,21 @@ impl<'a, H: Host> Vm<'a, H> {
     }
 
 pub fn run_slice(&mut self, gas: u64) -> Execution {
+        let r = self.run_slice_inner(gas);
+        self.host.end_slice_tx();
+        r
+    }
+
+    fn run_slice_inner(&mut self, gas: u64) -> Execution {
         self.switch_fiber();
 
         self.slice_used = 0;
         self.slice_limit = gas.max(1);
+        // Agrupar las escrituras del turno en UNA transaccion: sin esto cada
+        // SET de global es un INSERT autocommit (medido: 100k SET = 12s aun
+        // con synchronous=NORMAL). Con tx por slice baja a microsegundos por
+        // escritura. El COMMIT se hace en la salida (ver envoltorio abajo).
+        self.host.begin_slice_tx();
         // El bucle sigue vivo si queda una FUNCION pendiente aunque el ip del
         // programa principal ya haya llegado al final: la funcion esta a medias
         // en su inner_ip y hay que reanudarla.

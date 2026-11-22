@@ -1418,6 +1418,13 @@ pub trait Host {
     fn transaction_commit(&mut self) -> Result<(), String>;
     fn transaction_rollback(&mut self) -> Result<(), String>;
     fn transaction_level(&self) -> usize;
+
+    /// Abre una transaccion SQLite para agrupar las escrituras de un turno del
+    /// VM (un `run_slice`). No-op por defecto. Ver `end_slice_tx`.
+    fn begin_slice_tx(&mut self) {}
+
+    /// Cierra la transaccion del turno (COMMIT). No-op por defecto.
+    fn end_slice_tx(&mut self) {}
     fn routine(&self, _name: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
@@ -1596,6 +1603,8 @@ pub struct MemoryHost {
     /// (feature "sqlite" — no disponible en builds WASM)
     #[cfg(feature = "sqlite")]
     sqlite_db: Option<Arc<Mutex<rusqlite::Connection>>>,
+    /// ¿Hay una transaccion SQLite abierta para el slice actual?
+    slice_tx_open: bool,
     /// Backend LMDB (feature "lmdb") — modo DIRECTO (mmap, sin precarga a RAM).
     #[cfg(feature = "lmdb")]
     lmdb: Option<crate::lmdb_store::LmdbStore>,
@@ -1619,6 +1628,7 @@ impl Default for MemoryHost {
             sandbox: false,
             #[cfg(feature = "sqlite")]
             sqlite_db: None,
+            slice_tx_open: false,
             #[cfg(feature = "lmdb")]
             lmdb: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
@@ -1643,8 +1653,16 @@ impl MemoryHost {
         let conn = rusqlite::Connection::open(db_path)
             .map_err(|e| format!("SQLite open({db_path}): {e}"))?;
         conn.execute_batch(
+            // Fix 2026-11-05 (rendimiento SET): con journal_mode=WAL pero
+            // synchronous=FULL (por defecto), CADA INSERT hace un fsync. Medido:
+            // 100k SET de global = 318s (314 ops/s), frente a 141k ops/s en GET.
+            // synchronous=NORMAL en WAL es seguro ante caida del PROCESO (solo
+            // se pierden las ultimas transacciones si se cae el SISTEMA, que es
+            // el compromiso estandar de WAL) y quita el fsync por escritura.
             "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
              PRAGMA busy_timeout=5000;
+             PRAGMA cache_size=-32000;
              CREATE TABLE IF NOT EXISTS _globals (
                  ns TEXT,
                  subkey TEXT,
@@ -1682,6 +1700,7 @@ impl MemoryHost {
             llm_api_keys: HashMap::new(),
             sandbox: false,
             sqlite_db: Some(Arc::new(Mutex::new(conn))),
+            slice_tx_open: false,
             #[cfg(feature = "lmdb")]
             lmdb: None,
             smith_registry: Arc::new(global_smith_registry().clone()),
@@ -1713,6 +1732,7 @@ impl MemoryHost {
             sandbox: false,
             #[cfg(feature = "sqlite")]
             sqlite_db: None,
+            slice_tx_open: false,
             lmdb: Some(store),
             smith_registry: Arc::new(global_smith_registry().clone()),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()),
@@ -1737,6 +1757,7 @@ impl MemoryHost {
             sandbox: false,
             #[cfg(feature = "sqlite")]
             sqlite_db: None,
+            slice_tx_open: false,
             lmdb: Some(store),
             smith_registry: Arc::new(global_smith_registry().clone()),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()),
@@ -3572,6 +3593,28 @@ impl Host for MemoryHost {
         self.transactions.len()
     }
 
+    fn begin_slice_tx(&mut self) {
+        #[cfg(feature = "sqlite")]
+        if let Some(ref db) = self.sqlite_db {
+            if let Ok(conn) = db.lock() {
+                let _ = conn.execute_batch("BEGIN");
+                self.slice_tx_open = true;
+            }
+        }
+    }
+
+    fn end_slice_tx(&mut self) {
+        #[cfg(feature = "sqlite")]
+        if self.slice_tx_open {
+            if let Some(ref db) = self.sqlite_db {
+                if let Ok(conn) = db.lock() {
+                    let _ = conn.execute_batch("COMMIT");
+                }
+            }
+            self.slice_tx_open = false;
+        }
+    }
+
     fn routine(&self, name: &str) -> Result<Option<String>, String> {
         Ok(self.routines.get(&name.to_uppercase()).cloned())
     }
@@ -5278,7 +5321,8 @@ impl Clone for MemoryHost {
             llm_api_keys: self.llm_api_keys.clone(),
             sandbox: self.sandbox,
             #[cfg(feature = "sqlite")]
-            sqlite_db: None, // SQLite connections can't be cloned
+            sqlite_db: None,
+            slice_tx_open: false, // SQLite connections can't be cloned
             #[cfg(feature = "lmdb")]
             lmdb: self.lmdb.clone(), // comparte env LMDB (mismo proceso)
             smith_registry: self.smith_registry.clone(),
