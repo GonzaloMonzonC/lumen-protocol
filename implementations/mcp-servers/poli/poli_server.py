@@ -382,9 +382,14 @@ _POLI_CORE = Path(os.environ.get("POLI_CORE", str(Path.home() / "Documents" / "G
 # ── Cargar rutinas M una vez ─────────────────────────────────────────────────
 def _load_routines() -> dict[str, str]:
     routines = {}
-    for mac in _POLI_CORE.glob("*.mac"):
-        name = mac.stem.upper()  # PERSONALITY, UTILS, etc.
-        routines[name] = mac.read_text(encoding="utf-8")
+    dirs = [_POLI_CORE]
+    cadences_dir = _POLI_CORE.parent / "cadences"
+    if cadences_dir.is_dir():
+        dirs.append(cadences_dir)
+    for d in dirs:
+        for mac in d.glob("*.mac"):
+            name = mac.stem.upper()  # PERSONALITY, UTILS, LQ, etc.
+            routines[name] = mac.read_text(encoding="utf-8")
     return routines
 
 def _sanitize_globals(globals_list: list) -> list:
@@ -716,18 +721,26 @@ class PoliState:
         # (el host con sqlite ignora globals_ de Python; los SETs del preámbulo no)
         pre = _quantum_preamble()
         source = (pre + " " + source) if pre else source
+        # ── RENDIMIENTO (2026-11-04) — NO pasar globals_ al host con sqlite ──
+        # El host creado con sqlite_path YA tiene los globals persistidos: los lee
+        # de la DB. Pasar globals_ además obliga a serializar y reinyectar la PDB
+        # entera en CADA ejecución (medido con 115k globals: 5.8s → 2.3s al quitarlo,
+        # mismo resultado). Antes de una PDB inflada esto ya costaba ~8s por llamada.
+        # self.globals se conserva para _extract_routines_from_globals (rutinas en
+        # caliente) y para las rutas que lo inspeccionan, pero no se reinyecta.
         r = ml_execute(
             source=source,
             routines=_ROUTINES,
-            globals_=self.globals,
             gas_limit=gas,
             llm_api_keys=_LLM_KEYS,
             sqlite_path=PDB_SQLITE,
         )
         if r.get("ok"):
-            self.globals = r.get("globals") or self.globals
-            # Sanitizar: convertir cualquier bytes a string
-            self.globals = _sanitize_globals(self.globals)
+            # NO adoptar r["globals"] (viene vacío sin globals_ y adoptarlo borraría
+            # la caché de rutinas). Solo refrescar si el host devolvió algo distinto.
+            got = r.get("globals")
+            if got:
+                self.globals = _sanitize_globals(got)
             # OJO (2026-09-05): NO write-back global de ^QUANTUM. El host del MVM
             # se cachea por proceso; volcar self.globals (snapshot stale) borra lo
             # que qpdb/bridge escribieron entre medias. Los SET/KILL de M persisten
@@ -1539,10 +1552,28 @@ def _smith_pipeline(mensaje: str, session_id: str, max_domains_override: int = 0
 
         esc_msg = mensaje.replace('"', '""')
         esc_sys = identity.replace('"', '""')
-        # Source para el fiber: llama LLM y escribe resultado
-        src = f'S ^R=$DEVICE("llm:call","{esc_msg}","{esc_sys}","{provider}","{model}") W ^R'
-        # Doble escape para meter src dentro de $FIBER("bg", src)
-        src_fiber = src.replace('"', '""')
+
+        # FIX 22-nov-2026: el doble escape de comillas ROMPÍA los argumentos.
+        #   src      = S ^R=$DEVICE("llm:call","msj","sys","deepseek","model") W ^R
+        #   src_fiber= src.replace('"','""')   <-- convertía ,"deepseek",  en
+        #                                         "","deepseek""  y desalineaba
+        #                                         los parámetros: el modelo
+        #                                         llegaba corrupto ("b.") y
+        #                                         DeepSeek devolvía 400.
+        # Solución: los datos van en GLOBALES (sin comillas, sin escape) y el
+        # código del fiber solo las referencia. Cero posibilidad de colisión.
+        _STATE.exec(
+            f'S ^SMITHARG({i},"msg")="{esc_msg}" '
+            f'S ^SMITHARG({i},"sys")="{esc_sys}" '
+            f'S ^SMITHARG({i},"prov")="{provider}" '
+            f'S ^SMITHARG({i},"model")="{model}"',
+            gas=50000,
+        )
+        src_fiber = (
+            f'S ^R=$DEVICE("llm:call",^SMITHARG({i},"msg"),'
+            f'^SMITHARG({i},"sys"),^SMITHARG({i},"prov"),'
+            f'^SMITHARG({i},"model")) W ^R'
+        )
         fiber_cmd = f'S ^F{i}=$FIBER("bg","{src_fiber}")'
         r_fiber = _STATE.exec(fiber_cmd, gas=50000)
         fid = None

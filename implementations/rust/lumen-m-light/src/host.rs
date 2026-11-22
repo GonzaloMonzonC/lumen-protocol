@@ -1517,6 +1517,13 @@ pub trait Host {
         false
     }
     fn entries(&self) -> Result<Vec<GlobalEntry>, String> { Ok(vec![]) }
+
+    /// Entradas para un fiber: incluye los SET del turno aún sin COMMIT.
+    /// Default = entries() para hosts sin transacción.
+    fn entries_for_fiber(&self) -> Result<Vec<GlobalEntry>, String> {
+        self.entries()
+    }
+
     fn routines_list(&self) -> Result<Vec<(String, String)>, String> { Ok(vec![]) }
     fn fiber_bg_spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
         Err("bg fiber not supported".to_string())
@@ -1783,6 +1790,65 @@ impl MemoryHost {
     #[cfg(feature = "lmdb")]
     pub(crate) fn lmdb_store(&self) -> Option<&crate::lmdb_store::LmdbStore> {
         self.lmdb.as_ref()
+    }
+
+    /// Lo persistido: SQLite si existe, si no memoria.
+    fn entries_reales(&self) -> Result<Vec<GlobalEntry>, String> {
+        #[cfg(feature = "sqlite")]
+        if let Some(ref db) = self.sqlite_db {
+            let conn = db.lock().map_err(|e| format!("entries lock: {e}"))?;
+            let mut stmt = conn
+                .prepare("SELECT ns, subkey, value FROM _globals ORDER BY ns, subkey")
+                .map_err(|e| format!("entries prepare: {e}"))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let ns: String = row.get(0)?;
+                    let subkey: Vec<u8> = row.get(1)?;
+                    let value: String = row.get(2)?;
+                    Ok((ns, subkey, value))
+                })
+                .map_err(|e| format!("entries query: {e}"))?;
+            let mut entries = Vec::new();
+            for row in rows {
+                let (ns, subkey, value) = row.map_err(|e| format!("entries row: {e}"))?;
+                let subs = decode_subkey(&subkey);
+                let val = if let Ok(n) = value.trim().parse::<f64>() {
+                    Value::Number(n)
+                } else {
+                    Value::String(value)
+                };
+                entries.push(GlobalEntry { ns, subs, value: val });
+            }
+            return Ok(entries);
+        }
+        Ok(self.entries())
+    }
+
+    /// Entradas para el FIBER: memoria del turno + persistido.
+    ///
+    /// BUG 22-nov-2026: `entries()` con SQLite leía SOLO `_globals`. Con la
+    /// transacción por slice (perf x184) los SET del turno aún no están
+    /// confirmados → el fiber nacía con la PDB vacía: `W ^GX` = "" y Smith
+    /// mandaba modelo/provider vacíos (LLM_ERROR / unknown provider).
+    /// La memoria manda: es lo más reciente.
+    pub fn entries_for_fiber(&self) -> Result<Vec<GlobalEntry>, String> {
+        let mut mapa: std::collections::BTreeMap<(String, Vec<Subscript>), Value> =
+            std::collections::BTreeMap::new();
+        for e in self.entries_reales()? {
+            mapa.insert((e.ns, e.subs), e.value);
+        }
+        for ((ns, subs), value) in &self.values {
+            mapa.insert((ns.clone(), subs.clone()), value.clone());
+        }
+        let mut entries: Vec<_> = mapa
+            .into_iter()
+            .map(|((ns, subs), value)| GlobalEntry { ns, subs, value })
+            .collect();
+        entries.sort_by(|a, b| {
+            a.ns.cmp(&b.ns)
+                .then_with(|| compare_subscripts(&a.subs, &b.subs))
+        });
+        Ok(entries)
     }
 
     pub fn entries(&self) -> Vec<GlobalEntry> {
@@ -3811,8 +3877,20 @@ impl Host for MemoryHost {
             }
             return Ok(entries);
         }
+        // Sin SQLite: solo memoria.
         Ok(MemoryHost::entries(self))
     }
+
+    /// Entradas para el FIBER: fusiona la MEMORIA (incluye los SET del turno
+    /// todavía sin COMMIT) con lo persistido.
+    ///
+    /// BUG 22-nov-2026: `entries()` con SQLite leía SOLO la tabla `_globals`,
+    /// ignorando `self.values`. Como el slice mantiene una transacción abierta
+    /// (perf: x184), los SET del turno aún no estaban confirmados → el fiber
+    /// nacía con la PDB vacía y `W ^GX` devolvía "". Síntoma: Smith mandaba
+    /// el modelo y el provider vacíos (LLM_ERROR / unknown provider).
+    ///
+
 
     fn routines_list(&self) -> Result<Vec<(String, String)>, String> {
         Ok(self.routines.iter().map(|(k, v)| (k.clone(), v.clone())).collect())

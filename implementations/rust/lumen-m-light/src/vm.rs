@@ -2899,7 +2899,11 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     }
                     "bg" => {
                         let source = self.eval_expr(args.get(1).map_or("", String::as_str), line)?.as_string();
-                        let entries = self.host.entries().unwrap_or_default();
+                        // entries_for_fiber (BUG 22-nov-2026): entries() con
+                        // SQLite ignoraba los SET del turno (transacción sin
+                        // COMMIT) → el fiber nacía sin PDB: modelo y provider
+                        // vacíos en Smith. Fusiona memoria + persistido.
+                        let entries = self.host.entries_for_fiber().unwrap_or_default();
                         let routines = self.host.routines_list().unwrap_or_default();
                         let keys = self.host.llm_api_keys().unwrap_or_default();
                         let id = self.host.fiber_bg_spawn(&source, &entries, &routines, &keys)
