@@ -244,3 +244,169 @@ pub fn m_execute_raw(compiled: &[u8], globals_json: &str) -> Result<String, JsVa
     serde_json::to_string(&result)
         .map_err(|e| JsValue::from_str(&format!("Serialize result: {}", e)))
 }
+
+/// Ejecuta bytecode M con GLOBALS y RUTINAS.
+///
+/// `routines_json` es `{"NOMBRE":"source M", ...}`. Sin esto el navegador solo
+/// puede ejecutar código inline: `D ETIQUETA^RUTINA` da MROUTINE porque
+/// `from_entries()` no carga rutinas.
+///
+/// Devuelve el mismo JSON de estado que `m_execute`.
+#[wasm_bindgen]
+pub fn m_execute_routines(
+    compiled: &[u8],
+    globals_json: &str,
+    routines_json: &str,
+) -> Result<String, JsValue> {
+    let program: Program = serde_json::from_slice(compiled)
+        .map_err(|e| JsValue::from_str(&format!("Deserialize bytecode: {}", e)))?;
+
+    let globals: Vec<GlobalEntry> = if globals_json.is_empty() || globals_json == "[]" {
+        Vec::new()
+    } else {
+        serde_json::from_str(globals_json)
+            .map_err(|e| JsValue::from_str(&format!("Parse globals JSON: {}", e)))?
+    };
+
+    let routines: std::collections::HashMap<String, String> =
+        if routines_json.is_empty() || routines_json == "{}" {
+            std::collections::HashMap::new()
+        } else {
+            serde_json::from_str(routines_json)
+                .map_err(|e| JsValue::from_str(&format!("Parse routines JSON: {}", e)))?
+        };
+
+    let mut host = MemoryHost::from_entries(globals);
+    for (nombre, src) in routines {
+        host.set_routine(&nombre.to_uppercase(), &src);
+    }
+    let mut vm = Vm::new(program, &mut host);
+    vm.state.rng_state = next_rng_seed();
+    vm.run();
+    store_rng_state(vm.state.rng_state);
+    if let Some(error) = &vm.state.error {
+        return Err(JsValue::from_str(&format!(
+            "M runtime error: {} at line {}", error.ecode, error.line
+        )));
+    }
+    Ok(serde_json::to_string(&vm.state).unwrap_or_default())
+}
+
+/// Ejecuta bytecode M con GLOBALS + RUTINAS y devuelve `{state, globals}`.
+///
+/// `globals` es el array de `GlobalEntry` resultante: el JS debe guardarlo y
+/// pasarlo como `globals_json` en la siguiente llamada. Sin esto la PDB del
+/// navegador no persiste entre ejecuciones (cada `m_execute*` crea host nuevo).
+///
+/// Uso desde JS:
+///   let { state, globals } = JSON.parse(m.m_execute_routines_out(prog, g, r));
+///   // ... siguiente llamada con JSON.stringify(globals)
+#[wasm_bindgen]
+pub fn m_execute_routines_out(
+    compiled: &[u8],
+    globals_json: &str,
+    routines_json: &str,
+) -> Result<String, JsValue> {
+    let program: Program = serde_json::from_slice(compiled)
+        .map_err(|e| JsValue::from_str(&format!("Deserialize bytecode: {}", e)))?;
+
+    let globals: Vec<GlobalEntry> = if globals_json.is_empty() || globals_json == "[]" {
+        Vec::new()
+    } else {
+        serde_json::from_str(globals_json)
+            .map_err(|e| JsValue::from_str(&format!("Parse globals JSON: {}", e)))?
+    };
+
+    let routines: std::collections::HashMap<String, String> =
+        if routines_json.is_empty() || routines_json == "{}" {
+            std::collections::HashMap::new()
+        } else {
+            serde_json::from_str(routines_json)
+                .map_err(|e| JsValue::from_str(&format!("Parse routines JSON: {}", e)))?
+        };
+
+    let mut host = MemoryHost::from_entries(globals);
+    for (nombre, src) in routines {
+        host.set_routine(&nombre.to_uppercase(), &src);
+    }
+    let mut vm = Vm::new(program, &mut host);
+    vm.state.rng_state = next_rng_seed();
+    vm.run();
+    store_rng_state(vm.state.rng_state);
+
+    let err = vm.state.error.as_ref().map(|e| format!("{} at line {}", e.ecode, e.line));
+    let state_json = serde_json::to_string(&vm.state).unwrap_or_default();
+    drop(vm);
+
+    // Los globals se leen del host, que sigue vivo (Vm solo lo presta).
+    let salida_globals = serde_json::to_string(&host.entries()).unwrap_or_else(|_| "[]".into());
+    let payload = format!(
+        "{{\"state\":{},\"globals\":{},\"error\":{}}}",
+        state_json,
+        salida_globals,
+        match err {
+            Some(e) => serde_json::to_string(&e).unwrap_or_else(|_| "null".into()),
+            None => "null".to_string(),
+        }
+    );
+    Ok(payload)
+}
+
+/// Reanuda una ejecución cedida, con RUTINAS cargadas, y devuelve
+/// `{state, globals, error}`.
+///
+/// `m_execute_resume` no acepta rutinas: al retomar un agente que hace
+/// `D ETIQUETA^RUTINA` daría MROUTINE. Esta versión cierra el ciclo completo
+/// del navegador: ejecutar -> cede (llm:call) -> m_llm_inject -> reanudar.
+#[wasm_bindgen]
+pub fn m_execute_resume_routines(
+    compiled: &[u8],
+    globals_json: &str,
+    routines_json: &str,
+    state_json: &str,
+) -> Result<String, JsValue> {
+    let program: Program = serde_json::from_slice(compiled)
+        .map_err(|e| JsValue::from_str(&format!("Deserialize bytecode: {}", e)))?;
+
+    let globals: Vec<GlobalEntry> = if globals_json.is_empty() || globals_json == "[]" {
+        Vec::new()
+    } else {
+        serde_json::from_str(globals_json)
+            .map_err(|e| JsValue::from_str(&format!("Parse globals JSON: {}", e)))?
+    };
+
+    let routines: std::collections::HashMap<String, String> =
+        if routines_json.is_empty() || routines_json == "{}" {
+            std::collections::HashMap::new()
+        } else {
+            serde_json::from_str(routines_json)
+                .map_err(|e| JsValue::from_str(&format!("Parse routines JSON: {}", e)))?
+        };
+
+    let state: crate::vm::VmState = serde_json::from_str(state_json)
+        .map_err(|e| JsValue::from_str(&format!("Parse state JSON: {}", e)))?;
+
+    let mut host = MemoryHost::from_entries(globals);
+    for (nombre, src) in routines {
+        host.set_routine(&nombre.to_uppercase(), &src);
+    }
+    let mut vm = Vm::resume(program, state, &mut host)
+        .map_err(|e| JsValue::from_str(&format!("Resume: {:?}", e)))?;
+    vm.run_slice(vm.state.gas_limit);
+    store_rng_state(vm.state.rng_state);
+
+    let err = vm.state.error.as_ref().map(|e| format!("{} at line {}", e.ecode, e.line));
+    let state_out = serde_json::to_string(&vm.state).unwrap_or_default();
+    drop(vm);
+
+    let globals_out = serde_json::to_string(&host.entries()).unwrap_or_else(|_| "[]".into());
+    Ok(format!(
+        "{{\"state\":{},\"globals\":{},\"error\":{}}}",
+        state_out,
+        globals_out,
+        match err {
+            Some(e) => serde_json::to_string(&e).unwrap_or_else(|_| "null".into()),
+            None => "null".to_string(),
+        }
+    ))
+}

@@ -57,11 +57,15 @@ pub mod mcp_server;
 pub mod mcp_auth;
 
 /// Device `sql:query` / `sql:exec` — SQL externo, solo lectura por defecto.
-#[cfg(not(target_arch = "wasm32"))]
+///
+/// Compila en TODOS los targets (también wasm32): el device debe existir y dar
+/// un error limpio en navegador, no romper el build con "cannot find module".
 pub mod sql_device;
 
 /// `fiber:await` — espera bloqueante de fibers (sin yield del VM).
-#[cfg(not(target_arch = "wasm32"))]
+///
+/// En wasm32 usa una espera acotada (no hay `thread::sleep`): el device
+/// responde con error explicativo en vez de panic.
 pub mod fiber_await;
 
 pub use compiler::{Compiler, Instruction, Opcode, Program};

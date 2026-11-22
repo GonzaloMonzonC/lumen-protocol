@@ -58,7 +58,7 @@ pub fn await_fiber(
         }
         let restante = deadline.saturating_duration_since(std::time::Instant::now());
         let dormir = std::time::Duration::from_millis(espera).min(restante);
-        std::thread::sleep(dormir);
+        dormir_ms(dormir);
         // Backoff: 1,2,4,8,16,32,50,50,...
         espera = (espera * 2).min(50);
     }
@@ -88,4 +88,22 @@ pub fn await_many(
         }
     }
     Ok(serde_json::json!({"ok": true, "fibers": out}).to_string())
+}
+
+/// Duerme `d` en nativo. En wasm32 no hay hilos: la espera usa un bucle de
+/// reloj acotado para no colgar el hilo del navegador (el motor cede por
+/// `yield_requested`, no por sleep real).
+#[cfg(not(target_arch = "wasm32"))]
+fn dormir_ms(d: std::time::Duration) {
+    std::thread::sleep(d);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn dormir_ms(d: std::time::Duration) {
+    // En navegador no se bloquea: se deja pasar el tiempo con un spin corto y
+    // acotado. El sondeo real lo hace el host JS con m_llm_pending().
+    let limite = std::time::Instant::now() + d.min(std::time::Duration::from_millis(2));
+    while std::time::Instant::now() < limite {
+        std::hint::spin_loop();
+    }
 }

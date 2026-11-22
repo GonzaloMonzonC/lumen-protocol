@@ -1646,6 +1646,14 @@ impl MemoryHost {
         host
     }
 
+    /// Registra una rutina M en caliente (nombre → source).
+    ///
+    /// Lo usa `m_execute_routines` en WASM: sin esto el navegador no puede
+    /// ejecutar `D ETIQUETA^RUTINA` porque `from_entries()` solo carga globals.
+    pub fn set_routine(&mut self, nombre: &str, source: &str) {
+        self.routines.insert(nombre.to_uppercase(), source.to_string());
+    }
+
     /// Crea un MemoryHost con backend SQLite directo.
     /// get/set/kill/data/order operan contra SQLite en vez de BTreeMap.
     #[cfg(feature = "sqlite")]
@@ -2451,6 +2459,15 @@ pub fn sys_ps_top(n: usize) -> String {
     v.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n")
 }
 
+/// Top del nodo. En wasm32 no hay procesos ni /proc: se devuelve un conjunto
+/// vacío en vez de llamar a `std::process::id()` (que en wasm PANIQUEA y rompe
+/// el módulo JS con "unreachable").
+#[cfg(target_arch = "wasm32")]
+pub fn sys_top() -> String {
+    "pid=0;uptime_s=0;rss_kb=0;note=no proc in wasm".to_string()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn sys_top() -> String {
     #[allow(unused_mut)]
     let mut s = format!("pid={}", std::process::id());
@@ -3802,6 +3819,19 @@ impl Host for MemoryHost {
     }
 
     fn fiber_bg_spawn(&self, source: &str, globals: &[GlobalEntry], routines: &[(String, String)], _api_keys: &HashMap<String, String>) -> Result<u64, String> {
+        // En wasm32 no hay hilos: el pool usa std::thread::spawn, que paniquea.
+        // Devuelve Err (error M normal) en vez de romper el módulo JS.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (source, globals, routines);
+            return Err(
+                "fiber:bg no soportado en navegador (sin hilos). Usa el ciclo \
+                 m_llm_pending/m_llm_inject para trabajo asíncrono."
+                    .to_string(),
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
         // 07-oct-2026 (task_237): propagar el STORE LMDB del nodo (clonado, mismo
         // env) para que el job escriba en el PDB COMPARTIDO en vez de una copia.
         #[cfg(feature = "lmdb")]
@@ -3811,6 +3841,7 @@ impl Host for MemoryHost {
         #[cfg(not(feature = "lmdb"))]
         {
             Ok(global_bg_pool().spawn(source, globals, routines, &self.llm_api_keys, None))
+        }
         }
     }
 

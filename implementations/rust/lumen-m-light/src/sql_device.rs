@@ -125,6 +125,20 @@ pub fn resolve(host: &MemoryHost, name: &str) -> Result<DbConn, String> {
 
 /// Ejecuta una consulta. `write` indica si es `sql:exec` (escritura) o
 /// `sql:query` (lectura); la política final combina eso con el modo declarado.
+#[cfg(target_arch = "wasm32")]
+pub fn run_query(
+    _host: &mut crate::host::MemoryHost,
+    _nombre: &str,
+    _sql: &str,
+    _write: bool,
+    _max_rows: usize,
+) -> Result<String, String> {
+    Err("sql:query no está disponible en el navegador: no hay driver SQLite en \
+         wasm. Usa una tool MCP o http:post contra un servicio externo."
+        .to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_query(
     host: &mut MemoryHost,
     conn_name: &str,
