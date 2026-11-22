@@ -281,6 +281,11 @@ pub struct LocalCallFrame {
     pub saved_params: Vec<(String, Option<Value>)>,
     /// Referencias .ref (origen, parámetro) para el writeback al terminar.
     pub refs: Vec<(String, String)>,
+    /// `return_value` del LLAMADOR al entrar. `DO` anidado con un `$$FUNC`
+    /// dentro (DO -> DO -> $$) perdía el valor: `return_value` es un registro
+    /// único y el `$$` interior lo limpiaba. Se guarda para restaurarlo.
+    /// Medido caso E: daba "" y debe dar el valor de la función.
+    pub caller_return: Option<Value>,
 }
 
 /// Frame de una llamada a función (`$$FUNC^RUTINA`) pendiente de reanudar tras
@@ -313,6 +318,12 @@ pub struct FuncCallFrame {
     /// cogía el equivocado (traza: REANUDA SINTETIZA con inner_ip de STREAM).
     #[serde(default)]
     pub depth: usize,
+    /// `return_value` del LLAMADOR en el momento de entrar. `$$FUNC` anidada
+    /// (DO -> DO -> $$) perdía el valor porque `return_value` es un registro
+    /// ÚNICO: el nivel interior lo limpiaba y lo consumía. Aquí se guarda para
+    /// devolverlo al salir. Medido: caso E daba "" y ahora da el valor.
+    #[serde(default)]
+    pub caller_return: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -773,6 +784,10 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 Control::Skip(n) => i += 1 + n as usize,
                 Control::Quit => {
                     salida = Some(self.return_value.take().unwrap_or(Value::Null));
+                    // Restaurar el return_value del LLAMADOR: `$$FUNC` anidada
+                    // (DO -> DO -> $$) lo perdía porque es un registro único.
+                    // Sin esto el nivel de arriba encontraba None.
+                    self.state.return_value = fr.caller_return.clone();
                     // Copyback de .ref ANTES de perder el frame: la funcion
                     // termino y sus parametros por referencia deben volver a las
                     // variables del llamador. Sin esto, `S OK=$$FUN^T(.R)` con
@@ -1323,7 +1338,8 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                     scope_base,
                     saved_params: saved_params.clone(),
                     refs: refs.clone(),
-                });
+                    caller_return: self.state.return_value.clone(),
+});
                 (scope_base, refs, saved_params)
             };
 
@@ -1353,7 +1369,8 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         scope_base,
                         saved_params: saved_params.clone(),
                         refs: refs.clone(),
-                    });
+                        caller_return: self.state.return_value.clone(),
+});
                     self.state.ip = saved_ip;
                     return Ok(Control::Continue);
                 }
@@ -1372,7 +1389,11 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 .iter()
                 .rposition(|f| f.line == line && f.label == label_upper)
             {
-                self.state.local_frames.remove(idx);
+                let fr = self.state.local_frames.remove(idx);
+                // Restaurar el return_value del llamador: `DO` anidado con un
+                // `$$FUNC` dentro (DO -> DO -> $$) perdía el valor porque
+                // return_value es un registro ÚNICO y el interior lo limpia.
+                self.state.return_value = fr.caller_return;
             }
             self.state.ip = saved_ip;
             self.state.call_stack.pop();
@@ -1396,7 +1417,21 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             // quedaban en vars → test do_binds_and_restores_positional_arguments)
             self.restore_arguments();
             self.restore_local_scopes_to(scope_base);
+            // NO restaurar un parámetro que acaba de recibir write-back .ref.
+            //
+            // BUG (22-nov-2026, aislado): con `DO CALLEE(x,.OUT)` y OUT siendo a
+            // su vez parámetro de la función que llama, la restauración de
+            // saved_params PISABA el valor recién escrito por el write-back:
+            //   paso 1: vars[OUT] = resultado   (write-back)
+            //   paso 2: vars[OUT] = valor viejo (restore)  ← lo borraba
+            // Medido: DO N3(x,.OUT) daba "" y DO N3(x,.t) daba 15.
+            // Es el patrón que usa SMITH: STREAM(.RES) y LANZATODOS(.ids).
+            let ref_names: std::collections::HashSet<&String> =
+                refs.iter().map(|(src, _)| src).collect();
             for (p, old) in saved_params {
+                if ref_names.contains(&p) {
+                    continue; // el write-back manda
+                }
                 match old {
                     Some(v) => { self.state.vars.insert(p, v); }
                     None => { self.state.vars.remove(&p); }
@@ -3121,6 +3156,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             refs: refs.clone(),
                             recogido: false,
                             depth: self.state.func_frames.len(),
+                            caller_return: self.return_value.clone(),
                         });
                         #[cfg(not(target_arch = "wasm32"))]
                         if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
