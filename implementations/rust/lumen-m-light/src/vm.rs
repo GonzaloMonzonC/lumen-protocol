@@ -104,6 +104,9 @@ pub struct VmState {
     /// bloque completo (efectos duplicados con $DEVICE("llm:call") dentro de DO).
     #[serde(default)]
     pub inline_frames: Vec<InlineFrame>,
+    /// Llamadas a función ($$FUNC^RUTINA) pendientes de reanudar.
+    #[serde(default)]
+    pub func_frames: Vec<FuncCallFrame>,
     /// Frames de llamadas locales (`D ETIQUETA` misma rutina) pendientes de
     /// reanudar tras un yield. Fix 21-sep-2026: reanudan DENTRO del callee
     /// (antes el replay re-disparaba los devices ya consumidos).
@@ -169,6 +172,7 @@ impl VmState {
             fibers: vec![FiberState::default()],
             active_fiber: 0,
             inline_frames: Vec::new(),
+            func_frames: Vec::new(),
             local_frames: Vec::new(),
             rng_state: default_rng_state(),
             next_is_else: false,
@@ -279,6 +283,28 @@ pub struct LocalCallFrame {
     pub refs: Vec<(String, String)>,
 }
 
+/// Frame de una llamada a función (`$$FUNC^RUTINA`) pendiente de reanudar tras
+/// un yield. TERCER caso del mismo patrón: `inline_frames` cubre bloques DO y
+/// `local_frames` cubre `D ETIQUETA`; las funciones no tenían marco, así que el
+/// resume rebobinaba el ip del programa principal y re-ejecutaba la llamada
+/// entera (medido: 20 reanudaciones con ip=1, STREAM ejecutada 2 veces).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FuncCallFrame {
+    /// Etiqueta de la función (MAYÚSCULAS).
+    pub label: String,
+    /// Rutina donde vive ("" = misma rutina).
+    pub routine: String,
+    /// Instrucción DENTRO de la función donde cedió (re-ejecutable).
+    pub inner_ip: usize,
+    /// Base de `local_scopes` para restaurar al terminar.
+    pub scope_base: usize,
+    /// Pares (variable_del_llamador, parametro) para el copyback de .ref.
+    /// Se guardan AQUI porque la funcion puede cedir y reanudarse por otro
+    /// camino (`reanudar_funcion`) que antes no los tenia.
+    #[serde(default)]
+    pub refs: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Control {
     Continue,
@@ -304,6 +330,8 @@ pub struct Vm<'a, H: Host> {
     horolog_cache: Option<String>,
     /// Profundidad actual de `eval_expr` (protección anti-desbordamiento de pila).
     expr_depth: usize,
+    /// Contador anti-bucle: (label, inner_ip) -> veces reanudado.
+    reanudaciones: std::collections::HashMap<(String, usize), u32>,
 }
 
 // Global Compilation Manager for M→Rust JIT
@@ -334,6 +362,7 @@ impl<'a, H: Host> Vm<'a, H> {
             return_value: None,
             horolog_cache: None,
             expr_depth: 0,
+            reanudaciones: std::collections::HashMap::new(),
         }
     }
 
@@ -354,6 +383,7 @@ impl<'a, H: Host> Vm<'a, H> {
             return_value: None,
             horolog_cache: None,
             expr_depth: 0,
+            reanudaciones: std::collections::HashMap::new(),
         })
     }
 
@@ -424,10 +454,63 @@ impl<'a, H: Host> Vm<'a, H> {
 pub fn run_slice(&mut self, gas: u64) -> Execution {
         self.switch_fiber();
 
-        self.switch_fiber();
         self.slice_used = 0;
         self.slice_limit = gas.max(1);
-        while self.state.ip < self.program.instructions.len() && !self.state.halted {
+        // El bucle sigue vivo si queda una FUNCION pendiente aunque el ip del
+        // programa principal ya haya llegado al final: la funcion esta a medias
+        // en su inner_ip y hay que reanudarla.
+        while (!self.state.func_frames.is_empty()
+            || self.state.ip < self.program.instructions.len())
+            && !self.state.halted
+        {
+            // ── Fix 2026-11-05: reanudar FUNCIONES pendientes ────────────────
+            // Si hay un func_frame, la funcion quedo a medias en su inner_ip y
+            // el ip del programa principal NO debe avanzar: hay que volver a
+            // entrar en ella. Antes esto no existia, el frame quedaba huerfano y
+            // la funcion nunca completaba (medido: STREAM devolvia '' con
+            // SINTETIZA a medias, synth_len vacio).
+            if let Some(fr) = self.state.func_frames.last().cloned() {
+                #[cfg(not(target_arch = "wasm32"))]
+                if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
+                    eprintln!("[RUNSLICE] reanudando {} ip={}", fr.label, fr.inner_ip);
+                }
+                // Tope anti-bucle GLOBAL: si en un mismo slice reanudamos
+                // funciones mas de N veces, ceder al host (que resolvera el
+                // device). El inner_ip avanza, asi que un tope por clave no
+                // sirve.
+                let clave = (String::new(), usize::MAX);
+                let total = self.reanudaciones.get(&clave).copied().unwrap_or(0);
+                if total > 200 {
+                    self.reanudaciones.clear();
+                    return Execution::Yielded;
+                }
+                *self.reanudaciones.entry(clave).or_insert(0) += 1;
+                match self.reanudar_funcion(&fr) {
+                    Ok(v) => {
+                        self.reanudaciones.clear();
+                        // Termino: dejar el valor y seguir con el principal.
+                        self.return_value = Some(v);
+                        continue;
+                    }
+                    Err(()) => {
+                        // Volvio a ceder. NO rebobinar el ip principal: la
+                        // instruccion (`S R=$$FUN(...)`, `W $$FUN(...)`) ya se
+                        // consumio y su resultado llegara cuando la funcion
+                        // termine. Rebobinar aqui re-ejecutaba la llamada en
+                        // bucle infinito (medido: 10000 turnos, 67s).
+                        return Execution::Yielded;
+                    }
+                }
+            }
+            // Si solo queda trabajo de funciones (ip del principal agotado), no
+            // hay instruccion principal que ejecutar: volver arriba.
+            if self.state.ip >= self.program.instructions.len() {
+                return if self.state.halted {
+                    Execution::Halted
+                } else {
+                    Execution::Yielded
+                };
+            }
             if self.slice_used >= self.slice_limit && self.host.transaction_level() == 0 {
                 return Execution::Yielded;
             }
@@ -454,8 +537,31 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             match self.execute_instruction(&instruction) {
                 Ok(Control::Continue) => {
                     if self.state.yield_requested {
-                        self.state.ip -= 1;
-                        self.state.yield_requested = false;
+                        // Si el yield ocurrio DENTRO de una funcion, la linea del
+                        // programa principal YA se completo (la funcion sigue
+                        // viva en func_frames). Rebobinar el ip la re-ejecutaria
+                        // entera: medido 20 reanudaciones con ip=1 y STREAM
+                        // ejecutada 2x.
+                        let en_funcion = !self.state.func_frames.is_empty();
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if std::env::var("LUMEN_TRACE_RESUME").is_ok() {
+                            eprintln!(
+                                "[RESUME] ip={} -> ip-1={} wait={:?} inline_frames={} local_frames={} timed_out_calls={:?}",
+                                self.state.ip,
+                                self.state.ip.saturating_sub(1),
+                                self.state.wait_reason,
+                                self.state.inline_frames.len(),
+                                self.state.local_frames.len(),
+                                self.state.call_stack.last(),
+                            );
+                        }
+                        if !en_funcion {
+                            self.state.ip -= 1;
+                            self.state.yield_requested = false;
+                        }
+                        // Si estamos dentro de una funcion (func_frames), NO se
+                        // limpia: eval_function debe verlo al reanudar para
+                        // devolver el valor del device ya resuelto.
                         // 04-oct-2026 ($$QID): si el sitio que hizo yield no puso
                         // motivo, se infiere por el tipo de espera. Los sites
                         // que SI saben (user:ask, llm:call) ya lo rellenaron.
@@ -568,6 +674,91 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 } else {
                     self.state.vars.remove(&name);
                 }
+            }
+        }
+    }
+
+    /// Reanuda una función que cedió, desde su `inner_ip`.
+    ///
+    /// Devuelve `Ok(valor)` si la función terminó en esta llamada, o `Err(())`
+    /// si volvió a ceder (el llamador debe devolver `Execution::Yielded`).
+    fn reanudar_funcion(&mut self, fr: &FuncCallFrame) -> Result<Value, ()> {
+        // Recompilar la rutina de la función (el programa no se guarda en el
+        // frame para que el estado siga siendo serializable sin el bytecode).
+        let source: String = if fr.routine.is_empty() {
+            self.program.source.clone()
+        } else {
+            match self.host.routine(&fr.routine) {
+                Ok(Some(s)) => s,
+                _ => {
+                    self.state.func_frames.pop();
+                    return Err(());
+                }
+            }
+        };
+        let program = match Compiler::compile(&source) {
+            Ok(p) => p,
+            Err(_) => {
+                self.state.func_frames.pop();
+                return Err(());
+            }
+        };
+
+        let mut i = fr.inner_ip;
+        let mut salida: Option<Value> = None;
+        while i < program.instructions.len() {
+            let instr = program.instructions[i].clone();
+            let ctrl = match self.execute_instruction(&instr) {
+                Ok(c) => c,
+                Err(_) => {
+                    self.state.func_frames.pop();
+                    return Err(());
+                }
+            };
+            // ¿Volvió a ceder? Actualizar el frame y salir sin consumirlo.
+            if self.state.yield_requested {
+                if let Some(f) = self.state.func_frames.last_mut() {
+                    f.inner_ip = i;
+                }
+                return Err(());
+            }
+            match ctrl {
+                Control::Continue => i += 1,
+                Control::Skip(n) => i += 1 + n as usize,
+                Control::Quit => {
+                    salida = Some(self.return_value.take().unwrap_or(Value::Null));
+                    // Copyback de .ref ANTES de perder el frame: la funcion
+                    // termino y sus parametros por referencia deben volver a las
+                    // variables del llamador. Sin esto, `S OK=$$FUN^T(.R)` con
+                    // yield dejaba OUT="VAL" pero R sin crear.
+                    for (src_var, param_name) in &fr.refs {
+                        let prefix = format!("{}[", param_name);
+                        let collected: Vec<(String, Value)> = self.state.vars.iter()
+                            .filter(|(k, _)| k.starts_with(&prefix))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        for (key, val) in &collected {
+                            let suffix = key.trim_start_matches(&prefix);
+                            self.state.vars.insert(format!("{}[{}", src_var, suffix), val.clone());
+                        }
+                        if let Some(scalar) = self.state.vars.get(param_name).cloned() {
+                            self.state.vars.insert(src_var.clone(), scalar);
+                        }
+                    }
+                    self.state.func_frames.pop();
+                    break;
+                }
+                Control::Halt | Control::Yield => {
+                    self.state.func_frames.pop();
+                    return Err(());
+                }
+            }
+        }
+        match salida {
+            Some(v) => Ok(v),
+            None => {
+                self.state.func_frames.pop();
+                Err(())
             }
         }
     }
@@ -2726,7 +2917,23 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             func_name if func_name.starts_with("$$") => {
                 // $$FUNC^ROUTINE(args) — user-defined function call
-                self.return_value = None;
+                //
+                // Fix 2026-11-05: NO limpiar return_value si esta llamada es la
+                // REANUDACION de una funcion que cedio. Al reentrar se borraba el
+                // valor que el tramo anterior habia dejado en el QUIT, y el
+                // llamador recibia Null (medido: STREAM devolvia '' pese a que
+                // SINTETIZA se ejecutaba una sola vez).
+                let es_reanudacion = {
+                    let inner_probe = func_name.strip_prefix("$$").unwrap_or_default();
+                    let (lbl_probe, rut_probe) = inner_probe.split_once('^').unwrap_or((inner_probe, ""));
+                    self.state.func_frames.last().is_some_and(|f| {
+                        f.label.eq_ignore_ascii_case(&lbl_probe.to_ascii_uppercase())
+                            && f.routine.eq_ignore_ascii_case(rut_probe)
+                    })
+                };
+                if !es_reanudacion {
+                    self.return_value = None;
+                }
                 let inner = func_name.strip_prefix("$$").unwrap_or_default();
                 let (label, routine_name) = inner.split_once('^').unwrap_or((inner, ""));
                 let source: String = if routine_name.is_empty() {
@@ -2785,25 +2992,95 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 self.inline_depth += 1;
                 let mut result = Err(VmError::new("MFUNCTION",
                     format!("{label} in {routine_name} did not QUIT"), line));
-                let mut i = start_ip;
+                // Reanudar en el punto exacto si hay un frame de ESTA funcion.
+                // Buscar en TODA la pila (no solo .last()): si SINTETIZA cede,
+                // el yield burbujea a STREAM que tambien apila, y .last() seria
+                // STREAM -> SINTETIZA no reanudaria nunca.
+                let frame_idx = self.state.func_frames.iter().rposition(|f| {
+                    f.label.eq_ignore_ascii_case(&label_upper)
+                        && f.routine.eq_ignore_ascii_case(routine_name)
+                });
+                let mut i = match frame_idx.and_then(|ix| self.state.func_frames.get(ix)) {
+                    Some(f) => {
+                        let ip = f.inner_ip;
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
+                            eprintln!(
+                                "[FUNC] REANUDA {label_upper}@{routine_name} inner_ip={ip} pila={}",
+                                self.state.func_frames.len()
+                            );
+                        }
+                        ip
+                    }
+                    _ => start_ip,
+                };
                 while i < program.instructions.len() {
                     self.charge(line)?;
                     let ctrl = self.execute_instruction(&program.instructions[i])?;
+                    // Los devices que esperan (llm:call, fiber:join) dejan
+                    // yield_requested=true y devuelven Continue, NO Yield.
+                    // Hay que guardar el frame AQUI, con la instruccion actual.
+                    if self.state.yield_requested {
+                        self.state.func_frames.push(FuncCallFrame {
+                            label: label_upper.clone(),
+                            routine: routine_name.to_string(),
+                            inner_ip: i,
+                            scope_base,
+                            refs: refs.clone(),
+                        });
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
+                            eprintln!(
+                                "[FUNC] PUSH {label_upper}@{routine_name} inner_ip={i} pila={}",
+                                self.state.func_frames.len()
+                            );
+                        }
+                        break;
+                    }
                     match ctrl {
                         Control::Continue => i += 1,
                         Control::Skip(n) => i += 1 + n as usize,
                         Control::Quit => {
-                            let rv = self.return_value.take().unwrap_or(Value::Null);
+                            // El valor de retorno viaja como `result`, NO por
+                            // self.return_value: ese campo es unico y con
+                            // llamadas anidadas (STREAM -> SINTETIZA) se pisan
+                            // entre niveles, perdiendo el resultado.
+                            let rv = if let Some(v) = self.return_value.take() {
+                                v
+                            } else {
+                                self.state.vars.get(&label_upper).cloned()
+                                    .unwrap_or(Value::Null)
+                            };
                             result = Ok(rv);
+                            if self.state.func_frames.last().is_some_and(|f| {
+                                f.label.eq_ignore_ascii_case(&label_upper)
+                            }) {
+                                self.state.func_frames.pop();
+                            }
                             break;
                         }
                         Control::Halt | Control::Yield => break,
                     }
                 }
+                // Si la funcion CEDIO, no restaurar nada: sigue viva y su
+                // contexto (formales, locales, refs) debe sobrevivir al resume.
+                // Antes se restauraba igualmente y al reanudar los formales se
+                // habian perdido -> "SINTETIZA in SMITH did not QUIT".
+                let cedio = self.state.yield_requested
+                    && self.state.func_frames.last().is_some_and(|f| {
+                        f.label.eq_ignore_ascii_case(&label_upper)
+                    });
                 self.inline_depth -= 1;
-                self.restore_local_scopes_to(scope_base);
+                if !cedio {
+                    self.restore_local_scopes_to(scope_base);
+                }
                 // Copy back any .ref array entries (param_name → source_var)
-                for (src_var, param_name) in &refs {
+                // El copyback NO se filtra por `cedio`: si la funcion cedio tras
+                // escribir la salida, hay que copiarla igualmente. El valor vive
+                // en state.vars (persistente entre reanudaciones), asi que es
+                // seguro y es justo lo que permite devolver resultados por
+                // referencia sin perderlos en el yield.
+                for (src_var, param_name) in refs.iter() {
                     let prefix = format!("{}[", param_name);
                     let collected: Vec<(String, Value)> = self.state.vars.iter()
                         .filter(|(k, _)| k.starts_with(&prefix))
@@ -2813,8 +3090,25 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         let suffix = key.trim_start_matches(&prefix);
                         self.state.vars.insert(format!("{}[{}", src_var, suffix), val.clone());
                     }
+                    // Fix 2026-11-05: faltaba el ESCALAR. Solo se copiaban
+                    // entradas de array (param[sub]), asi que `$$FUN^T(.R)`
+                    // dejaba R vacio aunque la funcion hiciera SET OUT="x".
+                    // El path de `D ETIQUETA` ya lo tenia.
+                    // Clave: el valor queda en una variable del LLAMADOR
+                    // (state.vars), que sobrevive al yield — a diferencia del
+                    // QUIT con valor, que se pierde al ceder.
+                    if let Some(scalar) = self.state.vars.get(param_name).cloned() {
+                        self.state.vars.insert(src_var.clone(), scalar);
+                    }
                 }
-                self.restore_arguments();
+                if !cedio {
+                    self.restore_arguments();
+                } else {
+                    // Cedio: el llamador propagara el yield. Devolver Null (el
+                    // valor real llegara al reanudar y completar la funcion).
+                    // Sin esto salia "SINTETIZA in SMITH did not QUIT".
+                    result = Ok(Value::Null);
+                }
                 result
             }
             _ => Err(VmError::new(
