@@ -4037,10 +4037,25 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
                     //   $DEVICE("sys:mvm")     -> "id|estado" por proceso (RUN/OK/ERR)
                     //   $DEVICE("sys:mvm","n") -> igual pero solo el CONTADOR: "vivos=N"
                     "mvm" => {
-                        if args.first().is_some() {
-                            Ok(Value::String(format!("vivos={}", global_bg_pool().count())))
-                        } else {
-                            Ok(Value::String(global_bg_pool().list()))
+                        // En wasm32 no hay pool de hilos: global_bg_pool() usa
+                        // std::thread::spawn y PANICABA con "RuntimeError:
+                        // unreachable", que rompe el módulo JS entero. Mismo
+                        // patrón que sys:top y fiber:bg (22-nov-2026).
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let _ = &args;
+                            Ok(Value::String(
+                                "vivos=0;note=sin hilos en wasm (el pool de fibers bg no existe en el navegador)"
+                                    .to_string(),
+                            ))
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            if args.first().is_some() {
+                                Ok(Value::String(format!("vivos={}", global_bg_pool().count())))
+                            } else {
+                                Ok(Value::String(global_bg_pool().list()))
+                            }
                         }
                     }
                     // ── Accion SYS desconocida ──
