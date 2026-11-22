@@ -308,6 +308,11 @@ pub struct FuncCallFrame {
     /// re-ejecutarla vuelve a llamar al LLM (medido: síntesis 2 veces).
     #[serde(default)]
     pub recogido: bool,
+    /// Profundidad de la pila al apilar este frame (func_frames.len() ANTES del
+    /// push). Con dos frames del mismo label anidados, buscar solo por nombre
+    /// cogía el equivocado (traza: REANUDA SINTETIZA con inner_ip de STREAM).
+    #[serde(default)]
+    pub depth: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -504,7 +509,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 match self.reanudar_funcion(&fr) {
                     Ok(v) => {
                         self.reanudaciones.clear();
-                        // Termino: dejar el valor y seguir con el principal.
+                        // La funcion interna TERMINO. El frame del LLAMADOR (si
+                        // queda alguno debajo) tiene su inner_ip apuntando a la
+                        // instruccion que hizo la llamada — re-ejecutarla volveria
+                        // a invocar la funcion (medido: PUSH SINTETIZA pila=3
+                        // justo despues de completar la 1a). Se marca recogido y
+                        // se avanza una instruccion.
+                        if let Some(f) = self.state.func_frames.last_mut() {
+                            f.recogido = true;
+                        }
                         self.return_value = Some(v);
                         continue;
                     }
@@ -721,6 +734,15 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         };
 
         let mut i = fr.inner_ip;
+        // Si el frame dice que YA recogio el valor del device/llamada que cedio,
+        // saltar esa instruccion: re-ejecutarla repetiria la llamada interna
+        // (medido: PUSH SINTETIZA pila=3 justo tras completar la 1a).
+        if fr.recogido {
+            i = i.saturating_add(1);
+            if let Some(f) = self.state.func_frames.last_mut() {
+                f.recogido = false;
+            }
+        }
         let mut salida: Option<Value> = None;
         while i < program.instructions.len() {
             let instr = program.instructions[i].clone();
@@ -3032,10 +3054,25 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 // Buscar en TODA la pila (no solo .last()): si SINTETIZA cede,
                 // el yield burbujea a STREAM que tambien apila, y .last() seria
                 // STREAM -> SINTETIZA no reanudaria nunca.
-                let frame_idx = self.state.func_frames.iter().rposition(|f| {
-                    f.label.eq_ignore_ascii_case(&label_upper)
-                        && f.routine.eq_ignore_ascii_case(routine_name)
-                });
+                // Reanudar el frame CORRECTO: puede haber varios con el mismo
+                // label (SINTETIZA anidada). Se elige el que esta a la
+                // profundidad consecuente con la pila actual: debe ser el ULTIMO
+                // frame cuyo label coincide Y cuya depth no haya sido ya
+                // sobrepasada por otro frame del mismo label.
+                let total = self.state.func_frames.len();
+                let frame_idx = self
+                    .state
+                    .func_frames
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| {
+                        f.label.eq_ignore_ascii_case(&label_upper)
+                            && f.routine.eq_ignore_ascii_case(routine_name)
+                    })
+                    // Preferir el de mayor depth que sea < total (el mas interno
+                    // que aun corresponde a esta entrada).
+                    .max_by_key(|(ix, f)| (f.depth.min(*ix), *ix))
+                    .map(|(ix, _)| ix);
                 let mut i = match frame_idx.and_then(|ix| self.state.func_frames.get(ix)) {
                     Some(f) => {
                         let ip = f.inner_ip;
@@ -3079,6 +3116,7 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             scope_base,
                             refs: refs.clone(),
                             recogido: false,
+                            depth: self.state.func_frames.len(),
                         });
                         #[cfg(not(target_arch = "wasm32"))]
                         if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
