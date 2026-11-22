@@ -1588,6 +1588,28 @@ pub const DEVICE_CATALOG: &[&str] = &[
     "sys:ps",
     "sys:devices",
     "sys:has",
+    // Hardware físico (hw.rs — lee /sys; en Windows devuelve vacío honesto)
+    "hw:list",
+    "hw:temp",
+    "hw:battery",
+    "hw:rfkill",
+    "hw:net",
+    // Audio / imagen / cámara (av.rs — aplay/amixer/ffmpeg/V4L2; degradación
+    // honesta cuando la herramienta no está). Faltaban aquí desde que se
+    // añadieron: $DEVICE("sys:has","audio:info") decía 0 aunque el device
+    // funcionaba. Bug encontrado en la auditoría del 22-nov-2026.
+    "audio:info",
+    "audio:play",
+    "audio:rec",
+    "audio:say",
+    "audio:vol",
+    "img:info",
+    "img:read",
+    "img:make",
+    "cam:list",
+    "cam:frame",
+    "cam:grab",
+    "cam:stream",
 ];
 
 
