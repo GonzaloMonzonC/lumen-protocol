@@ -19,6 +19,26 @@
 
 **79/79 tests Rust verdes.**
 
+## Segunda tanda (23-nov, tarde)
+
+| Qué | Dónde |
+|---|---|
+| **BUG `$$FUNC` que cede pierde su retorno — CERRADO** | `lumen-m-light/src/vm.rs` (`27c330f8`) |
+| **Smith de punta a punta**: `RET=1` + 223 caracteres por `.REF` | verificado |
+| Regresión nueva: `funcion_que_cede_devuelve_su_valor_de_retorno` | `vm.rs` |
+
+**80/80 tests Rust verdes.**
+
+El bug del intérprete que bloqueaba Smith está resuelto. Resumen de la causa:
+`reanudar_funcion` borraba `yield_future` (y `$DEVICE("llm:call")` es
+re-ejecutable por diseño → fork nuevo en cada resume, bucle infinito), y el
+valor del `QUIT` viajaba en `return_value`, un registro efímero que ya se
+había consumido. Ahora el valor se deposita en `state.vars`
+(`%QUITFUNC:LABEL.RUT#depth`) —el mismo mecanismo que hace funcionar `.REF`—
+y se recoge al re-evaluar la expresión.
+
+Detalle completo en `docs/BUG-func-yield-return.md`.
+
 ## Limpieza hecha
 
 - Borrado `lumen-protocol-web` (repo + proyecto Cloudflare): duplicaba la demo.
@@ -32,20 +52,21 @@ dos con contenido distinto, y los fixes se hacían en la que no se ejecutaba.
 
 ## Lo que queda abierto
 
-### 1. BUG del intérprete — prioridad alta
+### 1. BUG del intérprete — RESUELTO (23-nov, tarde)
 `docs/BUG-func-yield-return.md`
 
-Una `$$FUNC` que cede pierde su valor de retorno. Caso mínimo reproducible
-incluido. **No afecta a `.REF`**, sí a cualquier `S = $$FUNC()` con LLM
-dentro. Falla en silencio, que es lo peor.
+Cerrado en `27c330f8`. Una `$$FUNC` que cede conserva ahora su valor de
+retorno. Afectaba a cualquier `S = $$FUNC()` con LLM dentro y fallaba en
+silencio.
 
-### 2. Smith de punta a punta
-Con los tres `SET OUT=""` corregidos, los asesores funcionan (416 caracteres
-recogidos). Falla solo el último paso por el bug de arriba.
+### 2. Smith de punta a punta — RESUELTO
+Verificado: `$$STREAM^SMITH` devuelve `RET=1` **y** llena `.REF` con 223
+caracteres de los asesores. Las dos vías funcionan a la vez.
 
-**Pista**: `SINTETIZA` escribe bien en su `.ref`; lo que se pierde es el
-valor de retorno de `$$`. Probar a llamarla con `D` y leer `OUT` en vez de
-`S ok=$$SINTETIZA(...)`.
+**Nota sobre credenciales**: `llm_router.mac` elige `deepseek` por defecto.
+Sin `DEEPSEEK_API_KEY` el pipeline devuelve un `401` de `api.deepseek.com`
+—correctamente, dentro de `OUT`, sin romper—. Para pruebas con mock:
+`S ^LLMROUTER("fast")="local^m"` (y lo mismo para `balanced` y `deep`).
 
 ### 3. Fibers en WASM
 No hay hilos. `fiber:bg` da error limpio. Tres caminos valorados:
@@ -78,5 +99,11 @@ En `skills/lumen/mvm-interpreter-pitfalls`:
 - `FOR` que duplica iteraciones si el cuerpo llama a ciertas cosas.
 - `QUIT` sin valor devuelve vacío — **es correcto**.
 - `SET .ref = "literal"` rompe la referencia (el bug de hoy).
+- **NO borrar `yield_future` al reanudar.** `$DEVICE("llm:call")` es
+  re-ejecutable por diseño: reutiliza el id para hacer `poll`. Borrarlo
+  dispara un LLM nuevo en cada resume (bucle infinito).
+- **Rebobinar el ip para re-evaluar una expresión exige truncar
+  `state.output`** a su longitud previa, o el `WRITE` de cada intento se
+  acumula.
 - `$GLOBAL` no existe.
 - Probar fibers con mock **persistente**, no embebido.

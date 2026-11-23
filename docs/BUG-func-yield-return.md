@@ -1,113 +1,141 @@
-# BUG ABIERTO — una `$$FUNC` que cede pierde su valor de retorno
+# RESUELTO — una `$$FUNC` que cede perdía su valor de retorno
 
-> Detectado el 23-nov-2026 depurando Smith. **No resuelto.**
-> Caso mínimo reproducible al final. Empezar por ahí.
+> Detectado y cerrado el 23-nov-2026 depurando Smith.
+> Commit: `27c330f8` en `lumen-protocol`.
 
 ## Síntoma
 
 Una función M que hace una llamada a un device que produce `yield`
-(`llm:call`, `user:ask`) y luego devuelve un valor con `QUIT`, **pierde ese
-valor** cuando el motor reanuda.
+(`llm:call`, `user:ask`) y luego devuelve un valor con `QUIT`, **perdía ese
+valor** cuando el motor reanudaba.
 
 ```m
-A1(n)              ; sin ceder -> funciona
+A1(n)              ; sin ceder -> funcionaba
  QUIT n
      W $$A1^T(7)   ->  7        ✅
 
-A2(n)              ; cede en llm:call -> NO funciona
+A2(n)              ; cedía en llm:call -> NO funcionaba
  NEW r
  SET r=$DEVICE("llm:call","hola","sys","local","m")
  QUIT 1
      W $$A2^T(1)   ->  ""       ❌ (debería ser 1)
-
-A3(n)              ; cede y devuelve el propio texto
- NEW r
- SET r=$DEVICE("llm:call","hola","sys","local","m")
- QUIT r
-     W $$A3^T(1)   ->  ""       ❌
 ```
 
-## Lo que está descartado (con pruebas, no suposiciones)
+Fallaba **en silencio**: sin error, sin excepción, valor vacío. El peor modo.
+
+## Por qué se rompía — dos causas encadenadas
+
+El primer intento de arreglo se quedó a medias porque el fallo tenía dos
+capas, y la segunda no se veía hasta quitar la primera.
+
+### Capa 1 — el bucle infinito del `yield_future`
+
+`reanudar_funcion` hacía `yield_future = None` al reanudar, con la idea de que
+"el device ya se resolvió". Pero `$DEVICE("llm:call")` es **re-ejecutable por
+diseño**: si encuentra un id en `yield_future`, reutiliza ese future y hace
+`poll` en vez de crear otro fork.
+
+Al borrar el id, la instrucción `SET r=$DEVICE(...)` re-ejecutada creaba una
+llamada al LLM **nueva**, que volvía a ceder, que volvía a reanudar… Traza
+real del bucle:
+
+```
+[REANUDAR] entrada inner_ip=4 recogido=false
+[REANUDAR]   i=4 op=Set ctrl=Continue yield=true
+[REANUDAR] entrada inner_ip=4 recogido=false      ← y otra vez, 60+ veces
+```
+
+`inner_ip` clavado en el `SET` para siempre. El id **no debe borrarse**: lo
+limpia el propio device cuando `llm_poll` devuelve `Some`.
+
+### Capa 2 — el valor viajaba en un registro efímero
+
+Quitada la capa 1, la función ya llegaba al `QUIT`. Pero el valor seguía
+perdiéndose, y la razón es de diseño:
+
+- El valor del `QUIT` viajaba en `return_value`, un registro **único y
+  efímero**.
+- La instrucción del principal (`W "|",$$A2^T(1),"|"`) ya se había ejecutado
+  con el `Null` que devolvió `eval_function` al ceder.
+- Ese `Null` ya estaba impreso. Cuando el valor real llegaba, **no tenía
+  dónde ir**: la instrucción ya se había consumido.
+
+## El arreglo — el mismo mecanismo por el que ya funcionaba `.REF`
+
+La clave conceptual: **`.REF` funciona porque escribe en `state.vars`, que
+sobrevive al yield**. El `$$FUNC` no tenía ese sitio. Había que dárselo, no
+arreglar "el viaje" del valor.
+
+1. **El `QUIT` del resume deposita el valor en `state.vars`**, con clave
+   `%QUITFUNC:LABEL.RUT#depth` (label + rutina + profundidad, para no
+   colisionar con `$$FUNC` anidadas).
+2. **Se rebobina el ip del principal** y se re-evalúa la expresión.
+3. **`eval_function` recoge el valor** de `state.vars` y lo devuelve, **sin
+   re-entrar en la función** (re-entrar dispararía un segundo `llm:call`).
+4. **Al rebobinar se trunca `state.output`** a lo que había antes de la
+   instrucción. Sin esto el WRITE parcial de cada intento se acumulaba:
+   `"|||1|"` en vez de `"|1|"`.
+
+Ese último punto costó verlo y es imprescindible: el rebobinado re-ejecuta la
+instrucción entera, incluido su `WRITE`.
+
+## Verificación (salida real)
+
+```
+A1 sin ceder     '|7|'          control
+A2 cede, QUIT 1  '|1|'          antes: ''
+A3 cede, QUIT r  '|OP:sys|'     antes: ''
+```
+
+Smith de punta a punta, con `^LLMROUTER(mode)="local^m"` apuntando al mock:
+
+```
+$$STREAM^SMITH  ->  '|RET=1|OUT_LEN=223|'
+```
+
+Las **dos** vías a la vez: valor de retorno (`RET=1`) y `.REF` con 223
+caracteres de texto de los asesores.
+
+Tests: **80/80** (79 previos + `funcion_que_cede_devuelve_su_valor_de_retorno`).
+Verdes los que protegen el camino que no debía cambiar:
+
+- `yield_inside_local_do_resumes_no_replay`
+- `yield_inside_do_block_no_duplicate_effects`
+- `yield_inside_for_body_no_duplicate_effects`
+- `nested_for_with_device_resumes_without_collision`
+
+## Lo descartado por el camino (con pruebas, no suposiciones)
 
 | Hipótesis | Resultado |
 |---|---|
-| El `QUIT` con valor no se compila bien | **No.** `vm.rs:913` evalúa el argumento y pone `return_value = Some(value)` |
-| La función no llega al `QUIT` | **No.** Con un `WRITE "[llego]"` antes del `QUIT`, el texto SE IMPRIME: la función termina |
-| `.REF` está roto | **No.** `S OK=$$FUN(args,.RES)` rellena RES correctamente aunque la función ceda |
-| El valor se pierde en `reanudar_funcion` | **Probable.** Ahí está el candidato, pero el motor no siempre pasa por ahí al reanudar |
+| El `QUIT` con valor no se compila bien | **No.** `vm.rs` evalúa el argumento y pone `return_value` |
+| La función no llega al `QUIT` | **No.** Un `WRITE` antes del `QUIT` sí se imprime |
+| `.REF` está roto | **No.** Es el canal que siempre funcionó |
+| El valor se pierde en `reanudar_funcion` | **Parcial.** Ahí estaba la capa 1; la capa 2 era anterior |
+| Rebobinar el ip basta | **No.** Hay que truncar `state.output` y depositar el valor en `state.vars` |
 
-## Dónde mirar
+## Reproducir
 
-`implementations/rust/lumen-m-light/src/vm.rs`:
+```bash
+# Caso mínimo (necesita el mock en 127.0.0.1:58099)
+python ~/AppData/Local/hermes/scripts/diag_quit_yield.py
 
-- **`vm.rs:494`** — `while (!func_frames.is_empty() ...)`: el bucle de
-  reanudación de funciones en `run_slice`.
-- **`vm.rs:520`** — `match self.reanudar_funcion(&fr)`: si devuelve `Ok(v)`,
-  hace `self.return_value = Some(v)` y `continue`.
-- **`vm.rs:585-602`** — limpieza de `yield_requested`. **Ojo**: solo se limpia
-  si `!en_funcion`. Dentro de una función queda activo a propósito, para que
-  `eval_function` sepa que el device se resolvió.
-- **`vm.rs:780-800`** — el bucle de `reanudar_funcion`. Comprueba
-  `yield_requested` en CADA instrucción y sale con `Err(())` si sigue activo.
-
-La sospecha principal: al reanudar dentro de una función, `yield_requested`
-sigue en `true` (por el `if !en_funcion`), así que el bucle de
-`reanudar_funcion` sale antes de llegar al `QUIT`. Se intentó limpiarlo al
-entrar en el bucle y **no bastó** — señal de que el motor reanuda por otro
-camino, o de que el frame que llega no es el esperado.
-
-## Cómo reproducir
-
-Script listo: `~/AppData/Local/hermes/scripts/diag_quit_yield.py`
-
-```python
-import os, sys, time
-os.environ['LUMEN_MLIGHT_LIB'] = '.../target-sqltest/release/lumen_mlight.dll'
-sys.path.insert(0, '.../implementations/mcp-servers/pdb')
-import lumen_mlight as L
-
-RUT = {'T': 'A2(n)\n NEW r\n SET r=$DEVICE("llm:call","hola","sys","local","m")\n QUIT 1\n'}
-# ejecutar `W "|",$$A2^T(1),"|"` con bucle de resume hasta que deje de ceder
+# Pipeline completo de Smith
+python ~/AppData/Local/hermes/scripts/smith_e2e2.py
 ```
 
-Necesita un servidor LLM en `127.0.0.1:58099` o cualquier mock que responda.
-Hay uno persistente en `~/AppData/Local/hermes/scripts/mock_llm.py`.
-
-Con traza del motor:
+Traza del motor:
 
 ```bash
 LUMEN_TRACE_FUNC=1 python diag_quit_yield.py
-# [FUNC] PUSH A2@T inner_ip=2 pila=1
-# [RUNSLICE] reanudando A2 ip=2      <- reanuda y no avanza al QUIT
 ```
 
-## Impacto
+## Lección de método
 
-- **No afecta al canal `.REF`**, que es el que usa el pipeline de Smith.
-- **Sí afecta** a cualquier `S = $$FUNC(...)` donde FUNC llame a un LLM.
-  El valor llega vacío sin error, que es lo peor: falla en silencio.
-- Workaround conocido: usar un parámetro `.REF` en vez del valor de retorno.
+El arreglo salió de una observación de Gonzalo: *"el paso por referencia
+funciona, ahora usamos `D FUNC^RUTINA(.variable)`"*.
 
-## Cómo se manifestó en Smith
-
-`SINTETIZA^SMITH(msg,doms,res,OUT)` cede en su `llm:call` y escribe el
-resultado en `OUT` (`.ref`). Al llamarla con `$$`, el valor de retorno se
-pierde — pero a `OUT` **sí llega**. Verificado:
-
-```
-LANZATODOS + RECOGE  ->  ids=[1,2], 416 caracteres de asesores   OK
-SINTETIZA por .REF   ->  OUT tiene el texto                      OK
-SINTETIZA por $$     ->  "" (valor de retorno)                   FALLA
-```
-
-Así que el pipeline puede completarse usando `.REF` en los tres pasos. Lo que
-queda por comprobar es por qué `STREAM` no propaga su `RES` al llamador
-después de ese último yield.
-
-## Pista para la próxima sesión
-
-Antes de tocar `vm.rs`, comprobar con traza **si `reanudar_funcion` llega a
-ejecutarse** cuando `SINTETIZA` cede. Si no se ejecuta, el valor se pierde en
-`eval_function` (el camino de `vm.rs:3188`), no en `reanudar_funcion`.
-
-Añadir temporalmente un `eprintln!` en las dos entradas y ver cuál se imprime.
+No porque hubiera que usar `.REF` en Smith, sino porque el `.REF` funciona
+**porque escribe en un sitio que sobrevive**. Eso es lo que había que copiar
+al retorno. Se estaba intentando arreglar el viaje del valor cuando el
+problema era el destino.
