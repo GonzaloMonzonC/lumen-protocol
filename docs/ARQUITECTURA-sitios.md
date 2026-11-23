@@ -31,8 +31,9 @@ código), español completo al lado.
 Implementación: selector EN/ES en la cabecera, mismo contenido en ambos.
 - Rutas: `/` (inglés) y `/es/` (español).
 - El contenido vive en un solo sitio y se traduce; no dos webs paralelas.
-- Los docs de `docs/` que estén solo en español hay que traducirlos al inglés
-  (empezando por `CASOS_USO_AGENTES.md`, que es el que el README ya enlaza).
+- Los docs de `docs/` que estén solo en español hay que traducirlos al inglés.
+  `CASOS_USO_AGENTES.md` ya está traducido: el README enlaza
+  `AGENT_USE_CASES.md` desde el 23-nov-2026.
 
 ## Qué NO va en lumen-protocol.cadences.app
 - Chat con agentes en vivo → eso es `ecos.cadenceslab.com`.

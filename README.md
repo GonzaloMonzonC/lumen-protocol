@@ -243,7 +243,7 @@ Because the web layer is written in the same M language, **agents can build thei
 
 **Devices are open, not a closed list.** The MVM reaches the world through `$DEVICE` primitives — HTTP, webhooks, LLM calls, and more. The core is MIT and designed to be extended (trait `Host`, C ABI): new devices — databases, transports, external systems — plug in from M code without touching the VM core. The system grows with the needs of its agents, not the other way around.
 
-**Nodes are portable.** Routines transfer between nodes, processes persist across restarts (`^PROCESSES`), and agents can hibernate and migrate between machines — see [CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md) (shared namespaces, hibernation, node migration).
+**Nodes are portable.** Routines transfer between nodes, processes persist across restarts (`^PROCESSES`), and agents can hibernate and migrate between machines — see [AGENT_USE_CASES.md](docs/AGENT_USE_CASES.md) (shared namespaces, hibernation, node migration).
 
 **A neighbor that audits, not a system that replaces.** Because the MVM ships as a container, you can deploy it *next to* any existing system — the same pod, the same Kubernetes cluster — and its agents watch it continuously: record how it behaves, detect failures, talk to other agents or external systems (via `$DEVICE` HTTP/webhooks) to correlate problems, and leave logs with full traceability (who, when, what, in what order). One container adds constant auditing, maintenance alerts and an A2A bridge to whatever you already run — without touching a line of it.
 
@@ -361,7 +361,7 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 | **[docs/INDEX.md](docs/INDEX.md)** | 📍 Documentation map — start here (updated 2026-07-15) |
 | **[docs/SSOT_ARQUITECTURA.md](docs/SSOT_ARQUITECTURA.md)** | 🔀 **Fuente de Verdad Única (14-08-2026)**: dónde vive cada dato, convenciones del wire DDP (push subs / prefix / jsonEsc / waitUntil / HMAC), cliente TS canónico + vendoring, jerarquía MVM (Rust = motor, Python = capa) |
 | **[docs/PLAN_EVOLUCION.md](docs/PLAN_EVOLUCION.md)** | Evolution plan: PDB + M-Light + MVM roadmap by ROI |
-| **[docs/CASOS_USO_AGENTES.md](docs/CASOS_USO_AGENTES.md)** | Agent-to-agent use cases: shared Namespaces, hibernation and node migration |
+| **[docs/AGENT_USE_CASES.md](docs/AGENT_USE_CASES.md)** | Agent-to-agent use cases: shared Namespaces, hibernation and node migration |
 | **[README_EXT.md](README_EXT.md)** | Protocol spec, all benchmarks, architecture deep-dive (EN) |
 | **[RFC_LUMEN.md](RFC_LUMEN.md)** | Formal IETF-style protocol RFC |
 | **[SPEC_DEV.md](SPEC_DEV.md)** | Developer reference specification |

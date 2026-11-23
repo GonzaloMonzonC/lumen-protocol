@@ -11,6 +11,7 @@
 | [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) | **Plan canónico** PDB + M-Light + MVM, fases y ROI | ✅ Vigente (2026-07-15) |
 | [spec-m-agent.md](spec-m-agent.md) | **Spec normativa** subset M + globals + MVM + contrato (v0.3) | ✅ Vigente (v0.3 + addendum 2026-09-18) |
 | [CASOS_USO_AGENTES.md](CASOS_USO_AGENTES.md) | Casos A2A: Namespaces compartidos, hibernación y migración entre nodos | ✅ Vigente (2026-07-15) |
+| [AGENT_USE_CASES.md](AGENT_USE_CASES.md) | Mismo documento en **inglés** (es el que enlaza el README) | ✅ Vigente (2026-11-23) |
 | [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-09-18) |
 | [RAG-EMBEDDINGS.md](RAG-EMBEDDINGS.md) | Búsqueda vectorial en M-Light: `rag:embed`, vectores como datos, umbrales medidos | ✅ Vigente (2026-11-21) |
 | [RAG-MVM-NATIVA.md](RAG-MVM-NATIVA.md) | MVM nativa Linux: API C del `.so`, WASM vs nativa y sus diferencias | ✅ Vigente (2026-11-21) |
