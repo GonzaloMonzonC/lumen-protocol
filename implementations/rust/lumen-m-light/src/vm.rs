@@ -2822,13 +2822,41 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         match self.host.llm_poll(id).map_err(|e| VmError::new("MLLM", e, line))? {
                             Some(r) => {
                                 self.state.yield_requested = false;
+                                self.state.yield_future = None;
                                 self.state.wait_reason.clear();
                                 Ok(Value::String(r))
                             }
                             None => {
-                                self.state.yield_requested = true;
-                                self.state.yield_future = Some(id);
-                                Ok(Value::Null)
+                                // ── WASM: NO ceder ────────────────────────────
+                                // Medido (23-nov-2026, consola del navegador):
+                                // un `llm:await` que CEDE dentro de un `DO`
+                                // anidado en una `$$FUNC` hace panic
+                                // `unreachable` en el motor wasm (la traza
+                                // apunta a std::thread::*, o sea que el resume
+                                // toma un camino que en el nodo no existe).
+                                // Caso minimo: `LANZATODOS + RECOGE` en la
+                                // misma $$FUNC. Con `ids=""` (no llega al
+                                // await) funciona; con ids reales, panic.
+                                //
+                                // En el navegador NO hace falta ceder: el host
+                                // ya re-ejecuta el programa tras inyectar cada
+                                // respuesta (mismo contrato que `llm:call` en
+                                // WASM, que encola y sigue). Devolver el
+                                // centinela deja que M siga y que la siguiente
+                                // vuelta encuentre el resultado ya inyectado.
+                                #[cfg(feature = "wasm")]
+                                {
+                                    self.state.yield_requested = false;
+                                    self.state.wait_reason.clear();
+                                    return Ok(Value::String(String::new()));
+                                }
+                                #[cfg(not(feature = "wasm"))]
+                                {
+                                    self.state.yield_requested = true;
+                                    self.state.yield_future = Some(id);
+                                    self.state.wait_reason = "LLM".to_string();
+                                    Ok(Value::Null)
+                                }
                             }
                         }
                     }
@@ -4359,6 +4387,45 @@ mod for_split_tests {
             vm2.state.output, "|1|",
             "el QUIT 1 de una funcion que cedio debe llegar al llamador (antes: \"||\")"
         );
+    }
+
+    /// REGRESIÓN 23-nov-2026 — `DEVICE_CATALOG` no listaba los devices
+    /// `fiber:*`, así que `$DEVICE("sys:has","fiber:await_all")` devolvía 0
+    /// **también en el nodo**.
+    ///
+    /// Consecuencia medida: cualquier rutina M que sonderara el entorno para
+    /// elegir entre fibers y el ciclo llm:fork/llm:await creía estar en el
+    /// navegador. Smith tomaba el camino equivocado en el nodo y acababa en
+    /// `OSError: stack overflow`.
+    ///
+    /// El device SIEMPRE funcionó (está en el dispatcher): lo que faltaba era
+    /// anunciarlo. Este test fija el contrato.
+    #[test]
+    fn catalog_anuncia_los_devices_de_fiber_en_el_nodo() {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for d in ["fiber:bg", "fiber:await", "fiber:await_all"] {
+                assert!(
+                    crate::host::DEVICE_CATALOG.contains(&d),
+                    "{d} falta en DEVICE_CATALOG: sys:has diria 0 y una rutina \
+                     elegiria el camino del navegador en el nodo"
+                );
+            }
+        }
+    }
+
+    /// Los devices `smith:*` lanzan forks con `std::thread::spawn`. En el
+    /// navegador no hay hilos, asi que NO deben anunciarse: si aparecieran en
+    /// el catalogo del WASM, `sys:has` mentiria y una rutina acabaria en un
+    /// panic opaco en vez de en un error M con mensaje.
+    #[test]
+    fn catalog_no_anuncia_smith_en_wasm() {
+        #[cfg(target_arch = "wasm32")]
+        {
+            for d in ["smith:orchestrate", "smith:stream"] {
+                assert!(!crate::host::DEVICE_CATALOG.contains(&d));
+            }
+        }
     }
 
     /// Fix 2026-08-28: $RANDOM existía → MFUNCTION. Verificar rango [0, n-1]

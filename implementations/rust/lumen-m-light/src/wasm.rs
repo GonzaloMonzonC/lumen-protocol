@@ -561,13 +561,37 @@ pub fn m_execute_async(
 
             // ── Reanudar desde el estado del motor ────────────────────
             //
-            // El device llm:call YA hace el ciclo bien: hace poll y, si no hay
+            // ── Reanudar desde el estado del motor, o REPETIR si completó ──
+            //
+            // El device llm:call hace el ciclo bien: hace poll y, si no hay
             // resultado, marca yield_requested y guarda el id en yield_future.
             // O sea que el motor SÍ cede — lo que no hay que hacer es
             // re-ejecutar desde cero, porque se perdería ese id y volvería a
             // encolar otro job (medido: 7+ llamadas en bucle al llm_cb).
-            let state = parsed.get("state").map(|v| v.to_string()).unwrap_or_default();
-            out = m_execute_resume_routines(&compiled, &globals, &routines, &state)?;
+            //
+            // PERO (23-nov-2026): en WASM `llm:await` NO cede a propósito
+            // (ceder desde un `DO` anidado en una `$$FUNC` revienta el motor
+            // con un panic opaco; caso mínimo: LANZATODOS + RECOGE). Devuelve
+            // vacío y el programa TERMINA con el fork todavía en vuelo. Si solo
+            // reanudásemos, no habría nada que reanudar y el resultado se
+            // perdería en silencio (medido: STREAM daba
+            // "No se pudo recoger ninguna respuesta" con N=1).
+            //
+            // Solución: si el motor COMPLETÓ (no cedió) y aún quedan jobs, se
+            // repite el programa desde cero. Es seguro porque `wasm_llm_fork`
+            // deduplica por prompt (WASM_LLM_SEEN): los forks ya hechos
+            // devuelven el MISMO id y no se encola trabajo nuevo.
+            let cedio = execution == "yielded"
+                || parsed.get("state")
+                    .and_then(|s| s.get("yield_requested"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+            if cedio {
+                let state = parsed.get("state").map(|v| v.to_string()).unwrap_or_default();
+                out = m_execute_resume_routines(&compiled, &globals, &routines, &state)?;
+            } else {
+                out = m_execute_routines_out(&compiled, &globals, &routines)?;
+            }
         }
     })
 }

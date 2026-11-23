@@ -73,7 +73,11 @@ static WASM_LLM_NEXT: OnceLock<std::sync::atomic::AtomicU64> = OnceLock::new();
 static WASM_LLM_PENDING: OnceLock<Mutex<Vec<(u64, String, String, String, String)>>> = OnceLock::new();
 #[cfg(feature = "wasm")]
 static WASM_LLM_RESULTS: OnceLock<Mutex<std::collections::HashMap<u64, String>>> = OnceLock::new();
-
+/// Qué prompt ya tiene id asignado (23-nov-2026). NO se vacía al leer
+/// pendientes, a diferencia de WASM_LLM_PENDING: es la fuente de verdad de la
+/// deduplicación de `wasm_llm_fork`. Clave: "provider|model|system|prompt".
+#[cfg(feature = "wasm")]
+static WASM_LLM_SEEN: OnceLock<Mutex<std::collections::HashMap<String, u64>>> = OnceLock::new();
 // ── USER device en WASM (2026-08-28): $DEVICE("user:ask", pregunta) ──
 // Mismo contrato que LLM: fork → pending (el JS abre un modal al humano)
 // → inject (respuesta) → poll (el VM continúa con la respuesta).
@@ -120,25 +124,42 @@ pub fn wasm_user_cancel(id: u64) -> bool {
 
 #[cfg(feature = "wasm")]
 pub fn wasm_llm_fork(provider: &str, model: &str, prompt: &str, system: &str) -> u64 {
-    // Si ya hay un job IDÉNTICO pendiente o resuelto, no se crea otro.
+    // Si ya hay un job IDÉNTICO, no se crea otro.
     //
     // POR QUE (22-nov-2026): m_execute_async re-ejecuta el programa tras
     // inyectar la respuesta (en WASM llm:call no cede: encola y sigue). Sin
     // esta comprobación, cada re-ejecución volvía a encolar el MISMO prompt y
     // el bucle no terminaba nunca (medido: 7+ llamadas al llm_cb).
-    let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
-    {
-        let guard = p.lock().unwrap();
-        for (id, pv, mv, pr, sy) in guard.iter() {
-            if pv == provider && mv == model && pr == prompt && sy == system {
-                return *id; // mismo trabajo: reutilizar
-            }
-        }
+    //
+    // FIX 23-nov-2026 — la dedup NO puede mirar solo WASM_LLM_PENDING, porque
+    // `wasm_llm_pending()` hace `mem::take` (VACÍA la lista al leerla, que es
+    // justo lo que el host necesita para saber qué resolver). En cuanto el
+    // host leía la lista, la dedup se rompía y el siguiente pase creaba otro
+    // fork del MISMO prompt. Medido: `W $DEVICE("llm:fork",...)` inline dejaba
+    // 30 pendientes; Smith entero pasaba de 100 y el motor moría con panic.
+    //
+    // La fuente de verdad es WASM_LLM_SEEN: un mapa prompt→id que NO se vacía
+    // al leer pendientes. Sobrevive a la ejecución completa, que es lo que la
+    // dedup necesita. Se limpia con `wasm_llm_reset` (arranque de sesión).
+    let clave = format!("{provider}|{model}|{system}|{prompt}");
+    let seen = WASM_LLM_SEEN.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(id) = seen.lock().unwrap().get(&clave) {
+        return *id; // mismo trabajo: reutilizar
     }
     let next = WASM_LLM_NEXT.get_or_init(|| std::sync::atomic::AtomicU64::new(1));
     let id = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    seen.lock().unwrap().insert(clave, id);
+    let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
     p.lock().unwrap().push((id, provider.to_string(), model.to_string(), prompt.to_string(), system.to_string()));
     id
+}
+
+/// Olvida qué prompts ya se vieron. Solo para el arranque de una sesión nueva
+/// o para pruebas: en uso normal no debe llamarse, o la dedup se pierde.
+#[cfg(feature = "wasm")]
+pub fn wasm_llm_reset() {
+    WASM_LLM_SEEN.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock().unwrap().clear();
 }
 
 #[cfg(feature = "wasm")]
@@ -1578,11 +1599,33 @@ pub const DEVICE_CATALOG: &[&str] = &[
     "llm:cancel",
     "llm:chain",
     "llm:tools",
+    // Fibers — SOLO nodo. En WASM no hay hilos: `fiber_bg_spawn` devuelve Err
+    // y await_* haría thread::sleep, que panica. Si se declararan aquí en el
+    // navegador, `sys:has` mentiría y una rutina elegiría el camino de fibers
+    // para descubrirlo con un panic opaco.
+    //
+    // FALTABAN por completo hasta el 23-nov-2026: el device funcionaba, pero
+    // `$DEVICE("sys:has","fiber:await_all")` devolvía 0 también en el NODO.
+    // Consecuencia medida: Smith creía estar en el navegador, usaba
+    // llm:fork/llm:await en el nodo y acababa en stack overflow.
+    #[cfg(not(target_arch = "wasm32"))]
+    "fiber:bg",
+    #[cfg(not(target_arch = "wasm32"))]
+    "fiber:await",
+    #[cfg(not(target_arch = "wasm32"))]
+    "fiber:await_all",
     // Agentes / orquestación
+    // `smith:*` también lanzan forks con std::thread::spawn: en el navegador
+    // el dispatcher los rechaza, así que no deben anunciarse como disponibles.
+    #[cfg(not(target_arch = "wasm32"))]
     "smith:orchestrate",
+    #[cfg(not(target_arch = "wasm32"))]
     "smith:stream",
+    #[cfg(not(target_arch = "wasm32"))]
     "smith:poll",
+    #[cfg(not(target_arch = "wasm32"))]
     "smith:status",
+    #[cfg(not(target_arch = "wasm32"))]
     "smith:collect",
     "agent:call",
     // Datos
@@ -3937,12 +3980,12 @@ impl Host for MemoryHost {
         // Devuelve Err (error M normal) en vez de romper el módulo JS.
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = (source, globals, routines);
-            return Err(
+            let _ = (globals, routines);
+            return Err(format!(
                 "fiber:bg no soportado en navegador (sin hilos). Usa el ciclo \
-                 m_llm_pending/m_llm_inject para trabajo asíncrono."
-                    .to_string(),
-            );
+                 m_llm_pending/m_llm_inject para trabajo asíncrono. [fuente: {}]",
+                &source.chars().take(200).collect::<String>()
+            ));
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -4784,6 +4827,22 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
                 Err("LUMEN device requires minreq feature".to_string())
             }
             "smith" => {
+                // En wasm32 no hay hilos: `smith:orchestrate` y `smith:stream`
+                // lanzan forks con std::thread::spawn, que PANICA en el navegador
+                // con un `RuntimeError: unreachable` opaco (imposible de depurar
+                // desde JS). Se rechazan con un error M normal.
+                //
+                // POR QUE IMPORTA (medido 23-nov-2026): cualquier rutina M que
+                // llame a estos devices revienta el modulo entero sin decir cual
+                // fue. Un error limpio dice QUE device y deja seguir.
+                #[cfg(target_arch = "wasm32")]
+                {
+                    return Err(format!(
+                        "smith:{action} no soportado en navegador (usa hilos). \
+                         Usa el pipeline en M: LANZATODOS + RECOGE con llm:fork/llm:await."
+                    ));
+                }
+                #[cfg(not(target_arch = "wasm32"))]
                 match action {
                     "orchestrate" => {
                         // ── Modo legacy (bloqueante) ────────────────────────
