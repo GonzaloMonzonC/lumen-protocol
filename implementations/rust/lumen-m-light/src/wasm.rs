@@ -531,6 +531,21 @@ pub fn m_execute_async(
                         args.push(&JsValue::from_str(&model));
                         args.push(&JsValue::from_str(&prompt));
                         args.push(&JsValue::from_str(&system));
+                        // 6º argumento: los globals DEL TURNO EN CURSO.
+                        //
+                        // POR QUE (pedido por Gonzalo): mientras el motor
+                        // espera al LLM, la traza de fases ya esta escrita en
+                        // ^SMITHID("hist") — el turno que acaba de terminar la
+                        // dejo ahi. Pero llm_cb no la recibia, asi que el JS
+                        // pintaba la copia vieja y la traza parecia congelada
+                        // en "Trabajando…". Con esto el consumidor puede
+                        // refrescar la traza en CADA fase, no solo al final.
+                        //
+                        // `globals` en este punto es el del turno recien
+                        // ejecutado (se actualizo justo antes, al parsear la
+                        // salida). Es el estado real, no el de la vuelta
+                        // anterior.
+                        args.push(&JsValue::from_str(&globals));
                         let p = cb.apply(&JsValue::NULL, &args)
                             .map_err(|e| JsValue::from_str(&format!("llm_cb lanzó: {e:?}")))?;
                         if p.is_null() || p.is_undefined() {

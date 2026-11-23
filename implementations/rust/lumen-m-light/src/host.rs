@@ -4492,10 +4492,25 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
             "search" => {
                 // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
                 // (endpoint estilo Tavily configurable por env, ver search_web).
-                match action {
-                    "web" | "call" => search_web(&args),
-                    "text" => search_web_text(&args),
-                    _ => Err(format!("Unknown SEARCH action: {action}")),
+                //
+                // `search_web` solo existe con la feature `minreq`, que NO se
+                // compila a wasm32. Sin este cfg el build WASM reventaba con
+                // "cannot find function search_web" (medido 23-nov-2026, al
+                // añadir web:fetch y tocar este dispatcher).
+                #[cfg(feature = "minreq")]
+                {
+                    match action {
+                        "web" | "call" => search_web(&args),
+                        "text" => search_web_text(&args),
+                        _ => Err(format!("Unknown SEARCH action: {action}")),
+                    }
+                }
+                #[cfg(not(feature = "minreq"))]
+                {
+                    let _ = action;
+                    Err("search:web no disponible en este build (feature minreq off). \
+                         En el navegador, usa POST /api/fetch del sitio."
+                        .to_string())
                 }
             }
             "ddp" => {
