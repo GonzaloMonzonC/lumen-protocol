@@ -1645,6 +1645,8 @@ pub const DEVICE_CATALOG: &[&str] = &[
     "sys:ps",
     "sys:devices",
     "sys:functions",
+    // Lectura de URLs: nodo con minreq, navegador via /api/fetch del host.
+    "web:fetch",
     "sys:has",
     // Hardware físico (hw.rs — lee /sys; en Windows devuelve vacío honesto)
     "hw:list",
@@ -2805,6 +2807,131 @@ fn ssrf_guard(url: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "minreq")]
+// ── WEB device (23-nov-2026) ────────────────────────────────────────────────
+//
+// $DEVICE("web:fetch", url) -> texto limpio de la pagina.
+//
+// Dos implementaciones, una por entorno. El contrato es el mismo: devuelve
+// texto listo para meter en un prompt, o un error claro.
+
+/// Nodo: usa http:get (minreq) y limpia el resultado.
+#[cfg(all(feature = "minreq", not(feature = "wasm")))]
+fn web_fetch(url: &str) -> Result<Value, String> {
+    // http:get devuelve {"status":N,"body":"..."} — se extrae el body.
+    let raw = http_full_request("get", &[Value::String(url.to_string())])?;
+    let s = raw.as_string();
+    let cuerpo = extraer_body(&s).unwrap_or(s);
+    Ok(Value::String(limpiar_web(&cuerpo, url)))
+}
+
+/// WASM: no hay red en el motor. Devuelve un error EXPLICITO para que la
+/// rutina M pueda degradar; el consumidor del navegador es quien resuelve
+/// esto via /api/fetch antes de ejecutar, o el agente lo dice.
+#[cfg(feature = "wasm")]
+fn web_fetch(_url: &str) -> Result<Value, String> {
+    Err("web:fetch no disponible dentro del motor WASM: \
+         en el navegador lo resuelve el host (POST /api/fetch). \
+         En el nodo usa http:get."
+        .to_string())
+}
+
+#[cfg(all(not(feature = "minreq"), not(feature = "wasm")))]
+fn web_fetch(_url: &str) -> Result<Value, String> {
+    Err("web:fetch requiere la feature `minreq` (build sin ella)".to_string())
+}
+
+/// Saca el campo "body" del JSON que devuelve http:get.
+fn extraer_body(respuesta: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(respuesta).ok()?;
+    v.get("body")?.as_str().map(|s| s.to_string())
+}
+
+/// Deja el texto presentable para un LLM:
+///  - si es JSON (API de GitHub), se queda tal cual;
+///  - si es HTML, se quitan scripts/estilos/etiquetas y se juntan espacios.
+fn limpiar_web(texto: &str, url: &str) -> String {
+    let t = texto.trim();
+    // Deteccion de HTML: NO basta con buscar "<!doctype" o "<html" al
+    // principio. Un README de GitHub empieza por `<p align="center">` y se
+    // colaba como texto plano (los <p> llegaban al modelo).
+    // Criterio: empieza por '<' Y hay al menos 3 etiquetas '<...>' en los
+    // primeros 400 caracteres. El JSON de la API empieza por '{' y nunca
+    // entra; un texto normal tampoco.
+    let cabecera: String = t.chars().take(400).collect();
+    let empieza_etiqueta = t.starts_with('<');
+    let etiquetas = cabecera.matches('<').count();
+    let es_html = empieza_etiqueta && etiquetas >= 3;
+    if !es_html {
+        return acotar(t, url);
+    }
+    let mut out = String::with_capacity(t.len() / 2);
+    let mut dentro = false;
+    let mut saltar = 0u8; // 1 = script, 2 = style
+    let bytes: Vec<char> = t.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !dentro && bytes[i] == '<' {
+            // ¿empieza script o style?
+            let resto: String = bytes[i..(i + 7).min(bytes.len())].iter().collect();
+            let r = resto.to_ascii_lowercase();
+            if r.starts_with("<script") { saltar = 1; }
+            if r.starts_with("<style") { saltar = 2; }
+            dentro = true;
+            i += 1;
+            continue;
+        }
+        if dentro {
+            if bytes[i] == '>' {
+                dentro = false;
+                out.push(' ');
+            }
+            i += 1;
+            continue;
+        }
+        if saltar > 0 {
+            let resto: String = bytes[i..(i + 9).min(bytes.len())].iter().collect();
+            let r = resto.to_ascii_lowercase();
+            if (saltar == 1 && r.starts_with("</script")) || (saltar == 2 && r.starts_with("</style")) {
+                saltar = 0;
+            }
+            i += 1;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    let limpio = out
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"");
+    // espacios repetidos -> uno (con $CHAR para no romper el parser no aplica:
+    // esto es Rust, pero se deja igual de simple)
+    let mut final_s = String::with_capacity(limpio.len());
+    let mut esp = false;
+    for c in limpio.chars() {
+        if c.is_whitespace() {
+            if !esp { final_s.push(if c == '\n' { '\n' } else { ' ' }); esp = true; }
+        } else {
+            final_s.push(c);
+            esp = false;
+        }
+    }
+    acotar(final_s.trim(), url)
+}
+
+/// Tope de texto: lo que se le pasa a un LLM no puede ser una novela.
+fn acotar(t: &str, url: &str) -> String {
+    const MAX: usize = 12000;
+    if t.chars().count() <= MAX {
+        return t.to_string();
+    }
+    let recortado: String = t.chars().take(MAX).collect();
+    format!("{recortado}\n\n[...recortado a {MAX} caracteres de {url}]")
+}
+
+
 // ── SEARCH device (2026-09-04): $DEVICE("search:web", query, [n], [include_answer]) ──
 // Búsqueda web vía endpoint estilo Tavily (POST + Authorization: Bearer).
 // Config por env del proceso (NUNCA en el repo): LUMEN_SEARCH_API_KEY (obligatoria),
@@ -4335,6 +4462,33 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
                 }
             }
             #[cfg(feature = "minreq")]
+            // ── WEB device (23-nov-2026): $DEVICE("web:fetch", url) ──────────
+            //
+            // Lee una URL y devuelve TEXTO LIMPIO (HTML sin etiquetas, o el
+            // JSON tal cual si lo es). Pensado para que un LLM pueda comentar
+            // una página o un repo.
+            //
+            // POR QUE UN DEVICE NUEVO Y NO `http:get`:
+            //  - `http:get` devuelve {"body": "..."} con el JSON escapado
+            //    dentro de otro JSON: el modelo recibe ruido.
+            //  - En el navegador `http:get` NO EXISTE: `minreq` no compila a
+            //    wasm32 (la funcion es un stub que devuelve error). Aqui se
+            //    delega en el HOST, igual que llm:call, para que el mismo M
+            //    funcione en los dos entornos.
+            //
+            // En el navegador el host es JS y llama a /api/fetch (Function de
+            // Cloudflare con lista blanca cerrada). En el nodo se usa
+            // http:get directamente, con su ssrf_guard.
+            "web" => {
+                let url = args.first().map(|v| v.as_string()).unwrap_or_default();
+                if url.trim().is_empty() {
+                    return Err("uso: $DEVICE(\"web:fetch\",\"https://...\")".to_string());
+                }
+                match action {
+                    "fetch" | "get" | "read" => web_fetch(&url),
+                    _ => Err(format!("Unknown web action: {action}. Usa: fetch")),
+                }
+            }
             "search" => {
                 // $DEVICE("search:web", query, [n], [include_answer]) → búsqueda web
                 // (endpoint estilo Tavily configurable por env, ver search_web).
