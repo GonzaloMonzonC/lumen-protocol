@@ -120,9 +120,23 @@ pub fn wasm_user_cancel(id: u64) -> bool {
 
 #[cfg(feature = "wasm")]
 pub fn wasm_llm_fork(provider: &str, model: &str, prompt: &str, system: &str) -> u64 {
+    // Si ya hay un job IDÉNTICO pendiente o resuelto, no se crea otro.
+    //
+    // POR QUE (22-nov-2026): m_execute_async re-ejecuta el programa tras
+    // inyectar la respuesta (en WASM llm:call no cede: encola y sigue). Sin
+    // esta comprobación, cada re-ejecución volvía a encolar el MISMO prompt y
+    // el bucle no terminaba nunca (medido: 7+ llamadas al llm_cb).
+    let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
+    {
+        let guard = p.lock().unwrap();
+        for (id, pv, mv, pr, sy) in guard.iter() {
+            if pv == provider && mv == model && pr == prompt && sy == system {
+                return *id; // mismo trabajo: reutilizar
+            }
+        }
+    }
     let next = WASM_LLM_NEXT.get_or_init(|| std::sync::atomic::AtomicU64::new(1));
     let id = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let p = WASM_LLM_PENDING.get_or_init(|| Mutex::new(Vec::new()));
     p.lock().unwrap().push((id, provider.to_string(), model.to_string(), prompt.to_string(), system.to_string()));
     id
 }

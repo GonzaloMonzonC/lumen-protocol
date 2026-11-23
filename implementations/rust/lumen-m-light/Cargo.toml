@@ -22,6 +22,10 @@ rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 ureq = { version = "3", optional = true }
 minreq = { version = "3", optional = true, features = ["json-using-serde", "https-rustls-probe"] }
 wasm-bindgen = { version = "0.2", optional = true }
+# Fachada async para WASM: permite que m_execute_async devuelva una Promise y
+# que el bucle ceder/inject/reanudar quede DENTRO del motor. No toca el VM.
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
 libloading = { version = "0.8", optional = true }
 # Backend LMDB (feature "lmdb") — motor directo mmap para nodos. Cross-builds
 # desde Windows necesitan el vendor-patch de lmdb-master-sys (abajo) + el
@@ -45,7 +49,7 @@ ssh = []
 zroutines = []
 # Device spawn:run — el nodo se auto-lanza en subproceso con timeout (sandbox)
 spawn = []
-wasm = ["wasm-bindgen"]
+wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys"]
 
 # Vendor-patch (19-sep-2026): lmdb-master-sys 0.2.6 tiene un bug de build script
 # (#[cfg(target_os = "windows")] evalúa el HOST) que rompe cross-builds

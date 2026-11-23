@@ -410,3 +410,164 @@ pub fn m_execute_resume_routines(
         }
     ))
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fachada ASYNC (22-nov-2026)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// QUÉ ES: `m_execute_async` ejecuta M y, cuando el motor cede esperando un
+// LLM o una respuesta del usuario, hace el `await` por ti y reanuda. El
+// consumidor JS escribe una línea:
+//
+//     const out = await mvm.run(src, { llm, routines });
+//
+// QUÉ NO ES: no convierte el VM en async. El motor sigue cediendo como
+// siempre; lo que cambia es que el bucle vive aquí en vez de en el JS.
+// `vm.rs` no se toca.
+//
+// CÓMO: `wasm_bindgen_futures::future_to_promise` + `JsFuture`. La función
+// devuelve una Promise y va resolviendo turno a turno. El JS que la llama
+// puede hacer `await` normal.
+//
+// LÍMITE: si en el futuro hay `$FIBER` en el navegador, esto NO lo resuelve
+// (eso necesita hilos reales). Aquí los fibers siguen dando error limpio.
+
+#[cfg(feature = "wasm")]
+use wasm_bindgen::prelude::*;
+#[cfg(feature = "wasm")]
+use wasm_bindgen_futures::JsFuture;
+
+/// Ejecuta M y resuelve todas las esperas (LLM y usuario) por sí sola.
+///
+/// Parámetros:
+///   - `compiled`: bytecode de `m_compile`.
+///   - `globals_json`: globals de la ejecución anterior (`[]` la primera vez).
+///   - `routines_json`: mapa `{"NOMBRE": "fuente M"}` o `{}`.
+///   - `llm_cb`: `async (id, provider, model, prompt, system) => string`.
+///     Si es `null`, cualquier `llm:call` devuelve un error M en vez de colgar.
+///   - `user_cb`: `async (id, pregunta) => string`. Opcional.
+///
+/// Devuelve el JSON `{state, globals, error}` de la última reanudación, o sea
+/// el mismo contrato que `m_execute_routines_out` — así el consumidor no
+/// cambia nada más.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn m_execute_async(
+    compiled: &[u8],
+    globals_json: &str,
+    routines_json: &str,
+    llm_cb: Option<js_sys::Function>,
+    user_cb: Option<js_sys::Function>,
+) -> js_sys::Promise {
+    let compiled = compiled.to_vec();
+    let mut globals = globals_json.to_string();
+    let routines = routines_json.to_string();
+
+    wasm_bindgen_futures::future_to_promise(async move {
+        // Primer turno: ejecutar desde cero.
+        let mut out = m_execute_routines_out(&compiled, &globals, &routines)
+            .map_err(|e| e)?;
+
+        // Bucle: mientras ceda, resolver las esperas y reanudar.
+        // Tope de vueltas para que un bucle infinito de yields no cuelgue la
+        // pestaña: 200 turnos es muchísimo para un agente real.
+        let mut vueltas = 0;
+        loop {
+            vueltas += 1;
+            if vueltas > 200 {
+                return Err(JsValue::from_str(
+                    "m_execute_async: demasiados turnos (¿bucle sin salida?)",
+                ));
+            }
+
+            let parsed: serde_json::Value = serde_json::from_str(&out)
+                .map_err(|e| JsValue::from_str(&format!("JSON de salida: {e}")))?;
+
+            // Guardar globals para el siguiente turno.
+            if let Some(g) = parsed.get("globals") {
+                globals = g.to_string();
+            }
+
+            // ¿Terminó?
+            //
+            // OJO (medido 22-nov-2026): en WASM `llm:call` NO cede — encola el
+            // job con wasm_llm_fork y sigue ejecutando. `execution` puede venir
+            // `undefined`, no "yielded". Por eso no basta con mirar execution:
+            // hay que procesar los pendientes SIEMPRE que existan, ceda o no.
+            let execution = parsed.get("execution").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            // ── Jobs de LLM pendientes ────────────────────────────────
+            let pendientes = m_llm_pending();
+            let jobs: Vec<serde_json::Value> = serde_json::from_str(&pendientes)
+                .unwrap_or_else(|_| Vec::new());
+
+            for job in &jobs {
+                let id = job.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let prov = job.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let model = job.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let prompt = job.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let system = job.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                let texto = match &llm_cb {
+                    Some(cb) => {
+                        let args = js_sys::Array::new();
+                        args.push(&JsValue::from_f64(id));
+                        args.push(&JsValue::from_str(&prov));
+                        args.push(&JsValue::from_str(&model));
+                        args.push(&JsValue::from_str(&prompt));
+                        args.push(&JsValue::from_str(&system));
+                        let p = cb.apply(&JsValue::NULL, &args)
+                            .map_err(|e| JsValue::from_str(&format!("llm_cb lanzó: {e:?}")))?;
+                        if p.is_null() || p.is_undefined() {
+                            String::from("LLM_ERROR: llm_cb no devolvió nada")
+                        } else {
+                            let v = JsFuture::from(js_sys::Promise::resolve(&p)).await?;
+                            v.as_string().unwrap_or_else(|| String::from("LLM_ERROR: respuesta no textual"))
+                        }
+                    }
+                    None => String::from("LLM_ERROR: sin llm_cb (no hay a quién preguntar)"),
+                };
+                m_llm_inject(id, &texto);
+            }
+
+            // ── Jobs de USER pendientes ───────────────────────────────
+            let pu = m_user_pending();
+            let ujobs: Vec<serde_json::Value> = serde_json::from_str(&pu)
+                .unwrap_or_else(|_| Vec::new());
+            for job in &ujobs {
+                let id = job.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let pregunta = job.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let resp = match &user_cb {
+                    Some(cb) => {
+                        let args = js_sys::Array::new();
+                        args.push(&JsValue::from_f64(id));
+                        args.push(&JsValue::from_str(&pregunta));
+                        let p = cb.apply(&JsValue::NULL, &args)
+                            .map_err(|e| JsValue::from_str(&format!("user_cb lanzó: {e:?}")))?;
+                        let v = JsFuture::from(js_sys::Promise::resolve(&p)).await?;
+                        v.as_string().unwrap_or_default()
+                    }
+                    None => String::new(),
+                };
+                m_user_inject(id as u64, &resp);
+            }
+
+            // Si no había nada pendiente, no tiene sentido reanudar: el motor
+            // cedería por lo mismo otra vez y entraríamos en bucle.
+            if jobs.is_empty() && ujobs.is_empty() {
+                return Ok(JsValue::from_str(&out));
+            }
+
+            // ── Reanudar desde el estado del motor ────────────────────
+            //
+            // El device llm:call YA hace el ciclo bien: hace poll y, si no hay
+            // resultado, marca yield_requested y guarda el id en yield_future.
+            // O sea que el motor SÍ cede — lo que no hay que hacer es
+            // re-ejecutar desde cero, porque se perdería ese id y volvería a
+            // encolar otro job (medido: 7+ llamadas en bucle al llm_cb).
+            let state = parsed.get("state").map(|v| v.to_string()).unwrap_or_default();
+            out = m_execute_resume_routines(&compiled, &globals, &routines, &state)?;
+        }
+    })
+}
