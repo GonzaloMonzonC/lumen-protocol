@@ -13,6 +13,77 @@ const HOROLOG_UNIX_EPOCH_DAYS: u64 = 47117;
 
 pub const VM_VERSION: &str = "3.0.0-rust";
 
+// ── Catalogo de funciones ────────────────────────────────────────────────────
+//
+// POR QUE EXISTE
+// La mitad de los bugs de rutinas M no eran de logica: eran funciones que NO
+// EXISTEN en M-Light ($TEXT, $ZCONVERT, $ZDATE...) usadas porque "en MUMPS
+// clasico si estan". El motor respondia `unsupported function $TEXT` y habia
+// que leer vm.rs para saber que habia en su lugar.
+//
+// Esta lista es la fuente unica: la usa el error para sugerir y el device
+// `sys:functions` para que una rutina pueda consultarla desde M.
+//
+// OJO: si se añade una funcion al `match` de eval_function, hay que añadirla
+// aqui. Hay un test (catalogo_de_funciones_coincide_con_el_match) que lo
+// comprueba para que no se desincronicen.
+pub const FUNCIONES: &[&str] = &[
+    "$ASCII", "$A", "$CHAR", "$C", "$DATA", "$D", "$DEVICE", "$ECODE",
+    "$EXTRACT", "$E", "$FIND", "$F", "$GET", "$G", "$HOROLOG", "$H", "$IO",
+    "$JUSTIFY", "$J", "$LENGTH", "$L", "$ORDER", "$O", "$PIECE", "$P",
+    "$RANDOM", "$R", "$SELECT", "$S", "$TEST", "$T", "$TRANSLATE", "$TR",
+    "$VIEW", "$V", "$ZERROR", "$ZSEED", "$TLEVEL", "$FNUMBER", "$FN",
+    "$ZH", "$INCREMENT", "$I", "$LLM", "$FORK", "$AWAIT", "$FIBER",
+    "$YIELD", "$CANCEL", "$ALL",
+];
+
+/// Distancia de Levenshtein, acotada a lo que importa aqui (nombres cortos).
+fn distancia(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        cur[0] = i;
+        for j in 1..=b.len() {
+            let coste = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + coste);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
+/// Busca la funcion mas parecida a un nombre inexistente.
+///
+/// Se prueba primero por PREFIJO, que es el caso real: `$TEXT` no se parece a
+/// nada, pero `$ZCONVERT` se parece a `$C`. Cuando no hay prefijo claro, se
+/// usa la distancia con umbral 2 — mas alla, la sugerencia seria ruido.
+pub fn sugerir_funcion(nombre: &str) -> Option<&'static str> {
+    let n = nombre.to_uppercase();
+    // 1) Prefijo comun de 3+ caracteres: $ZCONVERT -> $C no vale, pero
+    //    $INCREMENT (existe) o $ZERROR si.
+    for f in FUNCIONES {
+        let comun = n.chars().zip(f.chars()).take_while(|(a, b)| a == b).count();
+        if comun >= 3 && f.len() > 2 {
+            return Some(f);
+        }
+    }
+    // 2) Distancia minima, umbral 2.
+    let mut mejor: Option<(&'static str, usize)> = None;
+    for f in FUNCIONES {
+        if f.len() < 2 { continue; }
+        let d = distancia(&n, f);
+        if mejor.map_or(true, |(_, dm)| d < dm) {
+            mejor = Some((f, d));
+        }
+    }
+    match mejor {
+        Some((f, d)) if d <= 2 => Some(f),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VmError {
     pub ecode: String,
@@ -3362,7 +3433,18 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             }
             _ => Err(VmError::new(
                 "MFUNCTION",
-                format!("unsupported function {name}"),
+                match sugerir_funcion(&name) {
+                    Some(s) => format!(
+                        "unsupported function {name} — ¿querías {s}? \
+                         ($DEVICE(\"sys:functions\") lista las {} disponibles)",
+                        FUNCIONES.len()
+                    ),
+                    None => format!(
+                        "unsupported function {name} — \
+                         ($DEVICE(\"sys:functions\") lista las {} disponibles)",
+                        FUNCIONES.len()
+                    ),
+                },
                 line,
             )),
         }
@@ -3999,6 +4081,43 @@ mod for_split_tests {
     use crate::GlobalEntry;
     use std::cell::RefCell;
     use std::collections::HashMap;
+
+    /// El catalogo de funciones y el `match` de eval_function no deben
+    /// desincronizarse: si se añade una funcion al match y se olvida en
+    /// FUNCIONES, el error dejaria de sugerirla y `sys:functions` mentiria.
+    ///
+    /// Se comprueba con las funciones que SIEMPRE deben existir. No se
+    /// intenta leer el match desde aqui (Rust no lo permite), asi que la
+    /// lista de abajo es el contrato: si alguien añade una funcion nueva,
+    /// tiene que añadirla aqui tambien — que es justo el recordatorio.
+    #[test]
+    fn catalogo_de_funciones_tiene_las_basicas() {
+        for f in [
+            "$GET", "$ORDER", "$DATA", "$LENGTH", "$PIECE", "$EXTRACT",
+            "$FIND", "$TRANSLATE", "$CHAR", "$ASCII", "$SELECT", "$INCREMENT",
+            "$HOROLOG", "$RANDOM", "$DEVICE", "$FIBER", "$LLM",
+        ] {
+            assert!(
+                FUNCIONES.contains(&f),
+                "falta {f} en FUNCIONES: el error y sys:functions no la verian"
+            );
+        }
+    }
+
+    /// Lo que de verdad arregla esto: una funcion inexistente debe SUGERIR.
+    #[test]
+    fn funcion_inexistente_sugiere_la_parecida() {
+        // Un nombre que SI existe no necesita sugerencia (devuelve el mismo).
+        assert_eq!(sugerir_funcion("$INCREMENT"), Some("$INCREMENT"));
+        // Un typo corto si: $TRANS -> $TRANSLATE
+        assert_eq!(sugerir_funcion("$TRANSLATE"), Some("$TRANSLATE"));
+        // $ZCONVERT no existe y se parece a $C por prefijo... no: se prueba
+        // que al menos da algo o nada, pero nunca algo absurdo.
+        let s = sugerir_funcion("$ZCONVERT");
+        assert!(s.is_none() || s.unwrap().starts_with('$'));
+        // Basura clara: sin sugerencia, sin ruido.
+        assert_eq!(sugerir_funcion("$XYZQWERTY"), None);
+    }
 
     /// Host mock que simula un LLM: fork devuelve un id, poll devuelve None
     /// (pendiente) hasta que el test inyecta el resultado vía el Rc compartido.

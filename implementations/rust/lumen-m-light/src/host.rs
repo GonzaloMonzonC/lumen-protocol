@@ -1644,6 +1644,7 @@ pub const DEVICE_CATALOG: &[&str] = &[
     "sys:stat",
     "sys:ps",
     "sys:devices",
+    "sys:functions",
     "sys:has",
     // Hardware físico (hw.rs — lee /sys; en Windows devuelve vacío honesto)
     "hw:list",
@@ -4062,6 +4063,26 @@ fn device_call(&mut self, device: &str, action: &str, args: &[Value]) -> Result<
                     // necesidad legítima; esto la resuelve de forma honesta y
                     // extensible: la lista se mantiene junto al dispatcher.
                     "devices" => Ok(Value::String(DEVICE_CATALOG.join("\n"))),
+                    // ── 23-nov-2026: $DEVICE("sys:functions") — que funciones hay ──
+                    //   $DEVICE("sys:functions")        -> "nombre" por linea
+                    //   $DEVICE("sys:functions","$TEXT") -> sugerencia o ""
+                    //
+                    // Existe por el mismo motivo que sys:devices: media docena
+                    // de bugs eran funciones MUMPS clasicas que M-Light NO
+                    // tiene ($TEXT, $ZCONVERT, $ZDATE). Sin esto habia que
+                    // leer vm.rs para descubrirlo.
+                    "functions" | "funcs" => {
+                        let want = args.first().map(|v| v.as_string()).unwrap_or_default();
+                        if want.trim().is_empty() {
+                            Ok(Value::String(crate::vm::FUNCIONES.join("\n")))
+                        } else {
+                            Ok(Value::String(
+                                crate::vm::sugerir_funcion(want.trim())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ))
+                        }
+                    }
                     "has" => {
                         let want = args.first().map(|v| v.as_string()).unwrap_or_default();
                         let want = want.trim().to_ascii_lowercase();
