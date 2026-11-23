@@ -465,6 +465,20 @@ pub fn m_execute_async(
     let routines = routines_json.to_string();
 
     wasm_bindgen_futures::future_to_promise(async move {
+        // ── LIMPIAR LA MEMORIA DE DEDUPLICACION ───────────────────────────
+        // `WASM_LLM_SEEN` evita que el bucle interno repita un fork del mismo
+        // prompt dentro de UNA ejecucion. Pero es global y no se vaciaba, asi
+        // que la segunda consulta con el MISMO texto encontraba el prompt ya
+        // visto, recibia un id ya resuelto y el motor daba la respuesta por
+        // buena SIN LLAMAR AL MODELO.
+        //
+        // Sintoma (medido 23-nov-2026): repetir la misma pregunta devolvia el
+        // resultado de la anterior, con 0 llamadas al LLM. Cambiar una letra
+        // lo arreglaba: por eso parecia que "solo funciona si cambio el texto".
+        //
+        // Una ejecucion nueva = consulta nueva. Se limpia aqui.
+        crate::host::wasm_llm_reset();
+
         // Primer turno: ejecutar desde cero.
         let mut out = m_execute_routines_out(&compiled, &globals, &routines)
             .map_err(|e| e)?;
@@ -555,6 +569,17 @@ pub fn m_execute_async(
 
             // Si no había nada pendiente, no tiene sentido reanudar: el motor
             // cedería por lo mismo otra vez y entraríamos en bucle.
+            //
+            // OJO (23-nov-2026): devolver `out` a secas es un error cuando se
+            // ha REPETIDO el programa. `out` puede ser el de una pasada
+            // anterior cuyo estado ya no es el vigente: el consumidor recibía
+            // globals viejos y los efectos de la ultima pasada se perdían.
+            // Sintoma: la segunda consulta de Smith devolvia el resultado de
+            // la primera y no llamaba al LLM (los forks ya estaban en
+            // WASM_LLM_SEEN y se daban por resueltos).
+            //
+            // Se devuelve SIEMPRE el resultado de la pasada mas reciente, y
+            // `out` se actualiza con el en cada vuelta.
             if jobs.is_empty() && ujobs.is_empty() {
                 return Ok(JsValue::from_str(&out));
             }
