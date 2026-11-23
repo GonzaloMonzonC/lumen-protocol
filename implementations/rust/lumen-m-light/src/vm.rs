@@ -520,16 +520,13 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 match self.reanudar_funcion(&fr) {
                     Ok(v) => {
                         self.reanudaciones.clear();
-                        // La funcion interna TERMINO. El frame del LLAMADOR (si
-                        // queda alguno debajo) tiene su inner_ip apuntando a la
-                        // instruccion que hizo la llamada — re-ejecutarla volveria
-                        // a invocar la funcion (medido: PUSH SINTETIZA pila=3
-                        // justo despues de completar la 1a). Se marca recogido y
-                        // se avanza una instruccion.
-                        if let Some(f) = self.state.func_frames.last_mut() {
-                            f.recogido = true;
-                        }
-                        self.return_value = Some(v);
+                        // La funcion interna TERMINO. `reanudar_funcion` ya
+                        // deposito el valor del QUIT en `state.vars`
+                        // (`%QUITFUNC:...`) y poppeo su frame. La instruccion del
+                        // principal fue rebobinada al ceder, asi que se re-evalua
+                        // y `eval_function` recoge ese valor. Aqui NO se toca
+                        // `return_value`: lo pone el consumo en eval_function.
+                        let _ = v;
                         continue;
                     }
                     Err(()) => {
@@ -574,6 +571,12 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                 self.state.halted = true;
                 return Execution::Error;
             }
+            // Longitud de `output` ANTES de esta instruccion: si cede dentro de
+            // una `$$FUNC` y rebobinamos el ip para re-evaluarla, hay que
+            // descartar lo que esta pasada imprimio a medias. Sin esto,
+            // `W "|",$$A2^T(1),"|"` con yield imprimia "||" por cada intento y
+            // luego "|1|": salida "|||1|" (medido). Ver bloque `en_funcion`.
+            let output_len_antes = self.state.output.len();
             match self.execute_instruction(&instruction) {
                 Ok(Control::Continue) => {
                     if self.state.yield_requested {
@@ -598,6 +601,33 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                         if !en_funcion {
                             self.state.ip -= 1;
                             self.state.yield_requested = false;
+                        } else {
+                            // BUG (23-nov-2026) — `$$FUNC` que cede pierde el
+                            // retorno. Aqui SI hay que rebobinar: la instruccion
+                            // del principal (`W $$F2^T(1)`, `S X=$$F2^T(1)`) se
+                            // ejecuto con el valor Null que devolvio
+                            // eval_function al ceder, y ese Null ya quedo
+                            // escrito/impreso. Si NO rebobinamos, al reanudar la
+                            // funcion termina con su valor correcto en
+                            // `return_value`, pero NADIE lo asigna: la
+                            // instruccion ya se consumio. Medido:
+                            // `W "|",$$A2^T(1),"|"` -> "||" en vez de "|1|".
+                            //
+                            // Rebobinar hace que al reanudar se RE-EJECUTE la
+                            // instruccion del principal; eval_function encuentra
+                            // el func_frame vivo (por label+routine), lo reanuda
+                            // desde inner_ip con `recogido` ya marcado y devuelve
+                            // el valor real. El doble efecto que motivo el
+                            // `if !en_funcion` era `D ^RUTINA` (llamada por
+                            // linea), que NO apila func_frames: ese camino sigue
+                            // igual, sin rebobinar.
+                            self.state.ip -= 1;
+                            self.state.yield_requested = false;
+                            // Descartar la salida a medias de esta pasada: la
+                            // instruccion se re-ejecutara al reanudar y volvera a
+                            // imprimir. Sin esto el WRITE parcial quedaba en el
+                            // buffer y `W "|",$$A2^T(1),"|"` daba "|||1|".
+                            self.state.output.truncate(output_len_antes);
                         }
                         // Si estamos dentro de una funcion (func_frames), NO se
                         // limpia: eval_function debe verlo al reanudar para
@@ -757,6 +787,28 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
         let mut salida: Option<Value> = None;
         while i < program.instructions.len() {
             let instr = program.instructions[i].clone();
+            // Limpiar el yield ANTES de ejecutar: al reanudar, el device que
+            // cedió ya tiene su resultado (por eso estamos aquí). Si no se
+            // limpia, el bucle de abajo sale con Err(()) en CADA instrucción y
+            // nunca se llega al QUIT con el valor.
+            //
+            // BUG (23-nov-2026): run_slice solo limpia yield_requested cuando
+            // NO está dentro de una función (línea ~599: `if !en_funcion`), a
+            // propósito, para que eval_function sepa que el device se resolvió.
+            // Pero reanudar_funcion lo comprobaba en cada vuelta: al llegar al
+            // `QUIT 1` seguía a true, salía por Err(()) y el valor se perdía.
+            // Medido: `A2(n) S r=$DEVICE("llm:call",...) QUIT 1` devolvía "".
+            //
+            // ⚠️ NO borrar yield_future aquí. `$DEVICE("llm:call")` es
+            // re-ejecutable POR DISEÑO: si yield_future tiene un id, reutiliza
+            // ese future y hace poll en vez de crear un fork nuevo. Borrarlo
+            // hacía que la instrucción `SET r=$DEVICE(...)` re-ejecutada creara
+            // una llamada al LLM NUEVA, que volvía a ceder → bucle infinito
+            // (medido: 60+ "reanudando A2 ip=4", inner_ip clavado en el SET).
+            // El id lo limpia el propio device cuando llm_poll devuelve Some.
+            if self.state.yield_requested {
+                self.state.yield_requested = false;
+            }
             let ctrl = match self.execute_instruction(&instr) {
                 Ok(c) => c,
                 Err(_) => {
@@ -806,6 +858,16 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
                             self.state.vars.insert(src_var.clone(), scalar);
                         }
                     }
+                    // BUG 23-nov-2026 — `$$FUNC` que cede pierde el retorno.
+                    // El valor del QUIT NO puede viajar en `return_value` (es un
+                    // registro unico y efimero: la instruccion del principal ya
+                    // lo consumio y escribio Null). Se deposita en `state.vars`,
+                    // que SI sobrevive al yield — es exactamente el mecanismo por
+                    // el que funciona el paso .REF. La clave lleva label+routine+
+                    // profundidad para no colisionar con `$$FUNC` anidadas.
+                    // `eval_function` lo recoge al re-evaluar la expresion.
+                    let clave = format!("%QUITFUNC:{}.{}#{}", fr.label, fr.routine, fr.depth);
+                    self.state.vars.insert(clave, salida.clone().unwrap_or(Value::Null));
                     self.state.func_frames.pop();
                     break;
                 }
@@ -3015,6 +3077,35 @@ pub fn run_slice(&mut self, gas: u64) -> Execution {
             func_name if func_name.starts_with("$$") => {
                 // $$FUNC^ROUTINE(args) — user-defined function call
                 //
+                // BUG 23-nov-2026 — `$$FUNC` que cede pierde el retorno.
+                // Si la funcion que cedio ya TERMINO en el camino del resume
+                // (`reanudar_funcion`), el frame sigue vivo con `valor_resuelto`.
+                // La instruccion del principal fue rebobinada, asi que estamos
+                // re-evaluando esta misma expresion: consumir el valor y popear
+                // el frame, SIN ejecutar la funcion otra vez (la re-ejecucion
+                // disparaba un segundo `llm:call` y volvia a ceder -> bucle).
+                {
+                    let inner_probe = func_name.strip_prefix("$$").unwrap_or_default();
+                    let (lbl_probe, rut_probe) =
+                        inner_probe.split_once('^').unwrap_or((inner_probe, ""));
+                    let lbl_up = lbl_probe.to_ascii_uppercase();
+                    // Buscar el valor depositado por `reanudar_funcion` en el
+                    // QUIT de un resume. Se prueba la profundidad actual y hacia
+                    // abajo: la clave exacta es (label, routine, depth) y al
+                    // re-evaluar la expresion el frame ya fue poppeado, asi que
+                    // el depth del momento del QUIT es el que vale.
+                    for d in (0..=self.state.func_frames.len() + 8).rev() {
+                        let clave = format!("%QUITFUNC:{lbl_up}.{rut_probe}#{d}");
+                        if let Some(v) = self.state.vars.remove(&clave) {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if std::env::var("LUMEN_TRACE_FUNC").is_ok() {
+                                eprintln!("[FUNC] CONSUME {clave} = {:?}", v);
+                            }
+                            return Ok(v);
+                        }
+                    }
+                }
+                //
                 // Fix 2026-11-05: NO limpiar return_value si esta llamada es la
                 // REANUDACION de una funcion que cedio. Al reentrar se borraba el
                 // valor que el tramo anterior habia dejado en el QUIT, y el
@@ -4219,6 +4310,55 @@ mod for_split_tests {
         let exec2 = vm2.run();
         assert!(matches!(exec2, crate::Execution::Completed | crate::Execution::Halted), "esperaba fin, got {exec2:?}");
         assert_eq!(vm2.state.output, "Hola Ana", "la respuesta del humano debe continuar la rutina");
+    }
+
+    /// BUG CERRADO 23-nov-2026 — una `$$FUNC` que CEDE perdía su valor de
+    /// retorno. Síntoma: `W "|",$$A2^T(1),"|"` imprimía "||" en vez de "|1|".
+    ///
+    /// Dos causas encadenadas:
+    ///  1. `reanudar_funcion` borraba `yield_future` al reanudar, y
+    ///     `$DEVICE("llm:call")` es re-ejecutable por diseño (reutiliza el id
+    ///     para hacer poll). Al borrarlo, cada resume creaba un fork NUEVO que
+    ///     volvía a ceder → bucle infinito (medido: 60+ resúmenes).
+    ///  2. El valor del QUIT viajaba en `return_value`, efímero: la instrucción
+    ///     del principal ya se había ejecutado con Null. Ahora el QUIT del
+    ///     resume deposita el valor en `state.vars` (`%QUITFUNC:LABEL.RUT#d`),
+    ///     que sobrevive al yield — el mismo mecanismo por el que funciona
+    ///     el paso `.REF` — y `eval_function` lo recoge al re-evaluar.
+    ///
+    /// Contrapartida necesaria: al rebobinar el ip del principal hay que
+    /// truncar `state.output` a lo que había antes de la instrucción, o el
+    /// WRITE parcial de cada intento se acumula ("|||1|").
+    #[test]
+    fn funcion_que_cede_devuelve_su_valor_de_retorno() {
+        // A1: control sin yield. A2: cede y hace QUIT de un literal.
+        // A3: cede y devuelve el texto del LLM.
+        let rutina = "A1(n)\n QUIT n\nA2(n)\n NEW r\n SET r=$DEVICE(\"llm:call\",\"hola\",\"sys\",\"local\",\"m\")\n QUIT 1\nA3(n)\n NEW r\n SET r=$DEVICE(\"llm:call\",\"hola\",\"sys\",\"local\",\"m\")\n QUIT r\n";
+        let mut host = FakeLlmHost::new();
+        host.inner.set_routine("T", rutina);
+        let results = host.results.clone();
+        results.borrow_mut().clear(); // ninguna respuesta aún → fuerza yield
+
+        let source = "W \"|\",$$A2^T(1),\"|\" Q";
+        let program = crate::compiler::Compiler::compile(source).unwrap();
+        let mut vm = crate::Vm::new(program.clone(), &mut host);
+
+        let exec1 = vm.run();
+        assert!(matches!(exec1, crate::Execution::Yielded), "esperaba yield, got {exec1:?}");
+        let id = vm.state.yield_future.expect("yield_future debe tener id");
+        results.borrow_mut().insert(id, "OP:sys".to_string());
+
+        let state = vm.state.clone();
+        let mut vm2 = crate::Vm::resume(program, state, &mut host).unwrap();
+        let exec2 = vm2.run();
+        assert!(
+            matches!(exec2, crate::Execution::Completed | crate::Execution::Halted),
+            "esperaba fin, got {exec2:?}"
+        );
+        assert_eq!(
+            vm2.state.output, "|1|",
+            "el QUIT 1 de una funcion que cedio debe llegar al llamador (antes: \"||\")"
+        );
     }
 
     /// Fix 2026-08-28: $RANDOM existía → MFUNCTION. Verificar rango [0, n-1]
