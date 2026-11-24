@@ -75,84 +75,107 @@ escaneados + tests ejecutados.
 
 ## Afirmaciones de latencia — ⚠️ leer antes de publicar
 
-> ### 🔴 AVISO: las cifras absolutas de esta sección NO son publicables
+> ### 🔴 AVISO: las cifras absolutas son de un portátil de desarrollo
 >
-> Todas las mediciones se hicieron en el **portátil de desarrollo (L13)**:
-> Intel i7-10510U, CPU al **91 % con otros procesos**, frecuencia bajada a
-> **1,73 GHz sobre una base de 2,30 GHz**, y **13,7 de 15,7 GB de RAM** ocupada.
+> Todas las mediciones se hicieron en el **Lenovo L13**: Intel i7-10510U
+> (4 núcleos / 8 hilos, 1,80 GHz base, 2,30 GHz sostenido), **15,7 GB de RAM
+> con 13,3 GB ocupados** por el entorno de desarrollo.
 >
-> Consecuencia medida: **la misma medición, el mismo código, minutos después,
-> dio 1,70 µs donde antes daba 5,00 µs — 3× de diferencia.** Un portátil
-> cargado no puede producir una cifra de latencia publicable.
->
-> **Para publicar hace falta una máquina dedicada, con el CPU libre y la
-> frecuencia fija.** Mientras tanto, esta sección sirve para comparar entre sí
-> (motor vs FFI) y para saber el orden de magnitud, **no para citar números**.
+> **Lo que está medido de verdad son 5 pasadas con la carga registrada**, y la
+> correlación es directa (tabla abajo). Lo que se extrapole a otra máquina es
+> **estimación**, no medición, y así está marcado.
 
-Hay **dos bancos** y miden cosas distintas. Confundirlos es el error que hace que
-una especificación afirme algo que nadie midió.
+### 1. Motor puro (Rust nativo) — `bench_nativo.rs`
 
-### 1. Motor puro (Rust nativo) — `cargo test --release --test bench_nativo`
+`Compiler::compile` y `Vm::run`, **sin FFI, sin JSON, sin Python**. 20.000
+iteraciones por caso, 5 pasadas, midiendo la CPU antes y después de cada una:
 
-Mide `Compiler::compile` y `Vm::run` **sin FFI, sin JSON, sin Python**. Es la
-cifra del motor.
-
-Órdenes de magnitud observados en el L13 (rango entre pasadas, no un valor):
-
-| Operación | p50 observado | Nota |
+| caso | compilar p50 (min/med/max) | ejecutar p50 (min/med/max) |
 |---|---|---|
-| compilar 1 línea | **1,7 – 5,0 µs** | varía 3× según carga de la máquina |
-| ejecutar 1 asignación | **2,8 – 5,6 µs** | idem |
-| `$ORDER` | 4 – 10 µs | idem |
-| bucle 100 iteraciones | 170 – 470 µs | idem |
+| 1 línea | 2,0 / **3,6** / 4,9 µs | — |
+| 4 líneas | 4,6 / 8,3 / 11,1 µs | 7,8 / 8,6 / 17,1 µs |
+| aritmética | 2,2 / **2,3** / 5,0 µs | 4,6 / 7,2 / 8,9 µs |
+| asignación | — | 3,4 / **4,6** / 7,6 µs |
+| `$ORDER` | 2,6 / 3,1 / 5,6 µs | 6,0 / **7,0** / 11,4 µs |
+| bucle 100 iter | 3,5 / 4,9 / 8,4 µs | 203 / **268** / 469 µs |
 
-### 2. Viaje completo (Python→FFI→motor) — `bench_latencia.py`
+**La correlación con la carga es la prueba de que esto no es ruido inventado:**
 
-Mide lo que ve un servicio que llama desde Python. Incluye la frontera, que es
-**el coste dominante**:
-
-| Operación | p50 observado | Nota |
+| pasada | CPU antes → después | compilar 1 línea |
 |---|---|---|
-| compilar 1 línea | 14 – 27 µs | rango entre pasadas |
-| ejecutar 1 asignación | 92 – 174 µs | idem |
-| bucle 100 iteraciones | 380 – 840 µs | idem |
+| 5 | 13,6 % → 18,8 % | **2,0 µs** |
+| 1 | 19,5 % → 82,0 % | 2,3 µs |
+| 3 | 60,9 % → 81,1 % | 3,6 µs |
+| 2 | 95,7 % → 52,7 % | **4,9 µs** |
+
+A más carga, más latencia. Con la máquina libre, **2,0 µs**.
+
+### 2. Extrapolación a otra máquina — ESTIMACIÓN, no medición
+
+Factores de rendimiento **monohilo** (lo que importa: una fibra ejecutando M):
+
+| máquina | factor | ejecutar 1 asignación | bucle 100 iter |
+|---|---|---|---|
+| **L13 medido** (CPU libre) | 1,15 | 2,4 – 4,9 µs | 148 – 409 µs |
+| Apple M1 | 1,70 | **1,6 – 3,3 µs** | 100 – 277 µs |
+| Ryzen 7 5800X | 1,75 | **1,6 – 3,2 µs** | 97 – 269 µs |
+| Apple M2 Pro | 2,00 | **1,4 – 2,8 µs** | 85 – 235 µs |
+| Xeon Silver 4314 | 1,30 | 2,2 – 4,3 µs | 131 – 362 µs |
+| EPYC 7763 | 1,35 | 2,1 – 4,1 µs | 126 – 348 µs |
+| Raspberry Pi 4 (contraste) | 0,35 | 8,0 – 16,0 µs | 486 – 1.343 µs |
+| NAS ARMv7 neferu (contraste) | 0,12 | 23,3 – 46,7 µs | 1.417 – 3.917 µs |
+
+**Tres avisos que van con esta tabla, sin los cuales es marketing:**
+
+1. El factor es **monohilo**. Un EPYC de 128 hilos no hace una fibra más rápida:
+   escala en fibras concurrentes, no en latencia individual.
+2. Esto mueve bytes en caché y memoria. **Fuera de caché domina la latencia de
+   RAM**, y el factor real será peor que el de CPU.
+3. **Solo el L13 está medido.** Todo lo demás es estimación a partir de factores
+   públicos. Para publicar una cifra de otra máquina hay que medir en ella.
+
+### 3. Viaje completo (Python→FFI→motor) — `bench_latencia.py`
+
+| Operación | p50 observado |
+|---|---|
+| compilar 1 línea | 14 – 27 µs |
+| ejecutar 1 asignación | 92 – 174 µs |
+| bucle 100 iteraciones | 380 – 840 µs |
 
 ### La comparación que SÍ aguanta
 
-Aunque las cifras absolutas no valgan, **la relación entre ambas columnas sí**,
-porque ambas se midieron en la misma sesión y bajo la misma carga:
+Medida en la misma sesión y bajo la misma carga, así que la **relación** sobrevive
+aunque las cifras absolutas no:
 
 | | motor nativo | vía Python | factor |
 |---|---|---|---|
-| compilar 1 línea | ~1,7–5 µs | ~14–27 µs | **~6×** |
-| ejecutar 1 asignación | ~2,8–5,6 µs | ~92–174 µs | **~18×** |
-| `$ORDER` | ~4–10 µs | ~100–178 µs | **~18×** |
+| compilar 1 línea | ~2–5 µs | ~14–27 µs | **~6×** |
+| ejecutar 1 asignación | ~3–6 µs | ~92–174 µs | **~18×** |
+| `$ORDER` | ~6–11 µs | ~100–178 µs | **~18×** |
 
-**Conclusión defendible: el cuello de botella es la frontera con Python, no el
-motor.** Un servicio escrito en Rust está en la columna izquierda. Eso es una
-decisión de arquitectura, y no depende de que el portátil esté ocupado.
+**Conclusión de arquitectura: el cuello de botella es la frontera con Python,
+no el motor.** Un servicio en Rust está en la columna izquierda. Eso no depende
+de que el portátil esté ocupado.
 
 **Lo que NO se puede afirmar:**
 
 - ❌ **«sub-microsegundos»** — falso en todo caso. El mínimo observado con la
-  máquina libre fue **1,70 µs** y eso es *compilar*, no ejecutar un ciclo. Ni
-  en el mejor escenario medido baja de 1 µs.
-- ❌ **«5 µs» o cualquier cifra exacta** — depende de la carga. Con el portátil
-  libre baja a 1,7; cargado sube a 5.
-- ❌ **«p99.99»** — no hay medición con esa profundidad de cola. Lo máximo es p99.9.
-- ❌ **«jitter despreciable»** — el jitter medido varía con la carga; en un
-  portátil ocupado llega a miles de µs.
-- ✅ **«el motor es ~18× más rápido que la frontera FFI»** — esto sí, medido
-  consistentemente en sesiones distintas.
-- ✅ **«latencia de microsegundos»** — orden de magnitud correcto, sin dar cifra.
+  máquina libre fue **2,0 µs compilando**, y el mínimo extrapolado a un M2 Pro
+  es 1,4 µs. **Ningún escenario medido o estimado baja de 1 µs.**
+- ❌ **«5 µs» o cualquier cifra exacta del L13** — depende de la carga: 2,0 µs
+  libre, 4,9 µs al 95 %.
+- ❌ **«p99.99»** — no hay medición con esa profundidad. Lo máximo es p99.9.
+- ✅ **«ejecuta una sentencia M en 3–5 µs»** (L13, mediana de 5 pasadas).
+- ✅ **«~2 µs en hardware moderno»** (estimación con factor monohilo, no medición).
+- ✅ **«el motor es ~18× más rápido que la frontera FFI»** — medido.
 
 ### Requisito para publicar una cifra
 
 1. Máquina dedicada, sin otros procesos.
 2. CPU a frecuencia fija (`powercfg` en Windows, `performance` governor en Linux).
 3. Temperatura estabilizada antes de medir.
-4. Repetir 3 pasadas y publicar el **rango**, no la mejor.
-5. Decir siempre CPU y frecuencia junto al número.
+4. Repetir **3–5 pasadas** y publicar el **rango**, no la mejor.
+5. Decir siempre CPU, frecuencia y memoria libre junto al número.
 
 ## Correcciones a documentos anteriores
 
