@@ -43,6 +43,7 @@ es una mentira con forma de bandera.
 ^SYS("NET","discovery")    = "multicast" | "none" | "seeds"*
 ^SYS("NET","transport")    = "quic" | "shm"
 ^SYS("NET","identity")     = "pin" | "none" | "pubkey"*
+^SYS("NET","storage")      = "lmdb" | "sqlite"
 ^SYS("NET","pin")          = "<sha256 hex del certificado del par>" (requerido si identity=pin)
 ^SYS("NET","sign")         = "none" | "hash-chain"*
 ^SYS("NET","auth")         = "macaroon" | "hmac" | "dev"
@@ -72,6 +73,48 @@ es una mentira con forma de bandera.
 | `auth=macaroon` | sí (Python) | `tests_macaroon.py` 31/31 |
 | `auth=hmac` | sí | DDP firmado, verificado hoy |
 | `auth=dev` | sí | **y debe negarse a escuchar fuera de 127.0.0.1** |
+
+### `storage` — el motor es configuración, no build
+
+`sqlite` carga la base en RAM al abrir; `lmdb` lee por mmap sin precarga, que es
+lo que permite a un nodo con la PDB grande arrancar en segundos. Elegirlo es una
+fila del perfil, no un recompilado distinto.
+
+| valor | motor | verificado |
+|---|---|---|
+| `storage=lmdb` | `MemoryHost::from_lmdb` (mmap, directorio) | escribe, **persiste tras cerrar y reabrir**, y ve la **misma clave** que sqlite (`lmdb_y_sqlite_ven_la_misma_clave`) |
+| `storage=sqlite` | `MemoryHost::from_sqlite` (fichero) | escribe y persiste tras reabrir |
+
+Si se pide `storage=lmdb` en un binario compilado sin la feature `motor-lmdb`,
+`validate()` devuelve `NotImplemented` y **el nodo no arranca**: arrancar
+leyendo con sqlite mientras la config dice lmdb sería exactamente la mentira que
+este ADR prohíbe.
+
+⚠️ Confusión clásica: **sqlite trabaja sobre un fichero, LMDB sobre un
+DIRECTORIO** (`data.mdb` + `lock.mdb`). El binario imprime cuál usa y de dónde
+sale antes de servir.
+
+---
+
+## Bug de transporte encontrado al conectar dos nodos (24-nov-2026)
+
+El primer día que dos `lumen-nodo` hablaron de verdad, el receptor procesó
+**frames válidos de longitud 0** después de cada frame bueno: 6 frames
+"aplicados" y 8.223 bytes cuando se habían enviado 31.
+
+No era el nodo: era `QuicTransport::read`. `read_buffer` se redimensiona a
+65.536 con ceros y `recv.read` solo llena los primeros `n`; la condición de
+"quedan pendientes" comparaba contra el **tamaño del Vec** (65.536) en lugar de
+contra los bytes leídos. Resultado: tras la primera lectura real, la siguiente
+entregaba ~65 KB de relleno y **perdía** los bytes de la segunda lectura.
+
+Arreglado con un campo `read_len` (bytes reales) y regresión en
+`lumen-znet/tests/read_sin_relleno.rs`. Afectaba a **cualquier** consumidor del
+transporte (nodo, znet, MCP), no solo al nodo. Commit `98083504`.
+
+**Lección para el ADR:** este fallo no se veía leyendo el código ni con tests
+unitarios del codec. Salió al ejecutar dos procesos. Es el argumento más fuerte
+para que el ADR exija *código con test ejecutado*, y no solo código.
 
 ### `identity=pin` — qué hace exactamente
 
