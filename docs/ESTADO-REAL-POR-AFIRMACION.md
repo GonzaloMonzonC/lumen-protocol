@@ -75,45 +75,70 @@ escaneados + tests ejecutados.
 
 ## Afirmaciones de latencia — ⚠️ leer antes de publicar
 
-Medido con `bench_latencia.py` (24-nov-2026, AMD64, 4.000 iters, incluye frontera FFI).
-Las cifras son de **una pasada concreta**; el banco marca `CALOR` cuando detecta deriva térmica.
+Hay **dos bancos** y miden cosas distintas. Confundirlos es el error que hace que
+una especificación afirme algo que nadie midió.
+
+### 1. Motor puro (Rust nativo) — `cargo test --release --test bench_nativo`
+
+Mide `Compiler::compile` y `Vm::run` **sin FFI, sin JSON, sin Python**. Es la
+cifra del motor. 20.000 iters, AMD64:
+
+| Operación | p50 | p99 | p99.9 |
+|---|---|---|---|
+| compilar 1 línea | **5,00 µs** | 10,70 µs | 40,80 µs |
+| compilar 4 líneas | 9,70 µs | 29,70 µs | 174,40 µs |
+| ejecutar 1 asignación | **5,60 µs** | 14,00 µs | 49,20 µs |
+| aritmética | 8,20 µs | 17,90 µs | 56,60 µs |
+| `$ORDER` | 9,90 µs | 29,20 µs | 86,30 µs |
+| bucle 100 iteraciones | 465,90 µs | 1.028,80 µs | 3.282,70 µs |
+
+### 2. Viaje completo (Python→FFI→motor) — `bench_latencia.py`
+
+Mide lo que ve un servicio que llama desde Python. Incluye la frontera, que es
+**el coste dominante**:
 
 | Operación | p50 | p99 | p99.9 |
 |---|---|---|---|
 | compilar 1 línea | 27,3 µs | 75,9 µs | 131,5 µs |
-| compilar 4 líneas | 26,1 µs | 80,4 µs | 124,9 µs |
 | ejecutar 1 asignación | 103,0 µs | 388,4 µs | 559,8 µs |
-| aritmética | 103,1 µs | 371,6 µs | 626,9 µs |
 | bucle 100 iteraciones | 498,3 µs | 1.313,0 µs | 3.196,4 µs |
-| global set+get | 156,9 µs | 1.219,7 µs | 3.034,6 µs |
-| `$ORDER` | 178,3 µs | 508,3 µs | 1.271,4 µs |
+
+### La comparación que importa
+
+| | motor nativo | vía Python | factor |
+|---|---|---|---|
+| compilar 1 línea | 5,00 µs | 27,3 µs | **5,5×** |
+| ejecutar 1 asignación | 5,60 µs | 103,0 µs | **18×** |
+| `$ORDER` | 9,90 µs | 178,3 µs | **18×** |
+
+**El motor es de 5 a 18 veces más rápido que la cifra que se venía citando.**
+El cuello de botella es la frontera con Python, no LUMEN. Un servicio escrito en
+Rust (o el binario `mvm-nas`) está en la columna izquierda; uno que llama por FFI
+está en la derecha.
 
 ### ⚠️ Variabilidad medida — leer antes de citar una cifra
 
-Esto no es una tabla de spec de CPU, es un portátil midiendo. Comprobado:
+- **Deriva térmica dentro de una pasada:** medido, `compile_1_linea` pasó de
+  14,4 µs con 200 iters a 32,0 µs con 20.000 — el doble sin cambiar código.
+  Ambos bancos lo detectan (dos mitades; si la 2ª es >20% más lenta, marcan `CALOR`
+  y reportan la 1ª).
+- **Variabilidad entre ejecuciones:** dos pasadas idénticas dieron
+  `ejecutar_1_set` 103 µs y 150 µs (±45 %).
 
-- **Deriva térmica dentro de una pasada:** con más iteraciones el CPU se calienta
-  y baja de frecuencia. Medido: `compile_1_linea` daba 14,4 µs con 200 iters y
-  32,0 µs con 20.000 — **más del doble sin cambiar una línea de código**. El banco
-  ahora lo detecta y lo marca con `CALOR` en la columna de deriva.
-- **Variabilidad entre ejecuciones:** dos pasadas idénticas seguidas dieron
-  `ejecutar_1_set` **103 µs y 150 µs** (±45 %).
-
-**Consecuencia práctica:** citar un valor exacto («LUMEN hace X en 103 µs») es
-frágil. Lo defendible es el **orden de magnitud** y el **rango**, ambos medidos:
-decenas de µs para compilar, cientos de µs para ejecutar, y jitter de cientos
-de µs. Y siempre decir sobre qué máquina.
+**Lo defendible** es el orden de magnitud sobre una máquina concreta:
+**µs de un dígito para compilar y ejecutar en nativo**, y cientos de µs cuando
+se pasa por FFI. Citar «5,00 µs» como verdad universal es tan frágil como citar
+«sub-microsegundos».
 
 **Lo que NO se puede afirmar:**
 
-- ❌ **«sub-microsegundos»** — los papers de HFT lo dicen. La medición está entre
-  26 µs y 3,2 ms. Diferencia de 3 a 300×.
-- ❌ **«p99.99»** — no hay medición con esa profundidad de cola. Lo máximo medido
-  es p99.9, y con `iters` alto.
-- ❌ **«jitter despreciable»** — el jitter (p99−p50) medido va de **48 µs a 2.709 µs**.
-  El propio banco lo cuantifica para poder mejorarlo.
-- ✅ **«latencia de cola medida con percentiles observados»** — esto sí, y es más
-  de lo que tenía el repo antes.
+- ❌ **«sub-microsegundos»** — ni el motor puro baja de 1 µs: el mínimo medido es
+  5,00 µs p50 y 40,80 µs p99.9. **Sigue siendo falso, incluso en el mejor caso.**
+- ❌ **«p99.99»** — no hay medición con esa profundidad. Lo máximo es p99.9.
+- ❌ **«jitter despreciable»** — el jitter (p99−p50) va de **9 µs en nativo a
+  2.709 µs por FFI**.
+- ✅ **«motor con latencia de microsegundos, medida con percentiles observados»** —
+  esto sí, y es un argumento sólido: **5 µs para ejecutar una sentencia**.
 
 ## Correcciones a documentos anteriores
 
