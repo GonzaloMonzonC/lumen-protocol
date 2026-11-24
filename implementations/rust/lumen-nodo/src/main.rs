@@ -15,7 +15,7 @@
 //!   lumen-nodo --set k=v ...                 override de perfil
 
 use lumen_nodo_lib::profile::{self, Profile, ProfileError, Storage};
-use lumen_nodo_lib::{aplicar, cadena, carga, descubrir, host_mvm, nodo};
+use lumen_nodo_lib::{aplicar, cadena, carga, descubrir, host_mvm, identidad, nodo};
 use std::process::ExitCode;
 
 /// Códigos de salida: distinguibles desde un script.
@@ -30,6 +30,22 @@ fn main() -> ExitCode {
     if args.iter().any(|a| a == "--ayuda" || a == "-h" || a == "--help") {
         imprimir_ayuda();
         return ExitCode::from(OK);
+    }
+
+    // ── Órdenes de identidad (no necesitan perfil ni almacen) ────
+    // Se atienden ANTES de cargar perfil o abrir PDB: generan claves que el
+    // perfil usará después. Sin esto, `--nueva-identidad` exigiría --almacen.
+    if args.iter().any(|a| a == "--nueva-identidad") {
+        return nueva_identidad();
+    }
+    if args.iter().any(|a| a == "--nueva-raiz") {
+        return nueva_raiz();
+    }
+    if let Some(ruta) = valor_de(&args, "--emitir-certificado") {
+        return emitir_certificado(&ruta, &args);
+    }
+    if let Some(ruta) = valor_de(&args, "--verificar-certificado") {
+        return verificar_certificado_cli(&ruta, &args);
     }
 
     let mut perfil = profile::minimal_profile();
@@ -316,6 +332,111 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm) -> ExitCode {
                 eprintln!("AVISO aceptando conexion: {e}");
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
+        }
+    }
+}
+
+/// Genera una identidad de nodo nueva (par Ed25519) y la imprime.
+///
+/// La SEMILLA es un secreto: quien la tenga puede firmar como este nodo. Se
+/// imprime para que el operador la guarde, y se avisa de ello.
+fn nueva_identidad() -> ExitCode {
+    let id = identidad::Identidad::generar();
+    println!("IDENTIDAD NUEVA (Ed25519)");
+    println!("clave_publica: {}", id.clave_publica_hex());
+    println!("semilla:       {}", id.semilla_hex());
+    println!();
+    println!("  ^SYS(\"NET\",\"identity\")=\"pubkey\"");
+    println!("  ^SYS(\"NET\",\"clave_publica\")=\"{}\"", id.clave_publica_hex());
+    println!();
+    println!("AVISO: la semilla es SECRETA. Quien la tenga firma como este nodo.");
+    println!("       Guardala fuera del repo y no la pegues en un chat.");
+    ExitCode::from(OK)
+}
+
+/// Genera una raíz de armador (una identidad más, pero con otro uso).
+fn nueva_raiz() -> ExitCode {
+    let raiz = identidad::Identidad::generar();
+    println!("RAIZ DE ARMADOR (Ed25519)");
+    println!("clave_publica: {}", raiz.clave_publica_hex());
+    println!("semilla:       {}", raiz.semilla_hex());
+    println!();
+    println!("  reparte la clave_publica a tus barcos:");
+    println!("  ^SYS(\"NET\",\"raiz_armador\")=\"{}\"", raiz.clave_publica_hex());
+    println!();
+    println!("AVISO: la semilla de la raiz es SECRETA y es la llave de toda la flota.");
+    println!("       Guardala offline. Si se filtra, hay que reemitir TODOS los");
+    println!("       certificados de la flota.");
+    ExitCode::from(OK)
+}
+
+/// Emite un certificado de flota: firma la clave de un barco con la raíz.
+///
+/// Uso: `--emitir-certificado --raiz-semilla <hex> --armador <nombre>
+///       --barco <nombre> --clave-barco <hex64>`
+fn emitir_certificado(_ruta: &str, args: &[String]) -> ExitCode {
+    let (Some(semilla), Some(armador), Some(barco), Some(clave)) = (
+        valor_de(args, "--raiz-semilla"),
+        valor_de(args, "--armador"),
+        valor_de(args, "--barco"),
+        valor_de(args, "--clave-barco"),
+    ) else {
+        eprintln!(
+            "--emitir-certificado necesita --raiz-semilla <hex> --armador <n> \
+             --barco <n> --clave-barco <hex64>"
+        );
+        return ExitCode::from(FALLO_ARRANQUE);
+    };
+    let raiz = match identidad::Identidad::desde_hex(&semilla) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("raiz invalida: {e}");
+            return ExitCode::from(FALLO_ARRANQUE);
+        }
+    };
+    match identidad::CertificadoFlota::emitir(&raiz, &armador, &barco, &clave) {
+        Ok(cert) => {
+            println!("CERTIFICADO DE FLOTA");
+            println!("{}", cert.a_texto());
+            println!();
+            println!("  en el barco:  ^SYS(\"NET\",\"certificado_flota\")=\"<esa linea>\"");
+            ExitCode::from(OK)
+        }
+        Err(e) => {
+            eprintln!("no se pudo emitir: {e}");
+            ExitCode::from(FALLO_ARRANQUE)
+        }
+    }
+}
+
+/// Verifica un certificado de flota contra una raíz.
+fn verificar_certificado_cli(_ruta: &str, args: &[String]) -> ExitCode {
+    let (Some(cert_txt), Some(raiz)) = (
+        valor_de(args, "--certificado"),
+        valor_de(args, "--raiz-armador"),
+    ) else {
+        eprintln!("--verificar-certificado necesita --certificado <linea> --raiz-armador <hex64>");
+        return ExitCode::from(FALLO_ARRANQUE);
+    };
+    let cert = match identidad::CertificadoFlota::desde_texto(&cert_txt) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("certificado ilegible: {e}");
+            return ExitCode::from(FALLO_ARRANQUE);
+        }
+    };
+    match cert.verificar_con_raiz(&raiz) {
+        Ok(()) => {
+            println!("CERTIFICADO VALIDO");
+            println!("  armador: {}", cert.armador);
+            println!("  barco:   {}", cert.barco);
+            println!("  clave:   {}", cert.clave_barco);
+            ExitCode::from(OK)
+        }
+        Err(e) => {
+            println!("CERTIFICADO RECHAZADO");
+            println!("  {e}");
+            ExitCode::from(FALLO_ARRANQUE)
         }
     }
 }

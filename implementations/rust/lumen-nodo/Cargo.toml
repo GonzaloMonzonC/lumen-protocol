@@ -24,6 +24,9 @@ lumen-znet = { path = "../lumen-znet", features = ["quic"] }
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 # Hash de la cadena de muestras (sign=hash-chain).
 sha2 = "0.10"
+# Identidad Ed25519 (identity=pubkey) y raiz de armador.
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
 
 [features]
 default = ["quic", "pdb", "motor-lmdb"]

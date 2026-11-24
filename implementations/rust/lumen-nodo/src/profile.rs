@@ -69,7 +69,13 @@ pub enum Identity {
     Pin,
     /// Sin verificación. `SkipCertVerifier` — **solo desarrollo**.
     None,
-    /// Clave pública X25519 (`handshake.rs`). **NO IMPLEMENTADO** como identidad de par.
+    /// Clave pública Ed25519: el nodo ES su clave, y opcionalmente está firmada
+    /// por la raíz de un armador (`identidad.rs`).
+    ///
+    /// Distinto de `pin`, que confía en la huella del certificado TLS. Aquí la
+    /// confianza está en la clave: se puede verificar **autoría** (quién firmó
+    /// una muestra) y **pertenencia a flota** (qué armador responde por ese
+    /// barco).
     Pubkey,
 }
 
@@ -145,6 +151,11 @@ pub struct Profile {
     pub storage: Storage,
     /// Huella SHA-256 (hex) del certificado del par, cuando `identity=pin`.
     pub pin: Option<String>,
+    /// Clave pública Ed25519 del nodo (64 hex), cuando `identity=pubkey`.
+    pub clave_publica: Option<String>,
+    /// Clave pública Ed25519 de la raíz del armador (64 hex). Opcional: sin
+    /// ella el nodo se identifica pero no puede probar pertenencia a flota.
+    pub raiz_armador: Option<String>,
     /// IP local de la tarjeta por la que anunciar (`discovery=multicast`).
     pub interface: Option<String>,
     /// Grupo multicast, `ip:puerto`.
@@ -192,6 +203,8 @@ pub fn minimal_profile() -> Profile {
         auth: Auth::Hmac,
         storage: Storage::Lmdb,
         pin: None,
+        clave_publica: None,
+        raiz_armador: None,
         interface: None,
         grupo: GRUPO_POR_DEFECTO.to_string(),
         listen: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9443)),
@@ -241,11 +254,32 @@ impl Profile {
             Discovery::None => {}
         }
         match self.identity {
+            // `pubkey` SÍ está implementado (identidad.rs: Ed25519 + raíz de
+            // armador). Exige la clave pública del nodo; la raíz es opcional
+            // (sin raíz se identifica pero no se puede probar flota).
             Identity::Pubkey => {
-                return Err(ProfileError::NotImplemented {
-                    field: "identity",
-                    value: "pubkey".into(),
-                })
+                let clave = self.clave_publica.as_deref().unwrap_or("").trim();
+                if clave.is_empty() {
+                    return Err(ProfileError::Incoherent(
+                        "identity=pubkey requiere clave_publica (64 hex ed25519 del nodo)".into(),
+                    ));
+                }
+                if clave.len() != 64 || !clave.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(ProfileError::Incoherent(format!(
+                        "clave_publica mal formada: se esperan 64 hex, tiene {}",
+                        clave.len()
+                    )));
+                }
+                if let Some(raiz) = self.raiz_armador.as_deref() {
+                    let raiz = raiz.trim();
+                    if !raiz.is_empty()
+                        && (raiz.len() != 64 || !raiz.chars().all(|c| c.is_ascii_hexdigit()))
+                    {
+                        return Err(ProfileError::Incoherent(
+                            "raiz_armador mal formada: se esperan 64 hex (clave ed25519)".into(),
+                        ));
+                    }
+                }
             }
             // `pin` SÍ está implementado (quic.rs: PinnedVerifier + pruebas de
             // handshake real). Pero exige una huella configurada: sin ella el
@@ -424,6 +458,32 @@ impl Profile {
                     self.pin = Some(v);
                 }
             }
+            "clave_publica" => {
+                self.clave_publica = if v.is_empty() || v == "none" {
+                    None
+                } else {
+                    if v.len() != 64 || !v.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Err(ProfileError::Unknown {
+                            field: "clave_publica",
+                            value: format!("{v} (se esperan 64 hex ed25519)"),
+                        });
+                    }
+                    Some(v)
+                }
+            }
+            "raiz_armador" => {
+                self.raiz_armador = if v.is_empty() || v == "none" {
+                    None
+                } else {
+                    if v.len() != 64 || !v.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Err(ProfileError::Unknown {
+                            field: "raiz_armador",
+                            value: format!("{v} (se esperan 64 hex ed25519)"),
+                        });
+                    }
+                    Some(v)
+                }
+            }
             "interface" => {
                 self.interface = if v.is_empty() || v == "none" {
                     None
@@ -467,9 +527,9 @@ impl Profile {
     }
 
     /// Las claves que forman el perfil (para sembrar la PDB).
-    pub const FIELDS: [&'static str; 12] = [
+    pub const FIELDS: [&'static str; 14] = [
         "mode", "role", "discovery", "transport", "identity", "sign", "auth", "storage", "pin",
-        "listen", "interface", "grupo",
+        "clave_publica", "raiz_armador", "listen", "interface", "grupo",
     ];
 
     /// Render legible, para el arranque.
@@ -545,6 +605,50 @@ mod tests {
         let mut p = minimal_profile();
         p.discovery = Discovery::Seeds;
         assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn pubkey_sin_clave_publica_no_arranca() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pubkey;
+        let e = p.validate().unwrap_err();
+        assert!(matches!(e, ProfileError::Incoherent(_)));
+    }
+
+    #[test]
+    fn pubkey_con_clave_valida_arranca() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pubkey;
+        p.clave_publica = Some("a".repeat(64));
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn pubkey_con_clave_mal_formada_no_arranca() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pubkey;
+        p.clave_publica = Some("abc".into());
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn pubkey_con_raiz_valida_arranca_y_con_raiz_mala_no() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pubkey;
+        p.clave_publica = Some("a".repeat(64));
+        p.raiz_armador = Some("b".repeat(64));
+        assert!(p.validate().is_ok(), "raiz valida debe arrancar");
+
+        p.raiz_armador = Some("zz".repeat(32));
+        assert!(p.validate().is_err(), "raiz no-hex debe rechazarse");
+    }
+
+    #[test]
+    fn pubkey_sin_raiz_avisa_de_que_no_puede_probar_flota() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pubkey;
+        p.clave_publica = Some("a".repeat(64));
+        assert!(p.validate().is_ok(), "sin raiz se identifica, no se prueba flota");
     }
 
     #[test]
@@ -652,6 +756,8 @@ mod tests {
             ("listen", "127.0.0.1:9443"),
             ("interface", "192.168.1.13"),
             ("grupo", "239.255.77.77:9444"),
+            ("clave_publica", &"a".repeat(64)),
+            ("raiz_armador", &"b".repeat(64)),
         ];
         for (k, v) in casos {
             let mut p = minimal_profile();
