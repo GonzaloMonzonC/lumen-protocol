@@ -45,7 +45,7 @@ es una mentira con forma de bandera.
 ^SYS("NET","identity")     = "pin" | "none" | "pubkey"*
 ^SYS("NET","storage")      = "lmdb" | "sqlite"
 ^SYS("NET","pin")          = "<sha256 hex del certificado del par>" (requerido si identity=pin)
-^SYS("NET","sign")         = "none" | "hash-chain"*
+^SYS("NET","sign")         = "none" | "hash-chain"
 ^SYS("NET","auth")         = "macaroon" | "hmac" | "dev"
 ```
 
@@ -69,7 +69,7 @@ es una mentira con forma de bandera.
 | `identity=none` | sí | `SkipCertVerifier` — solo dev |
 | `identity=pubkey` | **no** | por hacer |
 | `sign=none` | sí | — |
-| `sign=hash-chain` | **no** | por hacer (barcos) |
+| `sign=hash-chain` | **sí** | `cadena.rs` + `tests/cadena_lmdb.rs` (borra la muestra 5 de 8 y la localiza, incluso tras reabrir el LMDB) |
 | `auth=macaroon` | sí (Python) | `tests_macaroon.py` 31/31 |
 | `auth=hmac` | sí | DDP firmado, verificado hoy |
 | `auth=dev` | sí | **y debe negarse a escuchar fuera de 127.0.0.1** |
@@ -152,12 +152,46 @@ es incoherente. No avisa y sigue: no arranca.
 | `discovery` | `multicast`* | `multicast`* | `seeds`* |
 | `transport` | `quic` | `quic` | `quic` |
 | `identity` | `pin` | `pin` | `pubkey`* |
-| `sign` | `none` | `none` | `hash-chain`* |
+| `sign` | `none` | `none` | `hash-chain` |
 | `auth` | `hmac` | `hmac` | `macaroon` |
 
-Los `*` marcan lo que hay que escribir. **Hoy arrancan: `identity=none` (dev) e
-`identity=pin` (con la huella del par). El perfil del barco espera `pubkey` y
-`hash-chain`.**
+Los `*` marcan lo que hay que escribir. **Hoy arrancan: `identity=none` (dev),
+`identity=pin` y `sign=hash-chain`.** Al perfil del barco solo le falta
+`pubkey`.
+
+---
+
+## `sign=hash-chain` — integridad, no autoría
+
+El valor se guarda encadenado, en texto plano legible desde M:
+
+```
+<valor>|<prev_hash>|<hash>          hash = sha256(prev || valor)
+```
+
+Cada 100 muestras se sella el bloque (`sha256(sello_anterior || hashes...)`),
+lo que permite verificar 21.600 muestras con 216 comprobaciones en vez de
+21.600 — la diferencia entre verificar a bordo o no poder.
+
+**⚠️ Lo que la cadena prueba y lo que no:**
+
+| prueba | no prueba |
+|---|---|
+| que no falta ningún tramo (y cuál falta) | **quién** escribió las muestras |
+| que nadie alteró una muestra sin romper la cadena | que el emisor sea quien dice ser |
+| que el orden es el correcto | que el dato sea verdadero |
+
+Para autoría hace falta `identity=pin` (hoy) o `pubkey` (pendiente). Decir
+"firmado" cuando solo hay cadena es exactamente el tipo de exageración que este
+ADR existe para evitar.
+
+**Reescribir el pasado se rechaza:** encadenar una muestra anterior a la última
+de su serie rompería todo lo que cuelga de ella, así que el nodo lo niega.
+
+**El estado vive en `^CADENA` y no se acepta por red.** Si un par pudiera
+escribir el "último hash", falsearía el pasado de una serie entera. Es una
+caché, no la verdad: si se pierde, se reconstruye recorriendo la serie con
+`--verificar`.
 
 ---
 
