@@ -3,6 +3,16 @@ dist/
 *.tsbuildinfo
 
 implementations/rust/target/
+# Directorios de compilacion alternativos (se crean al compilar con otro perfil
+# o con features distintas). Ignorarlos por patron: target-sqltest llegó a 346 MB
+# apareciendo como "sin trackear" porque solo estaba listado target-mcp/.
+implementations/rust/*/target-*/
+implementations/rust/lumen-m-light/pkg-*/
+# Artefactos de build WASM (los buenos viven en site/ y en pkg/)
+implementations/rust/lumen-m-light/pkg/
+# Copias de seguridad de artefactos y de estado
+*.bak-*
+*.dll.bak*
 
 __pycache__/
 *.pyc
