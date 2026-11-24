@@ -1,0 +1,22 @@
+[package]
+name = "lumen-nodo"
+version = "0.1.0"
+edition = "2021"
+description = "Nodo LUMEN — un binario, varias filas (perfil en PDB)"
+license = "MIT"
+
+[[bin]]
+name = "lumen-nodo"
+path = "src/main.rs"
+
+[dependencies]
+lumen = { path = ".." }
+lumen-znet = { path = "../lumen-znet", features = ["quic"] }
+# Lectura de ^SYS("NET",...) de la PDB viva. Detrás de feature para que el
+# binario pueda compilarse sin sqlite (p.ej. para un nodo mínimo embebido).
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+
+[features]
+default = ["quic", "pdb"]
+quic = ["lumen/quic"]
+pdb = ["dep:rusqlite"]
