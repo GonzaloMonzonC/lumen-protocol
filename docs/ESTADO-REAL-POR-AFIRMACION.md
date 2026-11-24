@@ -75,27 +75,45 @@ escaneados + tests ejecutados.
 
 ## Afirmaciones de latencia — ⚠️ leer antes de publicar
 
-Medido con `bench_latencia.py` (24-nov-2026, AMD64, 2.000 iters, incluye frontera FFI):
+Medido con `bench_latencia.py` (24-nov-2026, AMD64, 4.000 iters, incluye frontera FFI).
+Las cifras son de **una pasada concreta**; el banco marca `CALOR` cuando detecta deriva térmica.
 
 | Operación | p50 | p99 | p99.9 |
 |---|---|---|---|
-| compilar 1 línea | 24,8 µs | 71,8 µs | 138,4 µs |
-| compilar 4 líneas | 25,6 µs | 109,9 µs | 302,4 µs |
-| ejecutar 1 asignación | 173,9 µs | 740,1 µs | 7.504,8 µs |
-| aritmética | 179,3 µs | 545,8 µs | 1.595,1 µs |
-| bucle 100 iteraciones | 840,8 µs | 2.199,7 µs | 6.667,5 µs |
-| global set+get | 207,7 µs | 585,1 µs | 1.245,0 µs |
-| `$ORDER` | 164,4 µs | 437,8 µs | 620,0 µs |
+| compilar 1 línea | 27,3 µs | 75,9 µs | 131,5 µs |
+| compilar 4 líneas | 26,1 µs | 80,4 µs | 124,9 µs |
+| ejecutar 1 asignación | 103,0 µs | 388,4 µs | 559,8 µs |
+| aritmética | 103,1 µs | 371,6 µs | 626,9 µs |
+| bucle 100 iteraciones | 498,3 µs | 1.313,0 µs | 3.196,4 µs |
+| global set+get | 156,9 µs | 1.219,7 µs | 3.034,6 µs |
+| `$ORDER` | 178,3 µs | 508,3 µs | 1.271,4 µs |
+
+### ⚠️ Variabilidad medida — leer antes de citar una cifra
+
+Esto no es una tabla de spec de CPU, es un portátil midiendo. Comprobado:
+
+- **Deriva térmica dentro de una pasada:** con más iteraciones el CPU se calienta
+  y baja de frecuencia. Medido: `compile_1_linea` daba 14,4 µs con 200 iters y
+  32,0 µs con 20.000 — **más del doble sin cambiar una línea de código**. El banco
+  ahora lo detecta y lo marca con `CALOR` en la columna de deriva.
+- **Variabilidad entre ejecuciones:** dos pasadas idénticas seguidas dieron
+  `ejecutar_1_set` **103 µs y 150 µs** (±45 %).
+
+**Consecuencia práctica:** citar un valor exacto («LUMEN hace X en 103 µs») es
+frágil. Lo defendible es el **orden de magnitud** y el **rango**, ambos medidos:
+decenas de µs para compilar, cientos de µs para ejecutar, y jitter de cientos
+de µs. Y siempre decir sobre qué máquina.
 
 **Lo que NO se puede afirmar:**
 
 - ❌ **«sub-microsegundos»** — los papers de HFT lo dicen. La medición está entre
-  25 µs y 2,2 ms. Diferencia de 3 a 300×.
-- ❌ **«p99.99»** — no hay ninguna medición con esa profundidad de cola.
-  Lo máximo medido es p99.9, y con `iters` alto.
-- ❌ **«jitter despreciable»** — el jitter (p99−p50) medido va de **47 µs a 1.359 µs**.
+  26 µs y 3,2 ms. Diferencia de 3 a 300×.
+- ❌ **«p99.99»** — no hay medición con esa profundidad de cola. Lo máximo medido
+  es p99.9, y con `iters` alto.
+- ❌ **«jitter despreciable»** — el jitter (p99−p50) medido va de **48 µs a 2.709 µs**.
   El propio banco lo cuantifica para poder mejorarlo.
-- ✅ **«latencia de cola medida»** — esto sí, con p50/p95/p99/p99.9 y muestra real.
+- ✅ **«latencia de cola medida con percentiles observados»** — esto sí, y es más
+  de lo que tenía el repo antes.
 
 ## Correcciones a documentos anteriores
 

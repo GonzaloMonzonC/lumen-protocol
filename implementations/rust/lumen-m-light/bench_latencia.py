@@ -64,19 +64,42 @@ def pct(muestras_ordenadas, p):
 
 
 def medir(fn, iters, warmup=50):
-    """Mide fn() y devuelve la distribución completa en microsegundos."""
+    """Mide fn() y devuelve la distribución completa en microsegundos.
+
+    Controla la DERIVA TÉRMICA: el CPU baja de frecuencia al calentarse, y sin
+    controlarlo las cifras dependen de cuántas iteraciones se hagan. Medido en
+    este host: compile_1_linea daba 14,4 µs con 200 iters y 32,0 µs con 20.000
+    — más del doble, y no por el código. Por eso se mide en dos mitades: si la
+    segunda es >20 % más lenta que la primera, se avisa y se reporta la PRIMERA
+    (la que aún no está afectada), nunca la media de las dos.
+    """
     for _ in range(warmup):
         fn()
-    xs = []
-    for _ in range(iters):
-        t0 = time.perf_counter_ns()
-        fn()
-        xs.append((time.perf_counter_ns() - t0) / 1000.0)  # ns -> µs
-    xs.sort()
+
+    def tanda(n):
+        xs = []
+        for _ in range(n):
+            t0 = time.perf_counter_ns()
+            fn()
+            xs.append((time.perf_counter_ns() - t0) / 1000.0)  # ns -> µs
+        return xs
+
+    mitad = max(10, iters // 2)
+    primera = tanda(mitad)
+    segunda = tanda(mitad)
+
+    m1 = statistics.median(primera)
+    m2 = statistics.median(segunda)
+    deriva_pct = ((m2 - m1) / m1 * 100.0) if m1 > 0 else 0.0
+
+    # Si la segunda mitad se degradó, la cifra buena es la primera: refleja el
+    # motor, no el termómetro.
+    xs = sorted(primera if deriva_pct > 20.0 else (primera + segunda))
+
     p50 = pct(xs, 0.50)
     p99 = pct(xs, 0.99)
     return {
-        "iters": iters,
+        "iters": len(xs),
         "p50_us": round(p50, 3),
         "p95_us": round(pct(xs, 0.95), 3),
         "p99_us": round(p99, 3),
@@ -86,6 +109,8 @@ def medir(fn, iters, warmup=50):
         "jitter_us": round(p99 - p50, 3),
         "media_us": round(statistics.fmean(xs), 3),
         "ops_s": round(1_000_000 / p50) if p50 > 0 else 0,
+        "deriva_termica_pct": round(deriva_pct, 1),
+        "afectado_por_deriva": deriva_pct > 20.0,
     }
 
 
@@ -131,8 +156,8 @@ def main():
     print("lo que ve un servicio real. El motor puro es más rápido; este banco mide")
     print("lo que se puede defender delante de un cliente.")
     print()
-    hdr = "%-20s %9s %9s %9s %9s %9s %9s" % (
-        "caso", "p50 µs", "p95 µs", "p99 µs", "p99.9 µs", "jitter", "ops/s")
+    hdr = "%-20s %9s %9s %9s %9s %9s %9s %7s" % (
+        "caso", "p50 µs", "p95 µs", "p99 µs", "p99.9 µs", "jitter", "ops/s", "deriva")
     print(hdr)
     print("-" * len(hdr))
 
@@ -145,9 +170,11 @@ def main():
             continue
         r["descripcion"] = desc
         metricas[nombre] = r
-        print("%-20s %9.1f %9.1f %9.1f %9.1f %9.1f %9d" % (
+        aviso = "CALOR" if r["afectado_por_deriva"] else ""
+        print("%-20s %9.1f %9.1f %9.1f %9.1f %9.1f %9d %6.1f%% %s" % (
             nombre, r["p50_us"], r["p95_us"], r["p99_us"],
-            r["p999_us"], r["jitter_us"], r["ops_s"]))
+            r["p999_us"], r["jitter_us"], r["ops_s"],
+            r["deriva_termica_pct"], aviso))
 
     informe = {
         "schema": "lumen-latencia-v1",
@@ -160,6 +187,7 @@ def main():
             "jitter": "p99 - p50 (cola, no desviación típica)",
             "unidad": "microsegundos",
             "compilar_vs_ejecutar": "casos separados a proposito; no son comparables",
+            "deriva_termica": "se mide en dos mitades; si la 2a es >20% mas lenta se reporta solo la 1a",
         },
         "entorno": {
             "plataforma": platform.platform(),
