@@ -15,7 +15,7 @@
 //!   lumen-nodo --set k=v ...                 override de perfil
 
 use lumen_nodo_lib::profile::{self, Profile, ProfileError, Storage};
-use lumen_nodo_lib::{aplicar, cadena, carga, descubrir, host_mvm, identidad, nodo};
+use lumen_nodo_lib::{aplicar, cadena, carga, descubrir, entrada, host_mvm, identidad, nodo};
 use std::process::ExitCode;
 
 /// Códigos de salida: distinguibles desde un script.
@@ -170,13 +170,21 @@ fn main() -> ExitCode {
         }
     };
 
+    // ── Modo registrar barco (necesita la PDB ya abierta) ────────
+    if args.iter().any(|a| a == "--registrar-barco") {
+        return registrar_barco(&mut destino, &args);
+    }
+
     // ── Modo envío: una escritura a otro nodo ────────────────────
     if let Some(addr) = destino_envio {
         let Some(carga_txt) = valor_posicional(&args) else {
             eprintln!("--enviar necesita la carga como argumento: \"^NS(k)=v\"");
             return ExitCode::from(FALLO_ARRANQUE);
         };
-        return match enviar(&perfil, &addr, &carga_txt) {
+        let semilla_envio = std::env::var("LUMEN_NODO_SEMILLA")
+            .ok()
+            .or_else(|| valor_de(&args, "--semilla"));
+        return match enviar(&perfil, &addr, &carga_txt, &mut destino, semilla_envio.as_deref()) {
             Ok(msg) => {
                 println!("respuesta: {msg}");
                 ExitCode::from(OK)
@@ -277,6 +285,7 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm, args: &[String
     // el nodo estaría firmando con una clave distinta de la que publica, y
     // todo lo firmado se rechazaría al verificarlo.
     let mut firmante: Option<identidad::Identidad> = None;
+    let mut raiz: Option<String> = None;
     if perfil.identity == profile::Identity::Pubkey {
         let semilla = std::env::var("LUMEN_NODO_SEMILLA")
             .ok()
@@ -311,11 +320,26 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm, args: &[String
         }
         println!("IDENTIDAD: pubkey {}", id.clave_publica_hex());
         match perfil.raiz_armador.as_deref() {
-            Some(r) if !r.is_empty() => println!("FLOTA: raiz del armador {r}"),
-            _ => println!("FLOTA: sin raiz de armador (identifica, no prueba pertenencia)"),
+            Some(r) if !r.is_empty() => {
+                println!("FLOTA: raiz del armador {r}");
+                println!("  verificando la ENTRADA: solo se acepta lo firmado por barcos");
+                println!("  de esta flota registrados en ^FLOTA(<ns>,<barco>,\"clave\"/\"certificado\")");
+                raiz = perfil.raiz_armador.clone();
+            }
+            _ => println!("FLOTA: sin raiz de armador (identifica, no verifica entrada)"),
         }
         firmante = Some(id);
     }
+
+    // ── Registro de flota (para verificar lo que llega) ──────────
+    // Se lee de la PDB al arrancar: ^FLOTA(<ns>,<barco>,"clave") y "certificado".
+    let registro = if raiz.is_some() {
+        let r = host_mvm::registro_de_flota(destino.host());
+        println!("FLOTA: {} barcos en el registro", r.len());
+        Some(r)
+    } else {
+        None
+    };
 
     let mut conexiones = 0usize;
     let mut pares_vistos: Vec<String> = Vec::new();
@@ -367,7 +391,7 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm, args: &[String
                 conexiones += 1;
                 println!("--- conexion #{conexiones} aceptada ---");
                 let mut log = |s: &str| println!("  {s}");
-                let r = nodo::atender(&mut transporte, destino, firmar, firmante.as_ref(), &mut log);
+                let r = nodo::atender(&mut transporte, destino, firmar, firmante.as_ref(), registro.as_ref().map(|r| r as &dyn entrada::RegistroFlota), raiz.as_deref(), &mut log);
                 println!(
                     "--- conexion #{conexiones} cerrada: {} aplicados, {} fallidos, \
                      {} bytes, motivo: {} ---",
@@ -488,6 +512,66 @@ fn verificar_certificado_cli(_ruta: &str, args: &[String]) -> ExitCode {
     }
 }
 
+/// Registra un barco en la flota local: `^FLOTA(<barco>, "clave"|"certificado")`.
+///
+/// Es una orden **local** a propósito: si un par pudiera registrar barcos por
+/// red, se registraría a sí mismo y la verificación de entrada no serviría de
+/// nada. Solo el operador del nodo toca este registro.
+fn registrar_barco(destino: &mut host_mvm::DestinoMvm, args: &[String]) -> ExitCode {
+    use lumen_nodo_lib::destino::Destino;
+    let (Some(barco), Some(clave), Some(cert)) = (
+        valor_de(args, "--barco"),
+        valor_de(args, "--clave-barco"),
+        valor_de(args, "--certificado"),
+    ) else {
+        eprintln!(
+            "--registrar-barco necesita --barco <n> --clave-barco <hex64> \
+             --certificado \"<linea del certificado>\""
+        );
+        return ExitCode::from(FALLO_ARRANQUE);
+    };
+
+    // Validar antes de escribir: un certificado mal formado en el registro
+    // haría fallar TODA la verificación de ese barco, y el error aparecería
+    // mucho después, al recibir tráfico.
+    let c = match identidad::CertificadoFlota::desde_texto(&cert) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("certificado ilegible: {e}");
+            return ExitCode::from(FALLO_ARRANQUE);
+        }
+    };
+    if !c.clave_barco.eq_ignore_ascii_case(&clave) {
+        eprintln!("la clave no coincide con la del certificado:");
+        eprintln!("  --clave-barco:  {clave}");
+        eprintln!("  certificado:    {}", c.clave_barco);
+        return ExitCode::from(FALLO_ARRANQUE);
+    }
+
+    if let Err(e) = destino.set(
+        host_mvm::NS_FLOTA,
+        &[barco.clone(), "clave".into()],
+        &clave,
+    ) {
+        eprintln!("no se pudo escribir la clave: {e}");
+        return ExitCode::from(FALLO_ARRANQUE);
+    }
+    if let Err(e) = destino.set(
+        host_mvm::NS_FLOTA,
+        &[barco.clone(), "certificado".into()],
+        &cert,
+    ) {
+        eprintln!("no se pudo escribir el certificado: {e}");
+        return ExitCode::from(FALLO_ARRANQUE);
+    }
+
+    println!("BARCO REGISTRADO en ^FLOTA");
+    println!("  barco:   {barco}");
+    println!("  armador: {}", c.armador);
+    println!("  clave:   {}", c.clave_barco);
+    ExitCode::from(OK)
+}
+
 /// El rol como texto para el anuncio.
 fn formato_rol(rol: profile::Role) -> &'static str {
     match rol {
@@ -583,20 +667,66 @@ fn verificar_cadena(destino: &host_mvm::DestinoMvm, args: &[String]) -> ExitCode
 }
 
 /// Manda una escritura a otro nodo y espera la respuesta.
-fn enviar(perfil: &Profile, addr: &str, carga_txt: &str) -> Result<String, String> {
+///
+/// Si `semilla` está presente, la muestra se **firma y encadena** antes de
+/// salir: es lo que hace un barco al publicar telemetría en un nodo de flota.
+/// Sin semilla, el valor se manda crudo (válido solo contra nodos que no
+/// verifican entrada).
+fn enviar(
+    perfil: &Profile,
+    addr: &str,
+    carga_txt: &str,
+    estado: &mut host_mvm::DestinoMvm,
+    semilla: Option<&str>,
+) -> Result<String, String> {
     use lumen::frame::{self, ParseResult};
     use lumen::transport::Transport;
+    use lumen_nodo_lib::cadena::EstadoCadena;
     use lumen_znet::{ddp_to_frame, frame_to_ddp, msg_type, DdpMessage};
 
     // Validar la carga ANTES de salir: no mandamos basura a la red.
-    aplicar::parsear_set(carga_txt.as_bytes()).map_err(|e| e.to_string())?;
+    let w = aplicar::parsear_set(carga_txt.as_bytes()).map_err(|e| e.to_string())?;
+
+    // ── Encadenar y firmar antes de enviar ───────────────────────
+    let carga_bytes = match semilla {
+        Some(sem) => {
+            let id = identidad::Identidad::desde_hex(sem)
+                .map_err(|e| format!("semilla invalida: {e}"))?;
+            let (serie, numero) =
+                cadena::Serie::desde_subs(&w.ns, &w.subs).map_err(|e| e.to_string())?;
+            let prev = estado
+                .hash_ultimo(&serie)
+                .unwrap_or_default();
+            let m = cadena::encadenar(&prev, &w.valor).map_err(|e| e.to_string())?;
+            let msg = cadena::MuestraFirmada::mensaje_canonico(&w.ns, &w.subs, &m.hash);
+            let mf = cadena::MuestraFirmada {
+                cadena: m.clone(),
+                firma: id.firmar_hex(&msg),
+            };
+            // Se guarda el estado local para que la siguiente muestra de esta
+            // serie encadene con esta (el barco lleva su propia cadena).
+            estado
+                .guardar(&serie, numero, &m.hash)
+                .map_err(|e| format!("guardar estado: {e}"))?;
+            // Sobre completo que el nodo de flota sabe verificar:
+            //   NS|barco,campo,n|valor|prev|hash|firma
+            format!(
+                "{}|{}|{}",
+                w.ns,
+                w.subs.join(","),
+                mf.a_texto()
+            )
+            .into_bytes()
+        }
+        None => w.valor.clone().into_bytes(),
+    };
 
     let mut cliente = nodo::conectar_como_cliente(perfil)?;
     let mut transporte = cliente
         .connect(addr)
         .map_err(|e| format!("conectar {addr}: {e}"))?;
 
-    let msg = DdpMessage::new(msg_type::DATA, 1, 1, 0, carga_txt.as_bytes().to_vec());
+    let msg = DdpMessage::new(msg_type::DATA, 1, 1, 0, carga_bytes);
     let (ft, fl, p) = ddp_to_frame(&msg);
     let mut out = vec![0u8; frame::build_size(p.len())];
     let n = frame::build(ft, fl, &p, &mut out);

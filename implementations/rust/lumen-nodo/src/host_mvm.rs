@@ -110,6 +110,11 @@ impl DestinoMvm {
         let subs_m: Vec<Subscript> = subs.iter().map(|s| sub_de_texto(s)).collect();
         self.host.data(ns, &subs_m).unwrap_or(0)
     }
+
+    /// El host de la MVM (para leer el registro de flota con `$O`).
+    pub fn host(&self) -> &MemoryHost {
+        &self.host
+    }
 }
 
 impl Destino for DestinoMvm {
@@ -158,6 +163,95 @@ impl crate::cadena::EstadoCadena for DestinoMvm {
         Ok(())
     }
 }
+
+/// Registro de flota leído de la PDB.
+///
+/// Formato: `^FLOTA(<ns>, <barco>, "clave")` = clave pública Ed25519 del barco
+/// y `^FLOTA(<ns>, <barco>, "certificado")` = línea del certificado firmado por
+/// la raíz del armador.
+///
+/// El `ns` es el namespace donde el barco publica (p.ej. `FLOTA`), de modo que
+/// un mismo nodo puede servir a varias flotas sin mezclarlas.
+#[derive(Debug, Default)]
+pub struct RegistroPdb {
+    barcos: std::collections::HashMap<String, crate::entrada::BarcoConocido>,
+}
+
+impl RegistroPdb {
+    pub fn len(&self) -> usize {
+        self.barcos.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.barcos.is_empty()
+    }
+}
+
+impl crate::entrada::RegistroFlota for RegistroPdb {
+    fn barco(&self, nombre: &str) -> Option<crate::entrada::BarcoConocido> {
+        self.barcos.get(nombre).cloned()
+    }
+}
+
+/// Carga el registro de flota de la PDB.
+///
+/// Formato: `^FLOTA(<barco>, "clave")` y `^FLOTA(<barco>, "certificado")`.
+///
+/// El namespace se fija por convenio (`FLOTA`) en vez de descubrirlo recorriendo
+/// todos los namespaces: recorrer la PDB entera al arrancar para adivinar dónde
+/// está el registro es caro y frágil, y el registro de flota es algo que el
+/// operador conoce. Los barcos se descubren con `$O` sobre `^FLOTA`.
+pub fn registro_de_flota(host: &MemoryHost) -> RegistroPdb {
+    use lumen_mlight::Subscript;
+    let mut reg = RegistroPdb::default();
+
+    // $O(^FLOTA("")) para recorrer los barcos.
+    let mut actual: Option<Subscript> = None;
+    loop {
+        let barco = match host
+            .order(NS_FLOTA, &[], actual.as_ref(), 1)
+            .ok()
+            .flatten()
+        {
+            Some(s) => s,
+            None => break,
+        };
+        let nombre = match &barco {
+            Subscript::String(s) => s.clone(),
+            Subscript::Number(n) => n.to_string(),
+        };
+        actual = Some(barco);
+
+        let clave = host
+            .get(NS_FLOTA, &[Subscript::String(nombre.clone()), Subscript::String("clave".into())])
+            .ok()
+            .flatten()
+            .map(|v| v.as_string());
+        let cert = host
+            .get(
+                NS_FLOTA,
+                &[Subscript::String(nombre.clone()), Subscript::String("certificado".into())],
+            )
+            .ok()
+            .flatten()
+            .map(|v| v.as_string());
+
+        if let (Some(clave), Some(cert)) = (clave, cert) {
+            if !clave.trim().is_empty() && !cert.trim().is_empty() {
+                reg.barcos.insert(
+                    nombre,
+                    crate::entrada::BarcoConocido {
+                        clave: clave.trim().to_string(),
+                        certificado: cert.trim().to_string(),
+                    },
+                );
+            }
+        }
+    }
+    reg
+}
+
+/// Namespace por convenio del registro de flota.
+pub const NS_FLOTA: &str = "FLOTA";
 
 #[cfg(test)]
 mod tests {

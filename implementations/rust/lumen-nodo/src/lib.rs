@@ -8,6 +8,7 @@ pub mod cadena;
 pub mod carga;
 pub mod descubrir;
 pub mod destino;
+pub mod entrada;
 pub mod host_mvm;
 pub mod identidad;
 pub mod nodo;
