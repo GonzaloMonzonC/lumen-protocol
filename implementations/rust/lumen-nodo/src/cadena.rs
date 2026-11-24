@@ -66,6 +66,135 @@ pub struct MuestraEncadenada {
     pub hash: String,
 }
 
+/// Muestra encadenada **y firmada** por la clave del nodo (`identity=pubkey`).
+///
+/// El formato añade un cuarto campo:
+///
+/// ```text
+/// <valor>|<prev_hash>|<hash>|<firma>
+/// ```
+///
+/// ## Qué firma
+///
+/// Se firma **el mensaje canónico**, no el hash suelto:
+///
+/// ```text
+/// LUMEN-MUESTRA/v1\n<ns>\n<subs>\n<hash>
+/// ```
+///
+/// Incluir `ns` y `subs` en lo firmado impide **mover una muestra firmada a otra
+/// serie o a otra posición**: la firma de `^FLOTA(ESTRELLA,lat,7)` no vale para
+/// `^FLOTA(SIRIUS,lat,7)`. Es el mismo criterio que el certificado de flota, que
+/// lleva dentro el nombre del barco.
+///
+/// Firmar el `hash` y no solo el valor tiene una consecuencia importante: como
+/// `hash = sha256(prev || valor)`, y `prev` es el hash anterior, **la firma
+/// cubre toda la cadena hasta el génesis**. Cambiar cualquier muestra anterior
+/// cambia este hash y rompe esta firma.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MuestraFirmada {
+    pub cadena: MuestraEncadenada,
+    /// Firma Ed25519 en hex (128 chars). Vacía si el nodo no firma.
+    pub firma: String,
+}
+
+impl MuestraFirmada {
+    /// Mensaje canónico que se firma.
+    pub fn mensaje_canonico(ns: &str, subs: &[String], hash: &str) -> Vec<u8> {
+        format!("LUMEN-MUESTRA/v1\n{ns}\n{}\n{hash}", subs.join(",")).into_bytes()
+    }
+
+    /// Serializa a `valor|prev|hash|firma`.
+    pub fn a_texto(&self) -> String {
+        format!("{}|{}", self.cadena.a_texto(), self.firma)
+    }
+
+    /// Parsea `valor|prev|hash|firma`.
+    pub fn desde_texto(texto: &str) -> Option<Self> {
+        let campos: Vec<&str> = texto.split(SEP).collect();
+        if campos.len() != 4 {
+            return None;
+        }
+        let cadena = MuestraEncadenada::desde_texto(&format!(
+            "{}{}{}{}{}",
+            campos[0], SEP, campos[1], SEP, campos[2]
+        ))?;
+        let firma = campos[3];
+        if firma.len() != 128 || !firma.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        Some(Self {
+            cadena,
+            firma: firma.to_string(),
+        })
+    }
+
+    /// Verifica la firma contra la clave pública del nodo.
+    pub fn verificar(
+        &self,
+        clave_publica_hex: &str,
+        ns: &str,
+        subs: &[String],
+    ) -> Result<(), crate::identidad::ErrorIdentidad> {
+        let msg = Self::mensaje_canonico(ns, subs, &self.cadena.hash);
+        crate::identidad::verificar_hex(clave_publica_hex, &msg, &self.firma)
+    }
+}
+
+/// Un sello de bloque firmado (`identity=pubkey` + `sign=hash-chain`).
+///
+/// Se firma el sello **junto al número de bloque**, para que nadie pueda mover
+/// el sello del bloque 3 al bloque 7.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelloFirmado {
+    pub bloque: u64,
+    pub sello: String,
+    pub firma: String,
+}
+
+impl SelloFirmado {
+    /// Mensaje canónico del sello.
+    pub fn mensaje_canonico(ns: &str, serie: &str, bloque: u64, sello: &str) -> Vec<u8> {
+        format!("LUMEN-SELLO/v1\n{ns}\n{serie}\n{bloque}\n{sello}").into_bytes()
+    }
+
+    /// Serializa a `bloque|sello|firma`.
+    pub fn a_texto(&self) -> String {
+        format!("{}|{}|{}", self.bloque, self.sello, self.firma)
+    }
+
+    /// Parsea `bloque|sello|firma`.
+    pub fn desde_texto(texto: &str) -> Option<Self> {
+        let c: Vec<&str> = texto.split(SEP).collect();
+        if c.len() != 3 {
+            return None;
+        }
+        let bloque = c[0].parse::<u64>().ok()?;
+        if c[1].len() != HASH_HEX_LEN || !c[1].chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return None;
+        }
+        if c[2].len() != 128 || !c[2].chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return None;
+        }
+        Some(Self {
+            bloque,
+            sello: c[1].to_string(),
+            firma: c[2].to_string(),
+        })
+    }
+
+    /// Verifica la firma del sello.
+    pub fn verificar(
+        &self,
+        clave_publica_hex: &str,
+        ns: &str,
+        serie: &str,
+    ) -> Result<(), crate::identidad::ErrorIdentidad> {
+        let msg = Self::mensaje_canonico(ns, serie, self.bloque, &self.sello);
+        crate::identidad::verificar_hex(clave_publica_hex, &msg, &self.firma)
+    }
+}
+
 impl MuestraEncadenada {
     /// Serializa al formato `valor|prev|hash`.
     pub fn a_texto(&self) -> String {
@@ -117,6 +246,10 @@ pub enum ErrorCadena {
     },
     /// El sello de un bloque no cuadra con sus muestras.
     SelloRoto { bloque: u64 },
+    /// Se pidió autoría y la muestra no viene firmada.
+    SinFirma { muestra: u64 },
+    /// La firma no es de la clave pública del nodo esperado.
+    FirmaAjena { muestra: u64 },
 }
 
 impl std::fmt::Display for ErrorCadena {
@@ -140,6 +273,14 @@ impl std::fmt::Display for ErrorCadena {
                 despues,
             } => write!(f, "falta la muestra {falta} (entre {antes} y {despues})"),
             ErrorCadena::SelloRoto { bloque } => write!(f, "sello del bloque {bloque} no cuadra"),
+            ErrorCadena::SinFirma { muestra } => write!(
+                f,
+                "la muestra {muestra} no viene firmada y se pidio autoria (identity=pubkey)"
+            ),
+            ErrorCadena::FirmaAjena { muestra } => write!(
+                f,
+                "la firma de la muestra {muestra} NO es de la clave publica del nodo"
+            ),
         }
     }
 }
@@ -215,6 +356,8 @@ pub struct Verificacion {
     pub muestras_ok: u64,
     /// Sellos de bloque comprobados (solo bloques completos).
     pub sellos_ok: u64,
+    /// Firmas verificadas (0 si no se pasó clave pública).
+    pub firmas_ok: u64,
     /// Primer problema encontrado, si lo hay.
     pub problema: Option<ErrorCadena>,
 }
@@ -231,9 +374,29 @@ impl Verificacion {
 /// exige es que **no falte ninguna dentro del rango recibido** y que cada `prev`
 /// encaje con el hash anterior.
 pub fn verificar(muestras: &[(u64, String)]) -> Verificacion {
+    verificar_con_clave(muestras, None, "", &[])
+}
+
+/// Verifica la cadena y, si se da una clave pública, **exige** que cada muestra
+/// esté firmada por ella.
+///
+/// `ns` y `subs_clave` identifican la serie para el mensaje canónico de la
+/// firma (si no coinciden, la firma no verifica: es lo que impide mover una
+/// muestra firmada a otra serie).
+///
+/// Si `clave_publica` es `None`, solo se comprueba la cadena (integridad). Si
+/// es `Some`, una muestra sin firma o con firma ajena **es un fallo**: no se
+/// acepta "cadena íntegra sin autoría" cuando se pidió autoría.
+pub fn verificar_con_clave(
+    muestras: &[(u64, String)],
+    clave_publica: Option<&str>,
+    ns: &str,
+    subs_clave: &[String],
+) -> Verificacion {
     let mut v = Verificacion {
         muestras_ok: 0,
         sellos_ok: 0,
+        firmas_ok: 0,
         problema: None,
     };
     if muestras.is_empty() {
@@ -250,13 +413,33 @@ pub fn verificar(muestras: &[(u64, String)]) -> Verificacion {
     let mut hashes_bloque: Vec<String> = Vec::new();
 
     for (num, texto) in ordenadas {
-        let m = match MuestraEncadenada::desde_texto(&texto) {
-            Some(m) => m,
-            None => {
-                v.problema = Some(ErrorCadena::MuestraIlegible(texto));
+        // Cada muestra puede venir con o sin firma (4 o 3 campos).
+        let (m, firma) = match MuestraFirmada::desde_texto(&texto) {
+            Some(mf) => (mf.cadena, Some(mf.firma)),
+            None => match MuestraEncadenada::desde_texto(&texto) {
+                Some(m) => (m, None),
+                None => {
+                    v.problema = Some(ErrorCadena::MuestraIlegible(texto));
+                    return v;
+                }
+            },
+        };
+
+        // ── Firmeza: si se pidió autoría, la firma es obligatoria ──
+        if let Some(clave) = clave_publica {
+            let Some(firma) = firma.as_deref() else {
+                v.problema = Some(ErrorCadena::SinFirma { muestra: num });
+                return v;
+            };
+            let mut subs_muestra = subs_clave.to_vec();
+            subs_muestra.push(num.to_string());
+            let msg = MuestraFirmada::mensaje_canonico(ns, &subs_muestra, &m.hash);
+            if crate::identidad::verificar_hex(clave, &msg, firma).is_err() {
+                v.problema = Some(ErrorCadena::FirmaAjena { muestra: num });
                 return v;
             }
-        };
+            v.firmas_ok += 1;
+        }
 
         // ── Hueco: ¿falta alguna entre la anterior y esta? ────────
         if let Some(prev_num) = numero_anterior {
@@ -360,6 +543,19 @@ pub trait EstadoCadena {
     fn ultima(&self, serie: &Serie) -> Option<u64>;
     fn hash_ultimo(&self, serie: &Serie) -> Option<String>;
     fn guardar(&mut self, serie: &Serie, numero: u64, hash: &str) -> Result<(), String>;
+
+    /// Hashes del bloque indicado, para poder calcular su sello.
+    ///
+    /// Se leen de las muestras ya escritas. Devuelve `None` si el bloque no
+    /// está completo: un bloque a medias no se sella.
+    fn hashes_del_bloque(&self, _serie: &Serie, _bloque: u64) -> Option<Vec<String>> {
+        None
+    }
+
+    /// Guarda el sello (firmado o no) de un bloque.
+    fn guardar_sello(&mut self, _serie: &Serie, _sello: &SelloFirmado) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Encadena una muestra y la escribe.
@@ -407,16 +603,16 @@ where
 pub trait DestinoEncadenable: Destino + EstadoCadena {}
 impl<T: Destino + EstadoCadena> DestinoEncadenable for T {}
 
-/// Aplica una escritura encadenada a un destino encadenable.
+/// Aplica una escritura encadenada y, si hay identidad, **firmada**.
 ///
-/// ⚠️ El préstamo: `aplicar_encadenado` necesita el destino dos veces (una como
-/// `Destino` para escribir, otra como `EstadoCadena` para leer/guardar). Se
-/// separa en dos fases explícitas — leer estado, escribir, guardar estado —
-/// en lugar de pasar el mismo objeto dos veces, que no compila y además
-/// escondería el orden real de las operaciones.
+/// `firmante` es la identidad Ed25519 del nodo (`identity=pubkey`). Si es
+/// `None`, se guarda solo la cadena (`valor|prev|hash`). Si está, se guarda
+/// `valor|prev|hash|firma`, y la firma cubre el mensaje canónico con ns y subs
+/// para que la muestra no se pueda mover a otra serie.
 pub fn aplicar_encadenado_destino<T: DestinoEncadenable>(
     destino: &mut T,
     w: &Escritura,
+    firmante: Option<&crate::identidad::Identidad>,
     log: &mut dyn FnMut(&str),
 ) -> Result<Aplicado, ErrorAplicar> {
     let (serie, numero) = Serie::desde_subs(&w.ns, &w.subs)?;
@@ -433,7 +629,19 @@ pub fn aplicar_encadenado_destino<T: DestinoEncadenable>(
 
     let prev = destino.hash_ultimo(&serie).unwrap_or_default();
     let m = encadenar(&prev, &w.valor)?;
-    let texto = m.a_texto();
+
+    // ── Firma de la muestra (A) ──────────────────────────────────
+    let texto = match firmante {
+        Some(id) => {
+            let msg = MuestraFirmada::mensaje_canonico(&w.ns, &w.subs, &m.hash);
+            MuestraFirmada {
+                firma: id.firmar_hex(&msg),
+                cadena: m.clone(),
+            }
+            .a_texto()
+        }
+        None => m.a_texto(),
+    };
 
     destino
         .set(&w.ns, &w.subs, &texto)
@@ -442,11 +650,47 @@ pub fn aplicar_encadenado_destino<T: DestinoEncadenable>(
         .guardar(&serie, numero, &m.hash)
         .map_err(|e| ErrorAplicar::Host(format!("guardar estado de cadena: {e}")))?;
 
+    // ── Sello de bloque firmado (C) ──────────────────────────────
+    // Cuando la muestra cierra un bloque (numero % 100 == 0), se calcula el
+    // sello del bloque y se firma junto al número de bloque. Eso permite
+    // verificar 100 muestras con UNA firma, y prueba que el bloque entero lo
+    // cerró el mismo nodo.
+    if numero % MUESTRAS_POR_BLOQUE == 0 {
+        if let Some(hashes) = destino.hashes_del_bloque(&serie, bloque_de(numero)) {
+            let sello = sello_bloque("", &hashes);
+            let texto_sello = match firmante {
+                Some(id) => {
+                    let msg = SelloFirmado::mensaje_canonico(
+                        &w.ns,
+                        &serie.etiqueta(),
+                        bloque_de(numero),
+                        &sello,
+                    );
+                    SelloFirmado {
+                        bloque: bloque_de(numero),
+                        sello,
+                        firma: id.firmar_hex(&msg),
+                    }
+                }
+                None => SelloFirmado {
+                    bloque: bloque_de(numero),
+                    sello,
+                    firma: String::new(),
+                },
+            };
+            destino
+                .guardar_sello(&serie, &texto_sello)
+                .map_err(|e| ErrorAplicar::Host(format!("guardar sello: {e}")))?;
+            log(&format!("sello de bloque {} guardado", bloque_de(numero)));
+        }
+    }
+
     log(&format!(
-        "encadenada ^{}({}) -> hash {}",
+        "encadenada ^{}({}) -> hash {}{}",
         w.ns,
         w.subs.join(","),
-        &m.hash[..8.min(m.hash.len())]
+        &m.hash[..8.min(m.hash.len())],
+        if firmante.is_some() { " (firmada)" } else { "" }
     ));
     Ok(Aplicado {
         ns: w.ns.clone(),
@@ -719,7 +963,8 @@ mod tests {
                     subs: subs("B", "lat", i),
                     valor: format!("v{i}"),
                 },
-                &mut |_| {},
+                None,
+                &mut |_: &str| {},
             )
             .unwrap();
         }
@@ -732,5 +977,221 @@ mod tests {
         let v = verificar(&guardadas);
         assert!(v.es_integro(), "problema: {:?}", v.problema);
         assert_eq!(v.muestras_ok, 5);
+    }
+
+    // ── Muestra FIRMADA (identity=pubkey) ────────────────────────
+    use crate::identidad::Identidad;
+
+    #[test]
+    fn la_muestra_firmada_tiene_cuatro_campos() {
+        let id = Identidad::generar();
+        let mut d = DestinoCompleto::default();
+        aplicar_encadenado_destino(
+            &mut d,
+            &Escritura {
+                ns: "F".into(),
+                subs: subs("B", "lat", 1),
+                valor: "41.38".into(),
+            },
+            Some(&id),
+            &mut |_: &str| {},
+        )
+        .unwrap();
+        let texto = &d.escrituras.escrituras[0].2;
+        assert_eq!(texto.split('|').count(), 4, "valor|prev|hash|firma");
+        assert!(MuestraFirmada::desde_texto(texto).is_some());
+    }
+
+    #[test]
+    fn la_firma_de_la_muestra_verifica_con_su_clave() {
+        let id = Identidad::generar();
+        let s = subs("B", "lat", 1);
+        let mut d = DestinoCompleto::default();
+        aplicar_encadenado_destino(
+            &mut d,
+            &Escritura {
+                ns: "F".into(),
+                subs: s.clone(),
+                valor: "41.38".into(),
+            },
+            Some(&id),
+            &mut |_: &str| {},
+        )
+        .unwrap();
+        let mf = MuestraFirmada::desde_texto(&d.escrituras.escrituras[0].2).unwrap();
+        assert!(mf.verificar(&id.clave_publica_hex(), "F", &s).is_ok());
+    }
+
+    /// EL TEST DE LA FIRMA: una muestra firmada para una serie NO vale en otra.
+    #[test]
+    fn una_muestra_firmada_no_se_puede_mover_a_otra_serie() {
+        let id = Identidad::generar();
+        let mut d = DestinoCompleto::default();
+        aplicar_encadenado_destino(
+            &mut d,
+            &Escritura {
+                ns: "F".into(),
+                subs: subs("BARCO-A", "lat", 1),
+                valor: "41.38".into(),
+            },
+            Some(&id),
+            &mut |_: &str| {},
+        )
+        .unwrap();
+        let mf = MuestraFirmada::desde_texto(&d.escrituras.escrituras[0].2).unwrap();
+
+        // Vale en su serie...
+        assert!(mf
+            .verificar(&id.clave_publica_hex(), "F", &subs("BARCO-A", "lat", 1))
+            .is_ok());
+        // ...y NO vale en otra, aunque el valor y la cadena sean idénticos.
+        assert!(mf
+            .verificar(&id.clave_publica_hex(), "F", &subs("BARCO-B", "lat", 1))
+            .is_err(), "mover la muestra a otro barco debe romper la firma");
+        assert!(mf
+            .verificar(&id.clave_publica_hex(), "F", &subs("BARCO-A", "hdg", 1))
+            .is_err(), "cambiar el campo debe romper la firma");
+    }
+
+    #[test]
+    fn una_muestra_firmada_por_otro_nodo_no_verifica() {
+        let id = Identidad::generar();
+        let otro = Identidad::generar();
+        let s = subs("B", "lat", 1);
+        let mut d = DestinoCompleto::default();
+        aplicar_encadenado_destino(
+            &mut d,
+            &Escritura {
+                ns: "F".into(),
+                subs: s.clone(),
+                valor: "x".into(),
+            },
+            Some(&id),
+            &mut |_: &str| {},
+        )
+        .unwrap();
+        let mf = MuestraFirmada::desde_texto(&d.escrituras.escrituras[0].2).unwrap();
+        assert!(mf.verificar(&otro.clave_publica_hex(), "F", &s).is_err());
+    }
+
+    #[test]
+    fn sin_firmante_se_guarda_solo_la_cadena() {
+        let mut d = DestinoCompleto::default();
+        aplicar_encadenado_destino(
+            &mut d,
+            &Escritura {
+                ns: "F".into(),
+                subs: subs("B", "lat", 1),
+                valor: "x".into(),
+            },
+            None,
+            &mut |_: &str| {},
+        )
+        .unwrap();
+        assert_eq!(d.escrituras.escrituras[0].2.split('|').count(), 3);
+    }
+
+    #[test]
+    fn el_verificador_exige_firma_cuando_se_le_da_clave() {
+        let id = Identidad::generar();
+        // Cadena SIN firmar.
+        let c = cadena(3);
+        // Sin clave: integra.
+        assert!(verificar(&c).es_integro());
+        // Con clave: falta la firma.
+        let v = verificar_con_clave(&c, Some(&id.clave_publica_hex()), "F", &subs("B", "lat", 0)[..2]);
+        assert!(matches!(v.problema, Some(ErrorCadena::SinFirma { .. })));
+    }
+
+    #[test]
+    fn el_verificador_cuenta_firmas_buenas() {
+        let id = Identidad::generar();
+        let s = subs("B", "lat", 0);
+        let clave = &s[..2];
+        let mut d = DestinoCompleto::default();
+        for i in 1..=4u64 {
+            aplicar_encadenado_destino(
+                &mut d,
+                &Escritura {
+                    ns: "F".into(),
+                    subs: subs("B", "lat", i),
+                    valor: format!("v{i}"),
+                },
+                Some(&id),
+                &mut |_: &str| {},
+            )
+            .unwrap();
+        }
+        let guardadas: Vec<(u64, String)> = d
+            .escrituras
+            .escrituras
+            .iter()
+            .map(|(_, sb, v)| (sb.last().unwrap().parse::<u64>().unwrap(), v.clone()))
+            .collect();
+        let v = verificar_con_clave(&guardadas, Some(&id.clave_publica_hex()), "F", clave);
+        assert!(v.es_integro(), "problema: {:?}", v.problema);
+        assert_eq!(v.muestras_ok, 4);
+        assert_eq!(v.firmas_ok, 4, "debe contar las 4 firmas");
+    }
+
+    // ── Sello de bloque firmado ──────────────────────────────────
+    #[test]
+    fn el_sello_firmado_ida_y_vuelta_y_verificacion() {
+        let id = Identidad::generar();
+        let sello = sello_bloque("", &[hash_muestra("", "a"), hash_muestra("", "b")]);
+        let msg = SelloFirmado::mensaje_canonico("F", "B/lat", 1, &sello);
+        let sf = SelloFirmado {
+            bloque: 1,
+            sello: sello.clone(),
+            firma: id.firmar_hex(&msg),
+        };
+        let texto = sf.a_texto();
+        let leido = SelloFirmado::desde_texto(&texto).expect("releer");
+        assert_eq!(leido, sf);
+        assert!(leido.verificar(&id.clave_publica_hex(), "F", "B/lat").is_ok());
+    }
+
+    /// El sello va firmado JUNTO al número de bloque: moverlo de bloque
+    /// rompe la firma (si no, el sello del bloque 3 valdría para el 7).
+    #[test]
+    fn un_sello_no_se_puede_mover_a_otro_bloque() {
+        let id = Identidad::generar();
+        let sello = sello_bloque("", &[hash_muestra("", "a")]);
+        let msg = SelloFirmado::mensaje_canonico("F", "B/lat", 3, &sello);
+        let sf = SelloFirmado {
+            bloque: 3,
+            sello: sello.clone(),
+            firma: id.firmar_hex(&msg),
+        };
+        assert!(sf.verificar(&id.clave_publica_hex(), "F", "B/lat").is_ok());
+        // Mismo sello y misma firma, otro bloque.
+        let movido = SelloFirmado {
+            bloque: 7,
+            ..sf.clone()
+        };
+        assert!(
+            movido.verificar(&id.clave_publica_hex(), "F", "B/lat").is_err(),
+            "mover el sello al bloque 7 debe romper la firma"
+        );
+    }
+
+    #[test]
+    fn un_sello_no_se_puede_mover_a_otra_serie() {
+        let id = Identidad::generar();
+        let sello = sello_bloque("", &[hash_muestra("", "a")]);
+        let msg = SelloFirmado::mensaje_canonico("F", "B/lat", 1, &sello);
+        let sf = SelloFirmado {
+            bloque: 1,
+            sello,
+            firma: id.firmar_hex(&msg),
+        };
+        assert!(sf.verificar(&id.clave_publica_hex(), "F", "B/lat").is_ok());
+        assert!(sf.verificar(&id.clave_publica_hex(), "F", "OTRO/lat").is_err());
+    }
+
+    #[test]
+    fn sello_mal_formado_no_parsea() {
+        assert!(SelloFirmado::desde_texto("a|b").is_none());
+        assert!(SelloFirmado::desde_texto("1|corto|firma").is_none());
     }
 }

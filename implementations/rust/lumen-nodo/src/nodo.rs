@@ -48,6 +48,7 @@ pub fn atender<T: Transport, D: Destino + crate::cadena::EstadoCadena>(
     transporte: &mut T,
     destino: &mut D,
     encadenar: bool,
+    firmante: Option<&crate::identidad::Identidad>,
     log: &mut dyn FnMut(&str),
 ) -> ResumenConexion {
     let mut resumen = ResumenConexion::default();
@@ -103,7 +104,7 @@ pub fn atender<T: Transport, D: Destino + crate::cadena::EstadoCadena>(
             let payload = frame.payload.to_vec();
             buf.drain(..consumed);
 
-            let respuesta = procesar(tipo, &payload, destino, encadenar, log);
+            let respuesta = procesar(tipo, &payload, destino, encadenar, firmante, log);
             resumen.frames_aplicados += 1;
 
             let (ft, fl, p) = ddp_to_frame(&respuesta);
@@ -125,6 +126,7 @@ pub fn procesar<D: Destino + crate::cadena::EstadoCadena>(
     payload: &[u8],
     destino: &mut D,
     encadenar: bool,
+    firmante: Option<&crate::identidad::Identidad>,
     log: &mut dyn FnMut(&str),
 ) -> DdpMessage {
     // El frame LUMEN lleva su propio tipo; el DDP va dentro. Si no es DATA,
@@ -135,7 +137,7 @@ pub fn procesar<D: Destino + crate::cadena::EstadoCadena>(
                 log(&format!("frame tipo 0x{:02x} ignorado (no es DATA)", tipo));
                 return DdpMessage::new(msg_type::EMPTY, msg.num1, msg.num2, 0, Vec::new());
             }
-            match aplicar_payload_con(&msg.body, destino, encadenar, log) {
+            match aplicar_payload_con(&msg.body, destino, encadenar, firmante, log) {
                 Ok(a) => {
                     log(&format!(
                         "aplicado ^{}({})=<{} bytes>",
@@ -167,17 +169,19 @@ pub fn aplicar_payload<D: Destino + crate::cadena::EstadoCadena>(
     destino: &mut D,
     log: &mut dyn FnMut(&str),
 ) -> Result<Aplicado, ErrorAplicar> {
-    aplicar_payload_con(payload, destino, false, log)
+    aplicar_payload_con(payload, destino, false, None, log)
 }
 
-/// Igual que `aplicar_payload`, con el encadenado explícito.
+/// Igual que `aplicar_payload`, con encadenado y firma explícitos.
 ///
-/// `encadenar=true` (perfil con `sign=hash-chain`) firma la muestra: en vez de
-/// guardar el valor crudo, guarda `valor|prev|hash`.
+/// `encadenar=true` (`sign=hash-chain`) guarda `valor|prev|hash`.
+/// `firmante=Some` (`identity=pubkey`) añade la firma Ed25519 del nodo:
+/// `valor|prev|hash|firma`. Las dos cosas son independientes y combinables.
 pub fn aplicar_payload_con<D: Destino + crate::cadena::EstadoCadena>(
     payload: &[u8],
     destino: &mut D,
     encadenar: bool,
+    firmante: Option<&crate::identidad::Identidad>,
     log: &mut dyn FnMut(&str),
 ) -> Result<Aplicado, ErrorAplicar> {
     let w = parsear_set(payload)?;
@@ -194,8 +198,19 @@ pub fn aplicar_payload_con<D: Destino + crate::cadena::EstadoCadena>(
         )));
     }
     log(&format!("escritura ^{}({})", w.ns, w.subs.join(",")));
+
+    // Firmar sin encadenar no tiene sentido: la firma cubre el hash de la
+    // muestra, que solo existe si hay cadena. Se avisa en vez de firmar algo
+    // distinto a lo que el operador cree.
+    if firmante.is_some() && !encadenar {
+        return Err(ErrorAplicar::Formato(
+            "identity=pubkey requiere sign=hash-chain: la firma cubre el hash de la muestra"
+                .into(),
+        ));
+    }
+
     if encadenar {
-        return crate::cadena::aplicar_encadenado_destino(destino, &w, log);
+        return crate::cadena::aplicar_encadenado_destino(destino, &w, firmante, log);
     }
     aplicar(destino, &w)
 }
@@ -281,7 +296,7 @@ mod tests {
         };
         let mut d = DestinoMemoria::default();
         let mut logs = Vec::new();
-        let r = atender(&mut t, &mut d, false, &mut |s| logs.push(s.to_string()));
+        let r = atender(&mut t, &mut d, false, None, &mut |s: &str| logs.push(s.to_string()));
 
         assert_eq!(r.frames_aplicados, 1);
         assert_eq!(r.frames_fallidos, 0);
@@ -309,7 +324,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, false, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, None, &mut |_: &str| {});
         assert_eq!(r.frames_aplicados, 2);
         assert_eq!(d.escrituras.len(), 2);
         assert_eq!(d.escrituras[0].0, "A");
@@ -324,7 +339,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, false, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, None, &mut |_: &str| {});
         assert_eq!(r.frames_aplicados, 1);
         assert!(d.escrituras.is_empty(), "no debe escribir nada");
         let ParseResult::Complete { frame, .. } = frame::parse(&t.salida) else {
@@ -379,7 +394,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, false, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, None, &mut |_: &str| {});
         assert_eq!(r.frames_aplicados, 0, "un frame truncado NO se aplica");
         assert!(d.escrituras.is_empty());
         assert_eq!(r.cierre, "par cerro");
@@ -398,7 +413,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, false, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, None, &mut |_: &str| {});
         assert!(d.escrituras.is_empty());
         assert_eq!(r.frames_aplicados, 0, "no debe contar frames inexistentes");
         assert!(

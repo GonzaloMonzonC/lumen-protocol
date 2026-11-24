@@ -199,7 +199,7 @@ fn main() -> ExitCode {
             eprintln!("NO ARRANCA: role=edge no acepta conexiones entrantes");
             return ExitCode::from(PERFIL_INVALIDO);
         }
-        return escuchar(&perfil, &mut destino);
+        return escuchar(&perfil, &mut destino, &args);
     }
 
     println!("nada que hacer: usa --escuchar, --enviar <addr> \"^NS(k)=v\" o --verificar");
@@ -207,7 +207,7 @@ fn main() -> ExitCode {
 }
 
 /// Arranca el nodo servidor: escucha y aplica lo que llega.
-fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm) -> ExitCode {
+fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm, args: &[String]) -> ExitCode {
     let (mut servidor, huella) = match nodo::escuchar(perfil, perfil.pin.as_deref()) {
         Ok(x) => x,
         Err(e) => {
@@ -270,6 +270,53 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm) -> ExitCode {
         println!("CADENA: sign=hash-chain activo (valor|prev|hash, sello cada 100)");
     }
 
+    // ── Identidad del nodo (identity=pubkey) ─────────────────────
+    // La semilla NO viaja en el perfil: es un secreto. Se lee del entorno
+    // (LUMEN_NODO_SEMILLA) o de un fichero indicado con --semilla. La clave
+    // pública sí está en el perfil y debe coincidir con la semilla: si no,
+    // el nodo estaría firmando con una clave distinta de la que publica, y
+    // todo lo firmado se rechazaría al verificarlo.
+    let mut firmante: Option<identidad::Identidad> = None;
+    if perfil.identity == profile::Identity::Pubkey {
+        let semilla = std::env::var("LUMEN_NODO_SEMILLA")
+            .ok()
+            .or_else(|| valor_de(&args, "--semilla"));
+        let Some(semilla) = semilla else {
+            eprintln!("NO ARRANCA: identity=pubkey requiere la semilla del nodo.");
+            eprintln!("  defínela en LUMEN_NODO_SEMILLA o pasa --semilla <hex>");
+            eprintln!("  (la semilla es SECRETA: no va en la PDB ni en el perfil)");
+            return ExitCode::from(FALLO_ARRANQUE);
+        };
+        let id = match identidad::Identidad::desde_hex(&semilla) {
+            Ok(i) => i,
+            Err(e) => {
+                eprintln!("NO ARRANCA: semilla invalida: {e}");
+                return ExitCode::from(FALLO_ARRANQUE);
+            }
+        };
+        // ── La comprobación que evita firmar con la clave equivocada ──
+        let publicada = perfil.clave_publica.as_deref().unwrap_or("");
+        if !id.clave_publica_hex().eq_ignore_ascii_case(publicada) {
+            eprintln!("NO ARRANCA: la semilla NO corresponde a la clave_publica del perfil");
+            eprintln!("  semilla produce: {}", id.clave_publica_hex());
+            eprintln!("  perfil publica:  {publicada}");
+            eprintln!("  (firmar con una clave distinta de la publicada haria que todo se rechazara)");
+            return ExitCode::from(FALLO_ARRANQUE);
+        }
+        // ── Sin cadena no hay nada que firmar ────────────────────────
+        if !firmar {
+            eprintln!("NO ARRANCA: identity=pubkey requiere sign=hash-chain");
+            eprintln!("  la firma cubre el hash de la muestra, que solo existe con cadena");
+            return ExitCode::from(PERFIL_INVALIDO);
+        }
+        println!("IDENTIDAD: pubkey {}", id.clave_publica_hex());
+        match perfil.raiz_armador.as_deref() {
+            Some(r) if !r.is_empty() => println!("FLOTA: raiz del armador {r}"),
+            _ => println!("FLOTA: sin raiz de armador (identifica, no prueba pertenencia)"),
+        }
+        firmante = Some(id);
+    }
+
     let mut conexiones = 0usize;
     let mut pares_vistos: Vec<String> = Vec::new();
     let mut ultimo_anuncio = std::time::Instant::now();
@@ -320,7 +367,7 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm) -> ExitCode {
                 conexiones += 1;
                 println!("--- conexion #{conexiones} aceptada ---");
                 let mut log = |s: &str| println!("  {s}");
-                let r = nodo::atender(&mut transporte, destino, firmar, &mut log);
+                let r = nodo::atender(&mut transporte, destino, firmar, firmante.as_ref(), &mut log);
                 println!(
                     "--- conexion #{conexiones} cerrada: {} aplicados, {} fallidos, \
                      {} bytes, motivo: {} ---",
@@ -512,12 +559,18 @@ fn verificar_cadena(destino: &host_mvm::DestinoMvm, args: &[String]) -> ExitCode
         muestras.last().map(|(n, _)| *n).unwrap_or(0)
     );
 
-    match cadena::verificar(&muestras).problema {
+    // Si se pide autoría, la firma es obligatoria.
+    let clave_pub = valor_de(args, "--clave-publica");
+    if let Some(ref c) = clave_pub {
+        println!("autoría: exigiendo firmas de la clave {c}");
+    }
+
+    let v = cadena::verificar_con_clave(&muestras, clave_pub.as_deref(), &ns, &clave);
+    match &v.problema {
         None => {
-            let v = cadena::verificar(&muestras);
             println!(
-                "RESULTADO: INTEGRA — {} muestras en cadena, {} sellos de bloque",
-                v.muestras_ok, v.sellos_ok
+                "RESULTADO: INTEGRA — {} muestras en cadena, {} sellos de bloque, {} firmas",
+                v.muestras_ok, v.sellos_ok, v.firmas_ok
             );
             ExitCode::from(OK)
         }
