@@ -484,6 +484,51 @@ impl QuicEndpoint {
         self.runtime.handle().clone()
     }
 
+    /// Acepta una conexión, esperando como mucho `limite`.
+    ///
+    /// Devuelve `Ok(None)` si no llegó ninguna en ese plazo. Existe para que un
+    /// nodo pueda atender varias cosas a la vez (p.ej. descubrimiento
+    /// multicast) sin quedarse bloqueado en `accept()` para siempre.
+    pub fn aceptar_con_timeout(
+        &mut self,
+        limite: std::time::Duration,
+    ) -> io::Result<Option<QuicTransport>> {
+        self.runtime.block_on(async {
+            match tokio::time::timeout(limite, self.endpoint.accept()).await {
+                Err(_) => Ok(None), // timeout: no vino nadie
+                Ok(None) => Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "endpoint closed",
+                )),
+                Ok(Some(incoming)) => {
+                    let conn = incoming.await.map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::ConnectionRefused,
+                            format!("QUIC handshake failed: {e}"),
+                        )
+                    })?;
+                    let (send, recv) = conn.accept_bi().await.map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::ConnectionReset,
+                            format!("stream accept failed: {e}"),
+                        )
+                    })?;
+                    Ok(Some(QuicTransport {
+                        send: Some(send),
+                        recv: Some(recv),
+                        connection: conn,
+                        _endpoint: self.endpoint.clone(),
+                        _runtime: self.runtime.clone(),
+                        runtime_handle: self.runtime.handle().clone(),
+                        read_buffer: Vec::new(),
+                        read_pos: 0,
+                        read_len: 0,
+                    }))
+                }
+            }
+        })
+    }
+
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self
             .endpoint

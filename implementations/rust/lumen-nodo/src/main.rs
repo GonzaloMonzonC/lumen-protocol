@@ -15,6 +15,7 @@
 
 mod aplicar;
 mod carga;
+mod descubrir;
 mod destino;
 mod host_mvm;
 mod nodo;
@@ -207,12 +208,94 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm) -> ExitCode {
     println!("huella de mi certificado: {huella}");
     println!("  fija esta huella en el nodo contrario:");
     println!("  ^SYS(\"NET\",\"pin\")=\"{huella}\"  con identity=pin");
+
+    // ── Descubrimiento: anunciar y escuchar en la LAN ─────────────
+    // Se abre DESPUÉS de tener la huella: el anuncio la lleva, y ese es el
+    // motivo de que el descubrimiento sirva para algo (sin huella, descubrir
+    // un nodo es descubrir un desconocido al que aceptar a ciegas).
+    let mut descubrimiento = if perfil.discovery == profile::Discovery::Multicast {
+        let iface = perfil.interface.clone().unwrap_or_default();
+        match descubrir::Descubrimiento::unirse(&perfil.grupo, &iface) {
+            Ok(d) => {
+                println!(
+                    "DESCUBRIMIENTO: grupo {} por interfaz {}",
+                    perfil.grupo, iface
+                );
+                let anuncio = descubrir::Anuncio {
+                    version: descubrir::VERSION_ANUNCIO,
+                    role: formato_rol(perfil.role).to_string(),
+                    quic: servidor
+                        .local_addr()
+                        .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                    huella: huella.clone(),
+                };
+                match d.anunciar(&anuncio) {
+                    Ok(n) => println!("anuncio emitido ({n} bytes)"),
+                    Err(e) => println!("AVISO: no se pudo anunciar: {e}"),
+                }
+                Some(d)
+            }
+            Err(e) => {
+                // Un fallo de descubrimiento NO tumba el nodo: sigue
+                // escuchando por si alguien le da la dirección a mano.
+                println!("AVISO: descubrimiento no disponible ({e}); sigo escuchando");
+                None
+            }
+        }
+    } else {
+        println!("DESCUBRIMIENTO: desactivado (discovery=none) — habrá que dar la dirección a mano");
+        None
+    };
+
     println!("listo. Ctrl-C para parar.");
 
     let mut conexiones = 0usize;
+    let mut pares_vistos: Vec<String> = Vec::new();
+    let mut ultimo_anuncio = std::time::Instant::now();
+
     loop {
-        match servidor.accept() {
-            Ok(mut transporte) => {
+        // ── Anunciar periódicamente y recoger pares ───────────────
+        if let Some(ref mut d) = descubrimiento {
+            // Re-anunciar cada 10 s: un nodo que arranca después nos encuentra.
+            if ultimo_anuncio.elapsed() > std::time::Duration::from_secs(10) {
+                let anuncio = descubrir::Anuncio {
+                    version: descubrir::VERSION_ANUNCIO,
+                    role: formato_rol(perfil.role).to_string(),
+                    quic: servidor
+                        .local_addr()
+                        .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                    huella: huella.clone(),
+                };
+                let _ = d.anunciar(&anuncio);
+                ultimo_anuncio = std::time::Instant::now();
+            }
+            match d.recibir() {
+                Ok(Some((a, origen))) => {
+                    if descubrir::es_propio(&a, &huella) {
+                        // Es nuestro propio anuncio (loopback multicast).
+                    } else {
+                        let firma = format!("{}|{}", a.quic, a.huella);
+                        if !pares_vistos.contains(&firma) {
+                            println!("--- PAR DESCUBIERTO (desde {origen}) ---");
+                            println!("  escucha en: {}", a.quic);
+                            println!("  rol: {}", a.role);
+                            println!("  huella: {}", a.huella);
+                            println!("  para hablarle con identidad verificada:");
+                            println!("  lumen-nodo --enviar {} \"^NS(k)=v\" \\", a.quic);
+                            println!("    --set identity=pin --set pin={}", a.huella);
+                            pares_vistos.push(firma);
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => println!("AVISO: error leyendo anuncios: {e}"),
+            }
+        }
+
+        // ── Aceptar conexiones (con timeout corto para no bloquear
+        //    el bucle de anuncios) ──────────────────────────────────
+        match servidor.aceptar_con_timeout(std::time::Duration::from_millis(200)) {
+            Ok(Some(mut transporte)) => {
                 conexiones += 1;
                 println!("--- conexion #{conexiones} aceptada ---");
                 let mut log = |s: &str| println!("  {s}");
@@ -223,12 +306,21 @@ fn escuchar(perfil: &Profile, destino: &mut host_mvm::DestinoMvm) -> ExitCode {
                     r.frames_aplicados, r.frames_fallidos, r.bytes_entrantes, r.cierre
                 );
             }
+            Ok(None) => {}
             Err(e) => {
-                eprintln!("error aceptando conexion: {e}");
-                // Un accept que falla no debe tumbar el nodo: sigue escuchando.
+                eprintln!("AVISO aceptando conexion: {e}");
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
         }
+    }
+}
+
+/// El rol como texto para el anuncio.
+fn formato_rol(rol: profile::Role) -> &'static str {
+    match rol {
+        profile::Role::Hub => "hub",
+        profile::Role::Store => "store",
+        profile::Role::Edge => "edge",
     }
 }
 

@@ -83,6 +83,31 @@ impl DatagramTransport {
         })
     }
 
+    /// Bind con `SO_REUSEADDR`, imprescindible para MULTICAST.
+    ///
+    /// Varios procesos en la misma máquina necesitan escuchar el mismo grupo y
+    /// puerto a la vez. Sin `SO_REUSEADDR` el segundo recibe
+    /// `10048 (address already in use)` en Windows — verificado 24-nov-2026 con
+    /// dos `lumen-nodo` en el mismo host.
+    ///
+    /// ⚠️ Solo debe usarse para multicast/discovery. Un servicio de datos
+    /// normal NO debe reutilizar dirección: dos procesos sirviendo el mismo
+    /// puerto es una receta para diagnósticos imposibles.
+    pub fn bind_reutilizable(addr: &str) -> io::Result<Self> {
+        use socket2::{Domain, Protocol, Socket, Type};
+        let addr: SocketAddr = addr
+            .parse()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{addr}: {e}")))?;
+        let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_reuse_address(true)?;
+        socket.set_nonblocking(true)?;
+        socket.bind(&addr.into())?;
+        Ok(Self {
+            socket: socket.into(),
+            recv_buf: vec![0u8; MAX_DATAGRAM_SIZE],
+        })
+    }
+
     /// Bind and connect to a remote address (connected UDP socket).
     ///
     /// A connected socket can use `send` instead of `send_to` and only

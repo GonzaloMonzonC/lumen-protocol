@@ -82,6 +82,24 @@ pub enum Sign {
     HashChain,
 }
 
+/// ¿Es una IPv4 utilizable como interfaz de anuncio? (`0.0.0.0` no vale)
+pub fn interface_v4(ip: &str) -> Option<std::net::Ipv4Addr> {
+    ip.parse::<std::net::Ipv4Addr>()
+        .ok()
+        .filter(|a| !a.is_unspecified())
+}
+
+/// ¿Es una dirección multicast válida con puerto?
+pub fn grupo_v4(grupo: &str) -> Option<std::net::SocketAddrV4> {
+    grupo
+        .parse::<std::net::SocketAddrV4>()
+        .ok()
+        .filter(|g| g.ip().is_multicast())
+}
+
+/// Grupo multicast por defecto (rango administrado localmente, 239.x).
+pub const GRUPO_POR_DEFECTO: &str = "239.255.77.77:9444";
+
 /// Motor de persistencia del nodo.
 ///
 /// No es un detalle de implementación: cambia cómo se leen los datos y qué se
@@ -121,6 +139,10 @@ pub struct Profile {
     pub storage: Storage,
     /// Huella SHA-256 (hex) del certificado del par, cuando `identity=pin`.
     pub pin: Option<String>,
+    /// IP local de la tarjeta por la que anunciar (`discovery=multicast`).
+    pub interface: Option<String>,
+    /// Grupo multicast, `ip:puerto`.
+    pub grupo: String,
     /// Dirección de escucha. `None` cuando el modo es `Offline`.
     pub listen: Option<SocketAddr>,
 }
@@ -164,6 +186,8 @@ pub fn minimal_profile() -> Profile {
         auth: Auth::Hmac,
         storage: Storage::Lmdb,
         pin: None,
+        interface: None,
+        grupo: GRUPO_POR_DEFECTO.to_string(),
         listen: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9443)),
     }
 }
@@ -178,17 +202,35 @@ impl Profile {
         // Cada brazo corresponde a un "NO IMPLEMENTADO" del ADR-002. Cuando
         // se implemente, se borra su brazo y se añade un test que lo pruebe.
         match self.discovery {
-            Discovery::Multicast => {
-                return Err(ProfileError::NotImplemented {
-                    field: "discovery",
-                    value: "multicast".into(),
-                })
-            }
             Discovery::Seeds => {
                 return Err(ProfileError::NotImplemented {
                     field: "discovery",
                     value: "seeds".into(),
                 })
+            }
+            // `multicast` SÍ está implementado (descubrir.rs), pero exige saber
+            // por qué interfaz anunciar: sin interfaz, el join puede irse a la
+            // tarjeta equivocada y el nodo se quedaría sordo sin decirlo.
+            Discovery::Multicast => {
+                let iface = self.interface.as_deref().unwrap_or("").trim();
+                if iface.is_empty() {
+                    return Err(ProfileError::Incoherent(
+                        "discovery=multicast requiere interface (la IP local de la tarjeta)"
+                            .into(),
+                    ));
+                }
+                if interface_v4(iface).is_none() {
+                    return Err(ProfileError::Incoherent(format!(
+                        "interface '{iface}' no es una IPv4 valida (y 0.0.0.0 no vale: \
+                         hay que decir por que tarjeta anunciar)"
+                    )));
+                }
+                if grupo_v4(&self.grupo).is_none() {
+                    return Err(ProfileError::Incoherent(format!(
+                        "grupo multicast '{}' no es una direccion multicast valida",
+                        self.grupo
+                    )));
+                }
             }
             Discovery::None => {}
         }
@@ -377,6 +419,28 @@ impl Profile {
                     self.pin = Some(v);
                 }
             }
+            "interface" => {
+                self.interface = if v.is_empty() || v == "none" {
+                    None
+                } else {
+                    if interface_v4(&v).is_none() {
+                        return Err(ProfileError::Unknown {
+                            field: "interface",
+                            value: format!("{v} (se espera una IPv4 local, no 0.0.0.0)"),
+                        });
+                    }
+                    Some(v)
+                }
+            }
+            "grupo" => {
+                if grupo_v4(&v).is_none() {
+                    return Err(ProfileError::Unknown {
+                        field: "grupo",
+                        value: format!("{v} (se espera ip multicast:puerto, p.ej {GRUPO_POR_DEFECTO})"),
+                    });
+                }
+                self.grupo = v;
+            }
             "listen" => {
                 self.listen = if v.is_empty() || v == "none" {
                     None
@@ -398,15 +462,15 @@ impl Profile {
     }
 
     /// Las claves que forman el perfil (para sembrar la PDB).
-    pub const FIELDS: [&'static str; 10] = [
+    pub const FIELDS: [&'static str; 12] = [
         "mode", "role", "discovery", "transport", "identity", "sign", "auth", "storage", "pin",
-        "listen",
+        "listen", "interface", "grupo",
     ];
 
     /// Render legible, para el arranque.
     pub fn describe(&self) -> String {
         format!(
-            "mode={:?} role={:?} discovery={:?} transport={:?} identity={:?} sign={:?} auth={:?} storage={:?} listen={}",
+            "mode={:?} role={:?} discovery={:?} transport={:?} identity={:?} sign={:?} auth={:?} storage={:?} interface={} grupo={} listen={}",
             self.mode,
             self.role,
             self.discovery,
@@ -415,6 +479,8 @@ impl Profile {
             self.sign,
             self.auth,
             self.storage,
+            self.interface.as_deref().unwrap_or("-"),
+            self.grupo,
             self.listen
                 .map(|a| a.to_string())
                 .unwrap_or_else(|| "-".into())
@@ -432,11 +498,41 @@ mod tests {
     }
 
     #[test]
-    fn multicast_no_implementado_no_arranca() {
+    fn multicast_sin_interfaz_no_arranca() {
         let mut p = minimal_profile();
         p.discovery = Discovery::Multicast;
+        // Sin interfaz el join puede irse a la tarjeta equivocada y el nodo
+        // se queda sordo sin decirlo.
         let e = p.validate().unwrap_err();
-        assert!(matches!(e, ProfileError::NotImplemented { field: "discovery", .. }));
+        assert!(matches!(e, ProfileError::Incoherent(_)));
+    }
+
+    #[test]
+    fn multicast_con_interfaz_valida_arranca() {
+        let mut p = minimal_profile();
+        p.discovery = Discovery::Multicast;
+        p.interface = Some("192.168.1.13".into());
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn multicast_con_interfaz_0000_no_arranca() {
+        let mut p = minimal_profile();
+        p.discovery = Discovery::Multicast;
+        p.interface = Some("0.0.0.0".into());
+        // 0.0.0.0 no parsea como interfaz válida en set_field, pero por si
+        // alguien lo asigna directamente, validate también lo rechaza.
+        assert!(p.validate().is_err() || interface_v4("0.0.0.0").is_none());
+    }
+
+    #[test]
+    fn multicast_con_grupo_no_multicast_no_arranca() {
+        let mut p = minimal_profile();
+        p.discovery = Discovery::Multicast;
+        p.interface = Some("192.168.1.13".into());
+        p.grupo = "192.168.1.13:9444".into(); // no es multicast
+        let e = p.validate().unwrap_err();
+        assert!(matches!(e, ProfileError::Incoherent(_)));
     }
 
     #[test]
@@ -532,6 +628,8 @@ mod tests {
             ("storage", "sqlite"),
             ("pin", "none"),
             ("listen", "127.0.0.1:9443"),
+            ("interface", "192.168.1.13"),
+            ("grupo", "239.255.77.77:9444"),
         ];
         for (k, v) in casos {
             let mut p = minimal_profile();

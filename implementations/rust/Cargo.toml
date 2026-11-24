@@ -16,6 +16,8 @@ hkdf = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
 rand = "0.8"
+# SO_REUSEADDR portable para multicast (varios procesos en el mismo grupo).
+socket2 = "0.5"
 
 # Optional: QUIC transport (RFC 9000)
 quinn = { version = "0.11", optional = true }
