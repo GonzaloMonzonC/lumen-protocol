@@ -42,7 +42,9 @@ es una mentira con forma de bandera.
 ^SYS("NET","role")         = "hub" | "store" | "edge"
 ^SYS("NET","discovery")    = "multicast" | "none" | "seeds"*
 ^SYS("NET","transport")    = "quic" | "shm"
-^SYS("NET","identity")     = "pin" | "none" | "pubkey"*
+^SYS("NET","identity")     = "pin" | "pubkey" | "none"
+^SYS("NET","clave_publica") = "<64 hex ed25519 del nodo>"   (si identity=pubkey)
+^SYS("NET","raiz_armador")  = "<64 hex ed25519 del armador>" (opcional)
 ^SYS("NET","storage")      = "lmdb" | "sqlite"
 ^SYS("NET","pin")          = "<sha256 hex del certificado del par>" (requerido si identity=pin)
 ^SYS("NET","sign")         = "none" | "hash-chain"
@@ -67,7 +69,7 @@ es una mentira con forma de bandera.
 | `transport=shm` | sí | `shm.rs` |
 | **`identity=pin`** | **sí** | `PinnedVerifier` + `pinned_client_config` en `quic.rs`; `lumen-znet/tests/pin_e2e.rs` verde (2/2) |
 | `identity=none` | sí | `SkipCertVerifier` — solo dev |
-| `identity=pubkey` | **no** | por hacer |
+| **`identity=pubkey`** | **sí** | `identidad.rs` (Ed25519) + `tests/flota_pki.rs` (6 tests: flota propia acepta, flota ajena rechaza, impostor rechazado) |
 | `sign=none` | sí | — |
 | `sign=hash-chain` | **sí** | `cadena.rs` + `tests/cadena_lmdb.rs` (borra la muestra 5 de 8 y la localiza, incluso tras reabrir el LMDB) |
 | `auth=macaroon` | sí (Python) | `tests_macaroon.py` 31/31 |
@@ -151,13 +153,57 @@ es incoherente. No avisa y sigue: no arranca.
 | `role` | `hub` | `store` | `edge` |
 | `discovery` | `multicast`* | `multicast`* | `seeds`* |
 | `transport` | `quic` | `quic` | `quic` |
-| `identity` | `pin` | `pin` | `pubkey`* |
+| `identity` | `pin` | `pin` | `pubkey` |
 | `sign` | `none` | `none` | `hash-chain` |
 | `auth` | `hmac` | `hmac` | `macaroon` |
 
-Los `*` marcan lo que hay que escribir. **Hoy arrancan: `identity=none` (dev),
-`identity=pin` y `sign=hash-chain`.** Al perfil del barco solo le falta
-`pubkey`.
+**Todos los valores de la tabla tienen código y test ejecutado.** Solo queda
+`discovery=seeds` sin implementar.
+
+---
+
+## `identity=pubkey` — autoría y flota
+
+Con `pin`, la confianza es un hash copiado a mano: sirve para PC↔NAS, no para
+una flota. Aquí **el nodo es su clave** (Ed25519) y hay una **raíz de armador**
+que firma las claves de sus barcos:
+
+```text
+  RAÍZ DEL ARMADOR (Ed25519)
+     └── firma ──▶ clave del BARCO
+                    └── firma ──▶ sus muestras
+```
+
+Un barco acepta a otro si su clave **cuelga de la raíz de su armador** — sin
+listas de hashes y sin autoridad remota.
+
+### Qué distingue esto de `sign=hash-chain`
+
+| | `sign=hash-chain` | `identity=pubkey` |
+|---|---|---|
+| prueba | que no falta ningún tramo | **quién** escribió |
+| prueba | que nadie alteró una muestra | de qué flota es |
+| **no** prueba | quién escribió | que el dato sea verdadero |
+
+**Las dos juntas sí son una bitácora defendible**: cadena + firma + flota.
+
+### Capas, no sustitutos
+
+`pin` verifica el certificado **del transporte** (TLS). `pubkey` verifica
+**autoría del dato**. No compiten: un nodo puede tener pin y pubkey a la vez.
+
+### Decisión: se rechaza por flota, no por firma
+
+Un barco de otra armadora puede presentar una firma **criptográficamente
+perfecta** y aun así se rechaza. Ese es el test que importa
+(`un_barco_de_otra_flota_se_rechaza_aunque_firme_bien`): para un armador, "la
+firma es buena" no basta; tiene que ser **de esta flota**.
+
+### Custodia de la raíz
+
+La semilla de la raíz es la llave de toda la flota. Si se filtra, hay que
+**reemitir todos los certificados**. El binario lo avisa al generarla
+(`--nueva-raiz`) y recomienda guardarla offline.
 
 ---
 
