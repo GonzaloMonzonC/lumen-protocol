@@ -75,70 +75,84 @@ escaneados + tests ejecutados.
 
 ## Afirmaciones de latencia — ⚠️ leer antes de publicar
 
+> ### 🔴 AVISO: las cifras absolutas de esta sección NO son publicables
+>
+> Todas las mediciones se hicieron en el **portátil de desarrollo (L13)**:
+> Intel i7-10510U, CPU al **91 % con otros procesos**, frecuencia bajada a
+> **1,73 GHz sobre una base de 2,30 GHz**, y **13,7 de 15,7 GB de RAM** ocupada.
+>
+> Consecuencia medida: **la misma medición, el mismo código, minutos después,
+> dio 1,70 µs donde antes daba 5,00 µs — 3× de diferencia.** Un portátil
+> cargado no puede producir una cifra de latencia publicable.
+>
+> **Para publicar hace falta una máquina dedicada, con el CPU libre y la
+> frecuencia fija.** Mientras tanto, esta sección sirve para comparar entre sí
+> (motor vs FFI) y para saber el orden de magnitud, **no para citar números**.
+
 Hay **dos bancos** y miden cosas distintas. Confundirlos es el error que hace que
 una especificación afirme algo que nadie midió.
 
 ### 1. Motor puro (Rust nativo) — `cargo test --release --test bench_nativo`
 
 Mide `Compiler::compile` y `Vm::run` **sin FFI, sin JSON, sin Python**. Es la
-cifra del motor. 20.000 iters, AMD64:
+cifra del motor.
 
-| Operación | p50 | p99 | p99.9 |
-|---|---|---|---|
-| compilar 1 línea | **5,00 µs** | 10,70 µs | 40,80 µs |
-| compilar 4 líneas | 9,70 µs | 29,70 µs | 174,40 µs |
-| ejecutar 1 asignación | **5,60 µs** | 14,00 µs | 49,20 µs |
-| aritmética | 8,20 µs | 17,90 µs | 56,60 µs |
-| `$ORDER` | 9,90 µs | 29,20 µs | 86,30 µs |
-| bucle 100 iteraciones | 465,90 µs | 1.028,80 µs | 3.282,70 µs |
+Órdenes de magnitud observados en el L13 (rango entre pasadas, no un valor):
+
+| Operación | p50 observado | Nota |
+|---|---|---|
+| compilar 1 línea | **1,7 – 5,0 µs** | varía 3× según carga de la máquina |
+| ejecutar 1 asignación | **2,8 – 5,6 µs** | idem |
+| `$ORDER` | 4 – 10 µs | idem |
+| bucle 100 iteraciones | 170 – 470 µs | idem |
 
 ### 2. Viaje completo (Python→FFI→motor) — `bench_latencia.py`
 
 Mide lo que ve un servicio que llama desde Python. Incluye la frontera, que es
 **el coste dominante**:
 
-| Operación | p50 | p99 | p99.9 |
-|---|---|---|---|
-| compilar 1 línea | 27,3 µs | 75,9 µs | 131,5 µs |
-| ejecutar 1 asignación | 103,0 µs | 388,4 µs | 559,8 µs |
-| bucle 100 iteraciones | 498,3 µs | 1.313,0 µs | 3.196,4 µs |
+| Operación | p50 observado | Nota |
+|---|---|---|
+| compilar 1 línea | 14 – 27 µs | rango entre pasadas |
+| ejecutar 1 asignación | 92 – 174 µs | idem |
+| bucle 100 iteraciones | 380 – 840 µs | idem |
 
-### La comparación que importa
+### La comparación que SÍ aguanta
+
+Aunque las cifras absolutas no valgan, **la relación entre ambas columnas sí**,
+porque ambas se midieron en la misma sesión y bajo la misma carga:
 
 | | motor nativo | vía Python | factor |
 |---|---|---|---|
-| compilar 1 línea | 5,00 µs | 27,3 µs | **5,5×** |
-| ejecutar 1 asignación | 5,60 µs | 103,0 µs | **18×** |
-| `$ORDER` | 9,90 µs | 178,3 µs | **18×** |
+| compilar 1 línea | ~1,7–5 µs | ~14–27 µs | **~6×** |
+| ejecutar 1 asignación | ~2,8–5,6 µs | ~92–174 µs | **~18×** |
+| `$ORDER` | ~4–10 µs | ~100–178 µs | **~18×** |
 
-**El motor es de 5 a 18 veces más rápido que la cifra que se venía citando.**
-El cuello de botella es la frontera con Python, no LUMEN. Un servicio escrito en
-Rust (o el binario `mvm-nas`) está en la columna izquierda; uno que llama por FFI
-está en la derecha.
-
-### ⚠️ Variabilidad medida — leer antes de citar una cifra
-
-- **Deriva térmica dentro de una pasada:** medido, `compile_1_linea` pasó de
-  14,4 µs con 200 iters a 32,0 µs con 20.000 — el doble sin cambiar código.
-  Ambos bancos lo detectan (dos mitades; si la 2ª es >20% más lenta, marcan `CALOR`
-  y reportan la 1ª).
-- **Variabilidad entre ejecuciones:** dos pasadas idénticas dieron
-  `ejecutar_1_set` 103 µs y 150 µs (±45 %).
-
-**Lo defendible** es el orden de magnitud sobre una máquina concreta:
-**µs de un dígito para compilar y ejecutar en nativo**, y cientos de µs cuando
-se pasa por FFI. Citar «5,00 µs» como verdad universal es tan frágil como citar
-«sub-microsegundos».
+**Conclusión defendible: el cuello de botella es la frontera con Python, no el
+motor.** Un servicio escrito en Rust está en la columna izquierda. Eso es una
+decisión de arquitectura, y no depende de que el portátil esté ocupado.
 
 **Lo que NO se puede afirmar:**
 
-- ❌ **«sub-microsegundos»** — ni el motor puro baja de 1 µs: el mínimo medido es
-  5,00 µs p50 y 40,80 µs p99.9. **Sigue siendo falso, incluso en el mejor caso.**
-- ❌ **«p99.99»** — no hay medición con esa profundidad. Lo máximo es p99.9.
-- ❌ **«jitter despreciable»** — el jitter (p99−p50) va de **9 µs en nativo a
-  2.709 µs por FFI**.
-- ✅ **«motor con latencia de microsegundos, medida con percentiles observados»** —
-  esto sí, y es un argumento sólido: **5 µs para ejecutar una sentencia**.
+- ❌ **«sub-microsegundos»** — falso en todo caso. El mínimo observado con la
+  máquina libre fue **1,70 µs** y eso es *compilar*, no ejecutar un ciclo. Ni
+  en el mejor escenario medido baja de 1 µs.
+- ❌ **«5 µs» o cualquier cifra exacta** — depende de la carga. Con el portátil
+  libre baja a 1,7; cargado sube a 5.
+- ❌ **«p99.99»** — no hay medición con esa profundidad de cola. Lo máximo es p99.9.
+- ❌ **«jitter despreciable»** — el jitter medido varía con la carga; en un
+  portátil ocupado llega a miles de µs.
+- ✅ **«el motor es ~18× más rápido que la frontera FFI»** — esto sí, medido
+  consistentemente en sesiones distintas.
+- ✅ **«latencia de microsegundos»** — orden de magnitud correcto, sin dar cifra.
+
+### Requisito para publicar una cifra
+
+1. Máquina dedicada, sin otros procesos.
+2. CPU a frecuencia fija (`powercfg` en Windows, `performance` governor en Linux).
+3. Temperatura estabilizada antes de medir.
+4. Repetir 3 pasadas y publicar el **rango**, no la mejor.
+5. Decir siempre CPU y frecuencia junto al número.
 
 ## Correcciones a documentos anteriores
 

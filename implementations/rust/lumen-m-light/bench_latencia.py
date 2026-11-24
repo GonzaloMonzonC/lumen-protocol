@@ -152,9 +152,21 @@ def main():
     print("máquina:    %s" % platform.machine())
     print("iters:      %d por caso" % args.iters)
     print()
+    # Carga de la máquina: en el portátil de desarrollo la MISMA medición dio
+    # 1,70 µs con el CPU libre y 5,00 µs al 91 % de carga. Sin este aviso, el
+    # que lea la cifra no sabe si mide el motor o el resto del sistema.
+    try:
+        carga = os.getloadavg()[0] if hasattr(os, "getloadavg") else None
+    except OSError:
+        carga = None
+    if carga is not None:
+        print("carga media del sistema: %.2f  %s" % (
+            carga, "«« ALTA, cifras no publicables »»" if carga > 2.0 else ""))
+    print()
     print("AVISO: estas cifras incluyen la frontera Python→FFI→motor→vuelta, que es")
     print("lo que ve un servicio real. El motor puro es más rápido; este banco mide")
     print("lo que se puede defender delante de un cliente.")
+    print("Si la máquina tiene otros procesos consumiendo CPU, las cifras NO valen.")
     print()
     hdr = "%-20s %9s %9s %9s %9s %9s %9s %7s" % (
         "caso", "p50 µs", "p95 µs", "p99 µs", "p99.9 µs", "jitter", "ops/s", "deriva")

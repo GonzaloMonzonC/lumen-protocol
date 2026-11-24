@@ -86,11 +86,25 @@ fn medir<F: FnMut()>(mut fn_: F, iters: usize) -> (f64, f64, f64, f64, f64) {
 fn bench_motor_nativo() {
     let iters: usize = 20_000;
 
+    // Aviso de carga: medir con el CPU ocupado por otros procesos da cifras
+    // que no valen. En el portatil de desarrollo (i7-10510U), la MISMA medicion
+    // dio 1,70 us con la maquina libre y 5,00 us con el CPU al 91%: 3x.
+    let hilos = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
     println!();
     println!("==================================================================");
     println!("BENCHMARK NATIVO — motor M-Light en Rust puro (sin FFI, sin JSON)");
     println!("==================================================================");
-    println!("iters={} por caso, warmup={}", iters, WARMUP);
+    println!("iters={} por caso, hilos logicos={}", iters, hilos);
+    println!();
+    println!("AVISO: si esta maquina tiene otros procesos consumiendo CPU, estas");
+    println!("cifras NO son publicables. Medido en este portatil: 1,70 us con el");
+    println!("CPU libre frente a 5,00 us al 91% de carga — 3x de diferencia.");
+    println!("Para publicar: maquina dedicada, frecuencia fija, 3 pasadas, y se");
+    println!("publica el RANGO, no la mejor.");
+    println!();
     println!("Cifras en MICROSEGUNDOS. p50/p95/p99/p99.9 sobre muestras reales.");
     println!();
     println!(
