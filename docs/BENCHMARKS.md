@@ -73,6 +73,60 @@ las conexiones que no tocan el pragma lo heredan automáticamente.
 | `$E("hello",3,7)` | 12.3 | Extract substring → "llo w" |
 | `$TR("hello","aeiou","-----")` | 24.4 | Character translation |
 
+## Native engine — sin frontier (added 2026-11-24)
+
+Las cifras de arriba incluyen ctypes + JSON + allocation (lo que ve Python). Esta
+tabla mide el **motor solo**: `Compiler::compile` y `Vm::run` en Rust puro, sin
+FFI ni serialización. Banco: `tests/bench_nativo.rs`
+(`cargo test --release --test bench_nativo -- --nocapture`).
+
+**Entorno: Lenovo L13, Intel i7-10510U (4C/8T, 1,80 GHz base), 15,7 GB RAM con
+13,3 GB ocupados.** 20.000 iteraciones por caso, **5 pasadas midiendo la CPU
+antes y después de cada una**. Se publica mediana y rango, no el mejor caso.
+
+| Operation | p50 mediana (µs) | rango entre pasadas (µs) |
+|-----------|-----------------:|-------------------------:|
+| compile (1 línea) | **3,6** | 2,0 – 4,9 |
+| compile (4 líneas) | 8,3 | 4,6 – 11,1 |
+| ejecutar 1 asignación | **4,6** | 3,4 – 7,6 |
+| aritmética | 2,3 | 2,2 – 5,0 |
+| `$ORDER` | 7,0 | 6,0 – 11,4 |
+| bucle 100 iteraciones | **268** | 203 – 469 |
+
+**La correlación con la carga es directa y sirve de control:**
+
+| pasada | CPU antes → después | compile 1 línea |
+|--------|--------------------|----------------:|
+| 5 | 13,6 % → 18,8 % | **2,0 µs** |
+| 1 | 19,5 % → 82,0 % | 2,3 µs |
+| 3 | 60,9 % → 81,1 % | 3,6 µs |
+| 2 | 95,7 % → 52,7 % | **4,9 µs** |
+
+### Motor nativo frente a frontera FFI
+
+Medido en la misma sesión, bajo la misma carga — por eso la **relación** es
+fiable aunque las cifras absolutas dependan de la máquina:
+
+| | nativo | vía Python | factor |
+|---|---:|---:|---:|
+| compile 1 línea | ~2–5 µs | ~14–27 µs | **~6×** |
+| ejecutar 1 asignación | ~3–6 µs | ~92–174 µs | **~18×** |
+| `$ORDER` | ~6–11 µs | ~100–178 µs | **~18×** |
+
+**El cuello de botella es la frontera con Python, no el motor.** Un servicio
+escrito en Rust está en la columna izquierda.
+
+### ⚠️ Cómo leer estas cifras
+
+- **Solo el L13 está medido.** Cualquier otra máquina es estimación.
+- **No se puede afirmar «sub-microsegundos»**: el mínimo medido es 2,0 µs y el
+  mínimo estimado en un Apple M2 Pro sería ~1,4 µs. Ningún escenario baja de 1 µs.
+- **No se puede afirmar «p99.99»**: la profundidad máxima medida es p99.9.
+- Para publicar una cifra de otra máquina: medirla allí, con frecuencia fija y
+  3–5 pasadas.
+
+Estado por afirmación, con lo que está y lo que no: [`ESTADO-REAL-POR-AFIRMACION.md`](ESTADO-REAL-POR-AFIRMACION.md).
+
 ## Script-level operations (milliseconds)
 
 | Operation | Time (ms) | Description |

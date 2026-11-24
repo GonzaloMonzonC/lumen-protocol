@@ -247,7 +247,7 @@ Because the web layer is written in the same M language, **agents can build thei
 
 **A neighbor that audits, not a system that replaces.** Because the MVM ships as a container, you can deploy it *next to* any existing system — the same pod, the same Kubernetes cluster — and its agents watch it continuously: record how it behaves, detect failures, talk to other agents or external systems (via `$DEVICE` HTTP/webhooks) to correlate problems, and leave logs with full traceability (who, when, what, in what order). One container adds constant auditing, maintenance alerts and an A2A bridge to whatever you already run — without touching a line of it.
 
-**Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · up to 58% less wire. [Benchmarks →](docs/BENCHMARKS.md)
+**Why this runs in a different latency division.** The routine above is ~10 lines / ~180 tokens; the same flow in Python or JavaScript is 30+ lines and ~550 tokens. The MVM is Rust compiled to native — no interpreter to load before the first line — and compiles to WASM at 22 KB (Python-in-browser is ~7 MB). Measured: **3.6 µs to compile a statement and 4.6 µs to run one** in the native engine (median of 5 passes, i7-10510U) · 15 μs/GET in PDB · 58K GET/s · 27K insert/s · 3,407 calls/s · 9× faster than Hermes built-ins · up to 58% less wire. **The FFI boundary, not the engine, is the bottleneck: calling from Python is ~18× slower than native** — so a Rust service sits in a different league from one that calls across the wire. [Benchmarks →](docs/BENCHMARKS.md) · [What is and isn't proven →](docs/ESTADO-REAL-POR-AFIRMACION.md)
 
 **Meet Astrid — the reference agent.** Everything above (routines as the system, M written by machines, the neighbor that audits) is not theory: Astrid is a real agent born in this MVM — her identity lives in `^PERSONALITY`, her routines in an [MIT repo of her own](https://github.com/GonzaloMonzonC/astrid) that depends on this one. She runs the loop **OBSERVAR → CONTRASTAR → PREGUNTAR → ACTUAR → REGISTRAR → EXPONER**, audits PDB globals and supervises MVM processes, and every phase leaves a public artifact — her repo is the tutorial. Clone her to build your agent. Sibling reference agents (other faculties) are planned.
 
@@ -282,6 +282,12 @@ See [HERMES_INTEGRATION.md](HERMES_INTEGRATION.md) for full guide.
 ---
 
 ## Status & Roadmap
+
+> **¿Qué está probado y qué no?** Este README dice lo que hay. Para el detalle
+> afirmación por afirmación —incluidas las que **no** están implementadas— ver
+> **[docs/ESTADO-REAL-POR-AFIRMACION.md](docs/ESTADO-REAL-POR-AFIRMACION.md)**:
+> cada capacidad con su evidencia (fichero, test ejecutado o medición), y marcado
+> lo que es diseño y lo que no existe.
 
 ### ✅ Built & Working
 
