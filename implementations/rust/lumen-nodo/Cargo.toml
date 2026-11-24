@@ -10,13 +10,19 @@ name = "lumen-nodo"
 path = "src/main.rs"
 
 [dependencies]
+# LMDB se activa en el nodo POR DEFECTO: es el motor con mmap directo, que es
+# la razón por la que un nodo puede sostener lecturas sin cargar la base en
+# RAM. El perfil elige motor (sqlite | lmdb); compilar sin `lmdb` deja el nodo
+# con sqlite como único motor disponible y lo dice al arrancar.
 lumen = { path = ".." }
+lumen-m-light = { path = "../lumen-m-light", default-features = false, features = ["sqlite", "lmdb"] }
 lumen-znet = { path = "../lumen-znet", features = ["quic"] }
-# Lectura de ^SYS("NET",...) de la PDB viva. Detrás de feature para que el
-# binario pueda compilarse sin sqlite (p.ej. para un nodo mínimo embebido).
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 
 [features]
-default = ["quic", "pdb"]
+default = ["quic", "pdb", "motor-lmdb"]
 quic = ["lumen/quic"]
+# Lectura de ^SYS("NET",...) de la PDB sqlite viva.
 pdb = ["dep:rusqlite"]
+# Motor LMDB disponible para el Perfil (^SYS("NET","storage")="lmdb").
+motor-lmdb = ["lumen-m-light/lmdb"]

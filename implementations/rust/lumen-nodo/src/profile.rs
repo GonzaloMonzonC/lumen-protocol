@@ -82,6 +82,20 @@ pub enum Sign {
     HashChain,
 }
 
+/// Motor de persistencia del nodo.
+///
+/// No es un detalle de implementación: cambia cómo se leen los datos y qué se
+/// puede sostener. `sqlite` carga la base en RAM al abrir; `lmdb` lee por mmap
+/// sin precarga, que es lo que permite a un nodo con la PDB grande arrancar en
+/// segundos. La elección se hace por perfil, no por build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Storage {
+    /// SQLite (`MemoryHost::from_sqlite`). Carga en RAM, persistencia por fila.
+    Sqlite,
+    /// LMDB (mmap directo, sin precarga) — `LmdbStore` + `MemoryHost::from_lmdb`.
+    Lmdb,
+}
+
 /// Autorización.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Auth {
@@ -103,6 +117,8 @@ pub struct Profile {
     pub identity: Identity,
     pub sign: Sign,
     pub auth: Auth,
+    /// Motor de persistencia: sqlite (carga en RAM) o lmdb (mmap directo).
+    pub storage: Storage,
     /// Huella SHA-256 (hex) del certificado del par, cuando `identity=pin`.
     pub pin: Option<String>,
     /// Dirección de escucha. `None` cuando el modo es `Offline`.
@@ -146,6 +162,7 @@ pub fn minimal_profile() -> Profile {
         identity: Identity::None,
         sign: Sign::None,
         auth: Auth::Hmac,
+        storage: Storage::Lmdb,
         pin: None,
         listen: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9443)),
     }
@@ -224,6 +241,15 @@ impl Profile {
         }
 
         // ── 3. Coherencia entre campos ────────────────────────────────
+        // El motor LMDB tiene que estar compilado dentro. Un `storage=lmdb`
+        // en un build sin la feature es exactamente la mentira que este ADR
+        // prohíbe: arrancaría y leería con sqlite sin decirlo.
+        if self.storage == Storage::Lmdb && !cfg!(feature = "motor-lmdb") {
+            return Err(ProfileError::NotImplemented {
+                field: "storage",
+                value: "lmdb (binario compilado sin la feature 'motor-lmdb')".into(),
+            });
+        }
         if self.mode == Mode::Offline && self.listen.is_some() {
             return Err(ProfileError::Incoherent(
                 "mode=offline no puede tener dirección de escucha".into(),
@@ -328,6 +354,13 @@ impl Profile {
                     other => return Err(unknown("auth", other)),
                 }
             }
+            "storage" => {
+                self.storage = match v.as_str() {
+                    "sqlite" => Storage::Sqlite,
+                    "lmdb" => Storage::Lmdb,
+                    other => return Err(unknown("storage", other)),
+                }
+            }
             "pin" => {
                 if v.is_empty() || v == "none" {
                     self.pin = None;
@@ -365,14 +398,15 @@ impl Profile {
     }
 
     /// Las claves que forman el perfil (para sembrar la PDB).
-    pub const FIELDS: [&'static str; 9] = [
-        "mode", "role", "discovery", "transport", "identity", "sign", "auth", "pin", "listen",
+    pub const FIELDS: [&'static str; 10] = [
+        "mode", "role", "discovery", "transport", "identity", "sign", "auth", "storage", "pin",
+        "listen",
     ];
 
     /// Render legible, para el arranque.
     pub fn describe(&self) -> String {
         format!(
-            "mode={:?} role={:?} discovery={:?} transport={:?} identity={:?} sign={:?} auth={:?} listen={}",
+            "mode={:?} role={:?} discovery={:?} transport={:?} identity={:?} sign={:?} auth={:?} storage={:?} listen={}",
             self.mode,
             self.role,
             self.discovery,
@@ -380,6 +414,7 @@ impl Profile {
             self.identity,
             self.sign,
             self.auth,
+            self.storage,
             self.listen
                 .map(|a| a.to_string())
                 .unwrap_or_else(|| "-".into())
@@ -494,6 +529,7 @@ mod tests {
             ("identity", "none"),
             ("sign", "none"),
             ("auth", "hmac"),
+            ("storage", "sqlite"),
             ("pin", "none"),
             ("listen", "127.0.0.1:9443"),
         ];
