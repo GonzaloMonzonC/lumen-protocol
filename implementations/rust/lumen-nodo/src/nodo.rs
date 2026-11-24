@@ -44,9 +44,10 @@ pub struct ResumenConexion {
 /// Deliberadamente secuencial: un nodo pequeño no necesita concurrencia para
 /// demostrar el camino, y la concurrencia mal hecha es cómo se pierde un frame
 /// sin enterarse. Se añadirá cuando haya volumen medido, no antes.
-pub fn atender<T: Transport, D: Destino>(
+pub fn atender<T: Transport, D: Destino + crate::cadena::EstadoCadena>(
     transporte: &mut T,
     destino: &mut D,
+    encadenar: bool,
     log: &mut dyn FnMut(&str),
 ) -> ResumenConexion {
     let mut resumen = ResumenConexion::default();
@@ -102,7 +103,7 @@ pub fn atender<T: Transport, D: Destino>(
             let payload = frame.payload.to_vec();
             buf.drain(..consumed);
 
-            let respuesta = procesar(tipo, &payload, destino, log);
+            let respuesta = procesar(tipo, &payload, destino, encadenar, log);
             resumen.frames_aplicados += 1;
 
             let (ft, fl, p) = ddp_to_frame(&respuesta);
@@ -119,10 +120,11 @@ pub fn atender<T: Transport, D: Destino>(
 }
 
 /// Decide qué hacer con un frame recibido y construye la respuesta DDP.
-pub fn procesar<D: Destino>(
+pub fn procesar<D: Destino + crate::cadena::EstadoCadena>(
     tipo: u8,
     payload: &[u8],
     destino: &mut D,
+    encadenar: bool,
     log: &mut dyn FnMut(&str),
 ) -> DdpMessage {
     // El frame LUMEN lleva su propio tipo; el DDP va dentro. Si no es DATA,
@@ -133,7 +135,7 @@ pub fn procesar<D: Destino>(
                 log(&format!("frame tipo 0x{:02x} ignorado (no es DATA)", tipo));
                 return DdpMessage::new(msg_type::EMPTY, msg.num1, msg.num2, 0, Vec::new());
             }
-            match aplicar_payload(&msg.body, destino, log) {
+            match aplicar_payload_con(&msg.body, destino, encadenar, log) {
                 Ok(a) => {
                     log(&format!(
                         "aplicado ^{}({})=<{} bytes>",
@@ -160,21 +162,41 @@ pub fn procesar<D: Destino>(
 }
 
 /// Parsea y aplica la carga. Un solo sitio donde se decide qué es aceptable.
-pub fn aplicar_payload<D: Destino>(
+pub fn aplicar_payload<D: Destino + crate::cadena::EstadoCadena>(
     payload: &[u8],
     destino: &mut D,
     log: &mut dyn FnMut(&str),
 ) -> Result<Aplicado, ErrorAplicar> {
+    aplicar_payload_con(payload, destino, false, log)
+}
+
+/// Igual que `aplicar_payload`, con el encadenado explícito.
+///
+/// `encadenar=true` (perfil con `sign=hash-chain`) firma la muestra: en vez de
+/// guardar el valor crudo, guarda `valor|prev|hash`.
+pub fn aplicar_payload_con<D: Destino + crate::cadena::EstadoCadena>(
+    payload: &[u8],
+    destino: &mut D,
+    encadenar: bool,
+    log: &mut dyn FnMut(&str),
+) -> Result<Aplicado, ErrorAplicar> {
     let w = parsear_set(payload)?;
-    if w.ns.eq_ignore_ascii_case("CONFIG") || w.ns.eq_ignore_ascii_case("SYSINFO") {
-        // Un par no cambia la configuración del nodo por la red. Es la misma
-        // protección que `remote_mount()` aplica en el host.
+    if w.ns.eq_ignore_ascii_case("CONFIG")
+        || w.ns.eq_ignore_ascii_case("SYSINFO")
+        || w.ns.eq_ignore_ascii_case(crate::cadena::NS_CADENA)
+    {
+        // Un par no cambia la configuración del nodo por la red, ni el estado
+        // de las cadenas (si pudiera, podría falsear el "último hash" y
+        // reescribir el pasado de una serie).
         return Err(ErrorAplicar::NsInvalido(format!(
             "^{} no se acepta por red",
             w.ns
         )));
     }
     log(&format!("escritura ^{}({})", w.ns, w.subs.join(",")));
+    if encadenar {
+        return crate::cadena::aplicar_encadenado_destino(destino, &w, log);
+    }
     aplicar(destino, &w)
 }
 
@@ -259,7 +281,7 @@ mod tests {
         };
         let mut d = DestinoMemoria::default();
         let mut logs = Vec::new();
-        let r = atender(&mut t, &mut d, &mut |s| logs.push(s.to_string()));
+        let r = atender(&mut t, &mut d, false, &mut |s| logs.push(s.to_string()));
 
         assert_eq!(r.frames_aplicados, 1);
         assert_eq!(r.frames_fallidos, 0);
@@ -287,7 +309,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, &mut |_| {});
         assert_eq!(r.frames_aplicados, 2);
         assert_eq!(d.escrituras.len(), 2);
         assert_eq!(d.escrituras[0].0, "A");
@@ -302,7 +324,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, &mut |_| {});
         assert_eq!(r.frames_aplicados, 1);
         assert!(d.escrituras.is_empty(), "no debe escribir nada");
         let ParseResult::Complete { frame, .. } = frame::parse(&t.salida) else {
@@ -357,7 +379,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, &mut |_| {});
         assert_eq!(r.frames_aplicados, 0, "un frame truncado NO se aplica");
         assert!(d.escrituras.is_empty());
         assert_eq!(r.cierre, "par cerro");
@@ -376,7 +398,7 @@ mod tests {
             salida: Vec::new(),
         };
         let mut d = DestinoMemoria::default();
-        let r = atender(&mut t, &mut d, &mut |_| {});
+        let r = atender(&mut t, &mut d, false, &mut |_| {});
         assert!(d.escrituras.is_empty());
         assert_eq!(r.frames_aplicados, 0, "no debe contar frames inexistentes");
         assert!(

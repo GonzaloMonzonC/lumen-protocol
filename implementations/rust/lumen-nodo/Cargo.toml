@@ -5,6 +5,10 @@ edition = "2021"
 description = "Nodo LUMEN — un binario, varias filas (perfil en PDB)"
 license = "MIT"
 
+[lib]
+name = "lumen_nodo_lib"
+path = "src/lib.rs"
+
 [[bin]]
 name = "lumen-nodo"
 path = "src/main.rs"
@@ -18,6 +22,8 @@ lumen = { path = ".." }
 lumen-m-light = { path = "../lumen-m-light", default-features = false, features = ["sqlite", "lmdb"] }
 lumen-znet = { path = "../lumen-znet", features = ["quic"] }
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+# Hash de la cadena de muestras (sign=hash-chain).
+sha2 = "0.10"
 
 [features]
 default = ["quic", "pdb", "motor-lmdb"]

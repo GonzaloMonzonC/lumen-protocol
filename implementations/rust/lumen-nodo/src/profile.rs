@@ -78,7 +78,13 @@ pub enum Identity {
 pub enum Sign {
     /// Nada.
     None,
-    /// Cada muestra encadena el hash de la anterior. **NO IMPLEMENTADO**.
+    /// Cada muestra encadena el hash de la anterior, y cada 100 muestras se
+    /// sella el bloque. Implementado en `cadena.rs` (cálculo y verificador) y
+    /// `encadenar.rs` (escritura en el nodo).
+    ///
+    /// ⚠️ Integridad NO es autoría: la cadena prueba que no falta ningún tramo
+    /// y que nadie alteró una muestra, pero **no dice quién** las escribió.
+    /// Para eso hace falta `identity=pin` (o `pubkey`, que no existe aún).
     HashChain,
 }
 
@@ -261,10 +267,9 @@ impl Profile {
             Identity::None => {}
         }
         if self.sign == Sign::HashChain {
-            return Err(ProfileError::NotImplemented {
-                field: "sign",
-                value: "hash-chain".into(),
-            });
+            // La cadena vive en ^CADENA; aceptarla por red no tendría sentido
+            // y además el propio namespace de estado está protegido.
+            // Implementado en `cadena.rs` + `encadenar.rs` con verificador.
         }
 
         // ── 2. La seguridad manda sobre la configuración ──────────────
@@ -577,10 +582,27 @@ mod tests {
     }
 
     #[test]
-    fn hash_chain_no_implementado_no_arranca() {
+    fn hash_chain_arranca() {
         let mut p = minimal_profile();
         p.sign = Sign::HashChain;
-        assert!(p.validate().is_err());
+        assert!(
+            p.validate().is_ok(),
+            "hash-chain esta implementado (cadena.rs) y debe arrancar"
+        );
+    }
+
+    #[test]
+    fn hash_chain_avisa_de_que_solo_firma_no_identifica() {
+        let mut p = minimal_profile();
+        p.sign = Sign::HashChain;
+        p.identity = Identity::None;
+        let avisos = p.warnings();
+        // Con hash-chain pero sin pin, la cadena es integridad, no autoria:
+        // hay que decirlo, porque "firmado" se lee como "alguien responde".
+        assert!(
+            avisos.iter().any(|a| a.contains("CUALQUIER certificado")),
+            "debe seguir avisando de identity=none: {avisos:?}"
+        );
     }
 
     #[test]

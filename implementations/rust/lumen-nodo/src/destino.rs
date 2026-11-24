@@ -24,6 +24,8 @@ pub struct Aplicado {
     pub subs: Vec<String>,
     /// Bytes del valor escrito (para poder reportar cuánto entró de verdad).
     pub bytes: usize,
+    /// Hash de la muestra si la cadena está activa (`sign=hash-chain`).
+    pub hash: Option<String>,
 }
 
 /// Aplica una escritura al destino. No hay atajos: si el `set` falla, falla.
@@ -38,14 +40,40 @@ pub fn aplicar<D: Destino>(destino: &mut D, w: &Escritura) -> Result<Aplicado, E
         ns: w.ns.clone(),
         subs: w.subs.clone(),
         bytes: w.valor.len(),
+        hash: None,
     })
 }
 
 /// Destino en memoria, para tests y para nodos sin persistencia.
+///
+/// Lleva también el estado de la cadena (`EstadoCadena`), de modo que sirve
+/// tanto para el camino simple como para `sign=hash-chain`. Un destino real
+/// (`DestinoMvm`) hace lo propio leyendo/escribiendo en `^CADENA`.
 #[derive(Debug, Default)]
 pub struct DestinoMemoria {
     pub escrituras: Vec<(String, Vec<String>, String)>,
     pub solo_lectura: bool,
+    pub cadenas: std::collections::HashMap<String, (u64, String)>,
+}
+
+fn clave_serie(serie: &crate::cadena::Serie) -> String {
+    format!("{}::{}", serie.ns, serie.etiqueta())
+}
+
+impl crate::cadena::EstadoCadena for DestinoMemoria {
+    fn ultima(&self, serie: &crate::cadena::Serie) -> Option<u64> {
+        self.cadenas.get(&clave_serie(serie)).map(|(n, _)| *n)
+    }
+    fn hash_ultimo(&self, serie: &crate::cadena::Serie) -> Option<String> {
+        self.cadenas
+            .get(&clave_serie(serie))
+            .map(|(_, h)| h.clone())
+    }
+    fn guardar(&mut self, serie: &crate::cadena::Serie, numero: u64, hash: &str) -> Result<(), String> {
+        self.cadenas
+            .insert(clave_serie(serie), (numero, hash.to_string()));
+        Ok(())
+    }
 }
 
 impl Destino for DestinoMemoria {

@@ -125,6 +125,40 @@ impl Destino for DestinoMvm {
     }
 }
 
+impl crate::cadena::EstadoCadena for DestinoMvm {
+    fn ultima(&self, serie: &crate::cadena::Serie) -> Option<u64> {
+        let subs = vec![
+            serie.ns.clone(),
+            serie.clave.join("/"),
+            "ultima".to_string(),
+        ];
+        self.leer(crate::cadena::NS_CADENA, &subs)?
+            .parse::<u64>()
+            .ok()
+    }
+
+    fn hash_ultimo(&self, serie: &crate::cadena::Serie) -> Option<String> {
+        let subs = vec![serie.ns.clone(), serie.clave.join("/"), "hash".to_string()];
+        self.leer(crate::cadena::NS_CADENA, &subs)
+    }
+
+    fn guardar(
+        &mut self,
+        serie: &crate::cadena::Serie,
+        numero: u64,
+        hash: &str,
+    ) -> Result<(), String> {
+        let base = vec![serie.ns.clone(), serie.clave.join("/")];
+        let mut s_ultima = base.clone();
+        s_ultima.push("ultima".to_string());
+        let mut s_hash = base;
+        s_hash.push("hash".to_string());
+        self.set(crate::cadena::NS_CADENA, &s_ultima, &numero.to_string())?;
+        self.set(crate::cadena::NS_CADENA, &s_hash, hash)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
