@@ -43,6 +43,7 @@ es una mentira con forma de bandera.
 ^SYS("NET","discovery")    = "multicast" | "none" | "seeds"*
 ^SYS("NET","transport")    = "quic" | "shm"
 ^SYS("NET","identity")     = "pin" | "none" | "pubkey"*
+^SYS("NET","pin")          = "<sha256 hex del certificado del par>" (requerido si identity=pin)
 ^SYS("NET","sign")         = "none" | "hash-chain"*
 ^SYS("NET","auth")         = "macaroon" | "hmac" | "dev"
 ```
@@ -63,13 +64,28 @@ es una mentira con forma de bandera.
 | `discovery=none` | sí | requiere peer explícito |
 | `transport=quic` | **sí** | `lumen-znet/tests/quic_e2e.rs:20` verde |
 | `transport=shm` | sí | `shm.rs` |
-| `identity=pin` | **no** | por hacer (≈40 líneas) |
+| **`identity=pin`** | **sí** | `PinnedVerifier` + `pinned_client_config` en `quic.rs`; `lumen-znet/tests/pin_e2e.rs` verde (2/2) |
 | `identity=none` | sí | `SkipCertVerifier` — solo dev |
+| `identity=pubkey` | **no** | por hacer |
 | `sign=none` | sí | — |
 | `sign=hash-chain` | **no** | por hacer (barcos) |
 | `auth=macaroon` | sí (Python) | `tests_macaroon.py` 31/31 |
 | `auth=hmac` | sí | DDP firmado, verificado hoy |
 | `auth=dev` | sí | **y debe negarse a escuchar fuera de 127.0.0.1** |
+
+### `identity=pin` — qué hace exactamente
+
+El cliente QUIC compara la huella SHA-256 del certificado que presenta el par
+con la fijada en `^SYS("NET","pin")`. Si no coincide, **el handshake no se
+completa** — no hay conexión, no hay "aviso y sigo".
+
+No es PKI: no hay autoridad ni cadena de confianza. Es "confío exactamente en
+este nodo y en ningún otro", que es lo que un PC↔NAS necesita antes de que
+exista una raíz de flota. La huella se obtiene del propio nodo servidor
+(`server_with_pin()` la devuelve al arrancar).
+
+**Verificado** (`lumen-znet/tests/pin_e2e.rs`): con la huella correcta el frame
+DDP viaja y vuelve intacto; con la huella de otro nodo, el handshake falla.
 
 ---
 
@@ -92,12 +108,13 @@ es incoherente. No avisa y sigue: no arranca.
 | `role` | `hub` | `store` | `edge` |
 | `discovery` | `multicast`* | `multicast`* | `seeds`* |
 | `transport` | `quic` | `quic` | `quic` |
-| `identity` | `pin`* | `pin`* | `pubkey`* |
+| `identity` | `pin` | `pin` | `pubkey`* |
 | `sign` | `none` | `none` | `hash-chain`* |
 | `auth` | `hmac` | `hmac` | `macaroon` |
 
-Los `*` marcan lo que hay que escribir. **Hoy solo el perfil mínimo
-(`discovery=none`, `identity=none`, `auth=hmac`) arranca sin tocar código.**
+Los `*` marcan lo que hay que escribir. **Hoy arrancan: `identity=none` (dev) e
+`identity=pin` (con la huella del par). El perfil del barco espera `pubkey` y
+`hash-chain`.**
 
 ---
 

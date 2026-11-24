@@ -131,6 +131,196 @@ pub fn default_client_config() -> io::Result<ClientConfig> {
     Ok(client)
 }
 
+// ── Pinned verifier (identity=pin) ────────────────────────────────────
+//
+// En vez de aceptar cualquier certificado, el cliente compara la huella
+// SHA-256 del certificado del servidor con la que el operador fijó en
+// `^SYS("PEER",<host>,"pin")`. Si no coincide, la conexión NO se establece.
+//
+// Esto no es PKI: no hay autoridad, no hay cadena. Es "confío exactamente en
+// este nodo y en ningún otro", que es lo que un PC↔NAS o un armador necesita
+// antes de que exista una raíz de flota.
+
+/// Verificador que exige que el certificado del par tenga una huella concreta.
+#[derive(Debug)]
+pub struct PinnedVerifier {
+    /// Huella SHA-256 esperada, 32 bytes (hex de 64 chars al leerla de la PDB).
+    huella: [u8; 32],
+}
+
+impl PinnedVerifier {
+    /// Crea el verificador desde una huella en hex (con o sin ':' de separación).
+    pub fn from_hex(hex_huella: &str) -> Result<Self, String> {
+        let limpio: String = hex_huella
+            .chars()
+            .filter(|c| c.is_ascii_hexdigit())
+            .collect::<String>()
+            .to_lowercase();
+        if limpio.len() != 64 {
+            return Err(format!(
+                "huella pin debe tener 64 hex chars (sha256), tiene {}",
+                limpio.len()
+            ));
+        }
+        let mut huella = [0u8; 32];
+        for i in 0..32 {
+            huella[i] = u8::from_str_radix(&limpio[i * 2..i * 2 + 2], 16)
+                .map_err(|e| format!("hex invalido en byte {i}: {e}"))?;
+        }
+        Ok(Self { huella })
+    }
+
+    /// Huella esperada en hex minúsculas (para logs y para comparar en tests).
+    pub fn huella_hex(&self) -> String {
+        self.huella.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Comprueba un certificado DER contra la huella fijada.
+    fn coincide(&self, cert_der: &[u8]) -> bool {
+        let calculada = <sha2::Sha256 as sha2::Digest>::digest(cert_der);
+        // Comparación en tiempo constante: no filtrar por dónde difiere.
+        let mut dif = 0u8;
+        for (a, b) in calculada.iter().zip(self.huella.iter()) {
+            dif |= a ^ b;
+        }
+        dif == 0
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for PinnedVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer,
+        _intermediates: &[rustls::pki_types::CertificateDer],
+        _server_name: &rustls::pki_types::ServerName,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        if self.coincide(end_entity.as_ref()) {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General(format!(
+                "certificado del par NO coincide con el pin (esperado {})",
+                self.huella_hex()
+            )))
+        }
+    }
+
+    // El pin es sobre el certificado, no sobre la firma. Las firmas del
+    // handshake se validan con los esquemas estándar.
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// Config de cliente que verifica el certificado contra un pin.
+///
+/// A diferencia de `default_client_config()`, aquí un certificado distinto
+/// hace fallar el handshake. Es el camino que debe usarse cuando
+/// `identity=pin` (ADR-002).
+pub fn pinned_client_config(huella_hex: &str) -> io::Result<ClientConfig> {
+    let verifier = PinnedVerifier::from_hex(huella_hex)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    let mut crypto = rustls::ClientConfig::builder()
+        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_no_client_auth();
+    crypto
+        .dangerous()
+        .set_certificate_verifier(Arc::new(verifier));
+    crypto.alpn_protocols = vec![b"lumen/1.0".to_vec()];
+    let quic_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(Arc::new(crypto))
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC TLS config: {e}")))?;
+    let mut client = ClientConfig::new(Arc::new(quic_crypto));
+    let mut transport = TransportConfig::default();
+    transport.max_concurrent_bidi_streams(1024u32.into());
+    transport.max_concurrent_uni_streams(1024u32.into());
+    client.transport_config(Arc::new(transport));
+    Ok(client)
+}
+
+/// Servidor que expone el certificado que usa, para poder fijar su huella.
+///
+/// Devuelve `(QuicEndpoint, huella_hex)`: el operador fija en
+/// `^SYS("PEER",<host>,"pin")` el valor de `huella_hex` y a partir de ahí el
+/// cliente con `pinned_client_config` solo acepta ESE certificado.
+pub fn server_with_pin(addr: &str) -> io::Result<(QuicEndpoint, String)> {
+    let (cert, key) = generate_self_signed_cert(&["lumen.local".to_string()])?;
+    let huella: String = <sha2::Sha256 as sha2::Digest>::digest(cert.as_ref())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("lumen-quic-server")
+            .enable_all()
+            .build()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("tokio runtime: {e}")))?,
+    );
+    let _guard = runtime.enter();
+
+    let mut crypto = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("TLS config: {e}")))?;
+    crypto.alpn_protocols = vec![b"lumen/1.0".to_vec()];
+    let quic_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(Arc::new(crypto))
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC TLS config: {e}")))?;
+    let mut server_config = ServerConfig::with_crypto(Arc::new(quic_crypto));
+    let mut transport = TransportConfig::default();
+    transport.max_concurrent_bidi_streams(1024u32.into());
+    transport.max_concurrent_uni_streams(1024u32.into());
+    server_config.transport_config(Arc::new(transport));
+
+    let socket_addr: SocketAddr = addr
+        .parse()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("addr {addr}: {e}")))?;
+    let socket = std::net::UdpSocket::bind(socket_addr)
+        .map_err(|e| io::Error::new(io::ErrorKind::AddrInUse, format!("UDP bind: {e}")))?;
+    let endpoint = runtime.block_on(async {
+        Endpoint::new(
+            Default::default(),
+            Some(server_config),
+            socket,
+            Arc::new(quinn::TokioRuntime),
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("QUIC endpoint: {e}")))
+    })?;
+
+    Ok((QuicEndpoint { endpoint, runtime }, huella))
+}
+
 pub struct QuicEndpoint {
     endpoint: Endpoint,
     runtime: Arc<Runtime>,
@@ -171,6 +361,13 @@ impl QuicEndpoint {
     }
 
     pub fn client() -> io::Result<Self> {
+        Self::client_with_config(None)
+    }
+
+    /// Cliente QUIC con una configuración TLS concreta (p.ej. `pinned_client_config`
+    /// para `identity=pin`). Con `None` usa la config por defecto, que **no
+    /// verifica certificados** y solo sirve para desarrollo.
+    pub fn client_with_config(config: Option<ClientConfig>) -> io::Result<Self> {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -181,7 +378,10 @@ impl QuicEndpoint {
         );
 
         let _guard = runtime.enter();
-        let client_config = default_client_config()?;
+        let client_config = match config {
+            Some(c) => c,
+            None => default_client_config()?,
+        };
         let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
         let socket = std::net::UdpSocket::bind(socket_addr)
             .map_err(|e| io::Error::new(io::ErrorKind::AddrInUse, format!("UDP bind: {e}")))?;
@@ -668,5 +868,123 @@ mod tests {
             }
             assert!(server_recv.read(&mut buf).await.unwrap().is_none());
         });
+    }
+}
+
+// ── Tests del pin (identity=pin, ADR-002) ─────────────────────────────
+#[cfg(all(test, feature = "quic"))]
+mod tests_pin {
+    use super::*;
+    use crate::transport::Transport;
+
+    #[test]
+    fn huella_hex_valida() {
+        let hex = "a".repeat(64);
+        let v = PinnedVerifier::from_hex(&hex).expect("64 hex debe valer");
+        assert_eq!(v.huella_hex(), hex);
+    }
+
+    #[test]
+    fn huella_con_dos_puntos_y_mayusculas_vale() {
+        let hex = "AB".repeat(32);
+        let v = PinnedVerifier::from_hex(&hex).expect("debe normalizar");
+        assert_eq!(v.huella_hex(), "ab".repeat(32));
+    }
+
+    #[test]
+    fn huella_corta_se_rechaza() {
+        assert!(PinnedVerifier::from_hex("abcdef").is_err());
+        assert!(PinnedVerifier::from_hex("").is_err());
+    }
+
+    #[test]
+    fn huella_no_hexadecimal_se_rechaza() {
+        // 64 chars pero con basura que no es hex.
+        let malo = "z".repeat(64);
+        assert!(PinnedVerifier::from_hex(&malo).is_err());
+    }
+
+    #[test]
+    fn un_certificado_distinto_no_coincide() {
+        // Certificado A genera una huella; el verificador con esa huella
+        // acepta A y rechaza cualquier otro certificado.
+        let (cert_a, _key_a) = generate_self_signed_cert(&["lumen.local".to_string()]).unwrap();
+        let (cert_b, _key_b) = generate_self_signed_cert(&["lumen.local".to_string()]).unwrap();
+        let huella_a: String = <sha2::Sha256 as sha2::Digest>::digest(cert_a.as_ref())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+
+        let v = PinnedVerifier::from_hex(&huella_a).unwrap();
+        assert!(v.coincide(cert_a.as_ref()), "el certificado fijado debe pasar");
+        assert!(
+            !v.coincide(cert_b.as_ref()),
+            "un certificado distinto NO debe pasar el pin"
+        );
+    }
+
+    #[test]
+    fn pinned_client_config_rechaza_huella_invalida() {
+        assert!(pinned_client_config("no-es-hex").is_err());
+        assert!(pinned_client_config(&"a".repeat(64)).is_ok());
+    }
+
+    /// El test que importa: handshake REAL con pin correcto completa, y con
+    /// pin equivocado NO completa. Sin esto, el pin sería una función que
+    /// nadie llama.
+    #[test]
+    fn handshake_con_pin_correcto_funciona_y_con_pin_erroneo_falla() {
+        let (mut servidor, huella) = server_with_pin("127.0.0.1:0").expect("servidor con pin");
+        let addr = servidor.local_addr().unwrap().to_string();
+
+        // ── Caso 1: pin correcto -> debe conectar ────────────────────
+        let hilo_ok = std::thread::spawn(move || -> Result<(), String> {
+            let mut t = servidor.accept().map_err(|e| format!("accept: {e}"))?;
+            t.write_all(b"hola").map_err(|e| format!("write: {e}"))?;
+            t.flush().map_err(|e| format!("flush: {e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(())
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let cfg = pinned_client_config(&huella).expect("config con huella buena");
+        let cliente_ok = std::thread::spawn({
+            let addr = addr.clone();
+            move || -> bool {
+                let mut ep = match QuicEndpoint::client() {
+                    Ok(e) => e,
+                    Err(_) => return false,
+                };
+                // Sustituimos la config por defecto por la del pin.
+                ep.endpoint.set_default_client_config(cfg);
+                ep.connect(&addr).is_ok()
+            }
+        });
+
+        let conecto_bien = cliente_ok.join().unwrap();
+        let _ = hilo_ok.join();
+        assert!(conecto_bien, "con el pin correcto la conexión debe completarse");
+
+        // ── Caso 2: pin equivocado -> NO debe conectar ───────────────
+        let (mut servidor2, _huella2) = server_with_pin("127.0.0.1:0").expect("servidor 2");
+        let addr2 = servidor2.local_addr().unwrap().to_string();
+        let hilo2 = std::thread::spawn(move || {
+            // Si el pin funciona, accept() nunca devuelve nada; el hilo muere
+            // con el endpoint. No assertamos aquí: la prueba es el cliente.
+            let _ = servidor2.accept();
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let huella_mala = "0".repeat(64);
+        let cfg_malo = pinned_client_config(&huella_mala).expect("config con huella mala");
+        let mut ep2 = QuicEndpoint::client().unwrap();
+        ep2.endpoint.set_default_client_config(cfg_malo);
+        let resultado = ep2.connect(&addr2);
+        assert!(
+            resultado.is_err(),
+            "con un pin QUE NO ES el del servidor, el handshake debe fallar"
+        );
+        drop(ep2);
+        let _ = hilo2.join();
     }
 }

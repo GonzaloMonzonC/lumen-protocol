@@ -8,6 +8,15 @@
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+/// Longitud en hex de una huella SHA-256.
+pub const PIN_HEX_LEN: usize = 64;
+
+/// ¿Es una huella SHA-256 en hex (admite ':' como separador)?
+pub fn pin_valido(pin: &str) -> bool {
+    let limpio: String = pin.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    limpio.len() == PIN_HEX_LEN
+}
+
 /// Modo de red del nodo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -54,7 +63,9 @@ pub enum Transport {
 /// Identidad del par.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Identity {
-    /// Certificado fijado por huella SHA-256. **NO IMPLEMENTADO** (≈40 líneas).
+    /// Certificado fijado por huella SHA-256. Implementado en `quic.rs`:
+    /// `PinnedVerifier` + `pinned_client_config`. Un certificado distinto
+    /// hace fallar el handshake (test `handshake_con_pin_correcto_...`).
     Pin,
     /// Sin verificación. `SkipCertVerifier` — **solo desarrollo**.
     None,
@@ -92,6 +103,8 @@ pub struct Profile {
     pub identity: Identity,
     pub sign: Sign,
     pub auth: Auth,
+    /// Huella SHA-256 (hex) del certificado del par, cuando `identity=pin`.
+    pub pin: Option<String>,
     /// Dirección de escucha. `None` cuando el modo es `Offline`.
     pub listen: Option<SocketAddr>,
 }
@@ -133,6 +146,7 @@ pub fn minimal_profile() -> Profile {
         identity: Identity::None,
         sign: Sign::None,
         auth: Auth::Hmac,
+        pin: None,
         listen: Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 9443)),
     }
 }
@@ -162,17 +176,28 @@ impl Profile {
             Discovery::None => {}
         }
         match self.identity {
-            Identity::Pin => {
-                return Err(ProfileError::NotImplemented {
-                    field: "identity",
-                    value: "pin".into(),
-                })
-            }
             Identity::Pubkey => {
                 return Err(ProfileError::NotImplemented {
                     field: "identity",
                     value: "pubkey".into(),
                 })
+            }
+            // `pin` SÍ está implementado (quic.rs: PinnedVerifier + pruebas de
+            // handshake real). Pero exige una huella configurada: sin ella el
+            // nodo no sabría contra qué comparar y aceptaría a ciegas.
+            Identity::Pin => {
+                if self.pin.as_deref().unwrap_or("").trim().is_empty() {
+                    return Err(ProfileError::Incoherent(
+                        "identity=pin requiere un pin (sha256 hex del certificado del par); \
+                         sin pin no hay nada que verificar"
+                            .into(),
+                    ));
+                }
+                if !pin_valido(self.pin.as_deref().unwrap_or("")) {
+                    return Err(ProfileError::Incoherent(format!(
+                        "pin mal formado: se esperan {PIN_HEX_LEN} caracteres hex (sha256)"
+                    )));
+                }
             }
             Identity::None => {}
         }
@@ -303,6 +328,22 @@ impl Profile {
                     other => return Err(unknown("auth", other)),
                 }
             }
+            "pin" => {
+                if v.is_empty() || v == "none" {
+                    self.pin = None;
+                } else {
+                    // El formato se comprueba AQUÍ, no solo en validate():
+                    // un pin mal escrito debe fallar al asignarse, no tres
+                    // capas después.
+                    if !pin_valido(&v) {
+                        return Err(ProfileError::Unknown {
+                            field: "pin",
+                            value: format!("{v} (se esperan {PIN_HEX_LEN} hex de sha256)"),
+                        });
+                    }
+                    self.pin = Some(v);
+                }
+            }
             "listen" => {
                 self.listen = if v.is_empty() || v == "none" {
                     None
@@ -324,8 +365,8 @@ impl Profile {
     }
 
     /// Las claves que forman el perfil (para sembrar la PDB).
-    pub const FIELDS: [&'static str; 8] = [
-        "mode", "role", "discovery", "transport", "identity", "sign", "auth", "listen",
+    pub const FIELDS: [&'static str; 9] = [
+        "mode", "role", "discovery", "transport", "identity", "sign", "auth", "pin", "listen",
     ];
 
     /// Render legible, para el arranque.
@@ -371,11 +412,37 @@ mod tests {
     }
 
     #[test]
-    fn pin_no_implementado_no_arranca() {
+    fn pin_sin_huella_no_arranca() {
         let mut p = minimal_profile();
         p.identity = Identity::Pin;
+        // Sin pin: incoherente, no puede verificar nada.
         let e = p.validate().unwrap_err();
-        assert!(matches!(e, ProfileError::NotImplemented { field: "identity", .. }));
+        assert!(matches!(e, ProfileError::Incoherent(_)));
+    }
+
+    #[test]
+    fn pin_mal_formado_no_arranca() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pin;
+        p.pin = Some("abcdef".into());
+        let e = p.validate().unwrap_err();
+        assert!(matches!(e, ProfileError::Incoherent(_)));
+    }
+
+    #[test]
+    fn pin_valido_arranca() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pin;
+        p.pin = Some("a".repeat(64));
+        assert!(p.validate().is_ok(), "pin con 64 hex debe validar");
+    }
+
+    #[test]
+    fn pin_con_dos_puntos_arranca() {
+        let mut p = minimal_profile();
+        p.identity = Identity::Pin;
+        p.pin = Some("ab:cd".repeat(16)); // 64 hex + separadores
+        assert!(p.validate().is_ok());
     }
 
     #[test]
@@ -427,6 +494,7 @@ mod tests {
             ("identity", "none"),
             ("sign", "none"),
             ("auth", "hmac"),
+            ("pin", "none"),
             ("listen", "127.0.0.1:9443"),
         ];
         for (k, v) in casos {
