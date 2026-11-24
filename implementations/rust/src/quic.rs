@@ -424,6 +424,7 @@ impl QuicEndpoint {
                         runtime_handle: self.runtime.handle().clone(),
                         read_buffer: Vec::new(),
                         read_pos: 0,
+                        read_len: 0,
                     })
                 }
                 None => Err(io::Error::new(
@@ -474,6 +475,7 @@ impl QuicEndpoint {
                 runtime_handle: self.runtime.handle().clone(),
                 read_buffer: Vec::new(),
                 read_pos: 0,
+                read_len: 0,
             })
         })
     }
@@ -502,6 +504,16 @@ pub struct QuicTransport {
     runtime_handle: tokio::runtime::Handle,
     read_buffer: Vec<u8>,
     read_pos: usize,
+    /// Cuántos bytes REALES hay en `read_buffer`.
+    ///
+    /// 🔴 Bug 24-nov-2026 (encontrado conectando dos `lumen-nodo`): sin este
+    /// campo, "quedan bytes pendientes" se comprobaba con
+    /// `read_pos < read_buffer.len()`, que es el tamaño del Vec (65536), no
+    /// los bytes leídos. Tras la primera lectura de n bytes, la siguiente
+    /// llamada entregaba ~65 KB de ceros del relleno y **perdía** los bytes
+    /// reales de la segunda lectura. Firma en el receptor: frames válidos de
+    /// longitud 0. Regresión: `lumen-znet/tests/read_sin_relleno.rs`.
+    read_len: usize,
 }
 
 impl QuicTransport {
@@ -524,8 +536,12 @@ impl QuicTransport {
 
 impl crate::transport::Transport for QuicTransport {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if self.read_pos < self.read_buffer.len() {
-            let remaining = &self.read_buffer[self.read_pos..];
+        // ── Bytes pendientes de una lectura anterior ──────────────────
+        // `read_len` es cuántos bytes REALES hay en `read_buffer`. Comparar
+        // contra `read_buffer.len()` (el tamaño del Vec, 65536) entregaba
+        // relleno: ver el bug de 24-nov-2026 documentado en el campo.
+        if self.read_pos < self.read_len {
+            let remaining = &self.read_buffer[self.read_pos..self.read_len];
             let n = remaining.len().min(buf.len());
             buf[..n].copy_from_slice(&remaining[..n]);
             self.read_pos += n;
@@ -556,7 +572,10 @@ impl crate::transport::Transport for QuicTransport {
             }
             match recv.read(&mut self.read_buffer[..]).await {
                 Ok(Some(n)) if n > 0 => {
+                    // Solo los primeros `n` bytes son datos. `read_len` marca
+                    // la frontera; el resto del Vec es relleno y NO se entrega.
                     self.read_pos = 0;
+                    self.read_len = n;
                     let copiar = n.min(buf.len());
                     buf[..copiar].copy_from_slice(&self.read_buffer[..copiar]);
                     self.read_pos = copiar;
