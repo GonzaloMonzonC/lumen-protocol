@@ -1,28 +1,31 @@
-//! ZNET — la primitiva de red `$ZNET` de MSM, reimplementada sobre LUMEN.
+//! ZNET — la red de LUMEN: transporte DDP sobre frames LUMEN.
 //!
 //! # Qué es esto
 //!
-//! MSM tiene seis funciones intrínsecas de red bajo el nombre `$ZNET`. Son el único punto
-//! donde el sistema de replicación DDP toca el sistema operativo. Este crate las reimplementa
-//! sobre frames LUMEN en vez de sobre la pila de red nativa de MSM.
+//! El protocolo DDP de LUMEN y su transporte. **DDP es de LUMEN**: no se busca
+//! compatibilidad binaria con Micronetics MSM. Ver `docs/DDP-LUMEN-SPEC.md`.
 //!
-//! # Por qué existe
+//! # De dónde viene
 //!
-//! Solo **3 de 438 rutinas** usan `$ZNET` (`DDPSRV`, `STUDDP`, `WSAGENT`) — 3,9 KB de código.
-//! Pero `$ZNET` no existe en Cloudflare Workers, así que el transporte hay que sustituirlo.
-//! En vez de inventar un protocolo nuevo, se usa LUMEN, que ya está implementado, ya está
-//! enlazado en `mvm-nas` y comparte naturaleza binaria con el DDP original.
+//! La primitiva nació para sustituir las seis funciones `$ZNET` de MSM, el único
+//! punto donde su replicación tocaba el sistema operativo: solo **3 de 438 rutinas**
+//! las usan, pero `$ZNET` no existe en Cloudflare Workers. En vez de inventar un
+//! transporte desde cero se usa LUMEN, ya implementado y enlazado en `mvm-nas`.
 //!
-//! # Las seis funciones
+//! Con el tiempo el protocolo se ha independizado: la cabecera, los tipos y los
+//! códigos son de LUMEN y están especificados y testeados aquí. Si algún día hace
+//! falta hablar con un MSM real, será un **adaptador aparte**, no una condición
+//! del núcleo.
 //!
-//! | `$ZNET` | Semántica | Este crate |
+//! # La interfaz
+//!
+//! | Operación | Semántica | Este crate |
 //! |---|---|---|
-//! | `(17)` | inicializar red | [`znet_init`] |
-//! | `(22, M)` | crear circuito | [`znet_connect`] |
-//! | `(30)` | inicializar enlace | [`znet_link_init`] |
-//! | `(8)` | recv bloqueante | [`Znet::recv`] |
-//! | `(9, x)` | responder | [`Znet::reply`] |
-//! | `(31)` | recv de circuitos | [`Znet::recv_circuit`] |
+//! | inicializar red | preparar el nodo | [`Znet::init`] |
+//! | crear circuito | abrir un canal con un par | [`Znet::connect`] |
+//! | recv bloqueante | recibir un mensaje | [`Znet::recv`] |
+//! | responder | contestar en un circuito | [`Znet::reply`] |
+//! | recv de circuitos | recibir con el id de circuito | [`Znet::recv_circuit`] |
 //!
 //! # El mapeo de mensajes
 //!
@@ -32,7 +35,7 @@
 //! M: [tipo:1][num1:2 LE][num2:2 LE][flag:1][carga útil...]
 //! ```
 //!
-//! Y LUMEN frames son `[Hyb128 len][type:1][flags:1][payload]`. El mapeo es directo:
+//! Y los frames LUMEN son `[Hyb128 len][type:1][flags:1][payload]`. El mapeo es directo:
 //!
 //! ```text
 //! M[1]     tipo     -> frame type
@@ -59,17 +62,20 @@ pub use quic_backend::{QuicZnet, QuicZnetError};
 /// Tamaño de la cabecera fija de un mensaje DDP: tipo(1) + num1(2) + num2(2) + flag(1).
 pub const DDP_HEADER_LEN: usize = 6;
 
-/// Tipos de mensaje DDP observados en `DDPSRV`.
+/// Tipos de mensaje DDP de LUMEN.
+///
+/// Estos valores **son el protocolo**, no una deducción: DDP es de LUMEN y no se
+/// busca compatibilidad binaria con Micronetics MSM. Ver `docs/DDP-LUMEN-SPEC.md`.
 pub mod msg_type {
-    /// Mensaje de datos normal.
+    /// Mensaje de datos normal, con carga útil.
     pub const DATA: u8 = 0x01;
-    /// Respuesta de éxito.
+    /// Respuesta correcta, sin cuerpo.
     pub const SUCCESS: u8 = 0x02;
-    /// Respuesta de fallo.
+    /// Respuesta de fallo, sin cuerpo.
     pub const FAILURE: u8 = 0x03;
-    /// Mensaje vacío (sin carga útil).
+    /// Respuesta sin cuerpo y sin significado de éxito.
     pub const EMPTY: u8 = 0x04;
-    /// Error de circuito.
+    /// El circuito está roto o no existe.
     pub const CIRCUIT_ERROR: u8 = 0x0B;
 }
 
