@@ -3,9 +3,14 @@
   "retencion_modo": "ventana",
   "retencion_horas": 6,
   "replicacion": "interes",
-  "replicacion_interes": ["posicion", "amenaza"],
+  "replicacion_interes": [
+    "posicion",
+    "amenaza"
+  ],
   "firma": "por_hecho",
   "firma_bloque_n": 100,
   "compactacion": "descartar",
-  "conflicto": "ultimo_gana"
+  "conflicto": "ultimo_gana",
+  "durabilidad": "nosync",
+  "durabilidad_lote": 64
 }

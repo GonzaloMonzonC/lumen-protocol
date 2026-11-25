@@ -7,5 +7,7 @@
   "firma": "por_hecho",
   "firma_bloque_n": 100,
   "compactacion": "archivar",
-  "conflicto": "manual"
+  "conflicto": "manual",
+  "durabilidad": "sync",
+  "durabilidad_lote": 64
 }

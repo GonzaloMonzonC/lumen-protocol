@@ -7,5 +7,7 @@
   "firma": "ninguna",
   "firma_bloque_n": 100,
   "compactacion": "descartar",
-  "conflicto": "ultimo_gana"
+  "conflicto": "ultimo_gana",
+  "durabilidad": "nosync",
+  "durabilidad_lote": 64
 }
