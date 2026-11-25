@@ -9,6 +9,8 @@ pub mod carga;
 pub mod descubrir;
 pub mod destino;
 pub mod entrada;
+pub mod hechos_store;
+pub mod hechos_wire;
 pub mod host_mvm;
 pub mod identidad;
 pub mod nodo;
