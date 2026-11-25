@@ -212,6 +212,54 @@ pub fn firmar_bloque(serie: &mut [Hecho], bloque: usize, id: &Identidad) -> usiz
     firmados
 }
 
+/// Verifica una serie **de punta a punta**: cadena, sellos y PERTENENCIA A FLOTA.
+///
+/// ## Por qué esto es el paso que faltaba
+///
+/// Hasta aquí se comprobaba *"alguien con esta clave firmó esto"*. Eso no basta:
+/// cualquiera puede generar un par de claves y firmar una bitácora perfecta.
+/// Lo que hace falta es *"esta clave es de un barco de MI flota"*.
+///
+/// Los dos pasos, en este orden:
+/// 1. **El certificado lo emitió mi raíz de armador** — si no, la clave no es
+///    de mi flota y no se sigue verificando nada.
+/// 2. **La firma del sello la hizo la clave de ese certificado** — y además esa
+///    clave debe ser la del nodo emisor, no otra.
+///
+/// Se devuelve cuántos sellos se verificaron.
+pub fn verificar_serie_de_flota(
+    serie: &[Hecho],
+    certificado: &crate::identidad::CertificadoFlota,
+    raiz_clave_publica_hex: &str,
+    bloque: usize,
+) -> Result<usize, String> {
+    // ── Paso 1: ¿es un barco de mi flota? ──
+    certificado
+        .verificar_con_raiz(raiz_clave_publica_hex)
+        .map_err(|e| format!("el barco no pertenece a la flota: {e:?}"))?;
+
+    // ── Paso 2: la serie es coherente ──
+    verificar_serie(serie)?;
+
+    // ── Paso 3: el certificado habla de ESTE nodo ──
+    // Si el certificado es de BARCO-A pero los hechos dicen BARCO-B, se rechaza.
+    // Sin esta comprobacion, un barco de la flota podria firmar hechos a nombre
+    // de otro y el receptor los aceptaria.
+    for h in serie {
+        if h.nodo != certificado.barco {
+            return Err(format!(
+                "el hecho es del nodo '{}' pero el certificado es de '{}'",
+                h.nodo, certificado.barco
+            ));
+        }
+    }
+
+    // ── Paso 4: los sellos, con la clave del certificado ──
+    let clave = crate::identidad::hex_a_bytes_publico(&certificado.clave_barco)
+        .map_err(|e| format!("clave del certificado invalida: {e:?}"))?;
+    verificar_solo_bloques(serie, bloque, &clave)
+}
+
 /// Recibe hechos de mensajes y los guarda si verifican.
 ///
 /// Verifica **en este orden**, y cualquier fallo rechaza el hecho:

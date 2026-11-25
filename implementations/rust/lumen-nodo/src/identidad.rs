@@ -283,6 +283,15 @@ pub fn verificar_miembro(
 
 // ── Hex ────────────────────────────────────────────────────────────────────
 
+/// Decodifica una clave pública en hex a sus bytes.
+///
+/// Expuesta porque el receptor de hechos necesita la clave del certificado en
+/// bytes para verificar los sellos, y duplicar el decodificador de hex en otro
+/// módulo es pedir que se desincronicen.
+pub fn hex_a_bytes_publico(hex: &str) -> Result<Vec<u8>, ErrorIdentidad> {
+    hex_a_bytes(hex)
+}
+
 fn hex_a_bytes(hex: &str) -> Result<Vec<u8>, ErrorIdentidad> {
     let limpio: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
     if limpio.len() % 2 != 0 {
