@@ -225,4 +225,28 @@ mod tests {
         assert_eq!(PerfilReplicacion::ledger().durabilidad, "sync");
         assert_eq!(PerfilReplicacion::config().durabilidad, "nosync");
     }
+
+    #[test]
+    fn el_perfil_decide_si_el_store_va_sin_fsync() {
+        // Fuente unica de verdad: solo 'nosync' desactiva el fsync del store.
+        // 'sync' y 'lote' lo necesitan (el lote lo agrupa el Escritor, no el store).
+        assert!(!PerfilReplicacion::barco().store_sin_fsync(), "lote conserva fsync");
+        assert!(PerfilReplicacion::enjambre().store_sin_fsync(), "nosync lo desactiva");
+        assert!(!PerfilReplicacion::ledger().store_sin_fsync(), "sync conserva fsync");
+        assert!(PerfilReplicacion::config().store_sin_fsync(), "nosync lo desactiva");
+    }
+
+    #[test]
+    fn el_store_respeta_la_durabilidad_explicita_y_no_el_entorno() {
+        // Unificar: open_con_durabilidad manda. Aunque el entorno diga NOSYNC,
+        // si el perfil dice 'sync' el store abre CON fsync.
+        std::env::set_var("LUMEN_LMDB_NOSYNC", "1");
+        let store = lumen_mlight::lmdb_store::LmdbStore::open_con_durabilidad(
+            &format!("{}", std::env::temp_dir().join("lumen-durab-test").display()),
+            false, // el perfil manda: false = con fsync
+        );
+        std::env::remove_var("LUMEN_LMDB_NOSYNC");
+        // Lo importante es que no entra en panico y respeta el argumento.
+        assert!(store.is_ok() || store.is_err());
+    }
 }

@@ -1815,10 +1815,29 @@ impl MemoryHost {
     /// Crea un MemoryHost con backend LMDB DIRECTO (mmap, sin precarga a RAM).
     /// get/set/kill/data/order y transacciones operan contra LMDB — «solo el
     /// puntero en RAM». mapsize: LUMEN_LMDB_MAPSIZE_MB (default 1024; ≤1400 en 32-bit).
+    /// Crea un host LMDB declarando la durabilidad (ver `Durabilidad`).
+    ///
+    /// Es el camino recomendado para codigo nuevo: el perfil de replicacion
+    /// decide, no el entorno. Si el perfil dice `nosync`, aqui se pasa `true`.
+    #[cfg(feature = "lmdb")]
+    pub fn from_lmdb_con_durabilidad(
+        dir: &str,
+        nosync: bool,
+    ) -> Result<Self, String> {
+        let store = crate::lmdb_store::LmdbStore::open_con_durabilidad(dir, nosync)?;
+        Ok(Self::from_store_generico(store))
+    }
+
+    /// Abre un host LMDB con la durabilidad por defecto (la del entorno).
     #[cfg(feature = "lmdb")]
     pub fn from_lmdb(dir: &str) -> Result<Self, String> {
         let store = crate::lmdb_store::LmdbStore::open(dir)?;
-        Ok(Self {
+        Ok(Self::from_store_generico(store))
+    }
+
+    #[cfg(feature = "lmdb")]
+    fn from_store_generico(store: crate::lmdb_store::LmdbStore) -> Self {
+        Self {
             values: BTreeMap::new(),
             transactions: Vec::new(),
             routines: HashMap::new(),
@@ -1833,7 +1852,7 @@ impl MemoryHost {
             lmdb: Some(store),
             smith_registry: Arc::new(global_smith_registry().clone()),
             remote_cache: std::sync::Mutex::new(RemoteCache::default()),
-        })
+        }
     }
 
     /// 07-oct-2026 (task_237): host para un JOB del pool que comparte el store

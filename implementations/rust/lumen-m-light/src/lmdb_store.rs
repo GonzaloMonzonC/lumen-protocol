@@ -187,7 +187,30 @@ fn map_err<E: std::fmt::Display>(what: &str, e: E) -> String {
 }
 
 impl LmdbStore {
+    /// Abre el store con la durabilidad por defecto.
+    ///
+    /// Compatibilidad: mantiene el comportamiento historico, que es leer
+    /// `LUMEN_LMDB_NOSYNC` del entorno. **Para codigo nuevo usar
+    /// [`open_con_durabilidad`]**, que hace la durabilidad explicita.
     pub fn open(dir: &str) -> Result<Self, String> {
+        // NOSYNC opcional por entorno (LUMEN_LMDB_NOSYNC=1). Se conserva por
+        // compatibilidad, pero el camino nuevo es el perfil de replicacion.
+        let nosync = std::env::var("LUMEN_LMDB_NOSYNC")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        Self::open_con_durabilidad(dir, nosync)
+    }
+
+    /// Abre el store declarando la durabilidad **explicitamente**.
+    ///
+    /// `nosync = true` desactiva el `fsync` por commit. Medido en la NAS
+    /// (ARMv7, disco lento): 71 ms por escritura con fsync frente a 0,41 ms sin
+    /// el. 173x.
+    ///
+    /// Este es el unico sitio donde se decide. La variable de entorno solo se
+    /// usa en [`open`] por compatibilidad, y no puede contradecir a quien llame
+    /// aqui: hay una sola fuente de verdad por store.
+    pub fn open_con_durabilidad(dir: &str, nosync: bool) -> Result<Self, String> {
         std::fs::create_dir_all(dir).map_err(|e| map_err(&format!("mkdir({dir})"), e))?;
 
         let mut mapsize_mb: usize = std::env::var("LUMEN_LMDB_MAPSIZE_MB")
@@ -199,13 +222,6 @@ impl LmdbStore {
         if cfg!(target_pointer_width = "32") && mapsize_mb > 1400 {
             mapsize_mb = 1400;
         }
-
-        // NOSYNC opcional (LUMEN_LMDB_NOSYNC=1): sin fsync por commit — para
-        // cargas de escritura masiva en HDD (los datos siguen consistentes ante
-        // crash; puede perderse la cola de writes no sincronizada). Default: OFF.
-        let nosync = std::env::var("LUMEN_LMDB_NOSYNC")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
 
         let mut opts = EnvOpenOptions::new();
         opts.map_size(mapsize_mb * 1024 * 1024).max_dbs(4);

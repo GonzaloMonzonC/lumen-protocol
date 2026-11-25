@@ -85,6 +85,15 @@ fn bloque_por_defecto() -> usize {
 }
 
 impl PerfilReplicacion {
+    /// `true` si el store debe abrirse sin `fsync`.
+    ///
+    /// **Fuente unica de verdad**: el modo `sync` y `lote` necesitan fsync en el
+    /// commit (el lote lo controla el escritor, no el store). Solo `nosync`
+    /// desactiva el fsync del store.
+    pub fn store_sin_fsync(&self) -> bool {
+        self.durabilidad == "nosync"
+    }
+
     /// Perfil de barco: 6 h sin cobertura, hay que probar que no falta nada.
     ///
     /// Durabilidad `lote`: un barco escribe a 1 Hz y suele llevar disco lento
