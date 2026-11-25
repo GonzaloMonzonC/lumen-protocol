@@ -1,0 +1,11 @@
+{
+  "_comentario": "Configuracion de agentes: estado, no historia. Sin firma porque nadie audita por que un agente tiene temperatura 0.7. Solo con el hub.",
+  "retencion_modo": "ventana",
+  "retencion_horas": 1,
+  "replicacion": "hub",
+  "replicacion_interes": [],
+  "firma": "ninguna",
+  "firma_bloque_n": 100,
+  "compactacion": "descartar",
+  "conflicto": "ultimo_gana"
+}

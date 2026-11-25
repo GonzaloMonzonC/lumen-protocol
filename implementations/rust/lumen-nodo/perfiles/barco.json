@@ -1,0 +1,16 @@
+{
+  "_comentario": "Perfil de replicacion LUMEN. Todas las claves son obligatorias salvo las marcadas como opcionales. Ver docs/DDP-CONFIGURABLE-PERFILES.md",
+
+  "retencion_modo": "ventana",
+  "retencion_horas": 168,
+
+  "replicacion": "flota",
+  "replicacion_interes": [],
+
+  "firma": "por_bloque",
+  "firma_bloque_n": 100,
+
+  "compactacion": "sellos",
+
+  "conflicto": "ultimo_gana"
+}

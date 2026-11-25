@@ -13,3 +13,4 @@ pub mod host_mvm;
 pub mod identidad;
 pub mod nodo;
 pub mod profile;
+pub mod replicacion;

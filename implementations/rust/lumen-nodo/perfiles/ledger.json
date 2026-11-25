@@ -1,0 +1,11 @@
+{
+  "_comentario": "Ledger inmutable: nada se borra, todo se prueba, el conflicto se DETECTA y no se resuelve solo (es una decision de negocio).",
+  "retencion_modo": "todo",
+  "retencion_horas": null,
+  "replicacion": "todos",
+  "replicacion_interes": [],
+  "firma": "por_hecho",
+  "firma_bloque_n": 100,
+  "compactacion": "archivar",
+  "conflicto": "manual"
+}
