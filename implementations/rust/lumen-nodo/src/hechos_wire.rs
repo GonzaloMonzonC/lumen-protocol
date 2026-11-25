@@ -89,7 +89,7 @@ pub fn servir_peticion<H: Host>(
     let total = hechos_store::contar_serie(host, nodo, &serie);
     let mut enviados = 0;
     for seq in desde..total {
-        if let Some(h) = hechos_store::leer(host, nodo, &serie, seq) {
+        if let Some(h) = hechos_store::leer(host, nodo, &serie, seq, "") {
             let m = mensaje_de_hecho(&h);
             let _ = znet.reply(
                 circuito,
@@ -106,10 +106,48 @@ pub fn servir_peticion<H: Host>(
 pub struct ResumenRecepcion {
     /// Hechos guardados correctamente.
     pub aceptados: usize,
-    /// Hechos rechazados por no verificar.
+    /// Hechos rechazados por no verificar (cadena, firma, orden).
     pub rechazados: usize,
+    /// Hechos que **no se han descartado**: chocaban con uno existente y se han
+    /// guardado como rama aparte, marcados como conflicto.
+    pub conflictos: usize,
+    /// Duplicados exactos (mismo hash): idempotencia, se ignoran sin más.
+    pub duplicados: usize,
+    /// Detalle de cada conflicto, con evidencia para el operador.
+    pub detalle_conflictos: Vec<Conflicto>,
     /// Motivo del primer rechazo, para poder diagnosticar.
     pub primer_motivo: Option<String>,
+}
+
+/// Un choque entre dos hechos con la misma posición pero distinto contenido.
+///
+/// **No es un descarte**: las dos versiones se conservan. El operador decide
+/// cuál es la buena con la evidencia de aquí.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflicto {
+    pub nodo: String,
+    pub serie: String,
+    pub seq: u64,
+    pub instance_existente: String,
+    pub instance_nueva: String,
+    pub hash_existente: String,
+    pub hash_nuevo: String,
+    pub epoch_existente: u64,
+    pub epoch_nuevo: u64,
+}
+
+impl Conflicto {
+    /// Describe el conflicto en una línea, para el log.
+    pub fn resumen(&self) -> String {
+        format!(
+            "CONFLICTO {}/{} seq={} instancia '{}'(e{}) vs '{}'(e{}) hash {} vs {}",
+            self.nodo, self.serie, self.seq,
+            self.instance_existente, self.epoch_existente,
+            self.instance_nueva, self.epoch_nuevo,
+            &self.hash_existente[..8.min(self.hash_existente.len())],
+            &self.hash_nuevo[..8.min(self.hash_nuevo.len())],
+        )
+    }
 }
 
 /// Verifica los BLOQUES de una serie completa.
@@ -298,7 +336,7 @@ pub fn recibir_hechos_con<H: Host>(
         let previo_esperado = if h.seq == 0 {
             String::new()
         } else {
-            match hechos_store::leer(host, &h.nodo, &h.serie, h.seq - 1) {
+            match hechos_store::leer(host, &h.nodo, &h.serie, h.seq - 1, &h.instance_id) {
                 Some(prev) => prev.hash(),
                 None => {
                     r.rechazados += 1;
@@ -336,7 +374,59 @@ pub fn recibir_hechos_con<H: Host>(
             }
         }
 
-        // Guardar.
+        // 4. ¿Ya existe en esta posición? Aquí está el arreglo del split-brain.
+        //
+        // Antes: se guardaba y el segundo en la misma clave se DESCARTABA en
+        // silencio. Ahora:
+        //   - mismo hash        -> duplicado, se ignora (idempotencia)
+        //   - hash distinto     -> CONFLICTO: se guarda como rama aparte
+        //
+        // Nunca se descarta. Rechazar era el bug.
+        if let Some(existente) = hechos_store::leer(host, &h.nodo, &h.serie, h.seq, &h.instance_id) {
+            if existente.hash() == h.hash() {
+                r.duplicados += 1;
+                continue;
+            }
+            // Misma clave, contenido distinto: no debería pasar (la clave lleva
+            // la instancia), pero si pasa es un conflicto real y se registra.
+            r.conflictos += 1;
+            r.detalle_conflictos.push(Conflicto {
+                nodo: h.nodo.clone(),
+                serie: h.serie.clone(),
+                seq: h.seq,
+                instance_existente: existente.instance_id.clone(),
+                instance_nueva: h.instance_id.clone(),
+                hash_existente: existente.hash(),
+                hash_nuevo: h.hash(),
+                epoch_existente: existente.epoch,
+                epoch_nuevo: h.epoch,
+            });
+            continue;
+        }
+
+        // 5. ¿Hay otra rama en la misma posición, con OTRA instancia?
+        // Eso es split-brain: coexisten, se guarda la nueva y se marca.
+        let ocupadas = hechos_store::instancias_en_posicion(host, &h.nodo, &h.serie, h.seq);
+        if !ocupadas.is_empty() {
+            r.conflictos += 1;
+            for inst in &ocupadas {
+                if let Some(otro) = hechos_store::leer(host, &h.nodo, &h.serie, h.seq, inst) {
+                    r.detalle_conflictos.push(Conflicto {
+                        nodo: h.nodo.clone(),
+                        serie: h.serie.clone(),
+                        seq: h.seq,
+                        instance_existente: inst.clone(),
+                        instance_nueva: h.instance_id.clone(),
+                        hash_existente: otro.hash(),
+                        hash_nuevo: h.hash(),
+                        epoch_existente: otro.epoch,
+                        epoch_nuevo: h.epoch,
+                    });
+                }
+            }
+        }
+
+        // Guardar. La clave lleva la instancia, así que las dos ramas coexisten.
         if hechos_store::guardar(host, &h).is_err() {
             r.rechazados += 1;
             r.primer_motivo.get_or_insert_with(|| "no se pudo guardar".into());
@@ -358,6 +448,7 @@ mod tests {
         Hecho {
             nodo: "BARCO-A".into(), serie: "gps".into(), seq, clave: "gps".into(),
             valor: valor.into(), prev_hash: prev.into(), ts: seq, firma: None,
+            ..Default::default()
         }
     }
 

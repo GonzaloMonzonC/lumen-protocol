@@ -146,6 +146,7 @@ mod tests {
             prev_hash: prev.into(),
             ts: seq,
             firma: None,
+        ..Default::default()
         }
     }
 

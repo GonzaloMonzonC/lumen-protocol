@@ -50,8 +50,7 @@ fn el_barco_sincroniza_su_bitacora_con_el_hub() {
             valor: format!("lat={:.6}", 41.0 + (i as f64) * 1e-6),
             prev_hash: prev.clone(),
             ts: i,
-            firma: None,
-        };
+            firma: None, ..Default::default() };
         prev = h.hash();
         serie.push(h);
     }
@@ -79,7 +78,7 @@ fn el_barco_sincroniza_su_bitacora_con_el_hub() {
     // El barco sirve: un mensaje por hecho (esto es lo que iria por QUIC).
     let mut mensajes = Vec::new();
     for seq in desde..total_barco {
-        let h = hechos_store::leer(&host_barco, "BARCO-A", &serie, seq).expect("hecho");
+        let h = hechos_store::leer_principal(&host_barco, "BARCO-A", &serie, seq).expect("hecho");
         mensajes.push(hechos_wire::mensaje_de_hecho(&h));
     }
     println!("[{}] el barco sirve los hechos por el cable -> {} mensajes",
@@ -176,8 +175,7 @@ fn el_hub_pide_solo_lo_que_le_falta() {
     for i in 0..200u64 {
         let h = Hecho {
             nodo: "BARCO-A".into(), serie: "gps".into(), seq: i, clave: "gps".into(),
-            valor: format!("lat=41.{i}"), prev_hash: prev.clone(), ts: i, firma: None,
-        };
+            valor: format!("lat=41.{i}"), prev_hash: prev.clone(), ts: i, firma: None, ..Default::default() };
         prev = h.hash();
         hechos_store::guardar(&mut host, &h).unwrap();
     }

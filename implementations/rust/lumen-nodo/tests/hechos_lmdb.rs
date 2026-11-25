@@ -21,6 +21,7 @@ fn hecho(nodo: &str, seq: u64, valor: &str, prev: &str) -> Hecho {
         prev_hash: prev.into(),
         ts: seq,
         firma: None,
+        ..Default::default()
     }
 }
 
@@ -87,18 +88,15 @@ fn los_hechos_y_las_firmas_sobreviven_al_reinicio() {
     // ── 5. Manipular en disco y detectarlo ──
     drop(host);
     let mut host2 = MemoryHost::from_lmdb(&dir_s).expect("reabrir para manipular");
-    let s = vec![
-        lumen_mlight::Subscript::String("BARCO-A".into()),
-        lumen_mlight::Subscript::String("gps".into()),
-        lumen_mlight::Subscript::Number(50.0),
-    ];
     // Se reescribe el valor dejando el mismo prev_hash: la cadena debe romperse.
     let serie_tmp = hechos_store::leer_serie(&host2, "BARCO-A", "gps");
     let h50 = &serie_tmp[50];
-    let manipulado = hecho("BARCO-A", 50, "lat=99.999", &h50.prev_hash);
-    host2.set("HECHOS", &s, lumen_mlight::Value::String(
-        hechos_store::a_texto(&manipulado))).unwrap();
-    // idem: sin flush, ya esta persistido.
+    let mut manipulado = hecho("BARCO-A", 50, "lat=99.999", &h50.prev_hash);
+    // Se conserva la instancia del original para sobrescribir SU clave.
+    manipulado.instance_id = h50.instance_id.clone();
+    manipulado.version = h50.version;
+    hechos_store::guardar(&mut host2, &manipulado)
+        .expect("sobrescribir el hecho 50");
     drop(host2);
 
     let host3 = MemoryHost::from_lmdb(&dir_s).expect("reabrir tras manipular");

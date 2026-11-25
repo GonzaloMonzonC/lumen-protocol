@@ -32,54 +32,79 @@ use lumen_mlight::{Host, Subscript, Value};
 /// Global de los hechos.
 pub const NS_HECHOS: &str = "HECHOS";
 
-fn subs(nodo: &str, serie: &str, seq: u64) -> Vec<Subscript> {
+fn subs(nodo: &str, serie: &str, seq: u64, instance_id: &str) -> Vec<Subscript> {
+    // La instancia va en la clave para que dos ramas del mismo barco COEXISTAN.
+    // Un hecho v1 no tiene instancia: se usa "_" para no romper las series ya
+    // escritas (su clave sigue siendo la misma de antes).
+    let inst = if instance_id.is_empty() { "_" } else { instance_id };
     vec![
         Subscript::String(nodo.to_string()),
         Subscript::String(serie.to_string()),
         Subscript::Number(seq as f64),
+        Subscript::String(inst.to_string()),
     ]
 }
 
 /// Serializa un hecho a texto plano legible desde M.
+///
+/// Formato v2 (7 campos): `valor|prev_hash|firma|ts|clave|instance_id|epoch`
+/// Formato v1 (5 campos): `valor|prev_hash|firma|ts|clave`
+///
+/// El número de campos distingue la versión al leer, así que un hecho v1 sigue
+/// leyéndose igual que antes y **no hay migración**.
 pub fn a_texto(h: &Hecho) -> String {
     let firma = h
         .firma
         .map(|f| f.iter().map(|b| format!("{b:02x}")).collect::<String>())
         .unwrap_or_default();
-    format!(
-        "{}|{}|{}|{}|{}",
-        h.valor, h.prev_hash, firma, h.ts, h.clave
-    )
+    if h.version >= 2 {
+        format!(
+            "{}|{}|{}|{}|{}|{}|{}",
+            h.valor, h.prev_hash, firma, h.ts, h.clave, h.instance_id, h.epoch
+        )
+    } else {
+        format!("{}|{}|{}|{}|{}", h.valor, h.prev_hash, firma, h.ts, h.clave)
+    }
 }
 
 /// Reconstruye un hecho desde el texto guardado.
+///
+/// Acepta los dos formatos: 5 campos = v1, 7 campos = v2. Así los hechos
+/// escritos antes del cambio se siguen leyendo sin migrar nada.
 pub fn desde_texto(nodo: &str, serie: &str, seq: u64, texto: &str) -> Option<Hecho> {
     let campos: Vec<&str> = texto.split('|').collect();
-    if campos.len() < 5 {
+    if campos.len() != 5 && campos.len() != 7 {
         return None;
     }
     let firma = if campos[2].is_empty() {
         None
     } else {
-        let mut f = [0u8; 64];
         if campos[2].len() != 128 {
             return None;
         }
+        let mut f = [0u8; 64];
         for i in 0..64 {
             f[i] = u8::from_str_radix(&campos[2][i * 2..i * 2 + 2], 16).ok()?;
         }
         Some(f)
     };
+    let (version, instance_id, epoch) = if campos.len() == 7 {
+        (2u8, campos[5].to_string(), campos[6].parse().ok()?)
+    } else {
+        (1u8, String::new(), 0u64)
+    };
     Some(Hecho {
+        version,
         nodo: nodo.to_string(),
         serie: serie.to_string(),
         seq,
+        instance_id,
+        epoch,
         clave: campos[4].to_string(),
         valor: campos[0].to_string(),
         prev_hash: campos[1].to_string(),
         ts: campos[3].parse().ok()?,
-        firma,
-    })
+        firma, ..Default::default() })
 }
 
 /// Error de escritura en el almacén.
@@ -110,8 +135,12 @@ pub fn guardar(host: &mut impl Host, h: &Hecho) -> Result<(), ErrorAlmacen> {
         return Err(ErrorAlmacen::ValorConSeparador);
     }
     let texto = a_texto(h);
-    host.set(NS_HECHOS, &subs(&h.nodo, &h.serie, h.seq), Value::String(texto))
-        .map_err(|e| ErrorAlmacen::Host(format!("{e:?}")))?;
+    host.set(
+        NS_HECHOS,
+        &subs(&h.nodo, &h.serie, h.seq, &h.instance_id),
+        Value::String(texto),
+    )
+    .map_err(|e| ErrorAlmacen::Host(format!("{e:?}")))?;
     Ok(())
 }
 
@@ -128,20 +157,93 @@ pub fn guardar_firmado(
     Ok(h)
 }
 
-/// Lee un hecho concreto.
-pub fn leer(host: &impl Host, nodo: &str, serie: &str, seq: u64) -> Option<Hecho> {
-    let v = host.get(NS_HECHOS, &subs(nodo, serie, seq)).ok().flatten()?;
+/// Lee un hecho concreto de una instancia concreta.
+pub fn leer(
+    host: &impl Host,
+    nodo: &str,
+    serie: &str,
+    seq: u64,
+    instance_id: &str,
+) -> Option<Hecho> {
+    let v = host
+        .get(NS_HECHOS, &subs(nodo, serie, seq, instance_id))
+        .ok()
+        .flatten()?;
     desde_texto(nodo, serie, seq, &v.as_string())
 }
 
-/// Cuenta cuantos hechos hay de una serie, sin cargarlos.
+/// Lista las instancias que tienen un hecho en esta posición `(nodo, serie, seq)`.
 ///
-/// Recorre con `$ORDER` hasta encontrar el primer hueco, asi que el coste es el
-/// numero de hechos de la serie, no de la base.
+/// Es lo que permite detectar split-brain: si hay más de una, hay dos ramas.
+/// Se recorre con `$ORDER` sobre el cuarto subíndice (la instancia).
+pub fn instancias_en_posicion(
+    host: &impl Host,
+    nodo: &str,
+    serie: &str,
+    seq: u64,
+) -> Vec<String> {
+    use lumen_mlight::Subscript;
+    let padre = vec![
+        Subscript::String(nodo.to_string()),
+        Subscript::String(serie.to_string()),
+        Subscript::Number(seq as f64),
+    ];
+    let mut out = Vec::new();
+    let mut actual: Option<Subscript> = None;
+    loop {
+        let siguiente = host
+            .order(NS_HECHOS, &padre, actual.as_ref(), 1)
+            .ok()
+            .flatten();
+        match siguiente {
+            Some(s) => {
+                let nombre = match &s {
+                    Subscript::String(t) => t.clone(),
+                    Subscript::Number(n) => format!("{n}"),
+                };
+                // La instancia vacía se guarda como "_": se normaliza a "".
+                out.push(if nombre == "_" { String::new() } else { nombre });
+                actual = Some(s);
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+/// Lee la **rama principal**: la de instancia vacía (`_`).
+///
+/// Es lo que sigue funcionando para las series de una sola instancia, que son
+/// todas las de hoy. Cuando hay split-brain, cada rama se lee aparte con
+/// [`leer_rama`].
+pub fn leer_principal(host: &impl Host, nodo: &str, serie: &str, seq: u64) -> Option<Hecho> {
+    leer(host, nodo, serie, seq, "")
+}
+
+/// Lee un hecho de una rama concreta (por `instance_id`).
+pub fn leer_rama(
+    host: &impl Host,
+    nodo: &str,
+    serie: &str,
+    seq: u64,
+    instance_id: &str,
+) -> Option<Hecho> {
+    leer(host, nodo, serie, seq, instance_id)
+}
+
+/// Cuenta cuantos hechos hay de la rama principal, sin cargarlos.
+///
+/// Recorre hasta encontrar el primer hueco, asi que el coste es el numero de
+/// hechos de la serie, no de la base.
 pub fn contar_serie(host: &impl Host, nodo: &str, serie: &str) -> u64 {
     let mut n = 0u64;
     loop {
-        if host.get(NS_HECHOS, &subs(nodo, serie, n)).ok().flatten().is_none() {
+        if host
+            .get(NS_HECHOS, &subs(nodo, serie, n, ""))
+            .ok()
+            .flatten()
+            .is_none()
+        {
             break;
         }
         n += 1;
@@ -149,14 +251,30 @@ pub fn contar_serie(host: &impl Host, nodo: &str, serie: &str) -> u64 {
     n
 }
 
-/// Lee la serie completa en orden.
+/// Lee la rama principal completa en orden.
 pub fn leer_serie(host: &impl Host, nodo: &str, serie: &str) -> Vec<Hecho> {
     let total = contar_serie(host, nodo, serie);
     let mut out = Vec::with_capacity(total as usize);
     for seq in 0..total {
-        if let Some(h) = leer(host, nodo, serie, seq) {
+        if let Some(h) = leer_principal(host, nodo, serie, seq) {
             out.push(h);
         }
+    }
+    out
+}
+
+/// Lee una rama concreta completa en orden.
+pub fn leer_serie_de_rama(
+    host: &impl Host,
+    nodo: &str,
+    serie: &str,
+    instance_id: &str,
+) -> Vec<Hecho> {
+    let mut out = Vec::new();
+    let mut seq = 0u64;
+    while let Some(h) = leer_rama(host, nodo, serie, seq, instance_id) {
+        out.push(h);
+        seq += 1;
     }
     out
 }
@@ -215,6 +333,7 @@ mod tests {
             prev_hash: prev.into(),
             ts: seq,
             firma: None,
+            ..Default::default()
         }
     }
 
@@ -223,7 +342,7 @@ mod tests {
         let mut host = MemoryHost::default();
         let h = hecho(0, "lat=41.1", "");
         guardar(&mut host, &h).unwrap();
-        let leido = leer(&host, "BARCO-A", "gps", 0).expect("debe estar");
+        let leido = leer_principal(&host, "BARCO-A", "gps", 0).expect("debe estar");
         assert_eq!(leido.valor, "lat=41.1");
         assert_eq!(leido.seq, 0);
     }
@@ -263,14 +382,14 @@ mod tests {
             guardar(&mut host, &h).unwrap();
         }
         // Borrar la muestra 2 del medio.
-        let s = subs("BARCO-A", "gps", 2);
+        let s = subs("BARCO-A", "gps", 2, "");
         host.kill(NS_HECHOS, &s).unwrap();
 
         let serie = leer_serie(&host, "BARCO-A", "gps");
         // contar_serie para en el hueco, asi que solo ve 0 y 1
         assert!(serie.len() < 5, "debe faltar alguna");
         // Y si leemos explicitamente la 2, no esta.
-        assert!(leer(&host, "BARCO-A", "gps", 2).is_none());
+        assert!(leer_principal(&host, "BARCO-A", "gps", 2).is_none());
     }
 
     #[test]
@@ -281,7 +400,7 @@ mod tests {
         let devuelto = guardar_firmado(&mut host, h, &id).unwrap();
         assert!(devuelto.firma.is_some());
 
-        let leido = leer(&host, "BARCO-A", "gps", 0).unwrap();
+        let leido = leer_principal(&host, "BARCO-A", "gps", 0).unwrap();
         assert_eq!(leido.firma, devuelto.firma, "la firma debe volver intacta");
         leido
             .verificar_firma(&id.clave_publica())

@@ -220,12 +220,22 @@ impl PerfilReplicacion {
 /// Un hecho replicable: una muestra firmada.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hecho {
+    /// Versión del formato. `1` = original (sin instancia ni epoch).
+    /// `2` = con `instance_id` y `epoch`. Ver `contenido_canonico`.
+    pub version: u8,
     /// Nodo que lo produjo. Va DENTRO de la identidad (lección del prototipo).
     pub nodo: String,
     /// Serie a la que pertenece (`gps`, `posicion`, ...).
     pub serie: String,
     /// Secuencia dentro de `(nodo, serie)`.
     pub seq: u64,
+    /// Qué **proceso** lo escribió. Distingue una reinstalación de una
+    /// suplantación y permite que dos ramas coexistan sin perderse.
+    /// Vacío en hechos v1.
+    pub instance_id: String,
+    /// Era del escritor. Sube en reinstalación; un salto exige la firma del
+    /// epoch anterior (cadena de custodia). `0` en hechos v1.
+    pub epoch: u64,
     /// Clave lógica (`gps`, `saldo:A`, ...).
     pub clave: String,
     /// Valor. Vacío si es un borrado.
@@ -238,27 +248,148 @@ pub struct Hecho {
     pub firma: Option<[u8; 64]>,
 }
 
+impl Default for Hecho {
+    /// Hecho vacío en **v2**: es el formato recomendado, así que un literal que
+    /// use `..Default::default()` queda en v2 sin tener que enumerar campos.
+    ///
+    /// Los tests y el código que construye hechos con struct literal siguen
+    /// funcionando añadiendo `..Default::default()`.
+    fn default() -> Self {
+        Self {
+            version: 2,
+            nodo: String::new(),
+            serie: String::new(),
+            seq: 0,
+            instance_id: String::new(),
+            epoch: 0,
+            clave: String::new(),
+            valor: String::new(),
+            prev_hash: String::new(),
+            ts: 0,
+            firma: None,
+        }
+    }
+}
+
 impl Hecho {
-    /// Identidad del hecho: lleva el NODO dentro, para que dos barcos no colisionen.
-    pub fn identidad(&self) -> (String, String, u64) {
-        (self.nodo.clone(), self.serie.clone(), self.seq)
+    /// Hecho en formato **v2** (con instancia y epoch). Es el recomendado.
+    pub fn v2(
+        nodo: &str,
+        serie: &str,
+        seq: u64,
+        instance_id: &str,
+        epoch: u64,
+        clave: &str,
+        valor: &str,
+        prev_hash: &str,
+        ts: u64,
+    ) -> Self {
+        Self {
+            version: 2,
+            nodo: nodo.into(),
+            serie: serie.into(),
+            seq,
+            instance_id: instance_id.into(),
+            epoch,
+            clave: clave.into(),
+            valor: valor.into(),
+            prev_hash: prev_hash.into(),
+            ts,
+            firma: None,
+        }
     }
 
-    /// Bytes canónicos que se firman. Formato estable y sin ambigüedad.
+    /// Hecho en formato **v1**. Solo para leer o escribir series antiguas.
+    ///
+    /// No se puede convertir un v1 a v2: su firma no cubre los campos nuevos y
+    /// re-firmarlo rompería la inmutabilidad.
+    #[allow(clippy::too_many_arguments)]
+    pub fn v1(
+        nodo: &str,
+        serie: &str,
+        seq: u64,
+        clave: &str,
+        valor: &str,
+        prev_hash: &str,
+        ts: u64,
+    ) -> Self {
+        Self {
+            version: 1,
+            nodo: nodo.into(),
+            serie: serie.into(),
+            seq,
+            instance_id: String::new(),
+            epoch: 0,
+            clave: clave.into(),
+            valor: valor.into(),
+            prev_hash: prev_hash.into(),
+            ts,
+            firma: None,
+        }
+    }
+
+    /// Identidad del hecho: lleva el nodo **y la instancia** dentro.
+    ///
+    /// Sin `instance_id`, dos escritores del mismo barco (reinstalación, dos
+    /// procesos, dos hubs en partición) colisionan y el segundo se pierde en
+    /// silencio. Con él, coexisten como dos ramas.
+    pub fn identidad(&self) -> (String, String, u64, String) {
+        (
+            self.nodo.clone(),
+            self.serie.clone(),
+            self.seq,
+            self.instance_id.clone(),
+        )
+    }
+
+    /// Bytes canónicos que se firman. **Elige el payload según la versión.**
+    ///
+    /// v1: formato original, sin `instance_id` ni `epoch`. Los hechos ya
+    ///     escritos se firmaron así y **no se re-firman** (rompería la
+    ///     inmutabilidad, que es el punto del sistema).
+    /// v2: añade `instance_id` y `epoch` para poder distinguir dos escritores
+    ///     del mismo barco sin descartar hechos.
     ///
     /// Se usa `\x1f` (unit separator) porque no puede aparecer en un valor
     /// normal y evita que `("ab","c")` y `("a","bc")` den la misma firma.
     pub fn contenido_canonico(&self) -> Vec<u8> {
-        format!(
-            "{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}",
-            self.nodo, self.serie, self.seq, self.clave, self.valor, self.prev_hash, self.ts
-        )
-        .into_bytes()
+        match self.version {
+            1 => format!(
+                "{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}",
+                self.nodo, self.serie, self.seq, self.clave, self.valor, self.prev_hash, self.ts
+            )
+            .into_bytes(),
+            _ => format!(
+                "v2\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}",
+                self.nodo,
+                self.serie,
+                self.seq,
+                self.instance_id,
+                self.epoch,
+                self.clave,
+                self.valor,
+                self.prev_hash,
+                self.ts
+            )
+            .into_bytes(),
+        }
     }
 
     /// Hash del hecho (para encadenar el siguiente).
+    ///
+    /// No depende de la versión: encadena `prev_hash || valor`, que es lo que
+    /// hace `cadena::hash_muestra`. Así una serie v1 y una v2 encadenan igual
+    /// y la migración no rompe la cadena.
     pub fn hash(&self) -> String {
         crate::cadena::hash_muestra(&self.prev_hash, &self.valor)
+    }
+
+    /// ¿Es el mismo hecho lógico que otro? (mismo nodo, serie y seq)
+    ///
+    /// Dos hechos con la misma clave lógica pero distinta instancia son **dos
+    /// ramas**, no un duplicado.
+    pub fn misma_posicion(&self, otro: &Hecho) -> bool {
+        self.nodo == otro.nodo && self.serie == otro.serie && self.seq == otro.seq
     }
 
     /// Firma el hecho con la identidad del nodo.
@@ -324,6 +455,7 @@ mod tests {
             prev_hash: String::new(),
             ts: 100,
             firma: None,
+            ..Default::default()
         };
         h.firmar(&id);
         assert!(h.verificar_firma(&id.clave_publica()).is_ok());
@@ -346,6 +478,7 @@ mod tests {
             prev_hash: String::new(),
             ts: 100,
             firma: None,
+            ..Default::default()
         };
         h.firmar(&impostor);
         // La clave pública del barco NO valida la firma del impostor.
@@ -358,6 +491,7 @@ mod tests {
         let mut a = Hecho {
             nodo: "N".into(), serie: "S".into(), seq: 1, clave: "ab".into(),
             valor: "c".into(), prev_hash: String::new(), ts: 1, firma: None,
+            ..Default::default()
         };
         let mut b = a.clone();
         b.clave = "a".into();

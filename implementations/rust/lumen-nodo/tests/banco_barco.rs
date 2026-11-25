@@ -31,8 +31,7 @@ fn serie_del_barco(id: &Identidad, perfil: &PerfilReplicacion) -> Vec<Hecho> {
             valor,
             prev_hash: prev.clone(),
             ts: i,
-            firma: None,
-        };
+            firma: None, ..Default::default() };
 
         match perfil.firma.as_str() {
             "por_hecho" => h.firmar(id),
@@ -177,7 +176,6 @@ fn la_cadena_de_hashes_usa_el_modulo_real() {
     let esperado = hash_muestra(prev, valor);
     let h = Hecho {
         nodo: "N".into(), serie: "s".into(), seq: 0, clave: "c".into(),
-        valor: valor.into(), prev_hash: prev.into(), ts: 0, firma: None,
-    };
+        valor: valor.into(), prev_hash: prev.into(), ts: 0, firma: None, ..Default::default() };
     assert_eq!(h.hash(), esperado);
 }

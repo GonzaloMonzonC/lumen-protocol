@@ -43,8 +43,7 @@ fn serie_firmada(nodo: &str, id: &Identidad, n: u64) -> Vec<Hecho> {
             valor: format!("lat={:.6}", 41.0 + (i as f64) * 1e-6),
             prev_hash: prev.clone(),
             ts: i,
-            firma: None,
-        };
+            firma: None, ..Default::default() };
         prev = h.hash();
         serie.push(h);
     }
