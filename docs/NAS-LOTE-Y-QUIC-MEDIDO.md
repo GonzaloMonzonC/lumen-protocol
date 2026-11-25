@@ -55,7 +55,7 @@ El perfil de barco usa `lote` 64. La medición dice que:
 
 **64 es una decisión razonable y ahora tiene respaldo numérico.**
 
-## 5 · QUIC en la NAS: BLOQUEADO
+## 5 · QUIC en la NAS: BLOQUEADO, y es un límite esperado
 
 ```
 bench quic 1000 -> panic en time.rs (Os code 22)
@@ -65,20 +65,31 @@ bench quic 1000 -> panic en time.rs (Os code 22)
 (que usa QUIC por debajo) llama a `Instant::now()` internamente, y en este kernel
 no funciona.
 
-### Opciones
+### Por qué esto NO es un problema del producto
 
-1. **Probar QUIC en el PC** y en la NAS solo el almacenamiento. Es lo que ya
-   está hecho: `quic_e2e` y `flota_multinodo` corren en el PC (174 tests).
-2. **Ver si el kernel de la NAS puede usar otro reloj.** Requiere arrancar el
-   proceso con otra `LD_PRELOAD` o tocar el kernel: no viable en un Synology.
-3. **Buscar un backoff de tokio** hacia `clock_gettime` con otra base de tiempo:
-   `tokio` no lo expone.
-4. **Aceptar el límite.** La NAS es un nodo de almacenamiento; la replicación se
-   probaría en otro nodo (Raspberry, x86, el propio PC).
+**El nodo ARM del paper es una Raspberry Pi, no una NAS.** La NAS Synology
+(`neferu`) es un **experimento interno de hardware legacy**: un Synology DS216se
+con kernel 3.2.101 de 2014 y un Marvell Armada-370. Se usó precisamente para
+saber hasta dónde aguanta hardware viejo, y el resultado es útil:
 
-**Mi lectura: la opción 4 es la realista.** Este kernel tiene 11 años y no es
-razonable adaptar la std de Rust a él. La NAS sirve perfectamente como nodo de
-datos y almacenamiento; la replicación está probada en hardware moderno.
+- **Aguanta el motor, LMDB y la persistencia.**
+- **No aguanta QUIC**, porque el reloj de alta resolución que necesita `tokio`
+  no existe como la std lo espera en ese kernel.
+
+Una Raspberry Pi lleva kernel 6.x: `clock_gettime` funciona, `tokio` funciona y
+QUIC funciona. **El sistema completo corre junto en el nodo del paper.**
+
+### Lo que el experimento legacy SÍ ha dado
+
+1. **El coste real del `fsync`**: 64 ms por escritura en HDD, frente a 0,1 ms en
+   NVMe. Ese dato sirve para el diseño aunque la NAS no sea el destino.
+2. **La prueba de que el lote funciona**: 47 s para 21.600 muestras medidas en
+   hardware lento. En Raspberry será igual o mejor.
+3. **Un límite conocido y documentado**: si algún día alguien quiere correr el
+   nodo en un NAS viejo, ya sabe que necesita kernel moderno para la parte de red.
+
+**No se adapta la std de Rust a un kernel de 2014.** El experimento ya ha dado lo
+que tenía que dar.
 
 ## 6 · Lo que queda demostrado con esto
 
@@ -86,18 +97,28 @@ datos y almacenamiento; la replicación está probada en hardware moderno.
 |---|---|
 | Firma Ed25519 real | PC (tests) |
 | Perfil desde fichero | PC (tests) |
-| Persistencia LMDB | **PC y NAS** |
-| Durabilidad sync/nosync/lote | **PC y NAS** |
+| Persistencia LMDB | **PC y NAS Synology** |
+| Durabilidad sync/nosync/lote | **PC y NAS Synology** |
 | Transporte QUIC + TLS 1.3 | PC (E2E, 500 y 200 mensajes) |
 | Verificación de flota | PC (5 casos) |
 | **Lote a escala de barco** | **NAS: 47 s para 21.600** |
-| QUIC en ARMv7 kernel 3.2 | ❌ **bloqueado por el reloj** |
+| QUIC en ARMv7 kernel 3.2 | ❌ límite del kernel viejo, **no aplica al paper** |
+
+**El nodo del paper es Raspberry Pi (kernel moderno).** Todo el sistema corre
+junto allí. La NAS Synology es un banco de pruebas de hardware legacy y sus
+cifras valen como **cota pesimista**: en Raspberry será igual o mejor.
 
 ## 7 · Lo que queda pendiente
 
-1. **Decidir si el nodo ARM del paper es tipo NAS (kernel viejo) o tipo
-   Raspberry (kernel moderno).** Si es Raspberry, QUIC funcionará y todo el
-   sistema corre junto. Si es NAS, son dos piezas separadas.
-2. **Probar QUIC en otro ARM** (Raspberry) para saber si el límite es del kernel
-   3.2 o de ARM en general.
-3. **Split-brain**, que sigue sin diseñar.
+1. **Medir en Raspberry Pi**, que es el nodo del paper. Debería ir mejor que la
+   NAS en todo: kernel moderno (QUIC funciona), CPU más rápida y, si lleva SSD o
+   microSD decente, `fsync` más barato. Las cifras de la NAS son una **cota
+   pesimista**.
+2. **Split-brain**, que sigue sin diseñar.
+3. **Réplica parcial** para enjambres grandes.
+
+## 8 · Nota sobre el estado del nodo de pruebas
+
+El nodo de `/volume1/backup/lumen-test/` se montó para este experimento. Los
+`.lmdb` de medición ocupan espacio y se pueden borrar cuando no hagan falta.
+**No toca nada de `neferu`**, que sigue con su binario del 7 de octubre.

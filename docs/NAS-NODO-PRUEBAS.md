@@ -2,6 +2,13 @@
 
 > 2026-11-24. Nodo **aislado** en la NAS, sin tocar el `mvm-nas` de neferu.
 
+> **CONTEXTO (aclarado por Gonzalo):** el **nodo ARM del paper es una Raspberry
+> Pi**. Esta NAS Synology (kernel 3.2.101 de 2014, Marvell Armada-370) es un
+> **experimento interno de hardware legacy**, para saber hasta donde aguanta
+> hardware viejo. Sus cifras valen como cota pesimista, no como objetivo.
+
+
+
 ---
 
 ## 1 · Qué se ha montado
