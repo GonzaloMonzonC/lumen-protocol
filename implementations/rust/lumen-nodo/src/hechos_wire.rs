@@ -312,6 +312,59 @@ pub fn recibir_hechos<H: Host>(
     recibir_hechos_con(host, mensajes, clave_publica, false)
 }
 
+/// Recibe hechos **verificando la cadena de custodia del epoch**.
+///
+/// Además de lo que hace [`recibir_hechos_con`], comprueba que el `epoch` de
+/// cada hecho es alcanzable desde el epoch que este nodo ya conoce para ese
+/// barco, usando los saltos firmados presentados.
+///
+/// Sin esto, un nodo con la clave podría declarar `epoch = 999999` y ganar
+/// siempre. Con esto, tiene que presentar la cadena de saltos completa.
+///
+/// `epoch_conocido` es el último epoch aceptado. Si es 0, cualquier hecho en
+/// epoch 0 pasa sin cadena (caso normal: nadie ha reinstalado nada).
+pub fn recibir_hechos_custodiados<H: Host>(
+    host: &mut H,
+    mensajes: &[DdpMessage],
+    clave_publica_hex: &str,
+    saltos: &[crate::epoch::SaltoEpoch],
+    epoch_conocido: u64,
+    perfil_firma_por_hecho: bool,
+) -> ResumenRecepcion {
+    let mut rechazados = 0usize;
+    let mut motivo: Option<String> = None;
+
+    // Filtrar los que no superan la custodia; el resto va por el camino normal.
+    let mut validos: Vec<DdpMessage> = Vec::with_capacity(mensajes.len());
+    for m in mensajes {
+        let Some(h) = hecho_de_mensaje(m) else {
+            rechazados += 1;
+            motivo.get_or_insert_with(|| "mensaje no reconstruible".into());
+            continue;
+        };
+        if h.version < 2 {
+            // Un hecho v1 no tiene epoch: no hay custodia que comprobar.
+            validos.push(m.clone());
+            continue;
+        }
+        match crate::epoch::verificar_cadena(epoch_conocido, h.epoch, saltos, clave_publica_hex) {
+            c if c.es_valido() => validos.push(m.clone()),
+            otro => {
+                rechazados += 1;
+                motivo.get_or_insert_with(|| format!("custodia del epoch: {otro:?}"));
+            }
+        }
+    }
+
+    let clave = crate::identidad::hex_a_bytes_publico(clave_publica_hex).ok();
+    let mut sub = recibir_hechos_con(host, &validos, clave.as_deref(), perfil_firma_por_hecho);
+    sub.rechazados += rechazados;
+    if sub.primer_motivo.is_none() {
+        sub.primer_motivo = motivo;
+    }
+    sub
+}
+
 /// Igual que [`recibir_hechos`], pero declarando si el perfil firma por hecho.
 ///
 /// - `firma_por_hecho = true`  → cada hecho con firma se verifica aqui mismo.
