@@ -399,6 +399,52 @@ impl QuicEndpoint {
         Ok(Self { endpoint, runtime })
     }
 
+    /// Acepta una conexión **sin esperar al primer stream**.
+    ///
+    /// ## Por qué existe
+    ///
+    /// [`accept`] hace `accept_bi()`, que espera a que el cliente abra un
+    /// stream. Eso significa que **no vuelve hasta que el cliente manda algo**.
+    /// Si se atiende una conexión de principio a fin antes de volver a llamar,
+    /// los demás clientes se encuentran el puerto ocupado y reciben
+    /// `ConnectionRefused`.
+    ///
+    /// Medido en la simulación de flota: con [`accept`] el hub aguanta **10
+    /// barcos** a la vez; a partir de ahí se encalla.
+    ///
+    /// Esta variante devuelve en cuanto el handshake termina, y los streams se
+    /// aceptan después con [`QuicTransport::aceptar_stream`]. Así el servidor
+    /// puede aceptar conexiones en paralelo.
+    pub fn aceptar_conexion(&mut self) -> io::Result<QuicTransport> {
+        self.runtime.block_on(async {
+            match self.endpoint.accept().await {
+                Some(incoming) => {
+                    let conn = incoming.await.map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::ConnectionRefused,
+                            format!("QUIC handshake failed: {e}"),
+                        )
+                    })?;
+                    Ok(QuicTransport {
+                        send: None,
+                        recv: None,
+                        connection: conn,
+                        _endpoint: self.endpoint.clone(),
+                        _runtime: self.runtime.clone(),
+                        runtime_handle: self.runtime.handle().clone(),
+                        read_buffer: Vec::new(),
+                        read_pos: 0,
+                        read_len: 0,
+                    })
+                }
+                None => Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "endpoint closed",
+                )),
+            }
+        })
+    }
+
     pub fn accept(&mut self) -> io::Result<QuicTransport> {
         self.runtime.block_on(async {
             match self.endpoint.accept().await {
@@ -565,6 +611,35 @@ impl QuicTransport {
     pub fn connect(addr: &str) -> io::Result<Self> {
         let mut endpoint = QuicEndpoint::client()?;
         endpoint.connect(addr)
+    }
+
+    /// Acepta el siguiente stream bidireccional de esta conexión.
+    ///
+    /// Necesario cuando la conexión se obtuvo con
+    /// [`QuicEndpoint::aceptar_conexion`], que devuelve **sin** streams. Bloquea
+    /// hasta que el cliente abra uno.
+    pub fn aceptar_stream(&mut self) -> io::Result<()> {
+        if self.send.is_some() && self.recv.is_some() {
+            return Ok(()); // ya hay stream
+        }
+        let conn = self.connection.clone();
+        let handle = self.runtime_handle.clone();
+        let (send, recv) = handle.block_on(async {
+            conn.accept_bi().await.map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    format!("stream accept failed: {e}"),
+                )
+            })
+        })?;
+        self.send = Some(send);
+        self.recv = Some(recv);
+        Ok(())
+    }
+
+    /// ¿Tiene ya un stream abierto?
+    pub fn tiene_stream(&self) -> bool {
+        self.send.is_some() && self.recv.is_some()
     }
 
     pub fn peer_certificate(&self) -> Option<Vec<rustls::pki_types::CertificateDer<'static>>> {

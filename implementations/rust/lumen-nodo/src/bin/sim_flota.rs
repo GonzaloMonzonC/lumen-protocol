@@ -81,9 +81,13 @@ fn hub(a: &[String]) {
     let mut total_rechazados = 0usize;
     let mut total_conflictos = 0usize;
     let mut barcos = 0usize;
+    let mut handles: Vec<std::thread::JoinHandle<Vec<lumen_znet::DdpMessage>>> = Vec::new();
 
     while barcos < esperados {
-        let t = match ep.accept() {
+        // aceptar_conexion() vuelve en cuanto termina el handshake, SIN esperar
+        // al primer stream. Con accept() el hub se quedaba clavado esperando
+        // datos de un barco mientras los demas recibian ConnectionRefused.
+        let t = match ep.aceptar_conexion() {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("accept: {e:?}");
@@ -93,10 +97,15 @@ fn hub(a: &[String]) {
         barcos += 1;
 
         // Cada conexion en su hilo: leer y devolver los mensajes.
+        let mut t_aux = t;
         let hilo = std::thread::spawn(move || {
             let mut znet = Znet::new();
             znet.init();
-            let mut qz = QuicZnet::new(t);
+            // La conexion llega sin stream: se espera al primer stream del barco.
+            if let Err(e) = t_aux.aceptar_stream() {
+                eprintln!("stream: {e:?}");
+            }
+            let mut qz = QuicZnet::new(t_aux);
             let mut mensajes: Vec<lumen_znet::DdpMessage> = Vec::new();
             let mut sin_datos = 0;
             loop {
@@ -106,7 +115,7 @@ fn hub(a: &[String]) {
                     Ok((_e, recibidos)) => {
                         if recibidos == 0 {
                             sin_datos += 1;
-                            if sin_datos > 1500 {
+                            if sin_datos > 6000 {
                                 break; // 3 s de silencio
                             }
                             std::thread::sleep(std::time::Duration::from_millis(2));
@@ -117,10 +126,13 @@ fn hub(a: &[String]) {
                     Err(_) => break,
                 }
                 let mut fin = false;
+                // OJO: hay que Drenar TODA la cola antes de mirar FIN. Si se
+                // corta al ver FIN, los mensajes que vinieron en el mismo lote
+                // detras de el se quedan sin sacar y se pierden en silencio.
                 while let Some(m) = znet.recv() {
                     if m.body.as_slice() == b"FIN" {
                         fin = true;
-                        break;
+                        continue; // seguir vaciando la cola
                     }
                     mensajes.push(m);
                 }
@@ -128,9 +140,24 @@ fn hub(a: &[String]) {
                     break;
                 }
             }
+            // ACK: el barco espera esto antes de cerrar. Sin el, su proceso
+            // termina y se pierden los hechos que aun no se habian leido.
+            let ack = format!("ACK {}", mensajes.len()).into_bytes();
+            // Responder por el mismo circuito por el que llegaron.
+            let circuito = 0u16;
+            let _ = znet.reply(circuito, lumen_znet::ZnetReply::Data(ack));
+            let _ = qz.flush(&mut znet);
             mensajes
         });
 
+        // NO se espera aqui: esperar convertiria el bucle en secuencial y
+        // volveriamos al problema original. Se guardan los handles y se juntan
+        // todos al final.
+        handles.push(hilo);
+    }
+
+    // Ahora si: recoger todas las conexiones.
+    for hilo in handles {
         let mensajes = hilo.join().unwrap_or_default();
         let r = hechos_wire::recibir_hechos(&mut host, &mensajes, None);
         total_aceptados += r.aceptados;
@@ -214,6 +241,32 @@ fn barco(a: &[String]) {
     // ciegas o corta antes de hora.
     let _ = znet.reply(c, lumen_znet::ZnetReply::Data(b"FIN".to_vec()));
     let _ = qz.flush(&mut znet);
+
+    // ESPERAR al ACK del hub antes de salir.
+    //
+    // Sin esto se pierden hechos: el proceso barco termina, el socket se cierra
+    // y el hub se queda con lo que le dio tiempo a leer. Medido: 1192 de 2000.
+    let mut espera = 0;
+    let mut confirmado = false;
+    while espera < 3000 {
+        match qz.pump(&mut znet) {
+            Ok((_e, recibidos)) => {
+                if recibidos > 0 {
+                    while let Some(m) = znet.recv() {
+                        if m.body.starts_with(b"ACK ") {
+                            confirmado = true;
+                        }
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+        if confirmado {
+            break;
+        }
+        espera += 1;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
     let t_env = ahora().saturating_sub(t_env0);
 
     println!(
