@@ -1,6 +1,13 @@
 # Durabilidad unificada — medida real en la NAS
 
 > 2026-11-24. Unificado el mecanismo (una sola fuente de verdad) y **medido en
+
+> **CORRECCION (misma fecha):** las cifras de esta pagina se midieron con UNA
+> sola pasada. Repetidas 3 veces y con mediana, el PC con SSD no muestra
+> diferencia entre sync y nosync (105 ms ambos), y las de la NAS se mantienen.
+> Ver **DDP-SYNC-VS-NOSYNC-NAS-PC.md**, que es el documento bueno.
+
+
 > la NAS ARMv7** con el binario nuevo.
 
 ---
