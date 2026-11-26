@@ -128,6 +128,11 @@ pub enum Custodia {
     SaltoDemasiadoGrande { desde: u64, hacia: u64 },
     /// El epoch de destino es anterior al conocido: retroceso.
     Retroceso { conocido: u64, pretendido: u64 },
+    /// El salto total es mayor de lo creíble: **no se absorbe, va a cuarentena**.
+    ///
+    /// Smith: *"un dron comprometido fabrica epoch = 2^63 y gana siempre"*.
+    /// Sin consenso no se puede prevenir: lo único honesto es **detectar**.
+    FueraDeCota { veredicto: String, motivo: String },
 }
 
 impl Custodia {
@@ -140,6 +145,49 @@ impl Custodia {
 /// usando la cadena de saltos presentada.
 ///
 /// La cadena puede venir desordenada: se ordena por `desde`.
+
+/// Verifica la cadena de custodia **y** la cota de plausibilidad.
+///
+/// ## Por qué hacen falta las dos
+///
+/// `verificar_cadena` comprueba que **cada salto esté firmado**. Eso impide que
+/// alguien invente un salto de 3 a 1000 sin firmar los 997 intermedios.
+///
+/// Pero **un nodo comprometido puede firmarlos todos**: tiene la clave. La
+/// custodia sola no lo para.
+///
+/// La cota añade la segunda comprobación: **¿es creíble este salto total?**
+///
+/// | Ataque | Lo para |
+/// |---|---|
+/// | Salto sin firmar | custodia |
+/// | **1000 saltos firmados por un nodo comprometido** | **la cota** |
+///
+/// Y lo que **no** se puede hacer: prevenir. Smith lo dejó claro — *"sin
+/// consenso, un dron comprometido es dueño del cielo. Lo único honesto es
+/// detectar"*. La cota detecta y pone en cuarentena.
+pub fn verificar_con_cota(
+    epoch_conocido: u64,
+    epoch_pretendido: u64,
+    saltos: &[SaltoEpoch],
+    clave_publica_hex: &str,
+    cota: crate::cota_epoch::Cota,
+) -> Custodia {
+    // 1. La cota primero: un salto imposible no merece que se verifiquen 1000
+    //    firmas (además de que verificarlas sería un trabajo que un atacante
+    //    puede provocar a voluntad — un ataque de denegación por CPU).
+    let veredicto = cota.revisar(epoch_conocido, epoch_pretendido);
+    if veredicto.va_a_cuarentena() {
+        return Custodia::FueraDeCota {
+            veredicto: format!("{veredicto:?}"),
+            motivo: veredicto.motivo(),
+        };
+    }
+
+    // 2. Dentro de la cota, la custodia normal.
+    verificar_cadena(epoch_conocido, epoch_pretendido, saltos, clave_publica_hex)
+}
+
 pub fn verificar_cadena(
     epoch_conocido: u64,
     epoch_pretendido: u64,
