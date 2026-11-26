@@ -117,26 +117,41 @@ fn hub(a: &[String]) {
             let mut qz = QuicZnet::new(t);
             let mut lote: Vec<lumen_znet::DdpMessage> = Vec::new();
             let mut recibidos = 0usize;
-            let mut sin_datos = 0;
             let mut error: Option<String> = None;
 
+            // Antes habia un contador `sin_datos` que cortaba a las 6000 vueltas
+            // sin datos. Era una HEURISTICA para adivinar el cierre, y con
+            // volumen alto cortaba conexiones vivas.
+            //
+            // Ahora `poll_estado` distingue Vacio de Cerrado: se drena mientras
+            // la conexion viva, y se para SOLO cuando el par cierra de verdad.
+            let mut vueltas_vacias = 0u32;
             loop {
-                match qz.pump(&mut znet) {
-                    // pump devuelve (ENVIADOS, RECIBIDOS). El primero NO es 'leidos'.
-                    Ok((_e, n)) => {
-                        if n == 0 {
-                            sin_datos += 1;
-                            if sin_datos > 6000 {
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(2));
-                            continue;
-                        }
-                        sin_datos = 0;
-                    }
+                // Primero enviar lo pendiente (el hub responde ACK por ventana).
+                let _ = qz.flush(&mut znet);
+                let lectura = match qz.poll_estado(&mut znet) {
+                    Ok(l) => l,
                     Err(e) => {
                         error = Some(format!("{e:?}"));
                         break;
+                    }
+                };
+                match lectura {
+                    lumen_znet::Lectura::Cerrado => break,
+                    lumen_znet::Lectura::Vacio => {
+                        // Sin datos AHORA, pero la conexion vive. Se espera un
+                        // poco para no girar en vacio, sin limite de vueltas:
+                        // el FIN del barco o el cierre del stream deciden.
+                        vueltas_vacias += 1;
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                        // Red de seguridad anti-bloqueo: 60 s sin nada.
+                        if vueltas_vacias > 30_000 {
+                            error = Some("60 s sin datos ni cierre".into());
+                            break;
+                        }
+                    }
+                    lumen_znet::Lectura::Datos(_) => {
+                        vueltas_vacias = 0;
                     }
                 }
                 let mut fin = false;

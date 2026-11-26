@@ -35,6 +35,51 @@ pub enum QuicZnetError {
     BufferOverflow(usize),
 }
 
+/// Resultado de una lectura, **sin ambigüedad**.
+///
+/// ## El problema que resuelve
+///
+/// `poll()` devolvía un `usize` donde **`0` significaba dos cosas distintas**:
+///
+/// - el par cerró el stream (fin de conexión)
+/// - no llegó nada nuevo en esta vuelta
+///
+/// Eso obliga a quien llama a inventar heurísticas: "N vueltas sin datos y
+/// corto". Es exactamente lo que hacía el hub de la simulación de flota, y con
+/// volumen alto **cortaba conexiones vivas**: 62.291 hechos perdidos.
+///
+/// Lo señaló Poli en la revisión: *"`poll()` colapsa tres estados en uno"*.
+/// Tenía razón, aunque aquella pérdida concreta fuera del `MAPSIZE`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lectura {
+    /// Llegaron `n` mensajes DDP completos.
+    Datos(usize),
+    /// No hay frames completos todavía. **La conexión sigue viva.**
+    Vacio,
+    /// El par cerró el stream. No vendrá nada más.
+    Cerrado,
+}
+
+impl Lectura {
+    /// Cuántos mensajes llegaron (0 si vacío o cerrado).
+    pub fn mensajes(&self) -> usize {
+        match self {
+            Lectura::Datos(n) => *n,
+            _ => 0,
+        }
+    }
+
+    /// ¿Se cerró la conexión?
+    pub fn cerrado(&self) -> bool {
+        matches!(self, Lectura::Cerrado)
+    }
+
+    /// ¿Llegó algo?
+    pub fn hay_datos(&self) -> bool {
+        matches!(self, Lectura::Datos(n) if *n > 0)
+    }
+}
+
 impl std::fmt::Display for QuicZnetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -137,7 +182,8 @@ impl<S: Transport> QuicZnet<S> {
         Ok(enviados)
     }
 
-    /// **Recibe** todo lo disponible del stream y lo mete en la cola de entrada de `znet`.
+    
+/// **Recibe** todo lo disponible del stream y lo mete en la cola de entrada de `znet`.
     ///
     /// Una lectura que devuelve 0 bytes significa que el par cerró el stream: se trata como fin
     /// de conexión, no como error.
@@ -193,6 +239,75 @@ impl<S: Transport> QuicZnet<S> {
         }
 
         Ok(entregados)
+    }
+
+    /// Como [`Lectura`] pero devolviendo el estado explícito.
+    ///
+    /// Es el método que hay que usar cuando el llamante necesita saber si el
+    /// par cerró, en vez de adivinarlo contando vueltas sin datos.
+    ///
+    /// ```ignore
+    /// loop {
+    ///     match qz.poll_estado(&mut znet)? {
+    ///         Lectura::Datos(n) => { /* procesar n mensajes */ }
+    ///         Lectura::Vacio     => { /* seguir esperando: la conexion vive */ }
+    ///         Lectura::Cerrado   => break,
+    ///     }
+    /// }
+    /// ```
+    pub fn poll_estado(&mut self, znet: &mut Znet) -> Result<Lectura, QuicZnetError> {
+        // 1. Leer lo que haya.
+        let mut chunk = [0u8; 8192];
+        let n = self.stream.read(&mut chunk)?;
+        if n == 0 {
+            // OJO: esto es el FIN del stream de verdad. Antes se confundia con
+            // "no hay datos", y esa ambiguedad obligaba al hub a inventar un
+            // temporizador de "vueltas sin datos" que cortaba conexiones vivas.
+            return Ok(Lectura::Cerrado);
+        }
+        self.buf.extend_from_slice(&chunk[..n]);
+
+        if self.buf.len() > MAX_READ_BUFFER {
+            return Err(QuicZnetError::BufferOverflow(self.buf.len()));
+        }
+
+        // 2. Partir el buffer en frames completos, igual que `poll`.
+        let mut entregados = 0;
+        let mut pos = 0;
+        loop {
+            let resto = &self.buf[pos..];
+            if resto.is_empty() {
+                break;
+            }
+            match frame::parse(resto) {
+                ParseResult::Complete { frame, consumed } => {
+                    let msg = frame_to_ddp(frame.frame_type, frame.payload)?;
+                    znet.push_incoming(msg);
+                    entregados += 1;
+                    pos += consumed;
+                }
+                ParseResult::Incomplete | ParseResult::IncompletePayload { .. } => break,
+                ParseResult::Error(e) => {
+                    self.buf.clear();
+                    return Err(QuicZnetError::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("frame LUMEN corrupto: {e}"),
+                    )));
+                }
+            }
+        }
+        if pos > 0 {
+            self.buf.drain(..pos);
+        }
+
+        // 3. Distinguir "llegaron mensajes" de "lei bytes pero no formaban frame".
+        if entregados > 0 {
+            Ok(Lectura::Datos(entregados))
+        } else {
+            // Se leyeron bytes pero no completaban un frame: hay media trama en
+            // el buffer. La conexion vive y llegara el resto.
+            Ok(Lectura::Vacio)
+        }
     }
 
     /// Un ciclo completo: enviar lo pendiente y recibir lo que haya.
@@ -392,6 +507,87 @@ mod tests {
         // No debe entrar en pánico; o entrega 0 o da error de frame corrupto.
         let r = backend.poll(&mut z);
         assert!(r.is_ok() || matches!(r, Err(QuicZnetError::Io(_))));
+    }
+
+
+    // ── Lectura explicita: Vacio vs Cerrado ──────────────────────────────
+    //
+    // El bug que se cierra: `poll` devolvia 0 tanto si el par cerro como si no
+    // habia datos. El hub de la flota contaba "vueltas sin datos" y cortaba
+    // conexiones vivas con volumen alto.
+
+    #[test]
+    fn el_cierre_del_stream_se_ve_como_cerrado() {
+        // Un stream sin datos = el par cerro.
+        let mut b = QuicZnet::new(FakeStream::new(Vec::new()));
+        let mut z = Znet::new();
+        z.init();
+        let r = b.poll_estado(&mut z).expect("poll");
+        assert_eq!(r, Lectura::Cerrado, "un stream vacio es CIERRE, no 'vacio'");
+        assert!(r.cerrado());
+        assert!(!r.hay_datos());
+    }
+
+    #[test]
+    fn media_trama_se_ve_como_vacio_no_como_cierre() {
+        // Un frame a medias: se leyeron bytes, pero no completan un mensaje.
+        // La conexion VIVE y llegara el resto.
+        let completo = serializar(&[DdpMessage::new(msg_type::DATA, 1, 1, 0, b"hola".to_vec())]);
+        // Cortar por la mitad: queda media trama.
+        let media = completo[..completo.len() / 2].to_vec();
+
+        let mut b = QuicZnet::new(FakeStream::new(media));
+        let mut z = Znet::new();
+        z.init();
+        let r = b.poll_estado(&mut z).expect("poll");
+        assert_eq!(
+            r, Lectura::Vacio,
+            "media trama NO es cierre: la conexion sigue viva esperando el resto"
+        );
+        assert!(!r.cerrado(), "con media trama la conexion NO se ha cerrado");
+        assert!(!r.hay_datos());
+    }
+
+    #[test]
+    fn un_frame_completo_se_ve_como_datos() {
+        let cable = serializar(&[DdpMessage::new(msg_type::DATA, 1, 1, 0, b"hola".to_vec())]);
+        let mut b = QuicZnet::new(FakeStream::new(cable));
+        let mut z = Znet::new();
+        z.init();
+        let r = b.poll_estado(&mut z).expect("poll");
+        assert_eq!(r, Lectura::Datos(1));
+        assert!(r.hay_datos());
+        assert!(!r.cerrado());
+        assert_eq!(r.mensajes(), 1);
+    }
+
+    #[test]
+    fn el_lector_puede_seguir_hasta_cerrado_sin_adivinar() {
+        // El bucle correcto: seguir mientras no sea Cerrado. Sin contadores de
+        // "vueltas sin datos", sin temporizadores.
+        let cable = serializar(&[
+            DdpMessage::new(msg_type::DATA, 1, 1, 0, b"uno".to_vec()),
+            DdpMessage::new(msg_type::DATA, 2, 1, 0, b"dos".to_vec()),
+        ]);
+        let mut b = QuicZnet::new(FakeStream::new(cable));
+        let mut z = Znet::new();
+        z.init();
+
+        let mut vueltas = 0;
+        let mut total = 0usize;
+        loop {
+            vueltas += 1;
+            match b.poll_estado(&mut z).expect("poll") {
+                Lectura::Datos(n) => total += n,
+                Lectura::Vacio => {}
+                Lectura::Cerrado => break,
+            }
+            if vueltas > 10 {
+                panic!("no llego a Cerrado en 10 vueltas");
+            }
+        }
+        assert_eq!(total, 2, "los dos mensajes deben entregarse");
+        assert!(vueltas >= 2, "se necesitaron varias vueltas: {vueltas}");
     }
 
     #[test]

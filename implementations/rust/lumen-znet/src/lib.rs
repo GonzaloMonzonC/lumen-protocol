@@ -55,7 +55,7 @@ pub mod funciones;
 pub mod quic_backend;
 
 pub use funciones::{campos_documentados, lee_u16_le, CamposDocumentados};
-pub use quic_backend::{QuicZnet, QuicZnetError};
+pub use quic_backend::{Lectura, QuicZnet, QuicZnetError};
 
 // ── Constantes del protocolo DDP ────────────────────────────────────────────
 
