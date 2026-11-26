@@ -15,6 +15,8 @@
 //!   firmar  N firmas Ed25519
 //!   ver     N verificaciones Ed25519
 //!   sellos  firmar + verificar N/bloque sellos
+//!   lotes   verificar por lotes de tamano M (fase nueva): mide si trocear
+//!           reduce la LATENCIA MAXIMA, aunque el total sea el mismo
 //!
 //! Uso: bench-cadenas <fase> <n> [bloque]
 
@@ -122,6 +124,44 @@ fn main() {
                 }
             }
             black_box(ok);
+        }
+        "lotes" => {
+            // Verificacion POR LOTES.
+            //
+            // ## La pregunta que responde
+            //
+            // Verificar 21.600 hechos de golpe bloquea el nodo 1,8 s (con sellos)
+            // o 76 s (por firma). Durante ese tiempo no atiende nada mas.
+            //
+            // Trocear en lotes de M no reduce el total, pero SI reduce el
+            // bloqueo maximo: el nodo puede atender entre lote y lote.
+            //
+            // Aqui se mide el coste POR LOTE, que es lo que determina cuanto
+            // tiempo queda sin atender.
+            let m: usize = std::env::var("LOTE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(256);
+
+            let mut firmas: Vec<(Vec<u8>, Signature)> = Vec::with_capacity(n);
+            for i in 0..n {
+                let msg = format!("v2|BARCO|gps|{i}|inst-A|0|gps|lat=41.{i}");
+                let mv = msg.into_bytes();
+                let sg = sk.sign(&mv);
+                firmas.push((mv, sg));
+            }
+            let mut ok = 0u64;
+            let mut lotes = 0usize;
+            for trozo in firmas.chunks(m) {
+                lotes += 1;
+                for (msg, sg) in trozo {
+                    if vk.verify(msg, sg).is_ok() {
+                        ok += 1;
+                    }
+                }
+            }
+            black_box(ok);
+            println!("lotes n={n} lote={m} -> {lotes} lotes");
         }
         otra => {
             eprintln!("fase desconocida: {otra}");
