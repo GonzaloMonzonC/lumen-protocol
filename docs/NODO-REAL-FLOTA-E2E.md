@@ -95,14 +95,31 @@ en "se puede desplegar".
 
 ## 6 · Lo que este script NO prueba
 
-- **Un barco que envíe hechos firmados de flota por el protocolo de hechos.**
-  Este E2E usa `--enviar` (escritura M firmada y encadenada), que es el camino de
-  producción de la PDB. El camino de hechos (`recibir_hechos_de_flota`, mensaje
-  `CERT|`) está probado en `sim_flota` con 40 barcos y en los tests unitarios.
+## 7 · Los dos caminos, ya unificados
 
-  **Son dos caminos distintos y conviene no confundirlos:**
-  - `--enviar` → escrituras M → `nodo::atender` (probado aquí)
-  - hechos firmados → `recibir_hechos_de_flota` (probado en simulación)
+El nodo real acepta **las dos formas de carga**, y las distingue por la forma del
+mensaje:
+
+| Forma | Quién la manda | Qué hace el nodo |
+|---|---|---|
+| Empieza por `^` | un par que delega una escritura | `aplicar_payload_con`: encadena y firma |
+| `CERT\|<armador>\|<barco>\|<clave>\|<firma>` | un barco de flota | verifica contra la raíz **y no guarda nada** |
+| Cualquier otra | un barco de flota | `aplicar_muestra_recibida`: **verifica** y guarda, sin re-firmar |
+
+**El mensaje de certificado se añadió al despacho del nodo real** (antes solo lo
+entendía `sim_flota`). Sin esa rama, un `CERT|` caía en la rama de "muestra
+firmada" y se leía como muestra mal formada.
+
+Verificado en `tests/nodo_certificado.rs`:
+
+```
+certificado OK: barco 'BARCO-T' del armador 'ARMADOR-T'
+rechazado: certificado no valido contra la raiz: NoPerteneceALaFlota { ... }
+rechazado: certificado de flota recibido pero este nodo no tiene raiz de armador
+```
+
+**Un certificado no se guarda: solo autoriza.** Habla de la clave del barco, no
+del estado del nodo.
 
 - **Reinicio y persistencia** del nodo real tras esta conexión.
 - **Varios barcos** contra el mismo hub real (solo se probó uno).

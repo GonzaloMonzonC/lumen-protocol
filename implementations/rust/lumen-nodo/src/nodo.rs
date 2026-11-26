@@ -151,6 +151,45 @@ pub fn procesar<D: Destino + crate::cadena::EstadoCadena>(
             //    NO la re-encadena, la VERIFICA y la guarda tal cual.
             //
             // Se distinguen por la forma: una escritura M empieza por '^'.
+            // 3. Certificado de flota (prefijo `CERT|`).
+            //
+            // El barco lo manda ANTES de sus muestras para que el receptor sepa
+            // que su clave pertenece a la flota. Se verifica contra la raiz del
+            // armador en el acto: si no cuadra, se rechaza y el barco lo sabe
+            // antes de mandar nada mas.
+            //
+            // Se comprueba PRIMERO porque un certificado no empieza por '^' y,
+            // sin esta rama, caeria en `aplicar_muestra_recibida` y se
+            // interpretaria como una muestra mal formada.
+            if let Some(cert) = crate::hechos_wire::certificado_de_mensaje(&msg) {
+                let resultado: Result<Aplicado, ErrorAplicar> = match perfil_raiz {
+                    None => Err(ErrorAplicar::Formato(
+                        "certificado de flota recibido pero este nodo no tiene \
+                         raiz de armador: no puede verificar la pertenencia"
+                            .into(),
+                    )),
+                    Some(raiz) => match cert.verificar_con_raiz(raiz) {
+                        Ok(()) => {
+                            log(&format!(
+                                "certificado OK: barco '{}' del armador '{}'",
+                                cert.barco, cert.armador
+                            ));
+                            Ok(Aplicado { ns: "FLOTA".into(), subs: vec![cert.barco.clone()], bytes: 0, hash: None })
+                        }
+                        Err(e) => Err(ErrorAplicar::Formato(format!(
+                            "certificado no valido contra la raiz: {e:?}"
+                        ))),
+                    },
+                };
+                return match resultado {
+                    Ok(a) => DdpMessage::new(msg_type::SUCCESS, msg.num1, msg.num2, 0, Vec::new()),
+                    Err(e) => {
+                        log(&format!("rechazado: {e}"));
+                        DdpMessage::new(msg_type::FAILURE, msg.num1, msg.num2, 0, e.to_string().into_bytes())
+                    }
+                };
+            }
+
             let resultado = if msg.body.first() == Some(&b'^') {
                 aplicar_payload_con(&msg.body, destino, encadenar, firmante, registro, perfil_raiz, log)
             } else {
