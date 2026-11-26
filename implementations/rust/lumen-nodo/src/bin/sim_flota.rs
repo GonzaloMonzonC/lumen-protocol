@@ -100,6 +100,8 @@ fn hub(a: &[String]) {
     let mut total_aceptados = 0usize;
     let mut total_rechazados = 0usize;
     let mut total_conflictos = 0usize;
+    let mut total_cuarentena = 0usize;
+    let mut total_conflictos_persistidos = 0usize;
     let mut barcos = 0usize;
 
     // Un canal por conexion, guardado junto a su hilo.
@@ -231,6 +233,8 @@ fn hub(a: &[String]) {
         let mut aceptados = 0usize;
         let mut rechazados = 0usize;
         let mut conflictos = 0usize;
+        let mut cuarentena = 0usize;
+        let mut conflictos_persistidos = 0usize;
         let mut motivo: Option<String> = None;
         let mut detalle_real: Option<String> = None;
 
@@ -253,12 +257,51 @@ fn hub(a: &[String]) {
             if hechos.is_empty() {
                 continue;
             }
-            let r = hechos_wire::recibir_hechos(&mut host, &hechos, None);
+            // Recepcion CON COTA DE EPOCH: un hecho con epoch imposible no
+            // llega al store. Antes se usaba `recibir_hechos` sin cota, asi que
+            // la flota de simulacion no ejercitaba la defensa.
+            let r = hechos_wire::recibir_hechos_con_cota(
+                &mut host,
+                &hechos,
+                None,
+                false,
+                Some(lumen_nodo_lib::cota_epoch::Cota::default()),
+            );
             aceptados += r.aceptados;
             rechazados += r.rechazados;
             conflictos += r.conflictos;
+            cuarentena += r.en_cuarentena;
             if motivo.is_none() {
                 motivo = r.primer_motivo.clone();
+            }
+
+            // Los conflictos detectados se PERSISTEN como hechos firmados. Antes
+            // quedaban solo en el resumen (memoria) y se perdian al cerrar.
+            if !r.detalle_conflictos.is_empty() {
+                conflictos_persistidos += hechos_wire::persistir_conflictos(
+                    &mut host,
+                    &r,
+                    &format!("HUB-{}", n + 1),
+                    "hub",
+                    0,
+                    ahora() as u64,
+                    None,
+                );
+            }
+
+            // Y las ramas apartadas se anotan en la cuarentena persistida.
+            for (inst, motivo_c) in &r.cuarentena {
+                let _ = lumen_nodo_lib::cota_epoch::persistir_evento(
+                    &mut host,
+                    &format!("HUB-{}", n + 1),
+                    "hub",
+                    0,
+                    ahora() as u64,
+                    inst,
+                    lumen_nodo_lib::cota_epoch::AccionCuarentena::Apartar,
+                    motivo_c,
+                    None,
+                );
             }
             // El primer rechazo real, con su mensaje completo de LMDB.
             if r.rechazados > 0 && detalle_real.is_none() {
@@ -268,6 +311,8 @@ fn hub(a: &[String]) {
         total_aceptados += aceptados;
         total_rechazados += rechazados;
         total_conflictos += conflictos;
+        total_cuarentena += cuarentena;
+        total_conflictos_persistidos += conflictos_persistidos;
 
         // ── 2. Ahora si: verificar el certificado. ──
         // El barco DEBE mandarlo. Un hub real no puede inventarlo: solo el
@@ -315,8 +360,9 @@ fn hub(a: &[String]) {
     let ms = ahora().saturating_sub(t0);
     let series = hechos_store::contar_serie(&host, "BARCO-A", "gps");
     println!(
-        "FIN barcos={} aceptados={} rechazados={} conflictos={} serie_principal={} ms={}",
-        barcos, total_aceptados, total_rechazados, total_conflictos, series, ms
+        "FIN barcos={} aceptados={} rechazados={} conflictos={} cuarentena={} conflictos_persistidos={} serie_principal={} ms={}",
+        barcos, total_aceptados, total_rechazados, total_conflictos,
+        total_cuarentena, total_conflictos_persistidos, series, ms
     );
 }
 
@@ -362,10 +408,17 @@ fn barco(a: &[String]) {
     {
         let mut prev = String::new();
         let mut w = Escritor::nuevo(&mut host, &perfil).expect("escritor");
+        // El epoch se puede forzar por entorno para PROBAR LAS DEFENSAS: un
+        // dron comprometido mandaria un epoch imposible.
+        let epoch_forzado: u64 = std::env::var("LUMEN_EPOCH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
         for i in 0..n {
-            let mut h = Hecho::v2(
-                nombre, "gps", i, &inst, 0, "gps",
+            let mut h = Hecho::v3(
+                nombre, "gps", i, &inst, epoch_forzado, "gps",
                 &format!("lat=41.{i}"), &prev, i,
+                lumen_nodo_lib::replicacion::TipoHecho::Idempotente,
             );
             h.firmar(&id);
             prev = h.hash();
