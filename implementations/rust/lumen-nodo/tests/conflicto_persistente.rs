@@ -67,6 +67,7 @@ fn un_conflicto_de_recurso_queda_registrado_como_hecho_firmado() {
         nodo: "DRON-1".into(),
         serie: "reserva".into(),
         seq: 0,
+        tipo: TipoHecho::RecursoExclusivo,
         instance_existente: "inst-A".into(),
         instance_nueva: "inst-B".into(),
         hash_existente: a.hash(),
@@ -100,6 +101,7 @@ fn el_conflicto_sobrevive_al_reinicio() {
         nodo: "DRON-1".into(),
         serie: "reserva".into(),
         seq: 0,
+        tipo: TipoHecho::RecursoExclusivo,
         instance_existente: "inst-A".into(),
         instance_nueva: "inst-B".into(),
         hash_existente: a.hash(),
@@ -159,6 +161,7 @@ fn el_conflicto_dice_si_necesita_operador() {
     let (a, b) = dos_ramas(&id);
     let c = lumen_nodo_lib::hechos_wire::Conflicto {
         nodo: "DRON-1".into(), serie: "reserva".into(), seq: 0,
+        tipo: TipoHecho::RecursoExclusivo,
         instance_existente: "inst-A".into(), instance_nueva: "inst-B".into(),
         hash_existente: a.hash(), hash_nuevo: b.hash(),
         epoch_existente: 0, epoch_nuevo: 0,
@@ -187,6 +190,7 @@ fn dos_conflictos_distintos_se_encadenan() {
     let (a, b) = dos_ramas(&id);
     let c = lumen_nodo_lib::hechos_wire::Conflicto {
         nodo: "DRON-1".into(), serie: "reserva".into(), seq: 0,
+        tipo: TipoHecho::RecursoExclusivo,
         instance_existente: "inst-A".into(), instance_nueva: "inst-B".into(),
         hash_existente: a.hash(), hash_nuevo: b.hash(),
         epoch_existente: 0, epoch_nuevo: 0,

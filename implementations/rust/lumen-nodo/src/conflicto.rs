@@ -166,6 +166,7 @@ mod tests {
             nodo: "DRON-A".into(),
             serie: "reserva".into(),
             seq: 7,
+            tipo: TipoHecho::RecursoExclusivo,
             instance_existente: "inst-1".into(),
             instance_nueva: "inst-2".into(),
             hash_existente: "aa".repeat(32),

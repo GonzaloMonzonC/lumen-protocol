@@ -228,7 +228,7 @@ pub fn servir_peticion<H: Host>(
 }
 
 /// Resultado de recibir hechos.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResumenRecepcion {
     /// Hechos guardados correctamente.
     pub aceptados: usize,
@@ -241,6 +241,11 @@ pub struct ResumenRecepcion {
     pub duplicados: usize,
     /// Detalle de cada conflicto, con evidencia para el operador.
     pub detalle_conflictos: Vec<Conflicto>,
+    /// Hechos apartados por la cota de epoch (no se guardan, no se descartan en
+    /// silencio: la rama va a cuarentena).
+    pub en_cuarentena: usize,
+    /// `(instancia, motivo)` de cada rama apartada.
+    pub cuarentena: Vec<(String, String)>,
     /// Motivo del primer rechazo, para poder diagnosticar.
     pub primer_motivo: Option<String>,
 }
@@ -254,6 +259,10 @@ pub struct Conflicto {
     pub nodo: String,
     pub serie: String,
     pub seq: u64,
+    /// **Tipo del hecho que choca.** Sin esto no se puede deducir el motivo del
+    /// conflicto: un choque de telemetría y uno de reserva de recurso exigen
+    /// decisiones distintas, y confundirlos manda lo urgente a la cola lenta.
+    pub tipo: crate::replicacion::TipoHecho,
     pub instance_existente: String,
     pub instance_nueva: String,
     pub hash_existente: String,
@@ -439,6 +448,70 @@ pub fn recibir_hechos<H: Host>(
 }
 
 
+
+/// Persiste los conflictos detectados **como hechos firmados**.
+///
+/// ## El agujero que cierra
+///
+/// `recibir_hechos` detecta conflictos y los deja en `ResumenRecepcion`. Pero el
+/// resumen es **memoria**: si el nodo reinicia, los conflictos se pierden y el
+/// operador ya no puede auditar qué pasó.
+///
+/// Smith: *"sin hecho de conflicto explícito, la unión es una pérdida
+/// silenciosa"*. Un conflicto olvidado al reiniciar es casi lo mismo.
+///
+/// ## Qué hace
+///
+/// Por cada conflicto del resumen, crea un hecho en la serie `conflictos` del
+/// nodo, firmado si hay firmante, y lo guarda. La serie se encadena como
+/// cualquier otra.
+///
+/// Devuelve cuántos se persistieron.
+pub fn persistir_conflictos<H: Host>(
+    host: &mut H,
+    resumen: &ResumenRecepcion,
+    nodo: &str,
+    instancia: &str,
+    epoch: u64,
+    ts: u64,
+    firmante: Option<&crate::identidad::Identidad>,
+) -> usize {
+    use crate::conflicto::{hecho_de_conflicto, motivo_de, SERIE_CONFLICTOS};
+
+    if resumen.detalle_conflictos.is_empty() {
+        return 0;
+    }
+
+    // Se encadena en la propia serie de conflictos del nodo.
+    let mut seq = hechos_store::contar_serie(host, nodo, SERIE_CONFLICTOS);
+    let mut prev = if seq == 0 {
+        String::new()
+    } else {
+        hechos_store::leer(host, nodo, SERIE_CONFLICTOS, seq - 1, instancia)
+            .map(|h| h.hash())
+            .unwrap_or_default()
+    };
+
+    let mut guardados = 0;
+    for c in &resumen.detalle_conflictos {
+        // El motivo se deduce del TIPO REAL del hecho que chocó. Antes se pasaba
+        // `ConRevision` fijo y TODO conflicto salía como "decision-seguridad",
+        // incluso los de reserva de recurso: lo urgente se iba a la cola lenta.
+        let motivo = motivo_de(c, c.tipo);
+
+        let mut h = hecho_de_conflicto(nodo, instancia, epoch, seq, &prev, ts, c, motivo);
+        if let Some(id) = firmante {
+            h.firmar(id);
+        }
+        if hechos_store::guardar(host, &h).is_ok() {
+            prev = h.hash();
+            seq += 1;
+            guardados += 1;
+        }
+    }
+    guardados
+}
+
 /// Recepción **con verificación de flota**: solo se aceptan barcos cuya clave
 /// esté certificada por la raíz del armador.
 ///
@@ -582,6 +655,28 @@ pub fn recibir_hechos_con<H: Host>(
     clave_publica: Option<&[u8]>,
     perfil_firma_por_hecho: bool,
 ) -> ResumenRecepcion {
+    recibir_hechos_con_cota(host, mensajes, clave_publica, perfil_firma_por_hecho, None)
+}
+
+/// Igual, pero **aplicando la cota de epoch** al recibir.
+///
+/// ## Por qué la cota se comprueba aquí y no después
+///
+/// Un hecho con un epoch imposible (salto enorme) no debe ni guardarse: si se
+/// guardara, ya estaría en el store y la cuarentena llegaría tarde.
+///
+/// ## Qué pasa cuando un hecho se pasa de cota
+///
+/// **No se rechaza del todo**: se aparta su rama en la cuarentena y el hecho no
+/// se guarda. El nodo sigue operando con las ramas buenas. Es la diferencia entre
+/// "esto es falso" (rechazo) y "esto no lo puedo evaluar" (cuarentena).
+pub fn recibir_hechos_con_cota<H: Host>(
+    host: &mut H,
+    mensajes: &[DdpMessage],
+    clave_publica: Option<&[u8]>,
+    perfil_firma_por_hecho: bool,
+    cota: Option<crate::cota_epoch::Cota>,
+) -> ResumenRecepcion {
     let mut r = ResumenRecepcion::default();
 
     for m in mensajes {
@@ -633,6 +728,30 @@ pub fn recibir_hechos_con<H: Host>(
             }
         }
 
+        // ── 3b. COTA DE EPOCH ──
+        //
+        // Se comprueba ANTES de guardar: un hecho con epoch imposible no debe
+        // llegar al store, porque entonces la cuarentena llegaría tarde.
+        //
+        // La referencia es el epoch del último hecho conocido de esa rama.
+        if let Some(cota) = cota {
+            let epoch_previo = if h.seq == 0 {
+                0
+            } else {
+                hechos_store::leer(host, &h.nodo, &h.serie, h.seq - 1, &h.instance_id)
+                    .map(|p| p.epoch)
+                    .unwrap_or(0)
+            };
+            let veredicto = cota.revisar(epoch_previo, h.epoch);
+            if veredicto.va_a_cuarentena() {
+                r.en_cuarentena += 1;
+                r.primer_motivo.get_or_insert_with(|| veredicto.motivo());
+                r.cuarentena
+                    .push((h.instance_id.clone(), veredicto.motivo()));
+                continue;
+            }
+        }
+
         // 4. ¿Ya existe en esta posición? Aquí está el arreglo del split-brain.
         //
         // Antes: se guardaba y el segundo en la misma clave se DESCARTABA en
@@ -653,6 +772,7 @@ pub fn recibir_hechos_con<H: Host>(
                 nodo: h.nodo.clone(),
                 serie: h.serie.clone(),
                 seq: h.seq,
+                tipo: h.tipo,
                 instance_existente: existente.instance_id.clone(),
                 instance_nueva: h.instance_id.clone(),
                 hash_existente: existente.hash(),
@@ -674,6 +794,7 @@ pub fn recibir_hechos_con<H: Host>(
                         nodo: h.nodo.clone(),
                         serie: h.serie.clone(),
                         seq: h.seq,
+                        tipo: h.tipo,
                         instance_existente: inst.clone(),
                         instance_nueva: h.instance_id.clone(),
                         hash_existente: otro.hash(),
