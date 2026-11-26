@@ -279,6 +279,57 @@ pub fn leer_serie_de_rama(
     out
 }
 
+
+/// Verifica **varias series en paralelo**, una por hilo.
+///
+/// ## Por qué esto importa
+///
+/// Medido: verificar una serie de 21.600 hechos (cadena + sellos) tarda
+/// **0,6 s**. Para un ledger con 1 millón de cuentas serían **28 s** de
+/// verificación por millón de hechos.
+///
+/// Pero la cadena es secuencial **solo dentro de una serie**. Series distintas
+/// son independientes: la de un usuario no depende de la de otro. Con 8 núcleos,
+/// 8 series se verifican a la vez.
+///
+/// En un ledger, cada cuenta es una serie → el paralelismo es natural.
+///
+/// Devuelve un `Result` por serie, en el mismo orden que la entrada.
+pub fn verificar_series_en_paralelo(
+    series: Vec<(String, Vec<Hecho>)>,
+    verificar: impl Fn(&[Hecho]) -> Result<(), String> + Sync,
+) -> Vec<(String, Result<(), String>)> {
+    let verificar = &verificar;
+    let mut out: Vec<(String, Result<(), String>)> = Vec::with_capacity(series.len());
+
+    // Un lote de hilos igual al numero de nucleos, reutilizando std::thread
+    // (sin anadir dependencias como rayon para una sola funcion).
+    let nucleos = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .max(1);
+
+    let mut pendientes = series.into_iter().collect::<Vec<_>>();
+    // Se procesa en tandas de `nucleos` para no crear un hilo por serie.
+    while !pendientes.is_empty() {
+        let tanda: Vec<_> = pendientes.drain(..pendientes.len().min(nucleos)).collect();
+        let resultados: Vec<(String, Result<(), String>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = tanda
+                .into_iter()
+                .map(|(nombre, hechos)| {
+                    scope.spawn(move || {
+                        let r = verificar(&hechos);
+                        (nombre, r)
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        out.extend(resultados);
+    }
+    out
+}
+
 /// Verifica la cadena de una serie ya leida: sin huecos y con los hashes bien
 /// encadenados. Devuelve el primer problema encontrado.
 pub fn verificar_serie(serie: &[Hecho]) -> Result<(), String> {
