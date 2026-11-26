@@ -1,0 +1,27 @@
+[package]
+name = "bench-cadenas"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Banco de verificacion para ARM: SOLO ed25519 y sha2.
+#
+# ## Por que un crate aparte
+#
+# El banco de `lumen-nodo` arrastra `lumen` -> `rustls` -> `ring`, y al compilar
+# para ARMv7 desde Windows, `ring` pide `-ladvapi32` (una libreria de Windows)
+# y el enlace falla. Para medir el COSTE DE VERIFICAR no hace falta ni QUIC ni
+# LMDB: solo Ed25519 y SHA-256. Este crate tiene exactamente eso.
+
+[dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha2 = "0.10"
+rand = "0.8"
+
+[[bin]]
+name = "bench-cadenas"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
