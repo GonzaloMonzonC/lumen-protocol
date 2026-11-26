@@ -318,6 +318,26 @@ impl<S: Transport> QuicZnet<S> {
         let recibidos = self.poll(znet)?;
         Ok((enviados, recibidos))
     }
+
+    /// Ciclo completo con **estado de lectura explícito**.
+    ///
+    /// Igual que [`pump`], pero devuelve [`Lectura`] en vez de un contador donde
+    /// `0` significa dos cosas. `pump` se conserva para no romper a quien ya lo
+    /// usa, pero **este es el que hay que usar** cuando el llamante necesita
+    /// saber si el par cerró.
+    ///
+    /// Devuelve `(enviados, lectura)`:
+    /// - `enviados`: cuántos mensajes salieron a la red en este ciclo.
+    /// - `lectura`: qué llegó, con la distinción `Vacio` / `Cerrado`.
+    pub fn pump_estado(
+        &mut self,
+        znet: &mut Znet,
+    ) -> Result<(usize, Lectura), QuicZnetError> {
+        let enviados = self.flush(znet)?;
+        let lectura = self.poll_estado(znet)?;
+        Ok((enviados, lectura))
+    }
+
 }
 
 // ── Pruebas ─────────────────────────────────────────────────────────────────
@@ -588,6 +608,37 @@ mod tests {
         }
         assert_eq!(total, 2, "los dos mensajes deben entregarse");
         assert!(vueltas >= 2, "se necesitaron varias vueltas: {vueltas}");
+    }
+
+    #[test]
+    fn pump_estado_distingue_cierre_de_vacio() {
+        // Stream vacio = el par cerro.
+        let mut b = QuicZnet::new(FakeStream::new(Vec::new()));
+        let mut z = Znet::new();
+        z.init();
+        let (enviados, lectura) = b.pump_estado(&mut z).expect("pump_estado");
+        assert_eq!(enviados, 0);
+        assert_eq!(lectura, Lectura::Cerrado, "stream vacio -> Cerrado");
+    }
+
+    #[test]
+    fn pump_estado_entrega_los_mensajes_y_dice_cuantos() {
+        let cable = serializar(&[
+            DdpMessage::new(msg_type::DATA, 1, 1, 0, b"a".to_vec()),
+            DdpMessage::new(msg_type::DATA, 2, 1, 0, b"b".to_vec()),
+        ]);
+        let mut b = QuicZnet::new(FakeStream::new(cable));
+        let mut z = Znet::new();
+        z.init();
+        let (_enviados, lectura) = b.pump_estado(&mut z).expect("pump_estado");
+        assert_eq!(lectura, Lectura::Datos(2), "dos mensajes -> Datos(2)");
+        assert_eq!(lectura.mensajes(), 2);
+        // Y estan en la cola.
+        let mut n = 0;
+        while z.recv().is_some() {
+            n += 1;
+        }
+        assert_eq!(n, 2);
     }
 
     #[test]

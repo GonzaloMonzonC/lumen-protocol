@@ -337,14 +337,23 @@ fn barco(a: &[String]) {
         let mut espera = 0;
         let mut confirmado = false;
         while espera < 20000 {
-            match qz.pump(&mut znet) {
-                Ok((_e, recibidos)) => {
-                    if recibidos > 0 {
-                        while let Some(m) = znet.recv() {
-                            if m.body.as_slice() == objetivo.as_bytes() {
-                                confirmado = true;
+            // `pump_estado` distingue Vacio de Cerrado: si el hub cierra, se
+            // sabe en el acto en vez de esperar 20 s a que se agote el contador.
+            match qz.pump_estado(&mut znet) {
+                Ok((_e, lectura)) => {
+                    match lectura {
+                        lumen_znet::Lectura::Cerrado => {
+                            fallo_flujo = Some("el hub cerro la conexion".into());
+                            break;
+                        }
+                        lumen_znet::Lectura::Datos(_) => {
+                            while let Some(m) = znet.recv() {
+                                if m.body.as_slice() == objetivo.as_bytes() {
+                                    confirmado = true;
+                                }
                             }
                         }
+                        lumen_znet::Lectura::Vacio => {}
                     }
                 }
                 Err(e) => {
