@@ -98,3 +98,24 @@ replicando), eso es un resultado real, no una simulación en memoria.
 4. **Verificación de flota en la recepción**: hoy el hub verifica cadena y
    firmas, pero no comprueba el certificado contra la raíz del armador porque
    los barcos de simulación no llevan certificado.
+
+---
+
+## 9 · Escala final alcanzada (26-nov-2026)
+
+Tras el servidor QUIC paralelo, la aceptación de certificados y el crecimiento
+automático de LMDB:
+
+| Barcos | Muestras/barco | Hechos | Aceptados | Rechazados |
+|---:|---:|---:|---:|---:|
+| 20 | 12.000 | 240.000 | **240.000** | 0 |
+| 40 | 6.000 | 240.000 | **240.000** | 0 |
+| **40** | **12.000** | **480.000** | **480.000** | **0** |
+
+**480.000 hechos de 40 barcos a la vez, sin una sola pérdida.**
+
+Requiere `LUMEN_LMDB_MAPSIZE_MB` de al menos 1024 (o el crecimiento automático,
+que sube el mapa al llenarse). Con 64 MB y sin crecimiento, el hub fallaba al
+guardar y **parecía** una pérdida de red: era `MDB_MAP_FULL`. Ver
+[`MAP-FULL-DIAGNOSTICO.md`](MAP-FULL-DIAGNOSTICO.md).
+

@@ -5,7 +5,7 @@
 > repo. La regla: si algo está en la columna «NO IMPLEMENTADO», no se puede
 > presentar como característica del producto.
 
-**Última verificación:** 24-nov-2026 · repo `lumen-protocol` · 120 ficheros `.rs`
+**Última verificación:** 24-nov-2026 (replicación de hechos añadida el 26-nov-2026) · repo `lumen-protocol` · 120 ficheros `.rs`
 escaneados + tests ejecutados.
 
 ## Cómo leer esta tabla
@@ -18,6 +18,61 @@ escaneados + tests ejecutados.
 | ❌ **NO EXISTE** | Afirmado en algún sitio y no hay código. **No usar en material público** |
 
 ---
+
+---
+
+## Replicación de hechos firmados (el DDP de los papers)
+
+> **Ojo con la homonimia.** Hay dos cosas llamadas DDP en el repo:
+>
+> - **DDP de estado** (`ddp.rs`, `pdb-sync`): sincroniza claves de la PDB entre
+>   nodos. Existe desde antes y tiene sus propios límites (solo propaga claves
+>   nuevas, no cambios ni borrados).
+> - **DDP de hechos** (`lumen-nodo`): replicación de un registro append-only de
+>   hechos firmados. **Es el que soporta los escenarios de los papers** (flota,
+>   criptomoneda, enjambre) y el que se ha construido y medido estos días.
+>
+> Las filas de esta tabla son del **DDP de hechos**.
+
+| Afirmación | Estado | Evidencia |
+|---|---|---|
+| Hechos inmutables con identidad `(nodo, serie, seq, instancia)` | ✅ VERIFICADO | `replicacion.rs`; el nodo va dentro para que dos barcos no colisionen |
+| Firma Ed25519 real del hecho | ✅ VERIFICADO | `identidad.rs`; tests de firma, manipulación e impostor |
+| Cadena de hashes por serie | ✅ VERIFICADO | `cadena::hash_muestra`; verifica sin huecos |
+| Sello de bloque cada 100 (la firma cubre los 100 hashes) | ✅ VERIFICADO | `firmar_bloque` + `verificar_solo_bloques`. **Se descubrió que firmar solo la muestra 99 dejaba un agujero** |
+| Formato v2 con versión (v1 y v2 conviven) | ✅ VERIFICADO | `contenido_canonico` elige payload según versión; los hechos v1 **no se re-firman** |
+| Persistencia en LMDB que sobrevive al reinicio | ✅ VERIFICADO | `hechos_lmdb.rs`; 200 hechos + firmas sobreviven y la manipulación en disco se detecta |
+| Replicación por QUIC + TLS 1.3 con pin de huella | ✅ VERIFICADO | `quic_e2e.rs` (200 mensajes), `flota_multinodo.rs` |
+| Servidor QUIC que acepta conexiones en paralelo | ✅ VERIFICADO | `aceptar_conexion()`; 10 → 40 barcos |
+| Idempotencia (reenviar no duplica) | ✅ VERIFICADO | `recibir_hechos` cuenta duplicados por hash |
+| **Split-brain: dos ramas coexisten y el conflicto se registra** | ✅ VERIFICADO | `split_brain.rs`: 6 hechos, 6 guardados, 3 conflictos. **Antes se perdían 3 en silencio** |
+| **Custodia de epoch** (un salto exige firma del anterior) | ✅ VERIFICADO | `epoch.rs` + `recibir_hechos_custodiados`; epoch 999 sin cadena se rechaza |
+| **Verificación de flota en la recepción** | ✅ VERIFICADO | `recibir_hechos_de_flota`; sin certificado de la raíz del armador no entra nada |
+| Un barco no puede firmar hechos a nombre de otro | ✅ VERIFICADO | `flota_recepcion.rs`; certificado de A + hechos de B = rechazo |
+| Perfiles de replicación configurables (JSON) | ✅ VERIFICADO | 4 perfiles: barco, enjambre, ledger, config; retención, firma, durabilidad, conflicto, mapsize |
+| Durabilidad configurable: `sync` / `nosync` / `lote` | ✅ VERIFICADO | Medido en NAS: 64 ms/escritura con fsync, 0,41 ms sin él |
+| Crecimiento automático del mapa de LMDB | ✅ VERIFICADO | `crecer_mapa`; arrancó en 32 MB, creció a 128, guardó 240.000 hechos |
+| `poll`/`pump` con estado explícito (`Vacio` vs `Cerrado`) | ✅ VERIFICADO | `Lectura`; cierra la ambigüedad del `0` |
+| Medida en hardware real (NAS ARMv7) | ✅ VERIFICADO | 21.600 muestras: 4,1 s con nosync · 47 s con lote 64 · 23 min con fsync |
+| Medida de flota | ✅ VERIFICADO | 40 barcos → 480.000 hechos, cero pérdidas |
+| **Consenso (PoW/PoS/BFT)** | ❌ **NO EXISTE** | Por diseño: el paper no lo pide. La custodia de epoch es una cadena de firmas verificable, no consenso |
+| **Revocación de certificados** | ❌ **NO EXISTE** | Si un barco se compromete no hay forma de retirarle el certificado sin cambiar la raíz |
+| **Caducidad de certificados** | ❌ **NO EXISTE** | Un certificado de hace 5 años sigue valiendo |
+| **Epoch de recuperación si se pierde la clave** | 🔵 DISEÑO | El barco queda atrapado en su epoch. Haría falta firma de la raíz del armador, que hoy firma certificados y no recuperaciones |
+| **Réplica parcial (enjambres grandes)** | 🔵 DISEÑO | La política `interes` existe en el perfil, sin probar a escala |
+| **El hub de simulación usa `recibir_hechos_de_flota`** | 🟡 PARCIAL | La función está probada; `sim_flota` aún no emite certificados |
+
+### Lo que se midió y hay que decir
+
+| Número | Dónde | Documento |
+|---|---|---|
+| 480.000 hechos, 40 barcos, 0 pérdidas | PC | `FLOTA-REPLICANDO.md` |
+| 21.600 muestras en 4,1 s (`nosync`) | NAS ARMv7 | `NAS-LOTE-Y-QUIC-MEDIDO.md` |
+| Lote 64 = 47 s · fsync = 23 min | NAS ARMv7 | idem |
+| Verificar Ed25519: 78 µs PC / 3.555 µs NAS | ambos | `COSTE-VERIFICACION-NAS-VS-PC.md` |
+| La cadena cuesta 2,4× las firmas en PC; en ARM las firmas dominan 43× | ambos | idem |
+| El hub aguanta 40 barcos (antes 10) | PC | `QUIC-SERVIDOR-PARALELO.md` |
+
 
 ## Núcleo de ejecución
 

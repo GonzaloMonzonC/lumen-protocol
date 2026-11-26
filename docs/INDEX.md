@@ -1,6 +1,6 @@
 # ◆ Mapa de documentación LUMEN
 
-> Actualizado: 2026-09-18. Sustituye a `doc-map-2026-06-20.md` (histórico).
+> Actualizado: 2026-11-26. Sustituye a `doc-map-2026-06-20.md` (histórico).
 > Regla: si tocas código que contradice un doc, actualiza el doc o márcalo aquí.
 
 ## Núcleo (empezar aquí)
@@ -15,6 +15,7 @@
 | [ROADMAP_MLIGHT.md](ROADMAP_MLIGHT.md) | Estado M-Light Python/Rust y pendientes Tokio | ✅ Vigente (2026-09-18) |
 | [RAG-EMBEDDINGS.md](RAG-EMBEDDINGS.md) | Búsqueda vectorial en M-Light: `rag:embed`, vectores como datos, umbrales medidos | ✅ Vigente (2026-11-21) |
 | [RAG-MVM-NATIVA.md](RAG-MVM-NATIVA.md) | MVM nativa Linux: API C del `.so`, WASM vs nativa y sus diferencias | ✅ Vigente (2026-11-21) |
+| [DDP-INDICE.md](DDP-INDICE.md) | **Replicación de hechos firmados** — el DDP de los papers: índice de 30 documentos (diseño, split-brain, epoch, flota, mediciones) | ✅ Vigente (2026-11-26) |
 | `ajustes.md` | Revisión del plan contra código real | ✅ Vigente (2026-07-14) |
 
 | [COGNITIVE_OS.md](COGNITIVE_OS.md) | Arquitectura del OS cognitivo, referencia de tools | Revisar tool-counts |
