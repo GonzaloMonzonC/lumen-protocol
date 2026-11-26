@@ -268,6 +268,82 @@ impl PerfilReplicacion {
 }
 
 /// Un hecho replicable: una muestra firmada.
+/// Tipo de un hecho: **qué regla de convergencia le aplica**.
+///
+/// ## Por qué hace falta
+///
+/// Sin tipar, todos los hechos son iguales y la reconvergencia no sabe qué
+/// hacer con ellos. Poli lo dijo en la revisión:
+/// *"si tratas todos los hechos como iguales, tendrás hechos huérfanos que nadie
+/// sabe si importan. Sin tipado, la separación es cosmética."*
+///
+/// ## Y por qué NO todos valen `ultimo_gana`
+///
+/// Smith fue tajante: *"LWW sobre seguridad es un error de categoría"*. Un dron
+/// que ya ejecutó un viraje evasivo lo hizo; no se puede reescribir que no lo
+/// hizo. Para eso está [`TipoHecho::ConRevision`]: el conflicto se marca y
+/// decide un operador, no una marca de tiempo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TipoHecho {
+    /// **Telemetría**: el valor nuevo sustituye al viejo sin más. Es lo que
+    /// hacía `ultimo_gana` y está bien para "la batería está al 47%",
+    /// "el dron está en (lat, lon, alt)".
+    ///
+    /// Ojo: en telemetría, perder una lectura intermedia **no importa**.
+    #[default]
+    Idempotente,
+
+    /// **Conmutativo**: el orden entre hechos distintos no cambia el resultado
+    /// (contadores, sumas de horas de vuelo). Unirse = sumar.
+    Conmutativo,
+
+    /// **Recurso exclusivo**: reserva de algo que solo puede tener un dueño a la
+    /// vez (volumen de aire, carril, ventana de aterrizaje).
+    ///
+    /// Dos ramas pueden reservar el mismo recurso. La unión **no** lo resuelve:
+    /// hay que detectar el conflicto y marcarlo.
+    RecursoExclusivo,
+
+    /// **Seguridad o decisión**: cambio de modo, aborto de misión, RTH.
+    ///
+    /// **Nunca `ultimo_gana`.** Si un hecho así se aplicó, se aplicó. Para
+    /// deshacerlo hace falta otro hecho que lo revoque explícitamente.
+    ConRevision,
+}
+
+impl TipoHecho {
+    /// Texto corto para el contenido canónico (y para el cable).
+    ///
+    /// Se firma, así que cambiarlo cambia la firma: nadie puede pasar un hecho
+    /// de telemetría a seguridad sin invalidarlo.
+    pub fn etiqueta(&self) -> &'static str {
+        match self {
+            TipoHecho::Idempotente => "idem",
+            TipoHecho::Conmutativo => "conm",
+            TipoHecho::RecursoExclusivo => "recurso",
+            TipoHecho::ConRevision => "revision",
+        }
+    }
+
+    pub fn desde_etiqueta(t: &str) -> Option<Self> {
+        match t {
+            "idem" => Some(TipoHecho::Idempotente),
+            "conm" => Some(TipoHecho::Conmutativo),
+            "recurso" => Some(TipoHecho::RecursoExclusivo),
+            "revision" => Some(TipoHecho::ConRevision),
+            _ => None,
+        }
+    }
+
+    /// ¿Se puede resolver solo, sin intervención humana?
+    ///
+    /// Los de recurso y los de seguridad **no**: pueden llegar a un estado
+    /// incorrecto aunque converja (lo que Smith llamó "divergencia exitosa").
+    pub fn converge_solo(&self) -> bool {
+        matches!(self, TipoHecho::Idempotente | TipoHecho::Conmutativo)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hecho {
     /// Versión del formato. `1` = original (sin instancia ni epoch).
@@ -292,6 +368,13 @@ pub struct Hecho {
     pub valor: String,
     /// Hash del hecho anterior de la misma serie.
     pub prev_hash: String,
+    /// **Tipo del hecho**: qué regla de convergencia le aplica.
+    ///
+    /// Solo cuenta en v3. En v1 y v2 se ignora al verificar (vale
+    /// `Idempotente`), porque esos hechos ya están firmados sin el campo y
+    /// añadirlo al contenido firmado los invalidaría todos.
+    pub tipo: TipoHecho,
+
     /// Timestamp en segundos.
     pub ts: u64,
     /// Firma Ed25519 del contenido canónico. `None` si el perfil no firma.
@@ -315,6 +398,7 @@ impl Default for Hecho {
             clave: String::new(),
             valor: String::new(),
             prev_hash: String::new(),
+            tipo: TipoHecho::Idempotente,
             ts: 0,
             firma: None,
         }
@@ -322,6 +406,39 @@ impl Default for Hecho {
 }
 
 impl Hecho {
+    /// Hecho en **v3**: como v2 pero con el tipo de convergencia.
+    ///
+    /// Es el formato recomendado para todo lo nuevo. v1 y v2 se siguen leyendo
+    /// (y verificando) pero no se emiten.
+    #[allow(clippy::too_many_arguments)]
+    pub fn v3(
+        nodo: &str,
+        serie: &str,
+        seq: u64,
+        instance_id: &str,
+        epoch: u64,
+        clave: &str,
+        valor: &str,
+        prev_hash: &str,
+        ts: u64,
+        tipo: TipoHecho,
+    ) -> Self {
+        Self {
+            version: 3,
+            nodo: nodo.into(),
+            serie: serie.into(),
+            seq,
+            instance_id: instance_id.into(),
+            epoch,
+            clave: clave.into(),
+            valor: valor.into(),
+            prev_hash: prev_hash.into(),
+            tipo,
+            ts,
+            firma: None,
+        }
+    }
+
     /// Hecho en formato **v2** (con instancia y epoch). Es el recomendado.
     pub fn v2(
         nodo: &str,
@@ -344,6 +461,7 @@ impl Hecho {
             clave: clave.into(),
             valor: valor.into(),
             prev_hash: prev_hash.into(),
+            tipo: TipoHecho::Idempotente,
             ts,
             firma: None,
         }
@@ -373,6 +491,7 @@ impl Hecho {
             clave: clave.into(),
             valor: valor.into(),
             prev_hash: prev_hash.into(),
+            tipo: TipoHecho::Idempotente,
             ts,
             firma: None,
         }
@@ -407,6 +526,24 @@ impl Hecho {
             1 => format!(
                 "{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}",
                 self.nodo, self.serie, self.seq, self.clave, self.valor, self.prev_hash, self.ts
+            )
+            .into_bytes(),
+            // v3 = v2 + tipo del hecho. El tipo va DENTRO de lo firmado: si no,
+            // alguien podría pasar un hecho de telemetría a seguridad sin
+            // invalidar la firma, y la regla de convergencia dejaría de ser
+            // creíble.
+            3 => format!(
+                "v3\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}\x1f{}",
+                self.nodo,
+                self.serie,
+                self.seq,
+                self.instance_id,
+                self.epoch,
+                self.clave,
+                self.valor,
+                self.prev_hash,
+                self.ts,
+                self.tipo.etiqueta()
             )
             .into_bytes(),
             _ => format!(

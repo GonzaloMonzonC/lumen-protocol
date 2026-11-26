@@ -57,7 +57,15 @@ pub fn a_texto(h: &Hecho) -> String {
         .firma
         .map(|f| f.iter().map(|b| format!("{b:02x}")).collect::<String>())
         .unwrap_or_default();
-    if h.version >= 2 {
+    if h.version >= 3 {
+        // v3 = v2 + tipo. Se escribe SIEMPRE (aunque sea el por defecto) para
+        // que el formato sea uno solo y no haya sorpresas al releer.
+        format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}",
+            h.valor, h.prev_hash, firma, h.ts, h.clave, h.instance_id, h.epoch,
+            h.tipo.etiqueta()
+        )
+    } else if h.version == 2 {
         format!(
             "{}|{}|{}|{}|{}|{}|{}",
             h.valor, h.prev_hash, firma, h.ts, h.clave, h.instance_id, h.epoch
@@ -73,7 +81,7 @@ pub fn a_texto(h: &Hecho) -> String {
 /// escritos antes del cambio se siguen leyendo sin migrar nada.
 pub fn desde_texto(nodo: &str, serie: &str, seq: u64, texto: &str) -> Option<Hecho> {
     let campos: Vec<&str> = texto.split('|').collect();
-    if campos.len() != 5 && campos.len() != 7 {
+    if campos.len() != 5 && campos.len() != 7 && campos.len() != 8 {
         return None;
     }
     let firma = if campos[2].is_empty() {
@@ -88,10 +96,18 @@ pub fn desde_texto(nodo: &str, serie: &str, seq: u64, texto: &str) -> Option<Hec
         }
         Some(f)
     };
-    let (version, instance_id, epoch) = if campos.len() == 7 {
-        (2u8, campos[5].to_string(), campos[6].parse().ok()?)
+    let (version, instance_id, epoch, tipo) = if campos.len() == 8 {
+        (
+            3u8,
+            campos[5].to_string(),
+            campos[6].parse().ok()?,
+            crate::replicacion::TipoHecho::desde_etiqueta(campos[7])
+                .unwrap_or(crate::replicacion::TipoHecho::Idempotente),
+        )
+    } else if campos.len() == 7 {
+        (2u8, campos[5].to_string(), campos[6].parse().ok()?, crate::replicacion::TipoHecho::Idempotente)
     } else {
-        (1u8, String::new(), 0u64)
+        (1u8, String::new(), 0u64, crate::replicacion::TipoHecho::Idempotente)
     };
     Some(Hecho {
         version,
@@ -100,6 +116,7 @@ pub fn desde_texto(nodo: &str, serie: &str, seq: u64, texto: &str) -> Option<Hec
         seq,
         instance_id,
         epoch,
+        tipo,
         clave: campos[4].to_string(),
         valor: campos[0].to_string(),
         prev_hash: campos[1].to_string(),
