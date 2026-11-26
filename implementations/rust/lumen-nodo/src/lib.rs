@@ -5,6 +5,7 @@
 
 pub mod aplicar;
 pub mod cadena;
+pub mod conflicto;
 pub mod carga;
 pub mod descubrir;
 pub mod digest;
