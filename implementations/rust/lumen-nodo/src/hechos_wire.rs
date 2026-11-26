@@ -62,6 +62,86 @@ pub fn mensaje_de_hecho(h: &Hecho) -> DdpMessage {
 }
 
 
+
+// ── Prueba de inclusión por el cable ────────────────────────────────────────
+//
+// ## Por qué un prefijo y no un tipo DDP nuevo
+//
+// Mismo motivo que el certificado: los cinco tipos están fijados en la spec.
+// Añadir uno obligaría a cambiar el protocolo. Un prefijo dentro de un `DATA`
+// resuelve lo mismo sin tocar el cable.
+//
+// ## Qué se pide y qué se recibe
+//
+// Petición:  `PROOF|<serie>|<seq>`   -> "dame la prueba de este hecho"
+// Respuesta: `PROOF|<raiz>|<indice>|<total>|<hoja>|<h1>:<0|1>,<h2>:<0|1>,...`
+//
+// El `0`/`1` de cada hermano dice si va a la izquierda (1) o a la derecha (0).
+// Sin eso la prueba no se puede recomponer.
+
+const PREFIJO_PETICION: &str = "PROOF|";
+const PREFIJO_RESPUESTA: &str = "PROOFR|";
+
+/// Pide la prueba de inclusión de un hecho concreto.
+pub fn mensaje_peticion_prueba(serie: &str, seq: u64) -> DdpMessage {
+    let cuerpo = format!("{PREFIJO_PETICION}{serie}|{seq}");
+    DdpMessage::new(msg_type::DATA, seq as u16, 0, 0, cuerpo.into_bytes())
+}
+
+/// Empaqueta una prueba para mandarla.
+pub fn mensaje_prueba(p: &crate::merkle::PruebaInclusion) -> DdpMessage {
+    let camino: Vec<String> = p
+        .camino
+        .iter()
+        .map(|(h, izq)| format!("{}:{}", h, if *izq { 1 } else { 0 }))
+        .collect();
+    let cuerpo = format!(
+        "{PREFIJO_RESPUESTA}{}|{}|{}|{}|{}",
+        p.raiz,
+        p.indice,
+        p.total_hojas,
+        p.hash_hoja,
+        camino.join(",")
+    );
+    DdpMessage::new(msg_type::DATA, 0, 0, 0, cuerpo.into_bytes())
+}
+
+/// Reconstruye una prueba recibida.
+pub fn prueba_de_mensaje(msg: &DdpMessage) -> Option<crate::merkle::PruebaInclusion> {
+    let texto = std::str::from_utf8(&msg.body).ok()?;
+    let resto = texto.strip_prefix(PREFIJO_RESPUESTA)?;
+    let campos: Vec<&str> = resto.splitn(5, '|').collect();
+    if campos.len() != 5 {
+        return None;
+    }
+    let camino = if campos[4].is_empty() {
+        Vec::new()
+    } else {
+        campos[4]
+            .split(',')
+            .filter_map(|par| {
+                let (h, lado) = par.rsplit_once(':')?;
+                Some((h.to_string(), lado == "1"))
+            })
+            .collect()
+    };
+    Some(crate::merkle::PruebaInclusion {
+        raiz: campos[0].to_string(),
+        indice: campos[1].parse().ok()?,
+        total_hojas: campos[2].parse().ok()?,
+        hash_hoja: campos[3].to_string(),
+        camino,
+    })
+}
+
+/// ¿Es este mensaje una petición de prueba? Devuelve `(serie, seq)`.
+pub fn peticion_de_prueba(msg: &DdpMessage) -> Option<(String, u64)> {
+    let texto = std::str::from_utf8(&msg.body).ok()?;
+    let resto = texto.strip_prefix(PREFIJO_PETICION)?;
+    let (serie, seq) = resto.split_once('|')?;
+    Some((serie.to_string(), seq.parse().ok()?))
+}
+
 /// Prefijo que distingue el mensaje de CERTIFICADO de uno de hecho.
 ///
 /// ## Por qué un prefijo y no un tipo DDP nuevo

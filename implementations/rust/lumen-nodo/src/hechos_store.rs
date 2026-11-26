@@ -458,3 +458,46 @@ mod tests {
             .expect("la firma debe verificar tras el viaje");
     }
 }
+
+/// Construye el árbol de Merkle de una serie **leída del store**.
+///
+/// ## Por qué aquí y no en `merkle.rs`
+///
+/// `merkle.rs` no sabe nada de hechos ni de la PDB: recibe hashes y devuelve un
+/// árbol. Esta función es la que sabe **dónde están** esos hashes. Así el módulo
+/// de Merkle sigue siendo puro y testeable sin base de datos.
+///
+/// ## Qué hashes se usan
+///
+/// El hash de cada hecho (`Hecho::hash()`), que ya incluye el contenido y el
+/// hash anterior. Eso encadena la inclusión con la completitud: no son dos
+/// pruebas independientes, están apoyadas la una en la otra.
+pub fn arbol_de_serie<H: Host>(
+    host: &H,
+    nodo: &str,
+    serie: &str,
+    instancia: &str,
+) -> crate::merkle::ArbolMerkle {
+    let hechos = leer_serie_de_rama(host, nodo, serie, instancia);
+    let hashes: Vec<String> = hechos.iter().map(|h| h.hash()).collect();
+    crate::merkle::ArbolMerkle::nuevo(&hashes)
+}
+
+/// Genera la prueba de inclusión del hecho `seq` de una serie del store.
+///
+/// Devuelve `None` si la serie no existe o el `seq` está fuera de rango.
+pub fn prueba_de_hecho<H: Host>(
+    host: &H,
+    nodo: &str,
+    serie: &str,
+    instancia: &str,
+    seq: u64,
+) -> Option<crate::merkle::PruebaInclusion> {
+    let arbol = arbol_de_serie(host, nodo, serie, instancia);
+    // El índice en el árbol es la posición en la serie ordenada por seq, no el
+    // seq en sí (puede haber huecos).
+    let hechos = leer_serie_de_rama(host, nodo, serie, instancia);
+    let indice = hechos.iter().position(|h| h.seq == seq)?;
+    arbol.prueba(indice)
+}
+

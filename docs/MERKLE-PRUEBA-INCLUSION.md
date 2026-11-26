@@ -93,13 +93,41 @@ Esto importa tanto como lo que sí prueba. **Merkle prueba inclusión, no autor�
 **No queda ningún requisito técnico pendiente** de los que el estudio de
 escenarios marcaba para criptomoneda.
 
-## 8 · Lo que falta para que esto sea un producto
+## 8 · Por el cable (cerrado)
 
-Nada de lo anterior resuelve el negocio. Lo que sigue pendiente:
+La prueba se pide y se devuelve por DDP con dos mensajes, otra vez con prefijo
+dentro de `DATA` para no tocar los cinco tipos fijados en la spec:
 
-- **Prueba de inclusión por red**: hoy se genera en memoria. Falta un mensaje
-  DDP que la pida y la devuelva.
+```
+PETICIÓN    PROOF|<serie>|<seq>
+RESPUESTA   PROOFR|<raiz>|<indice>|<total>|<hoja>|<h>:<0|1>,...
+```
+
+El `0`/`1` de cada hermano dice si va a la izquierda o a la derecha: sin eso la
+prueba no se puede recomponer.
+
+**Medido de punta a punta** (`tests/merkle_cable.rs`):
+
+| | |
+|---|---:|
+| Petición | **16 bytes** |
+| Respuesta para 300 hechos | **747 bytes** (9 hashes) |
+| Respuesta para 5.000 hechos | **1.017 bytes** |
+| Serie completa de 5.000 por el cable | **1.107.716 bytes** |
+| **Ahorro** | **1089×** |
+
+Y el verificador **no recibe los hechos**: solo los 9 hashes del camino.
+
+Comprobado también que una prueba **manipulada en el cable** no verifica, ni
+cambiando la hoja ni cambiando un hermano del camino.
+
+El árbol se construye ahora desde el **store real** (`hechos_store::arbol_de_serie`
+y `prueba_de_hecho`), no desde hashes sueltos.
+
+## 9 · Lo que sigue pendiente
+
 - **Raíz publicada**: para que sirva de algo, la raíz tiene que estar en un sitio
-  que el verificador no controle (un bloque, un periódico, otro nodo).
-- **Estado en la PDB**: hoy el árbol se construye desde la serie. Con un millón
-  de hechos hay que persistirlo o construirlo por bloques.
+  que el verificador no controle. Si la sirve el mismo nodo, la prueba solo vale
+  contra ese nodo — que es lo que ya garantizaba la firma.
+- **Persistir el árbol**: hoy se reconstruye desde la serie. Para 21.600 hechos
+  tarda 1,17 s (aceptable); con un millón habría que construirlo por bloques.
