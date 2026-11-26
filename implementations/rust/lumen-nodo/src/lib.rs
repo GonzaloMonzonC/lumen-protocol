@@ -7,6 +7,7 @@ pub mod aplicar;
 pub mod cadena;
 pub mod carga;
 pub mod descubrir;
+pub mod digest;
 pub mod destino;
 pub mod entrada;
 pub mod epoch;
