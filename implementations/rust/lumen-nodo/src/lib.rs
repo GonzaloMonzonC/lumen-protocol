@@ -14,6 +14,7 @@ pub mod escritura;
 pub mod hechos_store;
 pub mod hechos_wire;
 pub mod host_mvm;
+pub mod merkle;
 pub mod identidad;
 pub mod nodo;
 pub mod profile;
