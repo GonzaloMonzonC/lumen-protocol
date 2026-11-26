@@ -61,6 +61,52 @@ pub fn mensaje_de_hecho(h: &Hecho) -> DdpMessage {
     DdpMessage::new(msg_type::DATA, h.seq as u16, 0, 0, cuerpo.into_bytes())
 }
 
+
+/// Prefijo que distingue el mensaje de CERTIFICADO de uno de hecho.
+///
+/// ## Por qué un prefijo y no un tipo DDP nuevo
+///
+/// Los tipos de DDP son cinco y están fijados (`DATA`, `SUCCESS`, ...). Añadir
+/// uno obligaría a cambiar el protocolo y la spec. Un prefijo dentro del cuerpo
+/// de un `DATA` resuelve lo mismo sin tocar el cable.
+const PREFIJO_CERT: &str = "CERT|";
+
+/// Empaqueta el certificado de flota para mandarlo antes de los hechos.
+///
+/// **Por qué antes:** el hub necesita la clave del barco para verificar. Si los
+/// hechos llegaran primero, tendría que guardarlos sin verificar o rechazarlos.
+/// El certificado va delante, se verifica contra la raíz del armador, y solo
+/// entonces se aceptan los hechos.
+pub fn mensaje_de_certificado(c: &crate::identidad::CertificadoFlota) -> DdpMessage {
+    let cuerpo = format!("{PREFIJO_CERT}{}", c.a_texto());
+    DdpMessage::new(msg_type::DATA, 0, 0, 0, cuerpo.into_bytes())
+}
+
+/// Reconstruye el certificado si el mensaje lo es.
+pub fn certificado_de_mensaje(msg: &DdpMessage) -> Option<crate::identidad::CertificadoFlota> {
+    let texto = std::str::from_utf8(&msg.body).ok()?;
+    let resto = texto.strip_prefix(PREFIJO_CERT)?;
+    crate::identidad::CertificadoFlota::desde_texto(resto).ok()
+}
+
+/// Separa certificado y hechos de una lista de mensajes.
+///
+/// Devuelve el certificado (si vino) y los mensajes que sí son hechos.
+pub fn separar_certificado(
+    mensajes: &[DdpMessage],
+) -> (Option<crate::identidad::CertificadoFlota>, Vec<DdpMessage>) {
+    let mut cert = None;
+    let mut hechos = Vec::with_capacity(mensajes.len());
+    for m in mensajes {
+        if let Some(c) = certificado_de_mensaje(m) {
+            cert = Some(c);
+        } else {
+            hechos.push(m.clone());
+        }
+    }
+    (cert, hechos)
+}
+
 /// Reconstruye un hecho desde un mensaje.
 pub fn hecho_de_mensaje(msg: &DdpMessage) -> Option<Hecho> {
     let texto = std::str::from_utf8(&msg.body).ok()?;
@@ -310,6 +356,86 @@ pub fn recibir_hechos<H: Host>(
     clave_publica: Option<&[u8]>,
 ) -> ResumenRecepcion {
     recibir_hechos_con(host, mensajes, clave_publica, false)
+}
+
+
+/// Recepción **con verificación de flota**: solo se aceptan barcos cuya clave
+/// esté certificada por la raíz del armador.
+///
+/// ## Qué añade sobre `recibir_hechos`
+///
+/// `recibir_hechos` comprueba la cadena y las firmas. Con eso se sabe que
+/// **alguien con una clave** escribió esos hechos. Pero cualquiera puede
+/// generarse un par Ed25519 y firmar una serie perfectamente válida.
+///
+/// Aquí se comprueba además que la clave **es de un barco de esta flota**:
+/// el certificado que la acompaña tiene que estar firmado por la raíz del
+/// armador, y tiene que hablar de ESTE barco.
+///
+/// ## Qué pasa si no hay certificado
+///
+/// Se rechaza toda la tanda. Un barco de la flota siempre manda su certificado
+/// antes de los hechos; si no viene, no se puede establecer la pertenencia.
+pub fn recibir_hechos_de_flota<H: Host>(
+    host: &mut H,
+    mensajes: &[DdpMessage],
+    raiz_clave_publica_hex: &str,
+    bloque: usize,
+    perfil_firma_por_hecho: bool,
+) -> ResumenRecepcion {
+    let mut r = ResumenRecepcion::default();
+
+    // ── 1. El certificado, obligatorio ──
+    let (cert, hechos) = separar_certificado(mensajes);
+    let Some(cert) = cert else {
+        r.rechazados = mensajes.len().max(1);
+        r.primer_motivo = Some("sin certificado de flota: no se puede verificar la pertenencia".into());
+        return r;
+    };
+
+    // ── 2. ¿Es de esta flota? ──
+    if let Err(e) = cert.verificar_con_raiz(raiz_clave_publica_hex) {
+        r.rechazados = hechos.len().max(1);
+        r.primer_motivo = Some(format!("certificado no valido contra la raiz: {e:?}"));
+        return r;
+    }
+
+    // ── 3. La clave del certificado es la que firma ──
+    let clave = match crate::identidad::hex_a_bytes_publico(&cert.clave_barco) {
+        Ok(k) => k,
+        Err(e) => {
+            r.rechazados = hechos.len().max(1);
+            r.primer_motivo = Some(format!("clave del certificado invalida: {e:?}"));
+            return r;
+        }
+    };
+
+    // ── 4. Todos los hechos tienen que ser de ESE barco ──
+    // Sin esto, un barco de la flota puede firmar hechos a nombre de otro.
+    for m in &hechos {
+        if let Some(h) = hecho_de_mensaje(m) {
+            if h.nodo != cert.barco {
+                r.rechazados += 1;
+                r.primer_motivo.get_or_insert_with(|| {
+                    format!(
+                        "el hecho es de '{}' pero el certificado es de '{}'",
+                        h.nodo, cert.barco
+                    )
+                });
+            }
+        }
+    }
+    if r.rechazados > 0 {
+        return r;
+    }
+
+    // ── 5. Cadena, firmas y pertenencia ya verificadas: guardar ──
+    let mut sub = recibir_hechos_con(host, &hechos, Some(&clave), perfil_firma_por_hecho);
+    sub.rechazados += r.rechazados;
+    if sub.primer_motivo.is_none() {
+        sub.primer_motivo = r.primer_motivo;
+    }
+    sub
 }
 
 /// Recibe hechos **verificando la cadena de custodia del epoch**.
