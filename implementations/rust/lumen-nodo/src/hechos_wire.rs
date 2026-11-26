@@ -480,9 +480,14 @@ pub fn recibir_hechos_con<H: Host>(
         }
 
         // Guardar. La clave lleva la instancia, así que las dos ramas coexisten.
-        if hechos_store::guardar(host, &h).is_err() {
+        //
+        // El error REAL de LMDB se propaga: durante mucho tiempo se descartaba
+        // con un "no se pudo guardar" genérico, y eso ocultó que el fallo era
+        // del almacenamiento (disco lleno, mapa lleno) y no de la red.
+        if let Err(e) = hechos_store::guardar(host, &h) {
             r.rechazados += 1;
-            r.primer_motivo.get_or_insert_with(|| "no se pudo guardar".into());
+            r.primer_motivo
+                .get_or_insert_with(|| format!("guardar: {e:?}"));
             continue;
         }
         r.aceptados += 1;

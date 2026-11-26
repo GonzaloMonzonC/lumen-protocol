@@ -94,6 +94,30 @@ pub fn generate_self_signed_cert(
     Ok((cert_der, key))
 }
 
+
+/// Hilos de trabajo del runtime de tokio.
+///
+/// ## Por que no un 2 fijo
+///
+/// Estaba hardcodeado en 2. Con 20 conexiones a la vez, el runtime se satura y
+/// los  bloqueantes se serializan: medido en la flota, 20 barcos x 12.000
+/// perdian 62.291 hechos. El cuello no era el control de flujo: era el runtime.
+///
+/// Por defecto: el numero de nucleos, con minimo 4. Configurable con
+/// .
+fn workers_quic() -> usize {
+    std::env::var("LUMEN_QUIC_WORKERS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .max(4)
+        })
+}
+
 pub fn default_server_config() -> io::Result<ServerConfig> {
     let (cert, key) = generate_self_signed_cert(&["lumen.local".to_string()])?;
     let mut crypto = rustls::ServerConfig::builder()
@@ -282,7 +306,7 @@ pub fn server_with_pin(addr: &str) -> io::Result<(QuicEndpoint, String)> {
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+            .worker_threads(workers_quic())
             .thread_name("lumen-quic-server")
             .enable_all()
             .build()
@@ -330,7 +354,7 @@ impl QuicEndpoint {
     pub fn server(addr: &str) -> io::Result<Self> {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
+                .worker_threads(workers_quic())
                 .thread_name("lumen-quic-server")
                 .enable_all()
                 .build()
@@ -370,7 +394,7 @@ impl QuicEndpoint {
     pub fn client_with_config(config: Option<ClientConfig>) -> io::Result<Self> {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
+                .worker_threads(workers_quic())
                 .thread_name("lumen-quic-client")
                 .enable_all()
                 .build()
@@ -735,7 +759,7 @@ mod tests {
 
     fn make_runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+            .worker_threads(workers_quic())
             .enable_all()
             .build()
             .unwrap()

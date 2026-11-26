@@ -156,6 +156,14 @@ fn hub(a: &[String]) {
                         break;
                     }
                     lote = Vec::new();
+                    // ACK POR VENTANA: el barco espera esto antes de mandar la
+                    // siguiente. Sin ACK por lote, el emisor llena la ventana de
+                    // QUIC y se bloquea, y el hub nunca termina de leer.
+                    let ack = format!("ACK {recibidos}").into_bytes();
+                    let _ = znet.reply(0u16, lumen_znet::ZnetReply::Data(ack));
+                    if qz.flush(&mut znet).is_err() {
+                        break;
+                    }
                 }
                 if fin {
                     break;
@@ -182,6 +190,7 @@ fn hub(a: &[String]) {
         let mut rechazados = 0usize;
         let mut conflictos = 0usize;
         let mut motivo: Option<String> = None;
+        let mut detalle_real: Option<String> = None;
         while let Ok(lote) = rx.recv() {
             let r = hechos_wire::recibir_hechos(&mut host, &lote, None);
             aceptados += r.aceptados;
@@ -190,6 +199,10 @@ fn hub(a: &[String]) {
             if motivo.is_none() {
                 motivo = r.primer_motivo.clone();
             }
+            // El primer rechazo real, con su mensaje completo de LMDB.
+            if r.rechazados > 0 && detalle_real.is_none() {
+                detalle_real = r.primer_motivo.clone();
+            }
         }
         total_aceptados += aceptados;
         total_rechazados += rechazados;
@@ -197,9 +210,10 @@ fn hub(a: &[String]) {
         println!(
             "BARCO {} recibidos={} aceptados={} rechazados={} conflictos={}{}",
             n + 1, recibidos, aceptados, rechazados, conflictos,
-            match (error, motivo) {
-                (Some(e), _) => format!(" error={e}"),
-                (None, Some(m)) => format!(" motivo={m}"),
+            match (error, detalle_real, motivo) {
+                (Some(e), _, _) => format!(" error={e}"),
+                (None, Some(d), _) => format!(" motivo={d}"),
+                (None, None, Some(m)) => format!(" motivo={m}"),
                 _ => String::new(),
             }
         );
@@ -256,7 +270,24 @@ fn barco(a: &[String]) {
     }
     let t_esc = ahora().saturating_sub(t_esc0);
 
-    // 2. Replicar al hub por QUIC.
+    // 2. Replicar al hub por QUIC, EN VENTANAS.
+    //
+    // ## Por que en ventanas y no todo de golpe
+    //
+    // La version anterior hacia un `flush` con los N hechos: `write_all` de
+    // ~1,5 MB en un stream. QUIC tiene ventana de flujo limitada, asi que
+    // `write_all` **se bloquea** esperando credito que solo llega si el hub lee.
+    // Y el hub lee 8 KB por ciclo con 2 hilos de runtime: con 20 conexiones a la
+    // vez, se serializan.
+    //
+    // Medido: 20 barcos x 12.000 -> 177.709 de 240.000 (62.291 perdidos).
+    //
+    // Ahora se manda en ventanas de 256, esperando el ACK de cada una. El flujo
+    // nunca se llena y ninguna parte se queda bloqueada esperando a la otra.
+    // Es el patron que coincidieron Poli y Zalo: **estreamear en lotes, ACK por
+    // lote, nunca uno global al final**.
+    const VENTANA: usize = 256;
+
     let cfg = lumen::quic::pinned_client_config(huella).expect("pin");
     let mut ep = lumen::quic::QuicEndpoint::client_with_config(Some(cfg)).expect("cliente");
     let t = ep.connect(addr).expect("conectar al hub");
@@ -266,47 +297,73 @@ fn barco(a: &[String]) {
     let mut qz = QuicZnet::new(t);
 
     let t_env0 = ahora();
-    for h in &serie {
-        let m = hechos_wire::mensaje_de_hecho(h);
-        let _ = znet.reply(c, lumen_znet::ZnetReply::Data(m.body));
-    }
-    let enviados = qz.flush(&mut znet).expect("flush");
-    // Marca de fin: el hub no puede distinguir "no hay datos aun" de "el barco
-    // cerro", asi que se lo decimos explicitamente. Sin esto el hub espera a
-    // ciegas o corta antes de hora.
-    let _ = znet.reply(c, lumen_znet::ZnetReply::Data(b"FIN".to_vec()));
-    let _ = qz.flush(&mut znet);
+    let mut enviados = 0usize;
+    let mut fallo_flujo: Option<String> = None;
 
-    // ESPERAR al ACK del hub antes de salir.
-    //
-    // Sin esto se pierden hechos: el proceso barco termina, el socket se cierra
-    // y el hub se queda con lo que le dio tiempo a leer. Medido: 1192 de 2000.
-    let mut espera = 0;
-    let mut confirmado = false;
-    while espera < 30000 {
-        match qz.pump(&mut znet) {
-            Ok((_e, recibidos)) => {
-                if recibidos > 0 {
-                    while let Some(m) = znet.recv() {
-                        if m.body.starts_with(b"ACK ") {
-                            confirmado = true;
+    for trozo in serie.chunks(VENTANA) {
+        for h in trozo {
+            let m = hechos_wire::mensaje_de_hecho(h);
+            let _ = znet.reply(c, lumen_znet::ZnetReply::Data(m.body));
+        }
+        // Flush de la ventana: a lo sumo 256 mensajes (~32 KB). Cabe en la
+        // ventana de QUIC sin bloquearse.
+        match qz.flush(&mut znet) {
+            Ok(n) => enviados += n,
+            Err(e) => {
+                fallo_flujo = Some(format!("flush: {e:?}"));
+                break;
+            }
+        }
+
+        // Esperar el ACK de ESTA ventana antes de mandar la siguiente.
+        let objetivo = format!("ACK {enviados}");
+        let mut espera = 0;
+        let mut confirmado = false;
+        while espera < 20000 {
+            match qz.pump(&mut znet) {
+                Ok((_e, recibidos)) => {
+                    if recibidos > 0 {
+                        while let Some(m) = znet.recv() {
+                            if m.body.as_slice() == objetivo.as_bytes() {
+                                confirmado = true;
+                            }
                         }
                     }
                 }
+                Err(e) => {
+                    fallo_flujo = Some(format!("pump: {e:?}"));
+                    break;
+                }
             }
-            Err(_) => break,
+            if confirmado || fallo_flujo.is_some() {
+                break;
+            }
+            espera += 1;
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        if confirmado {
+        if !confirmado {
+            fallo_flujo = Some(format!(
+                "sin ACK de la ventana tras {enviados} enviados"
+            ));
             break;
         }
-        espera += 1;
-        std::thread::sleep(std::time::Duration::from_millis(2));
     }
+
+    // FIN explicito: el hub lo necesita para saber que no vienen mas.
+    let _ = znet.reply(c, lumen_znet::ZnetReply::Data(b"FIN".to_vec()));
+    let _ = qz.flush(&mut znet);
     let t_env = ahora().saturating_sub(t_env0);
 
+    if let Some(f) = &fallo_flujo {
+        eprintln!("aviso: {f}");
+    }
     println!(
-        "BARCO {} n={} escritos={} en {}ms · enviados={} en {}ms · clave={}",
+        "BARCO {} n={} escritos={} en {}ms · enviados={} en {}ms · clave={}{}",
         nombre, n, serie.len(), t_esc, enviados, t_env,
-        &id.clave_publica_hex()[..16]
+        &id.clave_publica_hex()[..16],
+        match &fallo_flujo {
+            Some(f) => format!(" · INCOMPLETO: {f}"),
+            None => String::new(),
+        }
     );
 }
