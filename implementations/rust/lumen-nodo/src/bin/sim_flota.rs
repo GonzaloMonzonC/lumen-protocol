@@ -261,6 +261,8 @@ fn barco(a: &[String]) {
         None => Identidad::generar(),
     };
     let perfil = PerfilReplicacion::barco();
+    // El perfil decide el MAPSIZE: ya no hay dos fuentes de verdad.
+    perfil.aplicar_al_entorno();
 
     // 1. Escribir la bitacora en local, con el Escritor (respeta el perfil).
     let mut host = lumen_mlight::MemoryHost::from_lmdb_con_durabilidad(dir, true)

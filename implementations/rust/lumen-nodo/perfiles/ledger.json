@@ -9,5 +9,6 @@
   "compactacion": "archivar",
   "conflicto": "manual",
   "durabilidad": "sync",
-  "durabilidad_lote": 64
+  "durabilidad_lote": 64,
+  "mapsize_mb": 8192
 }

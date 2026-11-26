@@ -9,5 +9,6 @@
   "compactacion": "descartar",
   "conflicto": "ultimo_gana",
   "durabilidad": "nosync",
-  "durabilidad_lote": 64
+  "durabilidad_lote": 64,
+  "mapsize_mb": 64
 }

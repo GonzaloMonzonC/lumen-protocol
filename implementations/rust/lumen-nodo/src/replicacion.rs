@@ -70,6 +70,24 @@ pub struct PerfilReplicacion {
     /// Escrituras por `commit` cuando `durabilidad = "lote"`.
     #[serde(default = "lote_por_defecto")]
     pub durabilidad_lote: usize,
+
+    /// Tamaño **inicial** del mapa de LMDB, en MB.
+    ///
+    /// No es un techo: si se llena, el store **crece solo** (duplica tamaño) y
+    /// reintenta. Esto es solo el punto de partida, para no reservar un espacio
+    /// de direcciones enorme cuando el nodo va a guardar poco.
+    ///
+    /// Lo que decide cuánto hace falta de verdad:
+    /// - 40 barcos × 21.600 muestras ≈ 420 MB.
+    /// - Un ledger de 1 M de usuarios, 5 M hechos/día ≈ 2,5 GB/día.
+    ///
+    /// Techo duro: **1.400 MB en 32 bits** (espacio de direcciones del proceso).
+    #[serde(default = "mapsize_por_defecto")]
+    pub mapsize_mb: usize,
+}
+
+fn mapsize_por_defecto() -> usize {
+    1024
 }
 
 fn durabilidad_por_defecto() -> String {
@@ -85,6 +103,24 @@ fn bloque_por_defecto() -> usize {
 }
 
 impl PerfilReplicacion {
+
+    /// Aplica el perfil al entorno: cuántos MB de mapa y sin fsync o no.
+    ///
+    /// **Una sola fuente de verdad.** Antes el `MAPSIZE` venía de una variable de
+    /// entorno y la durabilidad del perfil: dos sitios para lo mismo. Ahora
+    /// ambos salen de aquí.
+    ///
+    /// El `mapsize_mb` del perfil es un **suelo**, no un techo: si se llena, el
+    /// store crece solo.
+    pub fn aplicar_al_entorno(&self) {
+        // SAFETY: solo escribe variables de entorno del proceso, antes de abrir
+        // el store. En Rust 2024 `set_var` es unsafe por los hilos; aquí se llama
+        // al arrancar el nodo, antes de crear ninguno.
+        unsafe {
+            std::env::set_var("LUMEN_LMDB_MAPSIZE_MB", self.mapsize_mb.to_string());
+        }
+    }
+
     /// `true` si el store debe abrirse sin `fsync`.
     ///
     /// **Fuente unica de verdad**: el modo `sync` y `lote` necesitan fsync en el
@@ -112,6 +148,7 @@ impl PerfilReplicacion {
             conflicto: "ultimo_gana".into(),
             durabilidad: "lote".into(),
             durabilidad_lote: 64,
+            mapsize_mb: 512,
         }
     }
 
@@ -133,6 +170,7 @@ impl PerfilReplicacion {
             conflicto: "ultimo_gana".into(),
             durabilidad: "nosync".into(),
             durabilidad_lote: 64,
+            mapsize_mb: 1024,
         }
     }
 
@@ -153,6 +191,7 @@ impl PerfilReplicacion {
             conflicto: "manual".into(),
             durabilidad: "sync".into(),
             durabilidad_lote: 64,
+            mapsize_mb: 8192,
         }
     }
 
@@ -172,6 +211,7 @@ impl PerfilReplicacion {
             conflicto: "ultimo_gana".into(),
             durabilidad: "nosync".into(),
             durabilidad_lote: 64,
+            mapsize_mb: 64,
         }
     }
 
@@ -206,6 +246,16 @@ impl PerfilReplicacion {
         }
         if !["ultimo_gana", "primero_gana", "manual"].contains(&self.conflicto.as_str()) {
             return Err(format!("conflicto invalido: {}", self.conflicto));
+        }
+        if self.mapsize_mb == 0 {
+            return Err("mapsize_mb debe ser mayor que 0".into());
+        }
+        // 32 bits: el mapa no puede pasar de ~1400 MB (espacio de direcciones).
+        if cfg!(target_pointer_width = "32") && self.mapsize_mb > 1400 {
+            return Err(format!(
+                "mapsize_mb={} no cabe en 32 bits (maximo 1400)",
+                self.mapsize_mb
+            ));
         }
         if !["sync", "nosync", "lote"].contains(&self.durabilidad.as_str()) {
             return Err(format!("durabilidad invalida: {}", self.durabilidad));
@@ -410,6 +460,33 @@ impl Hecho {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cada_perfil_declara_su_mapsize() {
+        // Los cuatro perfiles, de menos a mas.
+        assert_eq!(PerfilReplicacion::config().mapsize_mb, 64);
+        assert_eq!(PerfilReplicacion::barco().mapsize_mb, 512);
+        assert_eq!(PerfilReplicacion::enjambre().mapsize_mb, 1024);
+        assert_eq!(PerfilReplicacion::ledger().mapsize_mb, 8192);
+    }
+
+    #[test]
+    fn un_mapsize_de_cero_es_invalido() {
+        let mut p = PerfilReplicacion::barco();
+        p.mapsize_mb = 0;
+        assert!(p.validar().is_err(), "0 MB de mapa no tiene sentido");
+    }
+
+    #[test]
+    fn en_32_bits_el_mapa_tiene_techo() {
+        let mut p = PerfilReplicacion::ledger();
+        p.mapsize_mb = 1401;
+        if cfg!(target_pointer_width = "32") {
+            assert!(p.validar().is_err(), "1401 MB no caben en 32 bits");
+        } else {
+            assert!(p.validar().is_ok(), "en 64 bits no hay ese techo");
+        }
+    }
 
     #[test]
     fn los_cuatro_perfiles_son_validos() {
