@@ -283,14 +283,18 @@ pub fn contar_serie_rama(host: &impl Host, nodo: &str, serie: &str, instancia: &
 }
 
 pub fn contar_serie(host: &impl Host, nodo: &str, serie: &str) -> u64 {
+    // ── ARREGLADO: cuenta TODAS las instancias, no solo la principal ──
+    //
+    // Antes miraba solo `subs(nodo, serie, n, "")`, la instancia vacía. Los
+    // hechos que llegan de un barco van en SU instancia (`inst-B-A`, ...), así
+    // que devolvía **0** para series reales.
+    //
+    // Eso no daba error: devolvía un número plausible (0) y el llamante
+    // concluía "no hay hechos". Falló tres veces: en los conflictos, en la
+    // cuarentena y al leer series para la reconvergencia.
     let mut n = 0u64;
     loop {
-        if host
-            .get(NS_HECHOS, &subs(nodo, serie, n, ""))
-            .ok()
-            .flatten()
-            .is_none()
-        {
+        if instancias_en_posicion(host, nodo, serie, n).is_empty() {
             break;
         }
         n += 1;
@@ -300,13 +304,73 @@ pub fn contar_serie(host: &impl Host, nodo: &str, serie: &str) -> u64 {
 
 /// Lee la rama principal completa en orden.
 pub fn leer_serie(host: &impl Host, nodo: &str, serie: &str) -> Vec<Hecho> {
+    // ── ARREGLADO: lee de TODAS las instancias ──
+    //
+    // Antes solo devolvía la rama principal (`leer_principal`), así que una
+    // serie escrita por un barco con identidad salía **vacía**.
+    //
+    // Ahora devuelve una entrada por posición, prefiriendo la rama principal si
+    // existe y, si no, la primera instancia. Para TODAS las ramas de una serie
+    // (split-brain), usar `leer_todas_las_ramas`.
     let total = contar_serie(host, nodo, serie);
     let mut out = Vec::with_capacity(total as usize);
     for seq in 0..total {
         if let Some(h) = leer_principal(host, nodo, serie, seq) {
             out.push(h);
+            continue;
+        }
+        // No hay rama principal: se toma la primera instancia presente.
+        let instancias = instancias_en_posicion(host, nodo, serie, seq);
+        if let Some(inst) = instancias.first() {
+            if let Some(h) = leer_rama(host, nodo, serie, seq, inst) {
+                out.push(h);
+            }
         }
     }
+    out
+}
+
+
+/// Lee **todas** las ramas de una serie, de todas sus instancias.
+///
+/// ## Por qué existe
+///
+/// `leer_serie` cuenta con `contar_serie`, que mira la instancia `""` (la rama
+/// principal). Los hechos que llegan de un barco van en la instancia de ese
+/// barco (`inst-B-A`, ...), así que `leer_serie` devuelve **vacío** para ellos.
+///
+/// Esta función recorre las instancias reales y concatena sus hechos en orden de
+/// `(seq, instancia)`, para que la reconvergencia pueda pedir "todo lo que tienes
+/// de este nodo" sin saber con qué instancia escribió.
+pub fn leer_todas_las_ramas<H: Host>(host: &H, nodo: &str, serie: &str) -> Vec<Hecho> {
+    // Instancias presentes en la serie, recorriendo las posiciones.
+    let mut instancias: Vec<String> = Vec::new();
+    let mut seq = 0u64;
+    loop {
+        let en_pos = instancias_en_posicion(host, nodo, serie, seq);
+        if en_pos.is_empty() {
+            break;
+        }
+        for i in en_pos {
+            if !instancias.contains(&i) {
+                instancias.push(i);
+            }
+        }
+        seq += 1;
+        // Tope de seguridad: una serie no puede tener más posiciones que esto.
+        if seq > 10_000_000 {
+            break;
+        }
+    }
+
+    // Se concatenan las ramas y se ordena por (seq, instancia) para que el
+    // resultado sea determinista.
+    let mut out: Vec<Hecho> = Vec::new();
+    for inst in &instancias {
+        out.extend(leer_serie_de_rama(host, nodo, serie, inst));
+    }
+    out.sort_by(|a, b| (a.seq, a.instance_id.as_str()).cmp(&(b.seq, b.instance_id.as_str())));
+    out.dedup_by(|a, b| a.seq == b.seq && a.instance_id == b.instance_id);
     out
 }
 
