@@ -85,6 +85,11 @@ fn order_search(
 pub struct LmdbStore {
     env: Env,
     db: Database<Bytes, Bytes>,
+    /// Tamano actual del mapa, en MB. Crece si se llena (ver `crecer_si_lleno`).
+    mapsize_mb: usize,
+    /// Techo del mapa. En 32 bits lo impone el espacio de direcciones (~1400 MB);
+    /// en 64 bits no hay techo practico.
+    mapsize_max_mb: usize,
     /// Niveles de TSTART abiertos (write-behind), en orden cronológico.
     txns: Vec<TxnLevel>,
     /// Caché de hijos por parent para $O (invalidada por versión en cada write).
@@ -107,6 +112,8 @@ impl Clone for LmdbStore {
         Self {
             env: self.env.clone(),
             db,
+            mapsize_mb: self.mapsize_mb,
+            mapsize_max_mb: self.mapsize_max_mb,
             txns: self.txns.clone(),
             order_cache: Mutex::new(OrderCache { version: 0, map: Default::default() }),
             write_version: AtomicU64::new(self.write_version.load(Ordering::Relaxed)),
@@ -222,6 +229,13 @@ impl LmdbStore {
         if cfg!(target_pointer_width = "32") && mapsize_mb > 1400 {
             mapsize_mb = 1400;
         }
+        // Techo del mapa. En 32 bits lo impone el espacio de direcciones; en
+        // 64 bits no hay limite practico, asi que se deja crecer sin techo.
+        let mapsize_max_mb: usize = if cfg!(target_pointer_width = "32") {
+            1400
+        } else {
+            usize::MAX / (1024 * 1024)
+        };
 
         let mut opts = EnvOpenOptions::new();
         opts.map_size(mapsize_mb * 1024 * 1024).max_dbs(4);
@@ -244,6 +258,8 @@ impl LmdbStore {
 
         Ok(Self {
             env,
+            mapsize_mb,
+            mapsize_max_mb,
             db,
             txns: Vec::new(),
             order_cache: Mutex::new(OrderCache { version: 0, map: Default::default() }),
@@ -324,13 +340,46 @@ impl LmdbStore {
             }
             return Ok(());
         }
-        let mut wtxn = self.env.write_txn().map_err(|e| map_err("write_txn(set)", e))?;
-        self.db
-            .put(&mut wtxn, &key, val)
-            .map_err(|e| map_err("put", e))?;
-        wtxn.commit().map_err(|e| map_err("commit(set)", e))?;
-        self.invalidate();
-        Ok(())
+        // Escritura con CRECIMIENTO AUTOMATICO del mapa.
+        //
+        // `MDB_MAP_FULL` no es un fallo del sistema: es que el nodo crecio mas de
+        // lo estimado al arrancar. LMDB permite ampliar el mapa en caliente, asi
+        // que se amplia y se reintenta. El MAPSIZE de arranque pasa a ser un
+        // SUELO, no un techo.
+        //
+        // Antes este error se propagaba como un string generico y el nodo
+        // perdia hechos en silencio: costo horas de diagnostico.
+        let mut intentos = 0;
+        loop {
+            let mut wtxn = self
+                .env
+                .write_txn()
+                .map_err(|e| map_err("write_txn(set)", e))?;
+            let r_put = self.db.put(&mut wtxn, &key, val).map_err(|e| map_err("put", e));
+            match r_put {
+                Ok(()) => match wtxn.commit().map_err(|e| map_err("commit(set)", e)) {
+                    Ok(()) => {
+                        self.invalidate();
+                        return Ok(());
+                    }
+                    Err(e) if Self::es_mapa_lleno(&e) && intentos < 8 => {
+                        intentos += 1;
+                        if !self.crecer_mapa()? {
+                            return Err(format!("{e} (mapa en el techo: {} MB)", self.mapsize_mb));
+                        }
+                    }
+                    Err(e) => return Err(e),
+                },
+                Err(e) if Self::es_mapa_lleno(&e) && intentos < 8 => {
+                    intentos += 1;
+                    drop(wtxn);
+                    if !self.crecer_mapa()? {
+                        return Err(format!("{e} (mapa en el techo: {} MB)", self.mapsize_mb));
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// Inserción masiva en UNA sola write-transaction (conversores / bulk load).
@@ -351,6 +400,53 @@ impl LmdbStore {
         wtxn.commit().map_err(|e| map_err("commit(put_many)", e))?;
         self.invalidate();
         Ok(rows.len())
+    }
+
+
+    /// ¿Es este error un mapa lleno?
+    ///
+    /// `MDB_MAP_FULL` es un error **esperable y recuperable**, no una excepción:
+    /// significa que el nodo creció más de lo que se estimó al arrancar.
+    /// LMDB permite ampliar el mapa en caliente con `mdb_env_set_mapsize`.
+    fn es_mapa_lleno(e: &str) -> bool {
+        e.contains("MDB_MAP_FULL") || e.contains("mapsize limit reached")
+    }
+
+    /// Amplía el mapa al doble si cabe bajo el techo.
+    ///
+    /// Devuelve `Ok(true)` si creció (y por tanto merece reintentar la escritura).
+    ///
+    /// ## Por qué esto y no un `MAPSIZE` fijo
+    ///
+    /// Un valor fijo obliga a adivinar el futuro. Para un barco es fácil (sabes
+    /// cuántas muestras por hora); para un ledger con usuarios que crecen, es
+    /// imposible. Medido: 1 GB aguanta 24 días de 40 barcos, pero **4 horas** de
+    /// un ledger con 1 millón de usuarios.
+    ///
+    /// Con esto, el `MAPSIZE` de arranque pasa a ser un **suelo**, no un techo.
+    pub fn crecer_mapa(&mut self) -> Result<bool, String> {
+        let nuevo = self.mapsize_mb.saturating_mul(2);
+        if nuevo > self.mapsize_max_mb || nuevo == self.mapsize_mb {
+            return Ok(false); // ya en el techo (32 bits: 1400 MB)
+        }
+        // SAFETY: `set_mapsize` solo amplia el mmap. Es seguro mientras no haya
+        // transacciones de escritura abiertas en OTRO hilo apuntando al mapa
+        // viejo; el modelo del nodo es de un escritor (ver `order_cache`).
+        //  exige multiplo del tamano de pagina: 1 MB siempre lo es.
+        let size = nuevo.saturating_mul(1024 * 1024);
+        // SAFETY: ampliar el mmap es seguro mientras no haya transacciones de
+        // escritura abiertas en otro hilo apuntando al mapa viejo. El modelo del
+        // nodo es de un escritor (ver la nota de order_cache).
+        unsafe { self.env.resize(size) }
+            .map_err(|e| format!("resize({nuevo} MB): {e}"))?;
+        self.mapsize_mb = nuevo;
+        eprintln!("· mapa LMDB ampliado a {nuevo} MB");
+        Ok(true)
+    }
+
+    /// MB actuales del mapa.
+    pub fn mapsize_actual_mb(&self) -> usize {
+        self.mapsize_mb
     }
 
     /// Nº total de claves (verificación del conversor).
