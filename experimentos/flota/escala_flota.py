@@ -6,10 +6,24 @@ os.environ['LUMEN_LMDB_MAPSIZE_MB'] = '2048'
 
 CASOS = [(20, 12000), (40, 6000), (40, 12000)]
 
+def generar_raiz():
+    """Clave privada de la raiz del armador, en hex.
+
+    Se genera con el propio binario para no depender de Python.
+    """
+    r = subprocess.run([BIN, 'raiz'], capture_output=True, text=True, timeout=60)
+    for ln in r.stdout.splitlines():
+        ln = ln.strip()
+        if len(ln) == 64 and all(ch in '0123456789abcdef' for ch in ln):
+            return ln
+    raise RuntimeError('no se pudo generar la raiz: %r' % (r.stdout[:200] or r.stderr[:200]))
+
+
 for idx, (N, M) in enumerate(CASOS):
     base = tempfile.mkdtemp(prefix='esc-')
     puerto = 47940 + idx
-    hub = subprocess.Popen([BIN, 'hub', str(puerto), base + '/H', str(N)],
+    raiz = generar_raiz()
+    hub = subprocess.Popen([BIN, 'hub', str(puerto), base + '/H', str(N), raiz],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            text=True, bufsize=1)
     l = hub.stdout.readline().strip()
@@ -19,12 +33,14 @@ for idx, (N, M) in enumerate(CASOS):
         hub.kill(); continue
     addr, hu = m.group(1), m.group(2)
 
-    def b(i, addr=addr, hu=hu, base=base, M=M):
+    def b(i, addr=addr, hu=hu, base=base, M=M, raiz=raiz):
         d = base + '/B%d' % i
         os.makedirs(d, exist_ok=True)
         for _ in range(30):
-            r = subprocess.run([BIN, 'barco', addr, hu, d, str(M), 'B%d' % i],
-                               capture_output=True, text=True, timeout=900)
+            env = dict(os.environ)
+            env['LUMEN_RAIZ_ARMADOR'] = raiz
+            r = subprocess.run([BIN, 'barco', addr, hu, d, str(M), 'B%d' % i, raiz],
+                               capture_output=True, text=True, timeout=900, env=env)
             if r.returncode == 0:
                 return
             time.sleep(0.2)

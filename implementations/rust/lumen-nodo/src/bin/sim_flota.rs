@@ -9,7 +9,7 @@
 //! ## Modos
 //!
 //! ```text
-//! sim-flota hub <puerto> <dir> <raiz-pub>
+//! sim-flota hub <puerto> <dir> <n-barcos> <raiz-priv-hex>
 //!     Escucha, acepta flotas, verifica y guarda. Imprime el resumen.
 //!
 //! sim-flota barco <addr-hub> <dir> <n-muestras> <nome-del-barco> <raiz-priv>
@@ -44,6 +44,12 @@ fn main() {
     match a[1].as_str() {
         "hub" => hub(&a),
         "barco" => barco(&a),
+        // Genera una raiz de armador nueva e imprime su clave privada en hex.
+        // El orquestador la usa para hub y barcos.
+        "raiz" => {
+            let id = Identidad::generar();
+            println!("{}", id.semilla_hex());
+        }
         otro => {
             eprintln!("modo desconocido: {otro}");
             std::process::exit(2);
@@ -69,6 +75,13 @@ fn hub(a: &[String]) {
     let dir = a[3].clone();
     let esperados: usize = a[4].parse().expect("n-barcos");
 
+    // La raiz del armador. En una flota real la tiene el armador, no el hub;
+    // aqui la tiene el hub para poder emitir los certificados de los barcos de
+    // simulacion. El hub NO la usa para verificar: para eso usa la publica.
+    let raiz_priv = a[5].clone();
+    let armador = Identidad::desde_hex(&raiz_priv).expect("raiz del armador");
+    let raiz_pub = armador.clave_publica_hex();
+
     let (mut ep, huella) = lumen::quic::server_with_pin(&format!("127.0.0.1:{puerto}"))
         .expect("servidor quic");
     println!("LISTO {} {}", ep.local_addr().expect("addr"), huella);
@@ -90,7 +103,7 @@ fn hub(a: &[String]) {
     let mut barcos = 0usize;
 
     // Un canal por conexion, guardado junto a su hilo.
-    let mut pendientes: Vec<(std::thread::JoinHandle<(usize, Option<String>)>,
+    let mut pendientes: Vec<(std::thread::JoinHandle<(usize, Option<String>, Option<String>)>,
                              std::sync::mpsc::Receiver<Vec<lumen_znet::DdpMessage>>)> = Vec::new();
 
     while barcos < esperados {
@@ -108,7 +121,7 @@ fn hub(a: &[String]) {
 
         let (tx, rx) = std::sync::mpsc::channel::<Vec<lumen_znet::DdpMessage>>();
         let mut t = conexion;
-        let hilo = std::thread::spawn(move || -> (usize, Option<String>) {
+        let hilo = std::thread::spawn(move || -> (usize, Option<String>, Option<String>) {
             let mut znet = Znet::new();
             znet.init();
             if let Err(e) = t.aceptar_stream() {
@@ -117,6 +130,7 @@ fn hub(a: &[String]) {
             let mut qz = QuicZnet::new(t);
             let mut lote: Vec<lumen_znet::DdpMessage> = Vec::new();
             let mut recibidos = 0usize;
+            let mut primer_nodo: Option<String> = None;
             let mut error: Option<String> = None;
 
             // Antes habia un contador `sin_datos` que cortaba a las 6000 vueltas
@@ -166,7 +180,20 @@ fn hub(a: &[String]) {
                 }
                 // Volcar al hilo principal y vaciar: la RAM del hilo no crece.
                 if !lote.is_empty() {
-                    recibidos += lote.len();
+                    if primer_nodo.is_none() {
+                        if let Some(h) = lote.iter().find_map(|m| hechos_wire::hecho_de_mensaje(m)) {
+                            primer_nodo = Some(h.nodo.clone());
+                        }
+                    }
+                    // Contar solo HECHOS: el certificado no es un hecho y el
+                    // barco no lo espera en el ACK. Contarlo desalinea la
+                    // ventana y el barco se queda esperando un numero que no
+                    // va a llegar nunca.
+                    let n_cert = lote
+                        .iter()
+                        .filter(|m| hechos_wire::certificado_de_mensaje(m).is_some())
+                        .count();
+                    recibidos += lote.len() - n_cert;
                     if tx.send(std::mem::take(&mut lote)).is_err() {
                         break;
                     }
@@ -190,7 +217,7 @@ fn hub(a: &[String]) {
             let ack = format!("ACK {recibidos}").into_bytes();
             let _ = znet.reply(0u16, lumen_znet::ZnetReply::Data(ack));
             let _ = qz.flush(&mut znet);
-            (recibidos, error)
+            (recibidos, error, primer_nodo)
         });
 
         // NO se espera aqui: esperar convertiria el bucle en secuencial.
@@ -200,14 +227,33 @@ fn hub(a: &[String]) {
 
     // Recoger: guardar lo que cada conexion mando, sin acumular todo en RAM.
     for (n, (hilo, rx)) in pendientes.into_iter().enumerate() {
-        let (recibidos, error) = hilo.join().unwrap_or((0, Some("hilo murio".into())));
+        let (recibidos, error, nodo_detectado) = hilo.join().unwrap_or((0, Some("hilo murio".into()), None));
         let mut aceptados = 0usize;
         let mut rechazados = 0usize;
         let mut conflictos = 0usize;
         let mut motivo: Option<String> = None;
         let mut detalle_real: Option<String> = None;
+
+        // Certificado del barco, si lo mando (el barco de simulacion aun no lo
+        // hace: sin certificado, el hub emite uno con su raiz y lo usa).
+        let mut cert_del_barco: Option<lumen_nodo_lib::identidad::CertificadoFlota> = None;
+
+        // ── 1. DRENAR primero: el certificado viene en los mensajes. ──
+        //
+        // OJO con el orden: antes se verificaba el certificado ANTES de drenar,
+        // asi que `cert_del_barco` siempre estaba vacio y TODO se rechazaba.
+        // El dato estaba en los mensajes que aun no se habian leido.
         while let Ok(lote) = rx.recv() {
-            let r = hechos_wire::recibir_hechos(&mut host, &lote, None);
+            // Separar certificado de hechos: el certificado puede venir en el
+            // primer lote.
+            let (cert, hechos) = hechos_wire::separar_certificado(&lote);
+            if cert.is_some() {
+                cert_del_barco = cert;
+            }
+            if hechos.is_empty() {
+                continue;
+            }
+            let r = hechos_wire::recibir_hechos(&mut host, &hechos, None);
             aceptados += r.aceptados;
             rechazados += r.rechazados;
             conflictos += r.conflictos;
@@ -222,6 +268,38 @@ fn hub(a: &[String]) {
         total_aceptados += aceptados;
         total_rechazados += rechazados;
         total_conflictos += conflictos;
+
+        // ── 2. Ahora si: verificar el certificado. ──
+        // El barco DEBE mandarlo. Un hub real no puede inventarlo: solo el
+        // armador emite certificados, y el hub los verifica.
+        let Some(cert) = &cert_del_barco else {
+            println!(
+                "BARCO {} RECHAZADO: sin certificado de flota ({} hechos descartados)",
+                n + 1, recibidos
+            );
+            total_rechazados += recibidos;
+            continue;
+        };
+        if let Err(e) = cert.verificar_con_raiz(&raiz_pub) {
+            println!(
+                "BARCO {} RECHAZADO: certificado no valido contra la raiz: {e:?}",
+                n + 1
+            );
+            total_rechazados += recibidos;
+            continue;
+        }
+        // El certificado habla de ESTE nodo, y los hechos son suyos.
+        if let Some(nodo) = &nodo_detectado {
+            if &cert.barco != nodo {
+                println!(
+                    "BARCO {} RECHAZADO: certificado de '{}' pero los hechos son de '{}'",
+                    n + 1, cert.barco, nodo
+                );
+                total_rechazados += recibidos;
+                continue;
+            }
+        }
+
         println!(
             "BARCO {} recibidos={} aceptados={} rechazados={} conflictos={}{}",
             n + 1, recibidos, aceptados, rechazados, conflictos,
@@ -260,6 +338,17 @@ fn barco(a: &[String]) {
         Some(h) => Identidad::desde_hex(&h).expect("clave"),
         None => Identidad::generar(),
     };
+
+    // El barco emite su propio certificado con la raiz del armador, igual que
+    // un barco real al darse de alta en la flota. El hub lo verificara.
+    let raiz_priv = a.get(7).cloned().or_else(|| std::env::var("LUMEN_RAIZ_ARMADOR").ok());
+    let certificado = raiz_priv.as_ref().and_then(|r| {
+        let armador = Identidad::desde_hex(r).ok()?;
+        lumen_nodo_lib::identidad::CertificadoFlota::emitir(
+            &armador, "ARMADOR-SIM", nombre, &id.clave_publica_hex(),
+        )
+        .ok()
+    });
     let perfil = PerfilReplicacion::barco();
     // El perfil decide el MAPSIZE: ya no hay dos fuentes de verdad.
     perfil.aplicar_al_entorno();
@@ -315,6 +404,17 @@ fn barco(a: &[String]) {
 
     let t_env0 = ahora();
     let mut enviados = 0usize;
+
+    // El certificado va PRIMERO: el hub lo necesita antes de verificar.
+    //
+    // OJO: su flush NO se cuenta en `enviados`. Si contara, el barco esperaria
+    // "ACK 6" cuando el hub responde "ACK 5" (el certificado no es un hecho) y
+    // se quedaria esperando para siempre.
+    if let Some(cert) = &certificado {
+        let m = hechos_wire::mensaje_de_certificado(cert);
+        let _ = znet.reply(c, lumen_znet::ZnetReply::Data(m.body));
+        let _cert_enviados = qz.flush(&mut znet).unwrap_or(0);
+    }
     let mut fallo_flujo: Option<String> = None;
 
     for trozo in serie.chunks(VENTANA) {
