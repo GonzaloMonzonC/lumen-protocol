@@ -252,6 +252,36 @@ pub fn leer_rama(
 ///
 /// Recorre hasta encontrar el primer hueco, asi que el coste es el numero de
 /// hechos de la serie, no de la base.
+
+/// Cuenta los hechos de una rama **concreta** (por `instance_id`).
+///
+/// ## Por qué existe esta y no basta `contar_serie`
+///
+/// `contar_serie` cuenta la rama **principal**, que es la de instancia `""`. Los
+/// hechos escritos por un nodo con identidad van en SU instancia (`"hub"`,
+/// `"inst-A"`, ...), así que `contar_serie` devuelve **0 siempre** para ellos.
+///
+/// Ese fallo silencioso hizo que los eventos de cuarentena se escribieran todos en
+/// `seq 0` y **se sobrescribieran entre sí**: cinco eventos, uno guardado.
+///
+/// La lección es la misma que el bug del test anterior: `contar_serie` y
+/// `leer_serie_de_rama` **no miran lo mismo**, y confundirlos falla en silencio.
+pub fn contar_serie_rama(host: &impl Host, nodo: &str, serie: &str, instancia: &str) -> u64 {
+    let mut n = 0u64;
+    loop {
+        if host
+            .get(NS_HECHOS, &subs(nodo, serie, n, instancia))
+            .ok()
+            .flatten()
+            .is_none()
+        {
+            break;
+        }
+        n += 1;
+    }
+    n
+}
+
 pub fn contar_serie(host: &impl Host, nodo: &str, serie: &str) -> u64 {
     let mut n = 0u64;
     loop {

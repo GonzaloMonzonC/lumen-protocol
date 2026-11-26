@@ -34,6 +34,137 @@
 
 use std::collections::BTreeMap;
 
+
+/// Serie donde se persiste la cuarentena de un nodo.
+///
+/// ## Por qué una serie y no una tabla aparte
+///
+/// La cuarentena **tiene que sobrevivir al reinicio**. Si vive solo en memoria,
+/// al arrancar otra vez el nodo no recuerda qué ramas había apartado y las vuelve
+/// a admitir sin revisión — **el mismo error que corregimos con los conflictos**.
+///
+/// Usar una serie de hechos significa:
+/// - Se guarda en la PDB/LMDB **como todo lo demás** (nada nuevo que mantener).
+/// - Queda **firmada y encadenada**: nadie puede borrar una cuarentena sin que
+///   se note.
+/// - Se puede **auditar**: hay historia de cuándo se apartó y cuándo se liberó.
+///
+/// Un evento de cuarentena es un hecho: `apartar` o `liberar`.
+pub const SERIE_CUARENTENA: &str = "cuarentena";
+
+/// Persiste un evento de cuarentena en el store, encadenado y firmado.
+///
+/// Devuelve el `seq` del hecho escrito.
+pub fn persistir_evento<H: lumen_mlight::Host>(
+    host: &mut H,
+    nodo: &str,
+    instancia: &str,
+    epoch: u64,
+    ts: u64,
+    rama: &str,
+    accion: AccionCuarentena,
+    motivo: &str,
+    firmante: Option<&crate::identidad::Identidad>,
+) -> Option<u64> {
+    use crate::hechos_store;
+    use crate::replicacion::{Hecho, TipoHecho};
+
+    // OJO: contar_serie_rama, NO contar_serie. La segunda cuenta la rama
+    // principal (instancia "") y devolveria 0 siempre, sobrescribiendo cada
+    // evento en seq 0.
+    let seq = hechos_store::contar_serie_rama(host, nodo, SERIE_CUARENTENA, instancia);
+    let prev = if seq == 0 {
+        String::new()
+    } else {
+        hechos_store::leer(host, nodo, SERIE_CUARENTENA, seq - 1, instancia)
+            .map(|h| h.hash())
+            .unwrap_or_default()
+    };
+
+    // La clave es la rama afectada: así se puede consultar el último evento de
+    // una rama concreta sin recorrer toda la serie.
+    let valor = format!("accion={}; motivo={}", accion.etiqueta(), motivo);
+
+    let mut h = Hecho::v3(
+        nodo,
+        SERIE_CUARENTENA,
+        seq,
+        instancia,
+        epoch,
+        rama,
+        &valor,
+        &prev,
+        ts,
+        // Apartar una rama es una decisión que afecta a la operación: nunca
+        // converge sola.
+        TipoHecho::ConRevision,
+    );
+    if let Some(id) = firmante {
+        h.firmar(id);
+    }
+    hechos_store::guardar(host, &h).ok()?;
+    Some(seq)
+}
+
+/// Reconstruye la cuarentena desde la serie persistida.
+///
+/// Recorre los eventos en orden y se queda con el último por rama: si una rama se
+/// apartó y luego se liberó, **no está en cuarentena**.
+pub fn reconstruir<H: lumen_mlight::Host>(
+    host: &H,
+    nodo: &str,
+    instancia: &str,
+) -> Cuarentena {
+    use crate::hechos_store;
+
+    let mut q = Cuarentena::nueva();
+    let eventos = hechos_store::leer_serie_de_rama(host, nodo, SERIE_CUARENTENA, instancia);
+
+    for h in eventos {
+        let Some(accion) = AccionCuarentena::de_valor(&h.valor) else {
+            continue;
+        };
+        let motivo = h
+            .valor
+            .split("motivo=")
+            .nth(1)
+            .unwrap_or("")
+            .to_string();
+        match accion {
+            AccionCuarentena::Apartar => q.apartar(&h.clave, &motivo),
+            AccionCuarentena::Liberar => {
+                q.liberar(&h.clave);
+            }
+        }
+    }
+    q
+}
+
+/// Qué se hizo con una rama.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccionCuarentena {
+    Apartar,
+    Liberar,
+}
+
+impl AccionCuarentena {
+    pub fn etiqueta(&self) -> &'static str {
+        match self {
+            AccionCuarentena::Apartar => "apartar",
+            AccionCuarentena::Liberar => "liberar",
+        }
+    }
+
+    pub fn de_valor(valor: &str) -> Option<Self> {
+        let a = valor.strip_prefix("accion=")?.split(';').next()?;
+        match a {
+            "apartar" => Some(AccionCuarentena::Apartar),
+            "liberar" => Some(AccionCuarentena::Liberar),
+            _ => None,
+        }
+    }
+}
+
 /// Resultado de revisar un salto de epoch contra la cota.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Veredicto {

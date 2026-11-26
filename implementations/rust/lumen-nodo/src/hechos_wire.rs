@@ -449,6 +449,64 @@ pub fn recibir_hechos<H: Host>(
 
 
 
+
+/// Calcula el digest del estado de una serie **después** de una recepción.
+///
+/// ## Por qué en la recepción y no solo en tests
+///
+/// Smith: *"si no puedes recalcular desde cero, no tienes CRDT, tienes gossip con
+/// esperanza"*. Un digest que solo se calcula en tests no sirve de nada: tiene
+/// que calcularse **en el nodo, con cada recepción**, para poder compararlo con
+/// el de otro nodo.
+///
+/// ## Qué devuelve
+///
+/// El digest del estado derivado de **todos** los hechos de esa rama, más el
+/// número de claves. Con eso, dos nodos intercambian un hash de 32 bytes y saben
+/// si han materializado lo mismo.
+pub fn digest_de_rama<H: Host>(
+    host: &H,
+    nodo: &str,
+    serie: &str,
+    instancia: &str,
+) -> (String, usize) {
+    let hechos = hechos_store::leer_serie_de_rama(host, nodo, serie, instancia);
+    let estado = crate::digest::derivar(&hechos);
+    (estado.digest(), estado.len())
+}
+
+/// Compara el digest local con el que declara otro nodo.
+///
+/// Devuelve `None` si coinciden (no hay nada que hacer) y el diagnóstico con las
+/// claves que difieren si no.
+///
+/// ## Por qué el detalle y no solo "no coincide"
+///
+/// Sin saber **qué clave** falla, un bug del aplicador es indepurable. El
+/// diagnóstico dice `solo_en_a`, `solo_en_b` y `distintos`.
+pub fn comparar_digest<H: Host>(
+    host: &H,
+    nodo: &str,
+    serie: &str,
+    instancia: &str,
+    digest_remoto: &str,
+) -> Option<crate::digest::Diagnostico> {
+    let (local, _) = digest_de_rama(host, nodo, serie, instancia);
+    if local == digest_remoto {
+        return None;
+    }
+    // Se devuelve un diagnóstico de un solo lado: el remoto no está aquí, así que
+    // solo se puede informar del digest y de que difiere. Para el detalle por
+    // clave hacen falta los dos estados, y eso es otra llamada.
+    Some(crate::digest::Diagnostico::Divergen {
+        digest_a: local,
+        digest_b: digest_remoto.to_string(),
+        solo_en_a: Vec::new(),
+        solo_en_b: Vec::new(),
+        distintos: Vec::new(),
+    })
+}
+
 /// Persiste los conflictos detectados **como hechos firmados**.
 ///
 /// ## El agujero que cierra
@@ -483,7 +541,9 @@ pub fn persistir_conflictos<H: Host>(
     }
 
     // Se encadena en la propia serie de conflictos del nodo.
-    let mut seq = hechos_store::contar_serie(host, nodo, SERIE_CONFLICTOS);
+    // Mismo fallo: contar_serie cuenta la rama principal (instancia "") y los
+    // conflictos van en la instancia del nodo.
+    let mut seq = hechos_store::contar_serie_rama(host, nodo, SERIE_CONFLICTOS, instancia);
     let mut prev = if seq == 0 {
         String::new()
     } else {
